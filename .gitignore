@@ -1,5 +1,9 @@
-/target/
+target/
+**/target/
+.mitts/
+**/.mitts/
 .DS_Store
 .env
 .env.*
 !.env.example
+
