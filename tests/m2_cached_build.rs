@@ -648,6 +648,211 @@ fn test_partial_cache_hit_restores_dependency_and_avoids_recompilation() {
     assert!(res3.cached, "Subsequent build must be 100% warm hit");
 }
 
+#[test]
+fn test_workspace_manifest_modification_invalidates_member_unit_keys() {
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let ws_path = temp_ws.path();
+
+    let crates_app = ws_path.join("crates").join("app");
+    fs::create_dir_all(crates_app.join("src")).expect("create app src");
+
+    let root_cargo_toml = ws_path.join("Cargo.toml");
+    fs::write(
+        &root_cargo_toml,
+        "[workspace]\nmembers = [\"crates/app\"]\nresolver = \"2\"\n\n[profile.dev]\nopt-level = 0\n",
+    )
+    .expect("write root Cargo.toml");
+
+    let app_cargo_toml = crates_app.join("Cargo.toml");
+    fs::write(
+        &app_cargo_toml,
+        "[package]\nname = \"workspace-app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+    )
+    .expect("write app Cargo.toml");
+
+    fs::write(
+        crates_app.join("src").join("main.rs"),
+        "fn main() { println!(\"app\"); }",
+    )
+    .expect("write app main.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(app_cargo_toml.clone()),
+        ..Default::default()
+    };
+
+    let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan 1");
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys 1");
+
+    // Modify workspace root [profile.dev]
+    fs::write(
+        &root_cargo_toml,
+        "[workspace]\nmembers = [\"crates/app\"]\nresolver = \"2\"\n\n[profile.dev]\nopt-level = 1\n",
+    )
+    .expect("write modified root Cargo.toml");
+
+    let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys 2");
+
+    assert_ne!(
+        keys1, keys2,
+        "Modifying workspace root Cargo.toml must invalidate member compilation action keys"
+    );
+}
+
+#[test]
+fn test_cargo_manifest_dir_isolates_different_worktrees() {
+    let temp_ws1 = tempfile::tempdir().expect("ws1 tempdir");
+    let temp_ws2 = tempfile::tempdir().expect("ws2 tempdir");
+
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws1.path()).expect("copy fixture to ws1");
+    copy_dir_recursive(&src_fixture, temp_ws2.path()).expect("copy fixture to ws2");
+
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(temp_ws1.path().join("Cargo.toml")),
+        ..Default::default()
+    };
+    let opt2 = RustBuildOptions {
+        manifest_path: Some(temp_ws2.path().join("Cargo.toml")),
+        ..Default::default()
+    };
+
+    let expl1 = RustAdapter::explain_plan(&opt1).expect("explain ws1");
+    let expl2 = RustAdapter::explain_plan(&opt2).expect("explain ws2");
+
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt1, &expl1).expect("keys ws1");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt2, &expl2).expect("keys ws2");
+
+    let root_unit1 = expl1
+        .units
+        .iter()
+        .find(|u| u.package_name == "hello-rust")
+        .unwrap();
+    let root_unit2 = expl2
+        .units
+        .iter()
+        .find(|u| u.package_name == "hello-rust")
+        .unwrap();
+
+    let key1 = &keys1[&root_unit1.unit_id()];
+    let key2 = &keys2[&root_unit2.unit_id()];
+
+    assert_ne!(
+        key1, key2,
+        "Worktrees with different directory paths must have different action keys due to CARGO_MANIFEST_DIR"
+    );
+}
+
+#[test]
+fn test_concurrent_warm_restores_in_same_workspace() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_target = tempfile::tempdir().expect("target tempdir");
+    let target_dir = Arc::new(temp_target.path().to_path_buf());
+    let cache_dir = Arc::new(temp_cache.path().to_path_buf());
+    let manifest = fixture_manifest();
+
+    // 1. Initial build to populate CAS and AC
+    let opt_initial = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        cache_dir: Some((*cache_dir).clone()),
+        target_dir: Some((*target_dir).clone()),
+        ..Default::default()
+    };
+    let (_, res_initial) = RustAdapter::build(&opt_initial).expect("initial build");
+    assert!(res_initial.success);
+
+    // 2. Run concurrent warm builds targeting the exact same workspace target directory
+    let barrier = Arc::new(Barrier::new(4));
+    let mut handles = Vec::new();
+
+    for _ in 0..4 {
+        let b = Arc::clone(&barrier);
+        let m = manifest.clone();
+        let td = Arc::clone(&target_dir);
+        let cd = Arc::clone(&cache_dir);
+        handles.push(thread::spawn(move || {
+            b.wait();
+            let opt = RustBuildOptions {
+                manifest_path: Some(m),
+                cache_dir: Some((*cd).clone()),
+                target_dir: Some((*td).clone()),
+                ..Default::default()
+            };
+            RustAdapter::build(&opt).expect("Concurrent warm build must succeed")
+        }));
+    }
+
+    for h in handles {
+        let (_, res) = h.join().expect("join thread");
+        assert!(res.success, "Concurrent warm restore must succeed without racing");
+        assert!(res.cached, "Warm builds must be cached");
+    }
+
+    // Verify binary is intact and executable
+    let bin_path = target_dir.join("debug").join("hello-rust");
+    assert!(bin_path.is_file());
+    let out = Command::new(&bin_path).output().expect("execute binary");
+    assert_eq!(out.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Hello from Mitts fixture: 42"));
+}
+
+#[test]
+fn test_single_flight_coordinates_shared_dependency_across_workspaces() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let cache_dir = Arc::new(temp_cache.path().to_path_buf());
+
+    let temp_ws1 = tempfile::tempdir().expect("ws1 tempdir");
+    let temp_ws2 = tempfile::tempdir().expect("ws2 tempdir");
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws1.path()).expect("copy fixture to ws1");
+    copy_dir_recursive(&src_fixture, temp_ws2.path()).expect("copy fixture to ws2");
+
+    let target_dir1 = temp_ws1.path().join("target");
+    let target_dir2 = temp_ws2.path().join("target");
+
+    // Modify ws2 app code so ws1 and ws2 have different root keys, but identical itoa dependency!
+    let main2 = temp_ws2.path().join("src").join("main.rs");
+    let code = fs::read_to_string(&main2).expect("read ws2 main");
+    fs::write(&main2, code.replace("42", "888")).expect("write ws2 main");
+
+    let barrier = Arc::new(Barrier::new(2));
+    let b1 = Arc::clone(&barrier);
+    let b2 = Arc::clone(&barrier);
+    let cd1 = Arc::clone(&cache_dir);
+    let cd2 = Arc::clone(&cache_dir);
+
+    let m1 = temp_ws1.path().join("Cargo.toml");
+    let m2 = temp_ws2.path().join("Cargo.toml");
+
+    let h1 = thread::spawn(move || {
+        b1.wait();
+        let opt = RustBuildOptions {
+            manifest_path: Some(m1),
+            cache_dir: Some((*cd1).clone()),
+            target_dir: Some(target_dir1),
+            ..Default::default()
+        };
+        RustAdapter::build(&opt).expect("build ws1")
+    });
+
+    let h2 = thread::spawn(move || {
+        b2.wait();
+        let opt = RustBuildOptions {
+            manifest_path: Some(m2),
+            cache_dir: Some((*cd2).clone()),
+            target_dir: Some(target_dir2),
+            ..Default::default()
+        };
+        RustAdapter::build(&opt).expect("build ws2")
+    });
+
+    let (_, res1) = h1.join().expect("join h1");
+    let (_, res2) = h2.join().expect("join h2");
+    assert!(res1.success);
+    assert!(res2.success);
+}
+
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
