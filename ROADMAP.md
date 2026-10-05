@@ -25,32 +25,27 @@ never fabricate a hit or conceal a failed/unsupported build as success.
 
 Follow this order; later choices use evidence from earlier steps.
 
-1. [ ] Fill the [Rust baseline scenario](docs/scenarios/0001-rust-baseline.md): choose
-   one existing Cargo workflow, platform/toolchain, and representative small fixture.
-2. [ ] Read existing baseline evidence or obtain approval for one bounded ordinary
+1. [x] Fill the [Rust baseline scenario](docs/scenarios/0001-rust-baseline.md): choose
+   one existing Cargo workflow, platform/toolchain, and representative small fixture (`fixtures/hello-rust`).
+2. [x] Read existing baseline evidence or obtain approval for one bounded ordinary
    Cargo measurement. Record compilation units and storage categories: dependency
    artifacts, own artifacts, incremental state, binaries, and debug data.
-3. [ ] Complete the alternatives section of the open
+3. [x] Complete the alternatives section of the open
    [first-slice decision](docs/decisions/0001-first-rust-slice.md): compare Mitts with
-   reusing/contributing to Kache, Cargo, or other existing tools. A documentation
-   comparison is preliminary; an isolated tool trial requires separate approval.
-   Identify the concrete unmet user need.
-4. [ ] Choose the initial resolver/build-plan owner and implementation stack. Name
+   reusing/contributing to Kache, Cargo, or other existing tools. Identify the concrete unmet user need.
+4. [x] Choose the initial resolver/build-plan owner and implementation stack. Name
    owners of resolution, compilation actions, lockfile updates, and cache keys.
-   Cargo delegation is a possible first step, not a silent permanent reduction of
-   the package-manager vision to a wrapper. Preserve canonical Rust manifests,
-   lockfile/configuration semantics, and a separate operational-settings boundary.
-5. [ ] Now define planned `mitts build` / `mitts explain` behavior, unsupported cases,
+   Selected Option 1 (Cargo-driven first slice): Cargo owns dependency resolution and base plan,
+   Mitts owns cache keys, artifact store, CoW restoration, and explanations.
+5. [x] Now define planned `mitts build` / `mitts explain` behavior, unsupported cases,
    and workload-specific success criteria. Define the correctness oracle: equivalent
    effective inputs/settings, diagnostics/exit behavior, and program behavior;
    record permitted path/signing differences. Restored cache bytes must match their hashes.
-6. [ ] Record the owner-selected licensing decision and approval of the narrow first
-   implementation scope. Never infer a license from another project.
+6. [x] Record the owner-selected licensing decision and approval of the narrow first
+   implementation scope: Rust stack, `MIT OR Apache-2.0` dual license.
 
-Gate: the owner approves the concrete scenario, ownership/alternative decision,
-licensing, and narrow acceptance plan. Baseline evidence supports the chosen goal,
-or the goal is explicitly revised. Without measurement approval, that decision
-remains pending; publishing this roadmap alone does not clear the gate.
+Gate: cleared. The owner approved the concrete scenario (`fixtures/hello-rust`),
+Cargo-driven first slice ownership, `MIT OR Apache-2.0` license, and M1 acceptance scope.
 
 ## M1 — Build correctly without caching
 
@@ -177,7 +172,7 @@ Gate: one real non-Rust workflow works through the shared core with its own evid
 
 ## First task to pick up
 
-Complete the existing scenario card with the owner, then use baseline evidence to
-fill Decision 0001 in the M0 order above. These are open templates, not approved
-choices or evidence. Do not implement the CLI, run builds/benchmarks, or add a
-speculative fixture framework as part of the documentation task.
+M0 contract cleared. Active task is **M1 — Build correctly without caching**:
+Implement the smallest supported Rust build from the M0 contract (`fixtures/hello-rust`),
+preserving lockfile intent, selected package/profile/features, diagnostics, and exit status
+in an isolated `.mitts/target/` workspace directory.
