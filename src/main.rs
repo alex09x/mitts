@@ -76,7 +76,24 @@ fn handle_run(args: &RunArgs) -> i32 {
                 .status();
 
             match status {
-                Ok(st) => st.code().unwrap_or(0),
+                Ok(st) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::ExitStatusExt;
+                        if let Some(code) = st.code() {
+                            code
+                        } else if let Some(sig) = st.signal() {
+                            eprintln!("mitts: process terminated by signal {}", sig);
+                            128 + sig
+                        } else {
+                            1
+                        }
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        st.code().unwrap_or(1)
+                    }
+                }
                 Err(err) => {
                     eprintln!("mitts error executing {}: {}", binary.display(), err);
                     1
@@ -95,27 +112,14 @@ fn handle_explain(args: &ExplainArgs) -> i32 {
         manifest_path: args.manifest_path.clone(),
         package: args.package.clone(),
         release: args.release,
+        features: args.features.clone(),
+        no_default_features: args.no_default_features,
+        all_features: args.all_features,
         ..Default::default()
     };
 
-    let manifest = match RustAdapter::resolve_manifest(&opt) {
-        Ok(m) => m,
-        Err(err) => {
-            eprintln!("mitts error: {:#}", err);
-            return 1;
-        }
-    };
-
-    let target_dir = match RustAdapter::resolve_target_dir(&manifest, &opt) {
-        Ok(td) => td,
-        Err(err) => {
-            eprintln!("mitts error: {:#}", err);
-            return 1;
-        }
-    };
-
-    let toolchain = match RustAdapter::detect_toolchain() {
-        Ok(t) => t,
+    let explanation = match RustAdapter::explain_plan(&opt) {
+        Ok(exp) => exp,
         Err(err) => {
             eprintln!("mitts error: {:#}", err);
             return 1;
@@ -124,12 +128,31 @@ fn handle_explain(args: &ExplainArgs) -> i32 {
 
     println!("Mitts Build Plan Explanation");
     println!("============================");
-    println!("Manifest:         {}", manifest.display());
-    println!("Target Directory: {}", target_dir.display());
-    println!("Toolchain:        {} ({})", toolchain.name, toolchain.version);
-    if let Some(target) = toolchain.target_triple {
+    println!("Manifest:         {}", explanation.manifest_path.display());
+    println!("Target Directory: {}", explanation.target_directory.display());
+    println!("Profile:          {}", explanation.profile);
+    println!(
+        "Toolchain:        {} ({})",
+        explanation.toolchain.name, explanation.toolchain.version
+    );
+    if let Some(ref target) = explanation.toolchain.target_triple {
         println!("Host Target:      {}", target);
     }
+    println!();
+    println!("Effective Compilation Units ({} total):", explanation.units.len());
+    for (i, unit) in explanation.units.iter().enumerate() {
+        println!(
+            "  {}. {} v{} [{}: {}]",
+            i + 1,
+            unit.package_name,
+            unit.version,
+            unit.kind,
+            unit.target_name
+        );
+        println!("     Source:      {}", unit.src_path.display());
+        println!("     Eligibility: {}", unit.cache_eligibility);
+    }
+    println!();
     println!("Active Milestone: M1 (Uncached build correctness & workspace coexistence)");
     println!("Cache Policy:     Uncached execution; direct artifact compilation into isolated target");
     println!("Coexistence:      Ordinary Cargo target/ and rust-analyzer untouched");
