@@ -75,6 +75,7 @@ No speedup claim.
 
 ## M2 — Content-Addressed Store (CAS) & Action Cache (AC)
 
+- [ ] Take the verified M1 Cargo-driven build plan as input, decoupling storage fundamentals from the independent resolver.
 - [ ] Introduce an immutable, content-addressed local store (CAS) at `~/.cache/mitts/cas/` and versioned Action Cache (AC).
 - [ ] Implement deterministic Action Key derivation:
   `Key = SHA256(rustc_version + target_triple + flags + features + source_hashes + dep_artifact_hashes)`.
@@ -83,18 +84,18 @@ No speedup claim.
 - [ ] Initial eligible subset: pure Rust rlib and binary compile actions with verified input tracking.
 - [ ] Test CAS hash integrity, action cache hit/miss semantics, concurrent locks, and cache-off mode.
 
-Gate: compatible action inputs yield instant cache hits; incomplete or corrupt entries never become successful builds; concurrent builds coordinate safely on the same action key.
+Gate: compatible action inputs reuse cached artifacts without re-execution; incomplete or corrupt entries never become successful builds; concurrent builds coordinate safely on the same action key.
 
 ## M3 — Fast parallel fetcher & Cargo.lock resolution
 
 - [ ] Implement two-phase dependency management based on standard `Cargo.lock` (Decision 0002):
-  - Fast-path: read existing `Cargo.lock` directly in <2ms.
-  - Sync-path: when `Cargo.lock` is missing or `Cargo.toml` is modified, resolve dependencies using PubGrub against crates.io sparse index and generate standard, valid `Cargo.lock`.
+  - Fast-path: read existing `Cargo.lock` directly without re-resolution, validating compatibility with `Cargo.toml` and workspace settings.
+  - Sync-path: when `Cargo.lock` is missing or incompatible with manifest/workspace changes, resolve dependencies using PubGrub against crates.io sparse index (evaluating features, profiles, and target conditions) and generate standard, valid `Cargo.lock`.
 - [ ] Concurrent multithreaded downloader: fetch `.crate` archives in parallel directly into global sources store (`~/.cache/mitts/sources/`), verifying SHA-256 checksums from `Cargo.lock`.
 - [ ] Zero local source pollution: dependencies are fetched and unpacked once globally per machine, not duplicated per workspace.
 - [ ] Test lockfile generation equivalence with Cargo, missing lockfile handling, offline cache hits, and concurrent downloads.
 
-Gate: `Cargo.lock` is 100% compatible with ordinary Cargo; packages are fetched concurrently into the global store without invoking `cargo`; checksums match `Cargo.lock`.
+Gate: `Cargo.lock` demonstrates format and resolution compatibility with ordinary Cargo; packages are fetched concurrently into the global store without invoking `cargo`; checksums match `Cargo.lock`.
 
 ## M4 — Mitts-native parallel DAG runner (Zero target pollution)
 
@@ -107,7 +108,7 @@ Gate: `Cargo.lock` is 100% compatible with ordinary Cargo; packages are fetched 
 - [ ] Handle `build.rs` and procedural macros with explicit sandboxed execution and environment tracking.
 - [ ] Test multi-crate DAG parallel compilation, compiler diagnostic preservation, and clean workspace behavior.
 
-Gate: full build succeeds via direct `rustc` invocations without running `cargo build`; local workspace contains only the requested output binary; builds are measurably faster and use zero duplicate disk space.
+Gate: full build succeeds via direct `rustc` invocations without running `cargo build`; local workspace contains only the requested output binary; speedup and disk-saving claims are deferred to M5 empirical measurements.
 
 ## M5 — Real-world pilot, benchmarks, and coexistence validation
 
