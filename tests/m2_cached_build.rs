@@ -460,6 +460,32 @@ fn test_per_unit_action_caching_and_dependency_isolation() {
 }
 
 #[test]
+fn test_flags_and_features_boundaries_prevent_collision() {
+    let key1 = ActionCache::derive_action_key(
+        "rustc 1.85.0",
+        "x86_64-unknown-linux-gnu",
+        "debug",
+        &["-C".to_string(), "opt-level=0".to_string()],
+        &["feat_a".to_string()],
+        &[("src/main.rs", "hash_main")],
+        &[],
+    );
+    let key2 = ActionCache::derive_action_key(
+        "rustc 1.85.0",
+        "x86_64-unknown-linux-gnu",
+        "debug",
+        &["-C opt-level=0".to_string()],
+        &["feat_a".to_string()],
+        &[("src/main.rs", "hash_main")],
+        &[],
+    );
+    assert_ne!(
+        key1, key2,
+        "Flags with distinct boundaries must produce different action keys"
+    );
+}
+
+#[test]
 fn test_action_key_incorporates_cargo_config_and_env() {
     let temp_ws = tempfile::tempdir().expect("ws tempdir");
     let ws_path = temp_ws.path();
@@ -473,8 +499,9 @@ fn test_action_key_incorporates_cargo_config_and_env() {
         ..Default::default()
     };
     let expl1 = RustAdapter::explain_plan(&opt1).expect("explain plan");
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt1, &expl1).expect("derive keys 1");
 
-    // Modifying .cargo/config.toml in package directory must be captured
+    // 1. Modifying .cargo/config.toml in package directory must change the derived key
     let cargo_dir = ws_path.join(".cargo");
     fs::create_dir_all(&cargo_dir).expect("create .cargo");
     let config_path = cargo_dir.join("config.toml");
@@ -482,7 +509,143 @@ fn test_action_key_incorporates_cargo_config_and_env() {
         .expect("write config.toml");
 
     let expl2 = RustAdapter::explain_plan(&opt1).expect("explain plan 2");
-    assert_eq!(expl1.units.len(), expl2.units.len());
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt1, &expl2).expect("derive keys 2");
+    assert_ne!(keys1, keys2, "Modifying .cargo/config.toml must alter unit action keys");
+
+    // 2. Setting CLI --target must alter the action key
+    let opt_target = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        extra_args: vec!["--target".to_string(), "x86_64-unknown-linux-gnu".to_string()],
+        ..Default::default()
+    };
+    let expl_target = RustAdapter::explain_plan(&opt_target).expect("explain target");
+    let keys_target = RustAdapter::derive_unit_action_keys(&opt_target, &expl_target).expect("keys target");
+    assert_ne!(keys1, keys_target, "--target must alter unit action keys");
+}
+
+#[test]
+fn test_fresh_target_hashes_non_src_files() {
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let ws_path = temp_ws.path();
+
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, ws_path).expect("copy fixture");
+
+    let manifest = ws_path.join("Cargo.toml");
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        ..Default::default()
+    };
+
+    // Clean workspace with no target/ directory
+    let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan 1");
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("keys 1");
+
+    // Add an arbitrary non-src asset file in a custom directory
+    let custom_asset_dir = ws_path.join("content").join("data");
+    fs::create_dir_all(&custom_asset_dir).expect("create custom asset dir");
+    let asset_file = custom_asset_dir.join("payload.raw");
+    fs::write(&asset_file, b"arbitrary bytes included via include_bytes!").expect("write asset");
+
+    let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 2");
+    assert_ne!(keys1, keys2, "Adding a non-src asset file on a fresh target must change action keys");
+
+    // Modifying that asset file must also change the action key
+    fs::write(&asset_file, b"modified arbitrary bytes").expect("modify asset");
+    let keys3 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 3");
+    assert_ne!(keys2, keys3, "Modifying a non-src asset file must change action keys");
+}
+
+#[test]
+fn test_action_unit_identity_distinguishes_same_named_targets() {
+    let opt = RustBuildOptions {
+        manifest_path: Some(fixture_manifest()),
+        ..Default::default()
+    };
+    let explanation = RustAdapter::explain_plan(&opt).expect("explain plan");
+    let keys = RustAdapter::derive_unit_action_keys(&opt, &explanation).expect("derive keys");
+
+    // Every unit must have a structured unit_id containing package_id, kind, and target_name
+    for unit in &explanation.units {
+        let u_id = unit.unit_id();
+        assert!(
+            u_id.contains(&format!("::{}:{}", unit.kind, unit.target_name)),
+            "unit_id '{}' must contain kind '{}' and target_name '{}'",
+            u_id,
+            unit.kind,
+            unit.target_name
+        );
+        assert!(
+            keys.contains_key(&u_id),
+            "keys must contain an entry for unit_id '{}'",
+            u_id
+        );
+    }
+}
+
+#[test]
+fn test_partial_cache_hit_restores_dependency_and_avoids_recompilation() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_target = tempfile::tempdir().expect("target tempdir");
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let ws_path = temp_ws.path();
+
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, ws_path).expect("copy fixture");
+
+    let manifest = ws_path.join("Cargo.toml");
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_target.path().to_path_buf()),
+        ..Default::default()
+    };
+
+    // 1. Cold build: compiles itoa (dep) and hello-rust (app), populating CAS and AC
+    let (_, res1) = RustAdapter::build(&opt).expect("cold build");
+    assert!(!res1.cached);
+    assert!(res1.success);
+
+    // 2. Wipe the target directory completely
+    let _ = fs::remove_dir_all(temp_target.path());
+    fs::create_dir_all(temp_target.path()).expect("recreate target dir");
+
+    // 3. Modify only the consumer application source
+    let main_rs = ws_path.join("src").join("main.rs");
+    let original = fs::read_to_string(&main_rs).expect("read main");
+    fs::write(&main_rs, original.replace("42", "777")).expect("write main");
+
+    // 4. Build with clean target directory: itoa is a cache HIT, hello-rust is a cache MISS
+    let (_plan, res2) = RustAdapter::build(&opt).expect("partial hit build");
+    assert!(res2.success);
+    assert!(!res2.cached, "Whole build is not cached since consumer changed");
+
+    // Verify itoa was pre-restored from CAS into target_dir
+    let itoa_deps = temp_target
+        .path()
+        .join("debug")
+        .join("deps");
+    assert!(itoa_deps.is_dir(), "Restored deps dir must exist");
+    let mut found_itoa = false;
+    for entry in fs::read_dir(&itoa_deps).expect("read deps").flatten() {
+        if entry.file_name().to_string_lossy().starts_with("libitoa") {
+            found_itoa = true;
+            break;
+        }
+    }
+    assert!(found_itoa, "Cached itoa rlib must be pre-restored into target directory");
+
+    // Verify modified binary runs and prints updated output
+    let bin = temp_target.path().join("debug").join("hello-rust");
+    let run_out = Command::new(&bin).output().expect("execute restored binary");
+    assert_eq!(run_out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&run_out.stdout);
+    assert!(stdout.contains("Hello from Mitts fixture: 777"));
+
+    // 5. Subsequent build without changes is a 100% warm hit
+    let (_, res3) = RustAdapter::build(&opt).expect("subsequent warm build");
+    assert!(res3.cached, "Subsequent build must be 100% warm hit");
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {

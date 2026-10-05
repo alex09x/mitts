@@ -33,6 +33,8 @@ pub enum RustAdapterError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannedCompilationUnit {
+    #[serde(default)]
+    pub package_id: String,
     pub package_name: String,
     pub version: String,
     pub target_name: String,
@@ -41,6 +43,12 @@ pub struct PlannedCompilationUnit {
     pub cache_eligibility: String,
     #[serde(default)]
     pub dependencies: Vec<String>,
+}
+
+impl PlannedCompilationUnit {
+    pub fn unit_id(&self) -> String {
+        format!("{}::{}:{}", self.package_id, self.kind, self.target_name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -368,7 +376,13 @@ impl RustAdapter {
                                 if let Some(dep_pkg) = packages_by_id.get(dep_id) {
                                     for dep_target in &dep_pkg.targets {
                                         if dep_target.kind.iter().any(|k| k == "lib" || k == "rlib") {
-                                            unit_deps.push(dep_target.name.clone());
+                                            let dep_kind = if dep_target.kind.iter().any(|k| k == "bin") {
+                                                "bin"
+                                            } else {
+                                                "lib"
+                                            };
+                                            let dep_unit_id = format!("{}::{}:{}", dep_pkg.id, dep_kind, dep_target.name);
+                                            unit_deps.push(dep_unit_id);
                                         }
                                     }
                                 }
@@ -380,7 +394,9 @@ impl RustAdapter {
                             if other_target.name != target.name
                                 && other_target.kind.iter().any(|k| k == "lib" || k == "rlib")
                             {
-                                unit_deps.push(other_target.name.clone());
+                                let dep_kind = "lib";
+                                let dep_unit_id = format!("{}::{}:{}", pkg.id, dep_kind, other_target.name);
+                                unit_deps.push(dep_unit_id);
                             }
                         }
                     }
@@ -388,6 +404,7 @@ impl RustAdapter {
                     unit_deps.dedup();
 
                     units.push(PlannedCompilationUnit {
+                        package_id: pkg.id.clone(),
                         package_name: pkg.name.clone(),
                         version: pkg.version.clone(),
                         target_name: target.name.clone(),
@@ -413,6 +430,14 @@ impl RustAdapter {
             toolchain,
             units,
         })
+    }
+
+    /// Derives deterministic Action Keys for each compilation unit in the plan.
+    pub fn derive_unit_action_keys(
+        opt: &RustBuildOptions,
+        explanation: &EffectivePlanExplanation,
+    ) -> Result<HashMap<String, String>> {
+        derive_unit_action_keys(opt, explanation)
     }
 
     /// Executes the build according to the M2 caching contract.
@@ -449,12 +474,13 @@ impl RustAdapter {
                     None => ActionCache::default_cache()?,
                 };
 
-                // 1. Fast path: check action cache for all units
-                let mut all_units_hit = true;
-                let mut cached_entries = Vec::new();
+                // 1. Fast path: check action cache for each compilation unit
+                let mut hit_units = Vec::new();
+                let mut missed_units = Vec::new();
 
                 for unit in &explanation.units {
-                    if let Some(key) = unit_keys.get(&unit.target_name) {
+                    let u_id = unit.unit_id();
+                    if let Some(key) = unit_keys.get(&u_id) {
                         if let Ok(Some(entry)) = ac.get(key) {
                             let mut valid = !entry.outputs.is_empty();
                             for out in &entry.outputs {
@@ -466,18 +492,18 @@ impl RustAdapter {
                                 }
                             }
                             if valid {
-                                cached_entries.push((unit, entry));
+                                hit_units.push((unit, entry));
                                 continue;
                             }
                         }
                     }
-                    all_units_hit = false;
-                    break;
+                    missed_units.push(unit);
                 }
 
-                if all_units_hit && cached_entries.len() == explanation.units.len() {
+                // If ALL units hit: restore all and return immediately without running Cargo
+                if missed_units.is_empty() && hit_units.len() == explanation.units.len() {
                     let mut actions = Vec::new();
-                    for (_unit, entry) in cached_entries {
+                    for (_unit, entry) in hit_units {
                         let mut outputs = Vec::new();
                         let mut is_bin = false;
                         for out in &entry.outputs {
@@ -520,18 +546,20 @@ impl RustAdapter {
                     return Ok((plan, result));
                 }
 
-                // 2. Cache miss: acquire single-flight lock on root unit
+                // 2. Acquire single-flight lock on root unit
                 let root_unit = explanation.units.last().unwrap();
-                let root_key = &unit_keys[&root_unit.target_name];
+                let root_key = &unit_keys[&root_unit.unit_id()];
                 let lock_path = ac.lock_path(root_key);
                 let _lock = FileLock::acquire_exclusive(&lock_path)?;
 
-                // Double check inside lock
-                let mut all_units_hit = true;
-                let mut cached_entries = Vec::new();
+                // Double check inside lock in case a concurrent worker finished missed units
+                let mut still_missed = false;
+                let mut locked_cached_entries = Vec::new();
+                let mut locked_hit_units = Vec::new();
 
                 for unit in &explanation.units {
-                    if let Some(key) = unit_keys.get(&unit.target_name) {
+                    let u_id = unit.unit_id();
+                    if let Some(key) = unit_keys.get(&u_id) {
                         if let Ok(Some(entry)) = ac.get(key) {
                             let mut valid = !entry.outputs.is_empty();
                             for out in &entry.outputs {
@@ -543,18 +571,18 @@ impl RustAdapter {
                                 }
                             }
                             if valid {
-                                cached_entries.push((unit, entry));
+                                locked_hit_units.push((unit, entry.clone()));
+                                locked_cached_entries.push((unit, entry));
                                 continue;
                             }
                         }
                     }
-                    all_units_hit = false;
-                    break;
+                    still_missed = true;
                 }
 
-                if all_units_hit && cached_entries.len() == explanation.units.len() {
+                if !still_missed && locked_cached_entries.len() == explanation.units.len() {
                     let mut actions = Vec::new();
-                    for (_unit, entry) in cached_entries {
+                    for (_unit, entry) in locked_cached_entries {
                         let mut outputs = Vec::new();
                         let mut is_bin = false;
                         for out in &entry.outputs {
@@ -597,20 +625,32 @@ impl RustAdapter {
                     return Ok((plan, result));
                 }
 
-                // 3. Execute compilation
+                // 3. Partial hits: Pre-restore valid cached dependency artifacts into target directory
+                // so Cargo reuses them and does not rebuild already-cached units!
+                let units_to_restore = if !locked_hit_units.is_empty() {
+                    &locked_hit_units
+                } else {
+                    &hit_units
+                };
+                for (_unit, entry) in units_to_restore {
+                    for out in &entry.outputs {
+                        let dest = target_dir.join(&out.relative_path);
+                        let _ = cas.restore_object(&out.cas_hash, &dest, out.executable);
+                    }
+                }
+
+                // 4. Execute compilation for missed units
                 let (plan, result) =
                     Self::run_cargo_build(&manifest_path, &target_dir, &toolchain, opt)?;
 
-                // 4. Publish artifacts per action unit ONLY if ALL outputs for that action exist and store cleanly
+                // 5. Publish artifacts per action unit ONLY if ALL outputs for that action exist and store cleanly
                 if result.success {
                     for action in &plan.actions {
-                        let matching_unit = explanation.units.iter().find(|u| {
-                            action.id.starts_with(&format!("{}-", u.target_name))
-                                || action.id == u.target_name
-                        });
+                        let matching_unit = explanation.units.iter().find(|u| u.unit_id() == action.id);
 
                         if let Some(unit) = matching_unit {
-                            if let Some(action_key) = unit_keys.get(&unit.target_name) {
+                            let u_id = unit.unit_id();
+                            if let Some(action_key) = unit_keys.get(&u_id) {
                                 if action.outputs.is_empty() {
                                     continue;
                                 }
@@ -655,11 +695,64 @@ impl RustAdapter {
                                     }
                                 }
 
+                                // Also capture .fingerprint files for this package if present
+                                let pkg_name_clean = &unit.package_name;
+                                let pkg_name_norm = pkg_name_clean.replace('-', "_");
+                                let fp_dir = target_dir.join(&explanation.profile).join(".fingerprint");
+                                if fp_dir.is_dir() {
+                                    if let Ok(entries) = fs::read_dir(&fp_dir) {
+                                        for entry in entries.flatten() {
+                                            let path = entry.path();
+                                            let fname = entry.file_name();
+                                            let fname_str = fname.to_string_lossy();
+                                            if fname_str.starts_with(&format!("{}-", pkg_name_clean))
+                                                || fname_str.starts_with(&format!("{}-", pkg_name_norm))
+                                                || fname_str.starts_with(&format!("lib{}-", pkg_name_norm))
+                                            {
+                                                if path.is_dir() {
+                                                    if let Ok(sub_entries) = fs::read_dir(&path) {
+                                                        for sub in sub_entries.flatten() {
+                                                            let sub_path = sub.path();
+                                                            if sub_path.is_file() {
+                                                                if let Ok((cas_hash, file_size)) = cas.store_file(&sub_path) {
+                                                                    let rel = sub_path
+                                                                        .strip_prefix(&target_dir)
+                                                                        .unwrap_or(&sub_path)
+                                                                        .to_path_buf();
+                                                                    stored_outputs.push(CachedOutput {
+                                                                        relative_path: rel,
+                                                                        cas_hash,
+                                                                        file_size,
+                                                                        executable: false,
+                                                                    });
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else if path.is_file() {
+                                                    if let Ok((cas_hash, file_size)) = cas.store_file(&path) {
+                                                        let rel = path
+                                                            .strip_prefix(&target_dir)
+                                                            .unwrap_or(&path)
+                                                            .to_path_buf();
+                                                        stored_outputs.push(CachedOutput {
+                                                            relative_path: rel,
+                                                            cas_hash,
+                                                            file_size,
+                                                            executable: false,
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Publish ONLY if EVERY required output was captured and stored successfully
                                 if all_outputs_stored && !stored_outputs.is_empty() {
                                     let entry = ActionCacheEntry {
                                         action_key: action_key.clone(),
-                                        action_id: action.id.clone(),
+                                        action_id: unit.unit_id(),
                                         created_at_secs: std::time::SystemTime::now()
                                             .duration_since(std::time::UNIX_EPOCH)
                                             .map(|d| d.as_secs())
@@ -753,21 +846,21 @@ impl RustAdapter {
                         filenames,
                         ..
                     } => {
-                        let kind = if target.kind.iter().any(|k| k == "bin") {
-                            ActionKind::CompileBin
+                        let (kind, kind_str) = if target.kind.iter().any(|k| k == "bin") {
+                            (ActionKind::CompileBin, "bin")
                         } else if target.kind.iter().any(|k| k == "lib" || k == "rlib") {
-                            ActionKind::CompileRlib
+                            (ActionKind::CompileRlib, "lib")
                         } else {
-                            ActionKind::Custom(target.kind.join(","))
+                            (ActionKind::Custom(target.kind.join(",")), "custom")
                         };
 
                         let outputs = filenames.into_iter().map(PathBuf::from).collect();
                         let inputs = vec![PathBuf::from(&target.src_path)];
 
                         actions.push(Action {
-                            id: format!("{}-{}", target.name, package_id),
+                            id: format!("{}::{}:{}", package_id, kind_str, target.name),
                             kind,
-                            description: format!("Compile {} ({})", target.name, package_id),
+                            description: format!("Compile {} {} ({})", kind_str, target.name, package_id),
                             toolchain: toolchain.clone(),
                             inputs,
                             outputs,
@@ -1019,23 +1112,18 @@ fn hash_unit_inputs(
                 }
                 stack.push(path);
             } else if path.is_file() {
-                let in_src = path.starts_with(package_dir.join("src"));
-                let is_rs = path.extension().map(|e| e == "rs").unwrap_or(false);
-                let is_manifest = name_str == "Cargo.toml" || name_str == "Cargo.lock";
-                let is_asset = path.starts_with(package_dir.join("assets"))
-                    || path.starts_with(package_dir.join("templates"))
-                    || path.starts_with(package_dir.join("data"))
-                    || path.starts_with(package_dir.join("static"));
-                if in_src || is_rs || is_manifest || is_asset {
-                    let hash = Sha256::digest_file(&path)
-                        .with_context(|| format!("Failed to hash source file {:?}", path))?;
-                    let rel = path
-                        .strip_prefix(package_dir)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
-                    inputs.push((rel, hash));
+                // Ignore transient OS metadata files (e.g. .DS_Store)
+                if name_str.starts_with('.') && !name_str.ends_with(".toml") && !name_str.ends_with(".lock") {
+                    continue;
                 }
+                let hash = Sha256::digest_file(&path)
+                    .with_context(|| format!("Failed to hash package file {:?}", path))?;
+                let rel = path
+                    .strip_prefix(package_dir)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
+                inputs.push((rel, hash));
             }
         }
     }
@@ -1043,6 +1131,37 @@ fn hash_unit_inputs(
     inputs.sort_by(|a, b| a.0.cmp(&b.0));
     inputs.dedup_by(|a, b| a.0 == b.0);
     Ok(inputs)
+}
+
+/// Resolves the effective target triple considering CLI args, Cargo env vars, and toolchain defaults.
+fn resolve_effective_target_triple(
+    opt: &RustBuildOptions,
+    toolchain: &ToolchainInfo,
+) -> String {
+    // 1. Check CLI args: --target <val> or --target=<val>
+    let mut args_iter = opt.extra_args.iter();
+    while let Some(arg) = args_iter.next() {
+        if arg == "--target" {
+            if let Some(val) = args_iter.next() {
+                return val.clone();
+            }
+        } else if let Some(val) = arg.strip_prefix("--target=") {
+            return val.to_string();
+        }
+    }
+
+    // 2. Check CARGO_BUILD_TARGET environment variable
+    if let Ok(target) = std::env::var("CARGO_BUILD_TARGET") {
+        if !target.is_empty() {
+            return target;
+        }
+    }
+
+    // 3. Fallback to detected toolchain target triple (host)
+    toolchain
+        .target_triple
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Derives independent deterministic Action Keys for each compilation unit in topological order.
@@ -1053,17 +1172,19 @@ fn derive_unit_action_keys(
     let mut unit_keys: HashMap<String, String> = HashMap::new();
     let mut inputs_by_unit: HashMap<String, Vec<(String, String)>> = HashMap::new();
 
-    // Gather effective environment flags (RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS, etc.)
+    // Gather effective environment flags (all CARGO_*, RUST_*, RUSTFLAGS, etc.)
     let mut effective_flags = opt.extra_args.clone();
     let mut relevant_env_keys: Vec<String> = std::env::vars()
         .filter_map(|(k, _)| {
-            if k == "RUSTFLAGS"
-                || k == "CARGO_ENCODED_RUSTFLAGS"
+            if k.starts_with("CARGO_")
+                || k.starts_with("RUST_")
+                || k == "RUSTFLAGS"
                 || k == "RUSTC_WRAPPER"
                 || k == "RUSTC_WORKSPACE_WRAPPER"
-                || k.starts_with("CARGO_CFG_")
-                || k.starts_with("CARGO_PKG_")
-                || k.starts_with("RUST_")
+                || k == "RUSTDOCFLAGS"
+                || k == "TARGET"
+                || k == "HOST"
+                || k == "PROFILE"
             {
                 Some(k)
             } else {
@@ -1094,51 +1215,48 @@ fn derive_unit_action_keys(
         });
 
         let inputs = hash_unit_inputs(&pkg_dir, &explanation.target_directory, &unit.target_name)?;
-        inputs_by_unit.insert(unit.target_name.clone(), inputs);
+        inputs_by_unit.insert(unit.unit_id(), inputs);
     }
 
-    let planned_target_names: HashSet<&str> = explanation
+    let planned_unit_ids: HashSet<String> = explanation
         .units
         .iter()
-        .map(|u| u.target_name.as_str())
+        .map(|u| u.unit_id())
         .collect();
 
     let mut remaining: Vec<&PlannedCompilationUnit> = explanation.units.iter().collect();
-    let target_triple = explanation
-        .toolchain
-        .target_triple
-        .as_deref()
-        .unwrap_or("unknown");
+    let target_triple = resolve_effective_target_triple(opt, &explanation.toolchain);
 
     while !remaining.is_empty() {
         let mut progress = false;
         let mut next_remaining = Vec::new();
 
         for unit in remaining {
+            let u_id = unit.unit_id();
             let all_deps_ready = unit
                 .dependencies
                 .iter()
-                .filter(|dep| planned_target_names.contains(dep.as_str()))
-                .all(|dep| unit_keys.contains_key(dep));
+                .filter(|dep_id| planned_unit_ids.contains(dep_id.as_str()))
+                .all(|dep_id| unit_keys.contains_key(dep_id));
 
             if all_deps_ready {
-                let unit_inputs = &inputs_by_unit[&unit.target_name];
+                let unit_inputs = &inputs_by_unit[&u_id];
                 let source_refs: Vec<(&str, &str)> = unit_inputs
                     .iter()
                     .map(|(p, h)| (p.as_str(), h.as_str()))
                     .collect();
 
                 let mut dep_hashes = Vec::new();
-                for dep_name in &unit.dependencies {
-                    if let Some(dep_key) = unit_keys.get(dep_name) {
-                        dep_hashes.push((dep_name.as_str(), dep_key.as_str()));
+                for dep_id in &unit.dependencies {
+                    if let Some(dep_key) = unit_keys.get(dep_id) {
+                        dep_hashes.push((dep_id.as_str(), dep_key.as_str()));
                     }
                 }
                 dep_hashes.sort();
 
                 let key = ActionCache::derive_action_key(
                     &explanation.toolchain.version,
-                    target_triple,
+                    &target_triple,
                     &explanation.profile,
                     &effective_flags,
                     &opt.features,
@@ -1146,7 +1264,7 @@ fn derive_unit_action_keys(
                     &dep_hashes,
                 );
 
-                unit_keys.insert(unit.target_name.clone(), key);
+                unit_keys.insert(u_id, key);
                 progress = true;
             } else {
                 next_remaining.push(unit);
@@ -1155,21 +1273,22 @@ fn derive_unit_action_keys(
 
         if !progress {
             for unit in next_remaining {
-                let unit_inputs = &inputs_by_unit[&unit.target_name];
+                let u_id = unit.unit_id();
+                let unit_inputs = &inputs_by_unit[&u_id];
                 let source_refs: Vec<(&str, &str)> = unit_inputs
                     .iter()
                     .map(|(p, h)| (p.as_str(), h.as_str()))
                     .collect();
                 let key = ActionCache::derive_action_key(
                     &explanation.toolchain.version,
-                    target_triple,
+                    &target_triple,
                     &explanation.profile,
                     &effective_flags,
                     &opt.features,
                     &source_refs,
                     &[],
                 );
-                unit_keys.insert(unit.target_name.clone(), key);
+                unit_keys.insert(u_id, key);
             }
             break;
         }
