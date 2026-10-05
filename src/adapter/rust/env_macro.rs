@@ -13,6 +13,51 @@ use super::unescape::unescape_rust_string;
 use std::fs;
 use std::path::Path;
 
+/// Skips whitespace, line comments (//...), and block comments (/*...*/) including nested block comments.
+fn skip_trivia(source: &str, mut pos: usize) -> usize {
+    let len = source.len();
+    while pos < len {
+        if source[pos..].starts_with("//") {
+            pos += 2;
+            while pos < len {
+                if let Some(ch) = source[pos..].chars().next() {
+                    pos += ch.len_utf8();
+                    if ch == '\n' {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        } else if source[pos..].starts_with("/*") {
+            pos += 2;
+            let mut depth = 1;
+            while pos < len && depth > 0 {
+                if source[pos..].starts_with("/*") {
+                    depth += 1;
+                    pos += 2;
+                } else if source[pos..].starts_with("*/") {
+                    depth -= 1;
+                    pos += 2;
+                } else if let Some(ch) = source[pos..].chars().next() {
+                    pos += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+        } else if let Some(ch) = source[pos..].chars().next() {
+            if ch.is_whitespace() {
+                pos += ch.len_utf8();
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    pos
+}
+
 /// Scans Rust source code for compile-time env!("VAR") and option_env!("VAR") invocations.
 /// Advances strictly by UTF-8 character boundaries to prevent panicking on non-ASCII code.
 pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
@@ -116,132 +161,96 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
         }
 
         // 5. Check for compile-time env! or option_env! invocation
-        let is_env = if source[i..].starts_with("env!") {
-            Some(4)
-        } else if source[i..].starts_with("option_env!") {
-            Some(11)
+        let (ident_len, is_macro_ident) = if source[i..].starts_with("option_env") {
+            let next_ch = source[i + 10..].chars().next();
+            let is_ident_boundary = next_ch.map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+            (10, is_ident_boundary)
+        } else if source[i..].starts_with("env") {
+            let next_ch = source[i + 3..].chars().next();
+            let is_ident_boundary = next_ch.map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+            (3, is_ident_boundary)
         } else {
-            None
+            (0, false)
         };
 
-        if let Some(prefix_len) = is_env {
+        if is_macro_ident {
             if i > 0 {
                 if let Some(prev) = source[..i].chars().next_back() {
                     if prev.is_alphanumeric() || prev == '_' {
-                        i += prefix_len;
+                        i += ident_len;
                         continue;
                     }
                 }
             }
 
-            let mut j = i + prefix_len;
-            let skip_ws_and_comments = |mut pos: usize| -> usize {
-                while pos < len {
-                    if source[pos..].starts_with("//") {
-                        pos += 2;
-                        while pos < len {
-                            if let Some(ch) = source[pos..].chars().next() {
-                                pos += ch.len_utf8();
-                                if ch == '\n' {
+            let after_ident = i + ident_len;
+            let bang_pos = skip_trivia(source, after_ident);
+
+            if bang_pos < len && source[bang_pos..].starts_with('!') && !source[bang_pos..].starts_with("!=") {
+                let delim_pos = skip_trivia(source, bang_pos + 1);
+                if delim_pos < len {
+                    let delim = source[delim_pos..].chars().next();
+                    if delim == Some('(') || delim == Some('[') || delim == Some('{') {
+                        let mut j = delim_pos + 1;
+                        j = skip_trivia(source, j);
+
+                        if source[j..].starts_with('"') {
+                            j += 1;
+                            let str_start = j;
+                            let mut escaped = false;
+                            let mut str_end = None;
+                            while j < len {
+                                if let Some(ch) = source[j..].chars().next() {
+                                    j += ch.len_utf8();
+                                    if escaped {
+                                        escaped = false;
+                                    } else if ch == '\\' {
+                                        escaped = true;
+                                    } else if ch == '"' {
+                                        str_end = Some(j - 1);
+                                        break;
+                                    }
+                                } else {
                                     break;
                                 }
-                            } else {
-                                break;
                             }
-                        }
-                    } else if source[pos..].starts_with("/*") {
-                        pos += 2;
-                        let mut d = 1;
-                        while pos < len && d > 0 {
-                            if source[pos..].starts_with("/*") {
-                                d += 1;
-                                pos += 2;
-                            } else if source[pos..].starts_with("*/") {
-                                d -= 1;
-                                pos += 2;
-                            } else if let Some(ch) = source[pos..].chars().next() {
-                                pos += ch.len_utf8();
-                            } else {
-                                break;
-                            }
-                        }
-                    } else if let Some(ch) = source[pos..].chars().next() {
-                        if ch.is_whitespace() {
-                            pos += ch.len_utf8();
-                        } else {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                pos
-            };
 
-            j = skip_ws_and_comments(j);
-
-            if j < len {
-                let delim = source[j..].chars().next();
-                if delim == Some('(') || delim == Some('[') || delim == Some('{') {
-                    j += 1;
-                    j = skip_ws_and_comments(j);
-
-                    if source[j..].starts_with('"') {
-                        j += 1;
-                        let str_start = j;
-                        let mut escaped = false;
-                        let mut str_end = None;
-                        while j < len {
-                            if let Some(ch) = source[j..].chars().next() {
-                                j += ch.len_utf8();
-                                if escaped {
-                                    escaped = false;
-                                } else if ch == '\\' {
-                                    escaped = true;
-                                } else if ch == '"' {
-                                    str_end = Some(j - 1);
-                                    break;
+                            if let Some(end) = str_end {
+                                let raw_token = &source[str_start..end];
+                                if let Some(unescaped) = unescape_rust_string(raw_token) {
+                                    vars.push(unescaped);
+                                    i = j;
+                                    continue;
+                                } else {
+                                    return EnvMacroDiscovery::UntrackedDynamic;
                                 }
                             } else {
-                                break;
+                                return EnvMacroDiscovery::UntrackedDynamic;
                             }
-                        }
-
-                        if let Some(end) = str_end {
-                            let raw_token = &source[str_start..end];
-                            if let Some(unescaped) = unescape_rust_string(raw_token) {
-                                vars.push(unescaped);
-                                i = j;
-                                continue;
+                        } else if source[j..].starts_with("r#") || source[j..].starts_with("r\"") {
+                            let pref_len = 1;
+                            let rest = &source[j + pref_len..];
+                            let mut hashes = 0;
+                            while rest[hashes..].starts_with('#') {
+                                hashes += 1;
+                            }
+                            if rest[hashes..].starts_with('"') {
+                                let content_start = j + pref_len + hashes + 1;
+                                let closing = format!("\"{}", "#".repeat(hashes));
+                                if let Some(pos) = source[content_start..].find(&closing) {
+                                    let raw_token = &source[content_start..content_start + pos];
+                                    vars.push(raw_token.to_string());
+                                    i = content_start + pos + closing.len();
+                                    continue;
+                                } else {
+                                    return EnvMacroDiscovery::UntrackedDynamic;
+                                }
                             } else {
                                 return EnvMacroDiscovery::UntrackedDynamic;
                             }
                         } else {
                             return EnvMacroDiscovery::UntrackedDynamic;
                         }
-                    } else if source[j..].starts_with("r#") || source[j..].starts_with("r\"") {
-                        let pref_len = 1;
-                        let rest = &source[j + pref_len..];
-                        let mut hashes = 0;
-                        while rest[hashes..].starts_with('#') {
-                            hashes += 1;
-                        }
-                        if rest[hashes..].starts_with('"') {
-                            let content_start = j + pref_len + hashes + 1;
-                            let closing = format!("\"{}", "#".repeat(hashes));
-                            if let Some(pos) = source[content_start..].find(&closing) {
-                                let raw_token = &source[content_start..content_start + pos];
-                                vars.push(raw_token.to_string());
-                                i = content_start + pos + closing.len();
-                                continue;
-                            } else {
-                                return EnvMacroDiscovery::UntrackedDynamic;
-                            }
-                        } else {
-                            return EnvMacroDiscovery::UntrackedDynamic;
-                        }
-                    } else {
-                        return EnvMacroDiscovery::UntrackedDynamic;
                     }
                 }
             }

@@ -1225,4 +1225,65 @@ fn main() {
     assert!(!plan.actions.is_empty());
 }
 
+#[test]
+fn test_env_macro_whitespace_and_comments_before_bang_differentiates_keys() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws.path()).expect("copy fixture");
+
+    let manifest = temp_ws.path().join("Cargo.toml");
+    let target_dir = temp_ws.path().join("target");
+    let main_rs = temp_ws.path().join("src").join("main.rs");
+
+    // Add env! invocation with whitespace and block comment between path and bang:
+    fs::write(
+        &main_rs,
+        r#"
+fn main() {
+    let v = option_env /* trivia comment */ ! /* trivia comment 2 */ ("MITTS_TRIVIA_VAR");
+    println!("var: {:?}", v);
+}
+"#,
+    )
+    .expect("write main.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(target_dir),
+        ..Default::default()
+    };
+
+    // 1. Unset:
+    std::env::remove_var("MITTS_TRIVIA_VAR");
+    let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan unset");
+    let unit1 = expl1.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
+    assert!(
+        unit1.env_vars.contains(&"MITTS_TRIVIA_VAR".to_string()),
+        "env_vars must contain MITTS_TRIVIA_VAR despite whitespace/comments before bang"
+    );
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys");
+    let k_unset = keys1[&unit1.unit_id()].clone();
+
+    // 2. Set to v1:
+    std::env::set_var("MITTS_TRIVIA_VAR", "trivia_val1");
+    let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan v1");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys");
+    let k_v1 = keys2[&unit1.unit_id()].clone();
+
+    // 3. Set to v2:
+    std::env::set_var("MITTS_TRIVIA_VAR", "trivia_val2");
+    let expl3 = RustAdapter::explain_plan(&opt).expect("explain plan v2");
+    let keys3 = RustAdapter::derive_unit_action_keys(&opt, &expl3).expect("derive keys");
+    let k_v2 = keys3[&unit1.unit_id()].clone();
+
+    assert_ne!(k_unset, k_v1, "Unset and set env var with trivia before bang must have distinct keys");
+    assert_ne!(k_v1, k_v2, "Different env var values with trivia before bang must have distinct keys");
+
+    // Clean up
+    std::env::remove_var("MITTS_TRIVIA_VAR");
+}
+
+
 
