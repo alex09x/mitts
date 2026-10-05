@@ -84,7 +84,7 @@ No speedup claim.
 - [x] Initial eligible subset: pure Rust rlib and binary compile actions with verified input tracking.
 - [x] Test CAS hash integrity, action cache hit/miss semantics, concurrent locks, and cache-off mode.
 
-Gate: cleared. Compatible action inputs reuse cached artifacts without re-execution (`cached: true`, exit 0); corrupted CAS objects are detected via SHA-256 integrity and trigger clean recompilation; concurrent builds coordinate safely on the same action key via single-flight `flock`; `--no-cache` mode bypasses cache cleanly. 18 workspace tests passing.
+Gate: cleared. Compatible action inputs reuse cached artifacts without re-execution (`cached: true`, exit 0); corrupted CAS objects are detected via SHA-256 integrity and trigger clean recompilation; concurrent builds coordinate safely on the same action key via single-flight `flock`; `--no-cache` mode bypasses cache cleanly. 20 workspace tests passing.
 
 ## M3 — Fast parallel fetcher & Cargo.lock resolution
 
