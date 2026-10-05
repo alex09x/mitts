@@ -40,6 +40,8 @@ pub struct PlannedCompilationUnit {
     pub target_name: String,
     pub kind: String,
     pub src_path: PathBuf,
+    #[serde(default)]
+    pub manifest_path: PathBuf,
     pub cache_eligibility: String,
     #[serde(default)]
     pub dependencies: Vec<String>,
@@ -410,6 +412,7 @@ impl RustAdapter {
                         target_name: target.name.clone(),
                         kind: kind_str,
                         src_path: PathBuf::from(&target.src_path),
+                        manifest_path: PathBuf::from(&pkg.manifest_path),
                         cache_eligibility: eligibility,
                         dependencies: unit_deps,
                     });
@@ -474,7 +477,12 @@ impl RustAdapter {
                     None => ActionCache::default_cache()?,
                 };
 
-                // 1. Fast path: check action cache for each compilation unit
+                // Coordinate target directory access to prevent concurrent workers racing on target_dir
+                let target_lock_hash = Sha256::digest(target_dir.to_string_lossy().as_bytes());
+                let target_lock_path = ac.locks_dir().join(format!("target_{}.lock", target_lock_hash));
+                let _target_lock = FileLock::acquire_exclusive(&target_lock_path)?;
+
+                // 1. Initial check: evaluate action cache for each compilation unit
                 let mut hit_units = Vec::new();
                 let mut missed_units = Vec::new();
 
@@ -546,16 +554,25 @@ impl RustAdapter {
                     return Ok((plan, result));
                 }
 
-                // 2. Acquire single-flight lock on root unit
-                let root_unit = explanation.units.last().unwrap();
-                let root_key = &unit_keys[&root_unit.unit_id()];
-                let lock_path = ac.lock_path(root_key);
-                let _lock = FileLock::acquire_exclusive(&lock_path)?;
+                // 2. Single-flight coordination across active action keys:
+                // Acquire exclusive locks for ALL missed action units in canonical sorted order.
+                // This eliminates duplicate compilation of shared dependencies across separate workspaces.
+                let mut missed_keys: Vec<String> = missed_units
+                    .iter()
+                    .map(|u| unit_keys[&u.unit_id()].clone())
+                    .collect();
+                missed_keys.sort();
+                missed_keys.dedup();
 
-                // Double check inside lock in case a concurrent worker finished missed units
-                let mut still_missed = false;
-                let mut locked_cached_entries = Vec::new();
+                let mut _action_locks = Vec::new();
+                for key in &missed_keys {
+                    let lock_path = ac.lock_path(key);
+                    _action_locks.push(FileLock::acquire_exclusive(&lock_path)?);
+                }
+
+                // Double check inside locks in case concurrent workers finished missed units while we waited
                 let mut locked_hit_units = Vec::new();
+                let mut locked_missed_units = Vec::new();
 
                 for unit in &explanation.units {
                     let u_id = unit.unit_id();
@@ -571,18 +588,17 @@ impl RustAdapter {
                                 }
                             }
                             if valid {
-                                locked_hit_units.push((unit, entry.clone()));
-                                locked_cached_entries.push((unit, entry));
+                                locked_hit_units.push((unit, entry));
                                 continue;
                             }
                         }
                     }
-                    still_missed = true;
+                    locked_missed_units.push(unit);
                 }
 
-                if !still_missed && locked_cached_entries.len() == explanation.units.len() {
+                if locked_missed_units.is_empty() && locked_hit_units.len() == explanation.units.len() {
                     let mut actions = Vec::new();
-                    for (_unit, entry) in locked_cached_entries {
+                    for (_unit, entry) in locked_hit_units {
                         let mut outputs = Vec::new();
                         let mut is_bin = false;
                         for out in &entry.outputs {
@@ -627,12 +643,7 @@ impl RustAdapter {
 
                 // 3. Partial hits: Pre-restore valid cached dependency artifacts into target directory
                 // so Cargo reuses them and does not rebuild already-cached units!
-                let units_to_restore = if !locked_hit_units.is_empty() {
-                    &locked_hit_units
-                } else {
-                    &hit_units
-                };
-                for (_unit, entry) in units_to_restore {
+                for (_unit, entry) in &locked_hit_units {
                     for out in &entry.outputs {
                         let dest = target_dir.join(&out.relative_path);
                         let _ = cas.restore_object(&out.cas_hash, &dest, out.executable);
@@ -1012,6 +1023,7 @@ fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
 /// Returns error on any read/hash failure to prevent publishing invalid cache keys.
 fn hash_unit_inputs(
     package_dir: &Path,
+    workspace_manifest: &Path,
     target_dir: &Path,
     target_name: &str,
 ) -> Result<Vec<(String, String)>> {
@@ -1025,6 +1037,24 @@ fn hash_unit_inputs(
         inputs.push(("Cargo.toml".to_string(), hash));
     } else {
         bail!("Cargo.toml not found in {:?}", package_dir);
+    }
+
+    // 2. Workspace root manifest (and any ancestor manifests between package_dir and filesystem root)
+    if workspace_manifest.is_file() && workspace_manifest != cargo_toml {
+        let hash = Sha256::digest_file(workspace_manifest)
+            .with_context(|| format!("Failed to hash workspace manifest {:?}", workspace_manifest))?;
+        inputs.push((format!("workspace:{}", workspace_manifest.display()), hash));
+    }
+
+    let mut ancestor_candidate = package_dir.parent();
+    while let Some(dir) = ancestor_candidate {
+        let toml_path = dir.join("Cargo.toml");
+        if toml_path.is_file() && toml_path != cargo_toml && toml_path != workspace_manifest {
+            let hash = Sha256::digest_file(&toml_path)
+                .with_context(|| format!("Failed to hash ancestor manifest {:?}", toml_path))?;
+            inputs.push((format!("ancestor:{}", toml_path.display()), hash));
+        }
+        ancestor_candidate = dir.parent();
     }
 
     // 2. Lockfile in package directory or ancestors
@@ -1199,23 +1229,44 @@ fn derive_unit_action_keys(
         }
     }
 
+    let mut flags_by_unit: HashMap<String, Vec<String>> = HashMap::new();
+
     for unit in &explanation.units {
-        let mut cur = unit.src_path.parent();
-        let mut pkg_dir = None;
-        while let Some(dir) = cur {
-            if dir.join("Cargo.toml").is_file() {
-                pkg_dir = Some(dir.to_path_buf());
-                break;
+        let pkg_dir = if unit.manifest_path.is_file() {
+            unit.manifest_path.parent().unwrap().to_path_buf()
+        } else {
+            let mut cur = unit.src_path.parent();
+            let mut dir = None;
+            while let Some(d) = cur {
+                if d.join("Cargo.toml").is_file() {
+                    dir = Some(d.to_path_buf());
+                    break;
+                }
+                cur = d.parent();
             }
-            cur = dir.parent();
-        }
+            dir.unwrap_or_else(|| {
+                unit.src_path.parent().unwrap_or(&unit.src_path).to_path_buf()
+            })
+        };
 
-        let pkg_dir = pkg_dir.unwrap_or_else(|| {
-            unit.src_path.parent().unwrap_or(&unit.src_path).to_path_buf()
-        });
-
-        let inputs = hash_unit_inputs(&pkg_dir, &explanation.target_directory, &unit.target_name)?;
+        let inputs = hash_unit_inputs(
+            &pkg_dir,
+            &explanation.manifest_path,
+            &explanation.target_directory,
+            &unit.target_name,
+        )?;
         inputs_by_unit.insert(unit.unit_id(), inputs);
+
+        // Include Cargo-generated compiler environment variables for this unit:
+        let mut u_flags = effective_flags.clone();
+        u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
+        u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
+        u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
+        u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));
+        if unit.kind == "bin" {
+            u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
+        }
+        flags_by_unit.insert(unit.unit_id(), u_flags);
     }
 
     let planned_unit_ids: HashSet<String> = explanation
@@ -1254,11 +1305,12 @@ fn derive_unit_action_keys(
                 }
                 dep_hashes.sort();
 
+                let u_flags = &flags_by_unit[&u_id];
                 let key = ActionCache::derive_action_key(
                     &explanation.toolchain.version,
                     &target_triple,
                     &explanation.profile,
-                    &effective_flags,
+                    u_flags,
                     &opt.features,
                     &source_refs,
                     &dep_hashes,
@@ -1279,11 +1331,12 @@ fn derive_unit_action_keys(
                     .iter()
                     .map(|(p, h)| (p.as_str(), h.as_str()))
                     .collect();
+                let u_flags = &flags_by_unit[&u_id];
                 let key = ActionCache::derive_action_key(
                     &explanation.toolchain.version,
                     &target_triple,
                     &explanation.profile,
-                    &effective_flags,
+                    u_flags,
                     &opt.features,
                     &source_refs,
                     &[],
