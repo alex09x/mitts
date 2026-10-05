@@ -1019,10 +1019,82 @@ pub enum EnvMacroDiscovery {
     UntrackedDynamic,
 }
 
+/// Unescapes a Rust string literal token (without the surrounding quotes).
+/// Supports standard escapes (\n, \r, \t, \\, \0, \', \"), line continuation (\ + newline),
+/// \xNN hex byte escapes (0x00..=0x7F), and \u{H...} unicode escapes.
+pub fn unescape_rust_string(raw: &str) -> Option<String> {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            let esc = chars.next()?;
+            match esc {
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                '\\' => out.push('\\'),
+                '0' => out.push('\0'),
+                '\'' => out.push('\''),
+                '"' => out.push('"'),
+                '\n' => {
+                    // Line continuation: skip leading whitespace on following line
+                    while let Some(&next_ch) = chars.peek() {
+                        if next_ch.is_whitespace() {
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                'x' => {
+                    let h1 = chars.next()?.to_digit(16)?;
+                    let h2 = chars.next()?.to_digit(16)?;
+                    let byte = ((h1 << 4) | h2) as u8;
+                    if byte <= 0x7F {
+                        out.push(byte as char);
+                    } else {
+                        return None;
+                    }
+                }
+                'u' => {
+                    if chars.next()? != '{' {
+                        return None;
+                    }
+                    let mut code = 0u32;
+                    let mut count = 0;
+                    loop {
+                        let c = chars.next()?;
+                        if c == '}' {
+                            break;
+                        }
+                        if count >= 6 {
+                            return None;
+                        }
+                        let digit = c.to_digit(16)?;
+                        code = (code << 4) | digit;
+                        count += 1;
+                    }
+                    if count == 0 {
+                        return None;
+                    }
+                    let unicode_char = char::from_u32(code)?;
+                    out.push(unicode_char);
+                }
+                _ => return None,
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+
+    Some(out)
+}
+
 /// Scans Rust source code for compile-time env!("VAR") and option_env!("VAR") invocations.
+/// Advances strictly by UTF-8 character boundaries to prevent panicking on non-ASCII code.
 pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
-    let bytes = source.as_bytes();
-    let len = bytes.len();
+    let len = source.len();
     let mut i = 0;
     let mut vars = Vec::new();
 
@@ -1030,8 +1102,15 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
         // 1. Skip line comments
         if source[i..].starts_with("//") {
             i += 2;
-            while i < len && bytes[i] != b'\n' {
-                i += 1;
+            while i < len {
+                if let Some(ch) = source[i..].chars().next() {
+                    i += ch.len_utf8();
+                    if ch == '\n' {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             }
             continue;
         }
@@ -1047,27 +1126,38 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
                 } else if source[i..].starts_with("*/") {
                     depth -= 1;
                     i += 2;
+                } else if let Some(ch) = source[i..].chars().next() {
+                    i += ch.len_utf8();
                 } else {
-                    i += 1;
+                    break;
                 }
             }
             continue;
         }
 
         // 3. Skip raw strings: r#"..."# or r"..."
-        if bytes[i] == b'r' || source[i..].starts_with("br") || source[i..].starts_with("cr") {
-            let start_r = if bytes[i] == b'r' { i + 1 } else { i + 2 };
+        let raw_prefix = if source[i..].starts_with("r#") || source[i..].starts_with("r\"") {
+            Some(1)
+        } else if source[i..].starts_with("br#")
+            || source[i..].starts_with("br\"")
+            || source[i..].starts_with("cr#")
+            || source[i..].starts_with("cr\"")
+        {
+            Some(2)
+        } else {
+            None
+        };
+        if let Some(pref_len) = raw_prefix {
+            let rest = &source[i + pref_len..];
             let mut hashes = 0;
-            let mut idx = start_r;
-            while idx < len && bytes[idx] == b'#' {
+            while rest[hashes..].starts_with('#') {
                 hashes += 1;
-                idx += 1;
             }
-            if idx < len && bytes[idx] == b'"' {
-                idx += 1;
+            if rest[hashes..].starts_with('"') {
+                let content_start = i + pref_len + hashes + 1;
                 let closing = format!("\"{}", "#".repeat(hashes));
-                if let Some(pos) = source[idx..].find(&closing) {
-                    i = idx + pos + closing.len();
+                if let Some(pos) = source[content_start..].find(&closing) {
+                    i = content_start + pos + closing.len();
                     continue;
                 } else {
                     break;
@@ -1076,22 +1166,30 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
         }
 
         // 4. Skip normal string literals: "..." (or b"...", c"...")
-        if bytes[i] == b'"' || ((bytes[i] == b'b' || bytes[i] == b'c') && i + 1 < len && bytes[i + 1] == b'"') {
-            let str_start = if bytes[i] == b'"' { i + 1 } else { i + 2 };
-            let mut idx = str_start;
+        let str_prefix = if source[i..].starts_with('"') {
+            Some(1)
+        } else if source[i..].starts_with("b\"") || source[i..].starts_with("c\"") {
+            Some(2)
+        } else {
+            None
+        };
+        if let Some(pref_len) = str_prefix {
+            i += pref_len;
             let mut escaped = false;
-            while idx < len {
-                if escaped {
-                    escaped = false;
-                } else if bytes[idx] == b'\\' {
-                    escaped = true;
-                } else if bytes[idx] == b'"' {
-                    idx += 1;
+            while i < len {
+                if let Some(ch) = source[i..].chars().next() {
+                    i += ch.len_utf8();
+                    if escaped {
+                        escaped = false;
+                    } else if ch == '\\' {
+                        escaped = true;
+                    } else if ch == '"' {
+                        break;
+                    }
+                } else {
                     break;
                 }
-                idx += 1;
             }
-            i = idx;
             continue;
         }
 
@@ -1106,22 +1204,28 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
 
         if let Some(prefix_len) = is_env {
             if i > 0 {
-                let prev = bytes[i - 1];
-                if prev.is_ascii_alphanumeric() || prev == b'_' {
-                    i += prefix_len;
-                    continue;
+                if let Some(prev) = source[..i].chars().next_back() {
+                    if prev.is_alphanumeric() || prev == '_' {
+                        i += prefix_len;
+                        continue;
+                    }
                 }
             }
 
             let mut j = i + prefix_len;
             let skip_ws_and_comments = |mut pos: usize| -> usize {
                 while pos < len {
-                    if bytes[pos].is_ascii_whitespace() {
-                        pos += 1;
-                    } else if source[pos..].starts_with("//") {
+                    if source[pos..].starts_with("//") {
                         pos += 2;
-                        while pos < len && bytes[pos] != b'\n' {
-                            pos += 1;
+                        while pos < len {
+                            if let Some(ch) = source[pos..].chars().next() {
+                                pos += ch.len_utf8();
+                                if ch == '\n' {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
                         }
                     } else if source[pos..].starts_with("/*") {
                         pos += 2;
@@ -1133,9 +1237,17 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
                             } else if source[pos..].starts_with("*/") {
                                 d -= 1;
                                 pos += 2;
+                            } else if let Some(ch) = source[pos..].chars().next() {
+                                pos += ch.len_utf8();
                             } else {
-                                pos += 1;
+                                break;
                             }
+                        }
+                    } else if let Some(ch) = source[pos..].chars().next() {
+                        if ch.is_whitespace() {
+                            pos += ch.len_utf8();
+                        } else {
+                            break;
                         }
                     } else {
                         break;
@@ -1146,41 +1258,78 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
 
             j = skip_ws_and_comments(j);
 
-            if j < len && (bytes[j] == b'(' || bytes[j] == b'[' || bytes[j] == b'{') {
-                j += 1;
-                j = skip_ws_and_comments(j);
-
-                if j < len && bytes[j] == b'"' {
+            if j < len {
+                let delim = source[j..].chars().next();
+                if delim == Some('(') || delim == Some('[') || delim == Some('{') {
                     j += 1;
-                    let str_start = j;
-                    let mut escaped = false;
-                    let mut str_end = None;
-                    while j < len {
-                        if escaped {
-                            escaped = false;
-                        } else if bytes[j] == b'\\' {
-                            escaped = true;
-                        } else if bytes[j] == b'"' {
-                            str_end = Some(j);
-                            break;
-                        }
-                        j += 1;
-                    }
+                    j = skip_ws_and_comments(j);
 
-                    if let Some(end) = str_end {
-                        let var_name = &source[str_start..end];
-                        vars.push(var_name.to_string());
-                        i = end + 1;
-                        continue;
+                    if source[j..].starts_with('"') {
+                        j += 1;
+                        let str_start = j;
+                        let mut escaped = false;
+                        let mut str_end = None;
+                        while j < len {
+                            if let Some(ch) = source[j..].chars().next() {
+                                j += ch.len_utf8();
+                                if escaped {
+                                    escaped = false;
+                                } else if ch == '\\' {
+                                    escaped = true;
+                                } else if ch == '"' {
+                                    str_end = Some(j - 1);
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+
+                        if let Some(end) = str_end {
+                            let raw_token = &source[str_start..end];
+                            if let Some(unescaped) = unescape_rust_string(raw_token) {
+                                vars.push(unescaped);
+                                i = j;
+                                continue;
+                            } else {
+                                return EnvMacroDiscovery::UntrackedDynamic;
+                            }
+                        } else {
+                            return EnvMacroDiscovery::UntrackedDynamic;
+                        }
+                    } else if source[j..].starts_with("r#") || source[j..].starts_with("r\"") {
+                        let pref_len = 1;
+                        let rest = &source[j + pref_len..];
+                        let mut hashes = 0;
+                        while rest[hashes..].starts_with('#') {
+                            hashes += 1;
+                        }
+                        if rest[hashes..].starts_with('"') {
+                            let content_start = j + pref_len + hashes + 1;
+                            let closing = format!("\"{}", "#".repeat(hashes));
+                            if let Some(pos) = source[content_start..].find(&closing) {
+                                let raw_token = &source[content_start..content_start + pos];
+                                vars.push(raw_token.to_string());
+                                i = content_start + pos + closing.len();
+                                continue;
+                            } else {
+                                return EnvMacroDiscovery::UntrackedDynamic;
+                            }
+                        } else {
+                            return EnvMacroDiscovery::UntrackedDynamic;
+                        }
                     } else {
                         return EnvMacroDiscovery::UntrackedDynamic;
                     }
-                } else {
-                    return EnvMacroDiscovery::UntrackedDynamic;
                 }
             }
         }
-        i += 1;
+
+        if let Some(ch) = source[i..].chars().next() {
+            i += ch.len_utf8();
+        } else {
+            break;
+        }
     }
 
     vars.sort();
@@ -1207,12 +1356,13 @@ fn discover_package_env_macros(package_dir: &Path) -> (EnvMacroDiscovery, Vec<St
                     stack.push(path);
                 } else if path.is_file() && fname_str.ends_with(".rs") {
                     if let Ok(content) = fs::read_to_string(&path) {
-                        match scan_env_macros(&content) {
-                            EnvMacroDiscovery::UntrackedDynamic => {
-                                return (EnvMacroDiscovery::UntrackedDynamic, Vec::new());
-                            }
-                            EnvMacroDiscovery::Tracked(vars) => {
+                        let scan_result = std::panic::catch_unwind(|| scan_env_macros(&content));
+                        match scan_result {
+                            Ok(EnvMacroDiscovery::Tracked(vars)) => {
                                 all_vars.extend(vars);
+                            }
+                            Ok(EnvMacroDiscovery::UntrackedDynamic) | Err(_) => {
+                                return (EnvMacroDiscovery::UntrackedDynamic, Vec::new());
                             }
                         }
                     }
@@ -1550,9 +1700,34 @@ fn derive_unit_action_keys(
 
         // Include tracked compile-time env! / option_env! variables for this unit:
         for var in &unit.env_vars {
-            let entry = match std::env::var(var) {
-                Ok(val) => format!("ENV_MACRO:{}={}", var, val),
-                Err(_) => format!("ENV_MACRO:{}=<unset>", var),
+            let entry = if var == "CARGO_MANIFEST_DIR" {
+                format!("ENV_MACRO:CARGO_MANIFEST_DIR={}", pkg_dir.display())
+            } else if var == "CARGO_PKG_NAME" {
+                format!("ENV_MACRO:CARGO_PKG_NAME={}", unit.package_name)
+            } else if var == "CARGO_PKG_VERSION" {
+                format!("ENV_MACRO:CARGO_PKG_VERSION={}", unit.version)
+            } else if var == "CARGO_PKG_VERSION_MAJOR" {
+                let maj = unit.version.split('.').next().unwrap_or("0");
+                format!("ENV_MACRO:CARGO_PKG_VERSION_MAJOR={}", maj)
+            } else if var == "CARGO_PKG_VERSION_MINOR" {
+                let min = unit.version.split('.').nth(1).unwrap_or("0");
+                format!("ENV_MACRO:CARGO_PKG_VERSION_MINOR={}", min)
+            } else if var == "CARGO_PKG_VERSION_PATCH" {
+                let patch = unit.version.split('.').nth(2).unwrap_or("0");
+                format!("ENV_MACRO:CARGO_PKG_VERSION_PATCH={}", patch)
+            } else if var == "CARGO_CRATE_NAME" {
+                format!("ENV_MACRO:CARGO_CRATE_NAME={}", unit.target_name)
+            } else if var == "CARGO_BIN_NAME" {
+                if unit.kind == "bin" {
+                    format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
+                } else {
+                    "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
+                }
+            } else {
+                match std::env::var(var) {
+                    Ok(val) => format!("ENV_MACRO:{}={}", var, val),
+                    Err(_) => format!("ENV_MACRO:{}=<unset>", var),
+                }
             };
             u_flags.push(entry);
         }
@@ -1696,6 +1871,64 @@ mod tests {
         assert_eq!(
             scan_env_macros(code),
             EnvMacroDiscovery::UntrackedDynamic
+        );
+    }
+
+    #[test]
+    fn test_unescape_rust_string() {
+        assert_eq!(
+            unescape_rust_string(r#"BUILD\x5fMODE"#),
+            Some("BUILD_MODE".to_string())
+        );
+        assert_eq!(
+            unescape_rust_string(r#"UNICODE\u{5f}VAR"#),
+            Some("UNICODE_VAR".to_string())
+        );
+        assert_eq!(
+            unescape_rust_string(r#"HELLO\nWORLD\t\"\'\\"#),
+            Some("HELLO\nWORLD\t\"\'\\".to_string())
+        );
+        assert_eq!(
+            unescape_rust_string("LINE\\\n                CONTINUATION"),
+            Some("LINECONTINUATION".to_string())
+        );
+        assert_eq!(unescape_rust_string(r#"\x80"#), None);
+        assert_eq!(unescape_rust_string(r#"\u{invalid}"#), None);
+    }
+
+    #[test]
+    fn test_scan_env_macros_escaped_string() {
+        let code = r#"
+            fn main() {
+                let v = env!("BUILD\x5fMODE");
+                let u = option_env!("UNICODE\u{5f}NAME");
+            }
+        "#;
+        assert_eq!(
+            scan_env_macros(code),
+            EnvMacroDiscovery::Tracked(vec![
+                "BUILD_MODE".to_string(),
+                "UNICODE_NAME".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_scan_env_macros_unicode_does_not_panic() {
+        let code = r#"
+            // Line comment with Unicode: 🦀 привет мир!
+            /* Block comment with Unicode:
+               中文测试, café, résumé, 🚀 emoji, ελληνικά
+               nested /* ещё один комментарий */
+            */
+            fn café() {
+                let identifier_ü = 1;
+                let real = env!("VAR_AFTER_UNICODE");
+            }
+        "#;
+        assert_eq!(
+            scan_env_macros(code),
+            EnvMacroDiscovery::Tracked(vec!["VAR_AFTER_UNICODE".to_string()])
         );
     }
 }

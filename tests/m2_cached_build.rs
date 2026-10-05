@@ -1032,3 +1032,197 @@ fn test_cross_workspace_dependency_action_key_equivalence_and_reuse() {
     assert!(res2.success);
 }
 
+#[test]
+fn test_env_macro_escaped_string_decoding() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws.path()).expect("copy fixture");
+
+    let manifest = temp_ws.path().join("Cargo.toml");
+    let target_dir = temp_ws.path().join("target");
+    let main_rs = temp_ws.path().join("src").join("main.rs");
+
+    // Add env! macro with hex escape sequence \x5f for '_'
+    fs::write(
+        &main_rs,
+        r#"
+fn main() {
+    let v = option_env!("ESCAPED\x5fBUILD\x5fVAR");
+    println!("var: {:?}", v);
+}
+"#,
+    )
+    .expect("write main.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(target_dir),
+        ..Default::default()
+    };
+
+    // 1. With var unset:
+    std::env::remove_var("ESCAPED_BUILD_VAR");
+    let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan unset");
+    let unit1 = expl1.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
+    assert!(
+        unit1.env_vars.contains(&"ESCAPED_BUILD_VAR".to_string()),
+        "Decoded unescaped var name must be tracked"
+    );
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys");
+    let k_unset = keys1[&unit1.unit_id()].clone();
+
+    // 2. With var = "v1":
+    std::env::set_var("ESCAPED_BUILD_VAR", "v1");
+    let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan v1");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys");
+    let k_v1 = keys2[&unit1.unit_id()].clone();
+
+    assert_ne!(k_unset, k_v1, "Changing ESCAPED_BUILD_VAR must change action key");
+
+    std::env::remove_var("ESCAPED_BUILD_VAR");
+}
+
+#[test]
+fn test_external_path_dependency_cargo_manifest_dir_tracking() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_ws1 = tempfile::tempdir().expect("ws1 tempdir");
+    let temp_ws2 = tempfile::tempdir().expect("ws2 tempdir");
+
+    // Create external path dependency lib in ws1 and ws2 with identical code
+    for ws in &[&temp_ws1, &temp_ws2] {
+        let lib_dir = ws.path().join("path_lib");
+        fs::create_dir_all(lib_dir.join("src")).expect("create lib dir");
+        fs::write(
+            lib_dir.join("Cargo.toml"),
+            r#"
+[package]
+name = "path-lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+"#,
+        )
+        .expect("write path_lib Cargo.toml");
+
+        fs::write(
+            lib_dir.join("src").join("lib.rs"),
+            r#"
+pub fn get_manifest_dir() -> &'static str {
+    env!("CARGO_MANIFEST_DIR")
+}
+"#,
+        )
+        .expect("write path_lib lib.rs");
+
+        // Create consumer app
+        let app_dir = ws.path().join("app");
+        fs::create_dir_all(app_dir.join("src")).expect("create app dir");
+        fs::write(
+            app_dir.join("Cargo.toml"),
+            r#"
+[package]
+name = "consumer-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+path-lib = { path = "../path_lib" }
+"#,
+        )
+        .expect("write app Cargo.toml");
+
+        fs::write(
+            app_dir.join("src").join("main.rs"),
+            r#"
+fn main() {
+    println!("{}", path_lib::get_manifest_dir());
+}
+"#,
+        )
+        .expect("write app main.rs");
+    }
+
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(temp_ws1.path().join("app").join("Cargo.toml")),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_ws1.path().join("target")),
+        ..Default::default()
+    };
+    let opt2 = RustBuildOptions {
+        manifest_path: Some(temp_ws2.path().join("app").join("Cargo.toml")),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_ws2.path().join("target")),
+        ..Default::default()
+    };
+
+    let expl1 = RustAdapter::explain_plan(&opt1).expect("explain ws1");
+    let expl2 = RustAdapter::explain_plan(&opt2).expect("explain ws2");
+
+    let path_lib1 = expl1.units.iter().find(|u| u.package_name == "path-lib").expect("path-lib in ws1");
+    let path_lib2 = expl2.units.iter().find(|u| u.package_name == "path-lib").expect("path-lib in ws2");
+
+    assert!(!path_lib1.is_workspace, "path-lib is external dependency");
+    assert!(!path_lib2.is_workspace, "path-lib is external dependency");
+
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt1, &expl1).expect("keys ws1");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt2, &expl2).expect("keys ws2");
+
+    let key_lib1 = &keys1[&path_lib1.unit_id()];
+    let key_lib2 = &keys2[&path_lib2.unit_id()];
+
+    assert_ne!(
+        key_lib1, key_lib2,
+        "External path dependencies reading CARGO_MANIFEST_DIR from different directories must have distinct keys!"
+    );
+}
+
+#[test]
+fn test_unicode_source_does_not_panic_env_scanner() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws.path()).expect("copy fixture");
+
+    let manifest = temp_ws.path().join("Cargo.toml");
+    let target_dir = temp_ws.path().join("target");
+    let main_rs = temp_ws.path().join("src").join("main.rs");
+
+    // Rust file containing non-ASCII / multibyte UTF-8 characters across comments and code
+    fs::write(
+        &main_rs,
+        r#"
+// Non-ASCII in comment: 🦀 привет, мир!
+/* Multibyte block comment:
+   中文测试, ελληνικά, café, 🚀
+*/
+fn café() {
+    let ü = 42;
+    println!("val: {}", ü);
+}
+
+fn main() {
+    café();
+}
+"#,
+    )
+    .expect("write main.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(target_dir),
+        ..Default::default()
+    };
+
+    let expl = RustAdapter::explain_plan(&opt).expect("explain plan with unicode must not panic");
+    assert!(!expl.units.is_empty());
+
+    let (plan, res) = RustAdapter::build(&opt).expect("build with unicode must succeed");
+    assert!(res.success);
+    assert!(!plan.actions.is_empty());
+}
+
+
