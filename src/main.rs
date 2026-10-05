@@ -24,6 +24,8 @@ fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         no_default_features: args.no_default_features,
         all_features: args.all_features,
         extra_args: args.extra_args.clone(),
+        no_cache: args.no_cache,
+        cache_dir: args.cache_dir.clone(),
     }
 }
 
@@ -32,11 +34,18 @@ fn handle_build(args: &BuildArgs) -> i32 {
     match RustAdapter::build(&opt) {
         Ok((plan, result)) => {
             if result.success {
-                println!(
-                    "mitts: build finished successfully ({} actions recorded in {})",
-                    plan.actions.len(),
-                    plan.target_directory.display()
-                );
+                if result.cached {
+                    println!(
+                        "mitts: build finished from cache (restored into {})",
+                        plan.target_directory.display()
+                    );
+                } else {
+                    println!(
+                        "mitts: build finished successfully ({} actions recorded in {})",
+                        plan.actions.len(),
+                        plan.target_directory.display()
+                    );
+                }
             }
             result.exit_code
         }
@@ -153,8 +162,8 @@ fn handle_explain(args: &ExplainArgs) -> i32 {
         println!("     Eligibility: {}", unit.cache_eligibility);
     }
     println!();
-    println!("Active Milestone: M1 (Uncached build correctness & workspace coexistence)");
-    println!("Cache Policy:     Uncached execution; direct artifact compilation into isolated target");
+    println!("Active Milestone: M2 (Content-Addressed Store & Action Cache)");
+    println!("Cache Policy:     Immutable CAS and Action Cache with single-flight locks");
     println!("Coexistence:      Ordinary Cargo target/ and rust-analyzer untouched");
 
     0

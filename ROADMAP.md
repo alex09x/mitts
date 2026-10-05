@@ -75,16 +75,16 @@ No speedup claim.
 
 ## M2 — Content-Addressed Store (CAS) & Action Cache (AC)
 
-- [ ] Take the verified M1 Cargo-driven build plan as input, decoupling storage fundamentals from the independent resolver.
-- [ ] Introduce an immutable, content-addressed local store (CAS) at `~/.cache/mitts/cas/` and versioned Action Cache (AC).
-- [ ] Implement deterministic Action Key derivation:
+- [x] Take the verified M1 Cargo-driven build plan as input, decoupling storage fundamentals from the independent resolver.
+- [x] Introduce an immutable, content-addressed local store (CAS) at `~/.cache/mitts/cas/` and versioned Action Cache (AC).
+- [x] Implement deterministic Action Key derivation:
   `Key = SHA256(rustc_version + target_triple + flags + features + source_hashes + dep_artifact_hashes)`.
-- [ ] Atomically publish artifacts into CAS (`chmod 444`, `rename` staging); guarantee corrupted/interrupted entries never appear.
-- [ ] Single-flight execution: file-based locking (`flock`) on active Action Keys to eliminate duplicate compilation across concurrent workspaces/terminals.
-- [ ] Initial eligible subset: pure Rust rlib and binary compile actions with verified input tracking.
-- [ ] Test CAS hash integrity, action cache hit/miss semantics, concurrent locks, and cache-off mode.
+- [x] Atomically publish artifacts into CAS (`chmod 444`, `rename` staging); guarantee corrupted/interrupted entries never appear.
+- [x] Single-flight execution: file-based locking (`flock`) on active Action Keys to eliminate duplicate compilation across concurrent workspaces/terminals.
+- [x] Initial eligible subset: pure Rust rlib and binary compile actions with verified input tracking.
+- [x] Test CAS hash integrity, action cache hit/miss semantics, concurrent locks, and cache-off mode.
 
-Gate: compatible action inputs reuse cached artifacts without re-execution; incomplete or corrupt entries never become successful builds; concurrent builds coordinate safely on the same action key.
+Gate: cleared. Compatible action inputs reuse cached artifacts without re-execution (`cached: true`, exit 0); corrupted CAS objects are detected via SHA-256 integrity and trigger clean recompilation; concurrent builds coordinate safely on the same action key via single-flight `flock`; `--no-cache` mode bypasses cache cleanly. 18 workspace tests passing.
 
 ## M3 — Fast parallel fetcher & Cargo.lock resolution
 
@@ -135,5 +135,5 @@ Gate: one non-Rust project builds correctly through the shared core with verifie
 
 ## First task to pick up
 
-With M1 completed and approved, proceed to **M2 — Content-Addressed Store (CAS) & Action Cache (AC)**:
-Implement the immutable content-addressed store, atomic object publication, deterministic action key derivation, and file-based single-flight locks.
+With M2 completed and validated, proceed to **M3 — Fast parallel fetcher & Cargo.lock resolution**:
+Implement the two-phase dependency resolver (fast-path lockfile validation vs sync-path PubGrub resolution against crates.io sparse index) and parallel multi-threaded crate fetcher.
