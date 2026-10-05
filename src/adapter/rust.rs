@@ -44,6 +44,10 @@ pub struct PlannedCompilationUnit {
     pub manifest_path: PathBuf,
     pub cache_eligibility: String,
     #[serde(default)]
+    pub is_workspace: bool,
+    #[serde(default)]
+    pub env_vars: Vec<String>,
+    #[serde(default)]
     pub dependencies: Vec<String>,
 }
 
@@ -317,6 +321,11 @@ impl RustAdapter {
         for id in &selected_ids {
             if let Some(pkg) = packages_by_id.get(id) {
                 let is_workspace = meta.workspace_members.contains(&pkg.id);
+                let pkg_manifest = Path::new(&pkg.manifest_path);
+                let pkg_dir = pkg_manifest.parent().unwrap_or(pkg_manifest);
+                let (env_discovery, env_vars) = discover_package_env_macros(pkg_dir);
+                let has_untracked_env = matches!(env_discovery, EnvMacroDiscovery::UntrackedDynamic);
+
                 for target in &pkg.targets {
                     let is_compile_target = target.kind.iter().any(|k| {
                         matches!(
@@ -335,7 +344,19 @@ impl RustAdapter {
                         matches!(k.as_str(), "cdylib" | "dylib" | "staticlib")
                     });
 
-                    let (kind_str, eligibility) = if is_bin {
+                    let (kind_str, eligibility) = if has_untracked_env {
+                        let k = if is_bin {
+                            "bin".to_string()
+                        } else if is_pure_rlib {
+                            "lib".to_string()
+                        } else {
+                            target.kind.join(",")
+                        };
+                        (
+                            k,
+                            "Uncached (contains untracked dynamic env!/option_env! macro)".to_string(),
+                        )
+                    } else if is_bin {
                         let elig = if is_workspace {
                             "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
                         } else {
@@ -380,7 +401,7 @@ impl RustAdapter {
                                         if dep_target.kind.iter().any(|k| k == "lib" || k == "rlib") {
                                             let dep_kind = if dep_target.kind.iter().any(|k| k == "bin") {
                                                 "bin"
-                                            } else {
+                                             } else {
                                                 "lib"
                                             };
                                             let dep_unit_id = format!("{}::{}:{}", dep_pkg.id, dep_kind, dep_target.name);
@@ -414,6 +435,8 @@ impl RustAdapter {
                         src_path: PathBuf::from(&target.src_path),
                         manifest_path: PathBuf::from(&pkg.manifest_path),
                         cache_eligibility: eligibility,
+                        is_workspace,
+                        env_vars: env_vars.clone(),
                         dependencies: unit_deps,
                     });
                 }
@@ -988,6 +1011,221 @@ fn find_dep_info_files(target_dir: &Path, target_name: &str) -> Vec<PathBuf> {
     d_files
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum EnvMacroDiscovery {
+    /// Successfully discovered static environment variable names read by env!/option_env!
+    Tracked(Vec<String>),
+    /// Encountered untracked or dynamic env!/option_env! macro whose variable name cannot be statically resolved
+    UntrackedDynamic,
+}
+
+/// Scans Rust source code for compile-time env!("VAR") and option_env!("VAR") invocations.
+pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut vars = Vec::new();
+
+    while i < len {
+        // 1. Skip line comments
+        if source[i..].starts_with("//") {
+            i += 2;
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // 2. Skip block comments (handling nested comments)
+        if source[i..].starts_with("/*") {
+            i += 2;
+            let mut depth = 1;
+            while i < len && depth > 0 {
+                if source[i..].starts_with("/*") {
+                    depth += 1;
+                    i += 2;
+                } else if source[i..].starts_with("*/") {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+
+        // 3. Skip raw strings: r#"..."# or r"..."
+        if bytes[i] == b'r' || source[i..].starts_with("br") || source[i..].starts_with("cr") {
+            let start_r = if bytes[i] == b'r' { i + 1 } else { i + 2 };
+            let mut hashes = 0;
+            let mut idx = start_r;
+            while idx < len && bytes[idx] == b'#' {
+                hashes += 1;
+                idx += 1;
+            }
+            if idx < len && bytes[idx] == b'"' {
+                idx += 1;
+                let closing = format!("\"{}", "#".repeat(hashes));
+                if let Some(pos) = source[idx..].find(&closing) {
+                    i = idx + pos + closing.len();
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // 4. Skip normal string literals: "..." (or b"...", c"...")
+        if bytes[i] == b'"' || ((bytes[i] == b'b' || bytes[i] == b'c') && i + 1 < len && bytes[i + 1] == b'"') {
+            let str_start = if bytes[i] == b'"' { i + 1 } else { i + 2 };
+            let mut idx = str_start;
+            let mut escaped = false;
+            while idx < len {
+                if escaped {
+                    escaped = false;
+                } else if bytes[idx] == b'\\' {
+                    escaped = true;
+                } else if bytes[idx] == b'"' {
+                    idx += 1;
+                    break;
+                }
+                idx += 1;
+            }
+            i = idx;
+            continue;
+        }
+
+        // 5. Check for compile-time env! or option_env! invocation
+        let is_env = if source[i..].starts_with("env!") {
+            Some(4)
+        } else if source[i..].starts_with("option_env!") {
+            Some(11)
+        } else {
+            None
+        };
+
+        if let Some(prefix_len) = is_env {
+            if i > 0 {
+                let prev = bytes[i - 1];
+                if prev.is_ascii_alphanumeric() || prev == b'_' {
+                    i += prefix_len;
+                    continue;
+                }
+            }
+
+            let mut j = i + prefix_len;
+            let skip_ws_and_comments = |mut pos: usize| -> usize {
+                while pos < len {
+                    if bytes[pos].is_ascii_whitespace() {
+                        pos += 1;
+                    } else if source[pos..].starts_with("//") {
+                        pos += 2;
+                        while pos < len && bytes[pos] != b'\n' {
+                            pos += 1;
+                        }
+                    } else if source[pos..].starts_with("/*") {
+                        pos += 2;
+                        let mut d = 1;
+                        while pos < len && d > 0 {
+                            if source[pos..].starts_with("/*") {
+                                d += 1;
+                                pos += 2;
+                            } else if source[pos..].starts_with("*/") {
+                                d -= 1;
+                                pos += 2;
+                            } else {
+                                pos += 1;
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                pos
+            };
+
+            j = skip_ws_and_comments(j);
+
+            if j < len && (bytes[j] == b'(' || bytes[j] == b'[' || bytes[j] == b'{') {
+                j += 1;
+                j = skip_ws_and_comments(j);
+
+                if j < len && bytes[j] == b'"' {
+                    j += 1;
+                    let str_start = j;
+                    let mut escaped = false;
+                    let mut str_end = None;
+                    while j < len {
+                        if escaped {
+                            escaped = false;
+                        } else if bytes[j] == b'\\' {
+                            escaped = true;
+                        } else if bytes[j] == b'"' {
+                            str_end = Some(j);
+                            break;
+                        }
+                        j += 1;
+                    }
+
+                    if let Some(end) = str_end {
+                        let var_name = &source[str_start..end];
+                        vars.push(var_name.to_string());
+                        i = end + 1;
+                        continue;
+                    } else {
+                        return EnvMacroDiscovery::UntrackedDynamic;
+                    }
+                } else {
+                    return EnvMacroDiscovery::UntrackedDynamic;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    vars.sort();
+    vars.dedup();
+    EnvMacroDiscovery::Tracked(vars)
+}
+
+/// Recursively scans a package directory for compile-time env!/option_env! usages across all .rs files.
+fn discover_package_env_macros(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
+    let mut all_vars = Vec::new();
+    let mut stack = vec![package_dir.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let fname = entry.file_name();
+                let fname_str = fname.to_string_lossy();
+
+                if path.is_dir() {
+                    if fname_str == "target" || fname_str == ".mitts" || fname_str == ".git" {
+                        continue;
+                    }
+                    stack.push(path);
+                } else if path.is_file() && fname_str.ends_with(".rs") {
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        match scan_env_macros(&content) {
+                            EnvMacroDiscovery::UntrackedDynamic => {
+                                return (EnvMacroDiscovery::UntrackedDynamic, Vec::new());
+                            }
+                            EnvMacroDiscovery::Tracked(vars) => {
+                                all_vars.extend(vars);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    all_vars.sort();
+    all_vars.dedup();
+    (EnvMacroDiscovery::Tracked(all_vars.clone()), all_vars)
+}
+
 /// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths.
 fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
     let content = fs::read_to_string(d_path)
@@ -1023,9 +1261,10 @@ fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
 /// Returns error on any read/hash failure to prevent publishing invalid cache keys.
 fn hash_unit_inputs(
     package_dir: &Path,
-    workspace_manifest: &Path,
+    workspace_manifest: Option<&Path>,
     target_dir: &Path,
     target_name: &str,
+    is_workspace: bool,
 ) -> Result<Vec<(String, String)>> {
     let mut inputs = Vec::new();
 
@@ -1039,51 +1278,86 @@ fn hash_unit_inputs(
         bail!("Cargo.toml not found in {:?}", package_dir);
     }
 
-    // 2. Workspace root manifest (and any ancestor manifests between package_dir and filesystem root)
-    if workspace_manifest.is_file() && workspace_manifest != cargo_toml {
-        let hash = Sha256::digest_file(workspace_manifest)
-            .with_context(|| format!("Failed to hash workspace manifest {:?}", workspace_manifest))?;
-        inputs.push((format!("workspace:{}", workspace_manifest.display()), hash));
-    }
-
-    let mut ancestor_candidate = package_dir.parent();
-    while let Some(dir) = ancestor_candidate {
-        let toml_path = dir.join("Cargo.toml");
-        if toml_path.is_file() && toml_path != cargo_toml && toml_path != workspace_manifest {
-            let hash = Sha256::digest_file(&toml_path)
-                .with_context(|| format!("Failed to hash ancestor manifest {:?}", toml_path))?;
-            inputs.push((format!("ancestor:{}", toml_path.display()), hash));
+    // 2. Workspace root manifest, ancestor manifests, and lockfile (ONLY for workspace members)
+    if is_workspace {
+        if let Some(ws_manifest) = workspace_manifest {
+            if ws_manifest.is_file() && ws_manifest != cargo_toml {
+                let hash = Sha256::digest_file(ws_manifest)
+                    .with_context(|| format!("Failed to hash workspace manifest {:?}", ws_manifest))?;
+                inputs.push(("workspace:Cargo.toml".to_string(), hash));
+            }
         }
-        ancestor_candidate = dir.parent();
-    }
 
-    // 2. Lockfile in package directory or ancestors
-    let mut lock_candidate = Some(package_dir);
-    while let Some(dir) = lock_candidate {
-        let lock_path = dir.join("Cargo.lock");
-        if lock_path.is_file() {
-            let hash = Sha256::digest_file(&lock_path)
-                .with_context(|| format!("Failed to hash {:?}", lock_path))?;
-            inputs.push(("Cargo.lock".to_string(), hash));
-            break;
+        let mut ancestor_candidate = package_dir.parent();
+        let ws_root = workspace_manifest.and_then(|p| p.parent());
+        while let Some(dir) = ancestor_candidate {
+            let toml_path = dir.join("Cargo.toml");
+            if toml_path.is_file() && toml_path != cargo_toml && Some(dir) != ws_root {
+                let hash = Sha256::digest_file(&toml_path)
+                    .with_context(|| format!("Failed to hash ancestor manifest {:?}", toml_path))?;
+                let depth = package_dir.ancestors().position(|a| a == dir).unwrap_or(1);
+                inputs.push((format!("ancestor:{}/Cargo.toml", "../".repeat(depth)), hash));
+            }
+            if Some(dir) == ws_root {
+                break;
+            }
+            ancestor_candidate = dir.parent();
         }
-        lock_candidate = dir.parent();
+
+        let mut lock_candidate = Some(package_dir);
+        while let Some(dir) = lock_candidate {
+            let lock_path = dir.join("Cargo.lock");
+            if lock_path.is_file() {
+                let hash = Sha256::digest_file(&lock_path)
+                    .with_context(|| format!("Failed to hash {:?}", lock_path))?;
+                inputs.push(("Cargo.lock".to_string(), hash));
+                break;
+            }
+            if Some(dir) == ws_root {
+                break;
+            }
+            lock_candidate = dir.parent();
+        }
     }
 
     // 3. Applicable .cargo/config.toml or .cargo/config in package dir or ancestor dirs
     let mut config_candidate = Some(package_dir);
+    let ws_root = if is_workspace {
+        workspace_manifest.and_then(|p| p.parent())
+    } else {
+        None
+    };
     while let Some(dir) = config_candidate {
         let toml_cfg = dir.join(".cargo").join("config.toml");
         if toml_cfg.is_file() {
             let hash = Sha256::digest_file(&toml_cfg)
                 .with_context(|| format!("Failed to hash {:?}", toml_cfg))?;
-            inputs.push((format!("{}/.cargo/config.toml", dir.display()), hash));
+            let label = if dir == package_dir {
+                ".cargo/config.toml".to_string()
+            } else if Some(dir) == ws_root {
+                "workspace:.cargo/config.toml".to_string()
+            } else {
+                let depth = package_dir.ancestors().position(|a| a == dir).unwrap_or(1);
+                format!("ancestor:{}/.cargo/config.toml", "../".repeat(depth))
+            };
+            inputs.push((label, hash));
         }
         let bare_cfg = dir.join(".cargo").join("config");
         if bare_cfg.is_file() {
             let hash = Sha256::digest_file(&bare_cfg)
                 .with_context(|| format!("Failed to hash {:?}", bare_cfg))?;
-            inputs.push((format!("{}/.cargo/config", dir.display()), hash));
+            let label = if dir == package_dir {
+                ".cargo/config".to_string()
+            } else if Some(dir) == ws_root {
+                "workspace:.cargo/config".to_string()
+            } else {
+                let depth = package_dir.ancestors().position(|a| a == dir).unwrap_or(1);
+                format!("ancestor:{}/.cargo/config", "../".repeat(depth))
+            };
+            inputs.push((label, hash));
+        }
+        if !is_workspace || Some(dir) == ws_root {
+            break;
         }
         config_candidate = dir.parent();
     }
@@ -1251,21 +1525,38 @@ fn derive_unit_action_keys(
 
         let inputs = hash_unit_inputs(
             &pkg_dir,
-            &explanation.manifest_path,
+            if unit.is_workspace {
+                Some(&explanation.manifest_path)
+            } else {
+                None
+            },
             &explanation.target_directory,
             &unit.target_name,
+            unit.is_workspace,
         )?;
         inputs_by_unit.insert(unit.unit_id(), inputs);
 
         // Include Cargo-generated compiler environment variables for this unit:
         let mut u_flags = effective_flags.clone();
-        u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
+        if unit.is_workspace {
+            u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
+        }
         u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
         u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
         u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));
         if unit.kind == "bin" {
             u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
         }
+
+        // Include tracked compile-time env! / option_env! variables for this unit:
+        for var in &unit.env_vars {
+            let entry = match std::env::var(var) {
+                Ok(val) => format!("ENV_MACRO:{}={}", var, val),
+                Err(_) => format!("ENV_MACRO:{}=<unset>", var),
+            };
+            u_flags.push(entry);
+        }
+
         flags_by_unit.insert(unit.unit_id(), u_flags);
     }
 
@@ -1350,4 +1641,61 @@ fn derive_unit_action_keys(
     }
 
     Ok(unit_keys)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scan_env_macros_simple() {
+        let code = r#"
+            fn main() {
+                let a = env!("FOO");
+                let b = option_env!("BAR");
+                let c = env!("BAZ", "error message");
+            }
+        "#;
+        assert_eq!(
+            scan_env_macros(code),
+            EnvMacroDiscovery::Tracked(vec![
+                "BAR".to_string(),
+                "BAZ".to_string(),
+                "FOO".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_scan_env_macros_ignores_comments_and_strings() {
+        let code = r##"
+            // env!("COMMENTED")
+            /* option_env!("BLOCK_COMMENTED") */
+            /*
+               nested /* env!("NESTED") */
+            */
+            let s = "env!(\"STRING\")";
+            let r = r#"env!("RAW_STRING")"#;
+            fn main() {
+                let actual = env!("REAL_VAR");
+            }
+        "##;
+        assert_eq!(
+            scan_env_macros(code),
+            EnvMacroDiscovery::Tracked(vec!["REAL_VAR".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_scan_env_macros_detects_untracked_dynamic() {
+        let code = r#"
+            fn main() {
+                let dynamic = env!(concat!("FOO", "_BAR"));
+            }
+        "#;
+        assert_eq!(
+            scan_env_macros(code),
+            EnvMacroDiscovery::UntrackedDynamic
+        );
+    }
 }
