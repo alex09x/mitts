@@ -58,10 +58,17 @@ For the majority of Rust crates, compilation is pure Rust (`rustc`). For crates 
 - `build.rs` is compiled and executed in a sandboxed staging directory.
 - Captured build script instructions (`cargo:rustc-link-lib`, `cargo:rustc-cfg`, and `$OUT_DIR` outputs) are cached and fed to dependent `rustc` invocations.
 
+### 5. Staged Delivery and Differential Oracle
+
+- **Decoupled M2 Implementation**: Milestone M2 implements the Content-Addressed Store (CAS) and Action Cache (AC) using the verified M1 Cargo-driven build plan as input. This decouples storage fundamentals from the resolver.
+- **Differential Oracle**: The M1 Cargo path serves as an ongoing differential correctness oracle. Native executions are validated against Cargo for diagnostic fidelity, exit status, and binary equivalence.
+- **Pure Rust First Slice**: The initial native execution slice is strictly confined to pure Rust `rlib` and `bin` actions. Advanced features (build scripts, procedural macros, and cross-compilation) will be introduced incrementally with explicit input modeling.
+
 ## Decision Outcome
 
-Mitts evolves from a passive `cargo build` wrapper into an autonomous, blazing-fast Rust build engine and package runner, preserving 100% `Cargo.toml`/`Cargo.lock` ecosystem compatibility while delivering:
+Mitts evolves from a passive `cargo build` wrapper into an autonomous, high-performance Rust build engine and package runner, preserving 100% `Cargo.toml`/`Cargo.lock` ecosystem compatibility while delivering:
 - Zero workspace `target/` clutter for dependency artifacts.
 - Parallel fetching and DAG compilation.
 - Direct-from-store compilation via `rustc --extern`.
 - Shared, immutable, deduplicated artifact storage across all projects.
+
