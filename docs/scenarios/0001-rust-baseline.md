@@ -9,7 +9,7 @@ Status: approved by project owner. Measurement approval: baseline fixture and M0
 | Project and representative small fixture | `fixtures/hello-rust` (binary crate with single pure dependency `itoa = "1.0"`) |
 | Exact source revision | Head of main at initial fixture introduction |
 | Exact Cargo command; package/target/features/profile | `cargo build --package hello-rust --profile dev` and `--profile release` |
-| Generalized OS, architecture, filesystem, and node class | macOS Darwin `aarch64` (APFS) / Linux `x86_64` (ext4/btrfs); local workstation / dev node |
+| Generalized OS, architecture, filesystem, and node class | macOS Darwin `aarch64` (APFS) / Linux `x86_64` (Btrfs/XFS for CoW reflink, ext4 for copy fallback); local workstation / dev node |
 | Exact execution location / sensitive evidence | Clean relative workspace path: `fixtures/hello-rust`; no sensitive or private paths |
 | Rust/Cargo toolchain and relevant native tools | Stable Rust (`>= 1.85.0`, current host `1.97.1`), standard Cargo toolchain |
 | Existing timing/storage evidence, if available | Baseline established upon initial fixture build: 2 compilation units (`itoa`, `hello-rust`) |
@@ -42,9 +42,9 @@ Empirically measured baseline for `fixtures/hello-rust` under standard Cargo:
   - Exit status: 0
 - **Filesystem deduplication oracle & measurement method**:
   - macOS APFS: clonefile copy-on-write extent sharing; measured via allocated blocks (`stat -f "%b * %B"`).
-  - Linux: `ioctl(FICLONE)` reflink extent sharing; measured via allocated blocks (`stat -c "%b * %B"`) and extent mapping.
+  - Linux Btrfs / XFS: `ioctl(FICLONE)` reflink extent sharing; measured via allocated blocks (`stat -c "%b * %B"`) and extent mapping.
+  - Linux ext4 & non-reflink filesystems: verified standard file copy fallback (validates build correctness without claiming CoW deduplication).
   - Verification: identical SHA-256 content hashes between store and restored target; modifying workspace target file must not alter the immutable cache entry.
-  - Fallback: standard file copy when cross-device or unsupported.
 
 Do not delete an active or user-owned target to manufacture a cold run. Any
 approved cold scenario must use an isolated, owned build location (`.mitts/target/`).
