@@ -1,0 +1,94 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[command(name = "mitts")]
+#[command(author = "Alexander Panasenko <alex@prod.codes>")]
+#[command(version = "0.1.0")]
+#[command(about = "Rust-first build and package tooling with a shared artifact cache", long_about = None)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Compile the local package and its dependencies into the isolated Mitts target
+    Build(BuildArgs),
+
+    /// Run a binary of the local package
+    Run(RunArgs),
+
+    /// Explain the effective build plan, compilation units, and cache eligibility
+    Explain(ExplainArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct BuildArgs {
+    /// Path to Cargo.toml
+    #[arg(long)]
+    pub manifest_path: Option<PathBuf>,
+
+    /// Package to build
+    #[arg(short, long)]
+    pub package: Option<String>,
+
+    /// Build artifacts in release mode, with optimizations
+    #[arg(short, long)]
+    pub release: bool,
+
+    /// Directory for all generated artifacts
+    #[arg(long)]
+    pub target_dir: Option<PathBuf>,
+
+    /// Space or comma separated list of features to activate
+    #[arg(short = 'F', long)]
+    pub features: Vec<String>,
+
+    /// Do not activate the `default` feature
+    #[arg(long)]
+    pub no_default_features: bool,
+
+    /// Activate all available features
+    #[arg(long)]
+    pub all_features: bool,
+
+    /// Additional arguments passed to the underlying builder
+    #[arg(last = true)]
+    pub extra_args: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct RunArgs {
+    #[command(flatten)]
+    pub build_args: BuildArgs,
+
+    /// Arguments for the binary
+    #[arg(last = true)]
+    pub trailing_args: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ExplainArgs {
+    /// Path to Cargo.toml
+    #[arg(long)]
+    pub manifest_path: Option<PathBuf>,
+
+    /// Package to explain
+    #[arg(short, long)]
+    pub package: Option<String>,
+
+    /// Check release mode profile
+    #[arg(short, long)]
+    pub release: bool,
+}

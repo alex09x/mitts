@@ -1,0 +1,156 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+use mitts::adapter::{RustAdapter, RustBuildOptions};
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+fn fixture_manifest() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("hello-rust")
+        .join("Cargo.toml")
+}
+
+#[test]
+fn test_fixture_uncached_build_and_oracle() {
+    let manifest = fixture_manifest();
+    assert!(manifest.exists(), "Fixture manifest must exist: {:?}", manifest);
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        ..Default::default()
+    };
+
+    let (plan, result) = RustAdapter::build(&opt).expect("Uncached build must succeed");
+    assert!(result.success, "Build should indicate success");
+    assert_eq!(result.exit_code, 0, "Build exit code must be 0");
+    assert!(!plan.actions.is_empty(), "Plan must have recorded actions");
+
+    // Verify isolated .mitts/target directory was used
+    let target_dir = manifest.parent().unwrap().join(".mitts").join("target");
+    assert_eq!(plan.target_directory, target_dir);
+    assert!(target_dir.exists(), "Target directory must exist: {:?}", target_dir);
+
+    // Locate the built binary in the isolated target
+    let debug_dir = target_dir.join("debug");
+    let bin_path = debug_dir.join("hello-rust");
+    assert!(bin_path.exists(), "Executable must exist: {:?}", bin_path);
+
+    // Verify observable behavior against M0 oracle
+    let run_output = Command::new(&bin_path)
+        .output()
+        .expect("Failed to execute built binary");
+    assert_eq!(run_output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    assert!(
+        stdout.contains("Hello from Mitts fixture: 42"),
+        "Unexpected output: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_unsupported_case_explicitly_refused() {
+    let manifest = fixture_manifest();
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest),
+        extra_args: vec!["--unsupported-flag-xyz".to_string()],
+        ..Default::default()
+    };
+
+    let err = RustAdapter::build(&opt).expect_err("Unsupported option must be refused");
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("Unsupported build option"),
+        "Expected unsupported option error, got: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_compile_error_preserves_failure_and_exit_code() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create tempdir");
+    let temp_path = temp_dir.path();
+
+    // Create broken Cargo crate
+    let cargo_toml = r#"
+[package]
+name = "broken-crate"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+"#;
+    fs::write(temp_path.join("Cargo.toml"), cargo_toml).expect("write Cargo.toml");
+
+    let src_dir = temp_path.join("src");
+    fs::create_dir_all(&src_dir).expect("create src dir");
+    let broken_src = "fn main() { let x: u32 = \"type mismatch\"; }";
+    fs::write(src_dir.join("main.rs"), broken_src).expect("write main.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(temp_path.join("Cargo.toml")),
+        ..Default::default()
+    };
+
+    let (_, result) = RustAdapter::build(&opt).expect("Execution should return failure result");
+    assert!(!result.success, "Compilation must report failure");
+    assert_ne!(result.exit_code, 0, "Exit code must be non-zero on compiler error");
+    assert!(
+        result.stderr.contains("mismatched types") || result.stdout.contains("mismatched types"),
+        "Diagnostics must preserve compiler error"
+    );
+}
+
+#[test]
+fn test_coexistence_with_ordinary_cargo() {
+    let manifest = fixture_manifest();
+    let fixture_dir = manifest.parent().unwrap();
+
+    // 1. Run ordinary Cargo build
+    let cargo_status = Command::new("cargo")
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .status()
+        .expect("Failed to run cargo build");
+    assert!(cargo_status.success(), "Ordinary cargo build must succeed");
+
+    let ordinary_target = fixture_dir.join("target");
+    let ordinary_bin = ordinary_target.join("debug").join("hello-rust");
+    assert!(ordinary_bin.exists(), "Ordinary cargo binary must exist");
+
+    // 2. Run Mitts build with isolated .mitts/target
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        ..Default::default()
+    };
+    let (plan, result) = RustAdapter::build(&opt).expect("Mitts build must succeed");
+    assert!(result.success, "Mitts build must succeed");
+
+    let mitts_target = fixture_dir.join(".mitts").join("target");
+    assert_eq!(plan.target_directory, mitts_target);
+    let mitts_bin = mitts_target.join("debug").join("hello-rust");
+    assert!(mitts_bin.exists(), "Mitts binary must exist");
+
+    // 3. Verify ordinary target was not deleted, overwritten, or corrupted
+    assert!(ordinary_bin.exists(), "Ordinary target binary must remain intact");
+
+    // Both binaries must be independently executable with identical observable output
+    let out_ordinary = Command::new(&ordinary_bin).output().expect("exec ordinary");
+    let out_mitts = Command::new(&mitts_bin).output().expect("exec mitts");
+
+    assert_eq!(out_ordinary.status.code(), Some(0));
+    assert_eq!(out_mitts.status.code(), Some(0));
+    assert_eq!(out_ordinary.stdout, out_mitts.stdout);
+}
+

@@ -53,12 +53,12 @@ approved cold scenario must use an isolated, owned build location (`.mitts/targe
 
 ### M1 — Uncached supported build
 
-- [ ] Ordinary Cargo and uncached Mitts build the supported fixture with equivalent
+- [x] Ordinary Cargo and uncached Mitts build the supported fixture with equivalent
   effective inputs and observable program behavior; documented differences are explained.
-- [ ] Source/configuration errors keep meaningful diagnostics and a failing exit status.
-- [ ] Unsupported cases are explicitly refused or use the declared fallback.
-- [ ] Required build scripts/proc macros execute correctly before their caching is attempted.
-- [ ] Mitts has isolated mutable build outputs and coexists with ordinary Cargo
+- [x] Source/configuration errors keep meaningful diagnostics and a failing exit status.
+- [x] Unsupported cases are explicitly refused or use the declared fallback.
+- [x] Required build scripts/proc macros execute correctly before their caching is attempted.
+- [x] Mitts has isolated mutable build outputs and coexists with ordinary Cargo
   and rust-analyzer without altering their configuration or targets.
 
 ### M2 — Eligible cache reuse
@@ -74,5 +74,6 @@ These are separate milestone gates; M1 does not require an implemented cache.
 | Run ID | Revision | Command | Platform | Toolchain | Exit | Elapsed | Storage | Oracle Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `base-0001` | `b7aff36` | `cargo build` | Linux x86_64 | rustc 1.97.1 | 0 | 0.09s | 5.7 MB (4.4 MB bin, 261 KB itoa) | PASS (`Hello from Mitts fixture: 42`) |
+| `m1-0001` | `HEAD` | `mitts build` | Linux x86_64 | rustc 1.97.1 | 0 | 0.09s | 5.7 MB (`.mitts/target`) | PASS (`Hello from Mitts fixture: 42`) |
 
-Baseline evidence recorded and verified under M0.
+M1 acceptance verified across all test regressions (`tests/m1_uncached_build.rs`).

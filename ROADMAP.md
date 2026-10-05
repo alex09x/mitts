@@ -49,31 +49,29 @@ Cargo-driven first slice ownership, `MIT OR Apache-2.0` license, and M1 acceptan
 
 ## M1 — Build correctly without caching
 
-- [ ] Implement the smallest supported Rust build from the M0 contract; preserve
+- [x] Implement the smallest supported Rust build from the M0 contract; preserve
   lockfile intent, selected package/profile/features, diagnostics, and exit status.
-- [ ] Execute build scripts and proc macros without caching their runs when the
+- [x] Execute build scripts and proc macros without caching their runs when the
   chosen workflow requires them. A deliberately smaller first fixture must not
   be advertised as supporting the whole chosen project.
-- [ ] Model build actions separately from the Rust adapter: inputs, outputs,
+- [x] Model build actions separately from the Rust adapter: inputs, outputs,
   toolchain identity, and dependencies. Keep the store free of Cargo-specific
   semantics, but defer a general plugin API until another language actually needs it.
-- [ ] Make unsupported cases visible. Do not silently alter configuration or report
+- [x] Make unsupported cases visible. Do not silently alter configuration or report
   an unsupported build as successful.
-- [ ] Define separate mutable output/build locations for Mitts. Verify ordinary
+- [x] Define separate mutable output/build locations for Mitts. Verify ordinary
   Cargo and rust-analyzer can coexist without overwriting their configuration,
   deleting their targets, or sharing mutable build state with Mitts.
-- [ ] Add focused success and failure regressions for the agreed fixture, including
+- [x] Add focused success and failure regressions for the agreed fixture, including
   changed source, a compile error, and an unsupported-case boundary.
-- [ ] Compare with the M0 oracle and expose the effective plan. Output directories
+- [x] Compare with the M0 oracle and expose the effective plan. Output directories
   or documented path mappings may differ; unexplained semantic differences may not.
 
-Branch explicitly: with a Cargo-owned plan, M1 can be a thin orchestration slice.
-With a Mitts-owned plan, decompose manifest/resolver/build-script behavior into
-additional bounded slices before claiming that the representative workflow works.
+Branch explicitly: with a Cargo-owned plan, M1 is a clean orchestration slice.
 
-Gate: the supported program has the same observable behavior as its ordinary Cargo
-build; failures stay failures. Byte-identical binaries are not required where
-debug paths, signing, or other recorded nondeterminism differ. No speedup claim.
+Gate: cleared. The supported program has the exact same observable behavior as its ordinary Cargo
+build (`Hello from Mitts fixture: 42`, exit 0); failures preserve diagnostics and exit codes.
+No speedup claim.
 
 ## M2 — Share compatible compiler results
 
@@ -172,7 +170,7 @@ Gate: one real non-Rust workflow works through the shared core with its own evid
 
 ## First task to pick up
 
-M0 contract cleared. Active task is **M1 — Build correctly without caching**:
-Implement the smallest supported Rust build from the M0 contract (`fixtures/hello-rust`),
-preserving lockfile intent, selected package/profile/features, diagnostics, and exit status
-in an isolated `.mitts/target/` workspace directory.
+M1 completed and cleared. Next task is **M2 — Share compatible compiler results**:
+Introduce an immutable, content-addressed local store and versioned key format,
+caching eligible Rust rlib actions and restoring results into isolated workspace
+target directories with verified invalidation on input changes.

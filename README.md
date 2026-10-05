@@ -39,8 +39,8 @@ cases or report an explicit unsupported case; never silently claim success.
 
 ## Status
  
-M0 contract approved: Option 1 (Cargo-driven first slice), dual-licensed under
-MIT OR Apache-2.0. Active milestone: M1 (uncached build correctness).
-This repository is private.
+M0 contract approved; M1 (uncached build correctness and workspace coexistence)
+completed and verified. Active milestone: M2 (compatible artifact caching & store).
+Dual-licensed under MIT OR Apache-2.0. This repository is private.
 
 Next steps: [ROADMAP.md](ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
