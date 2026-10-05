@@ -17,15 +17,15 @@ However, operational experience and architectural analysis reveal fundamental li
 
 ### 1. Two-phase lifecycle: Resolver vs DAG Builder
 
-Mitts explicitly separates the build lifecycle into two decoupled, high-performance phases:
+Mitts explicitly separates the build lifecycle into two decoupled phases:
 
 ```
-[ Cargo.toml ]
+[ Cargo.toml & Workspace Configuration ]
       │
       ▼
 PHASE 1: RESOLVER
-   - If Cargo.lock exists and matches Cargo.toml -> read directly in <2ms.
-   - If Cargo.lock is missing or Cargo.toml was modified -> resolve via PubGrub algorithm against crates.io sparse index and write a standard, valid Cargo.lock.
+   - If Cargo.lock exists and is compatible with Cargo.toml and workspace settings -> read directly without re-resolution.
+   - If Cargo.lock is missing or incompatible with manifest changes -> resolve dependencies via PubGrub against crates.io sparse index, evaluating features, profiles, and target conditions alongside lockfile state, and write a standard, valid Cargo.lock.
       │
       ▼
 [ Cargo.lock ]  <-- Universal ecosystem compatibility contract
@@ -35,7 +35,7 @@ PHASE 2: BUILDER (Mitts-native parallel execution)
    - Fetch: Concurrent multithreaded download of missing .crate archives directly into global sources store (~/.cache/mitts/sources/).
    - DAG Builder: Topological dependency graph execution directly invoking rustc in parallel across all CPU cores.
    - Direct Store Reads: Feed dependency .rmeta and .rlib directly from the immutable Global Store (~/.cache/mitts/cas/) via rustc --extern flags.
-   - Clean Workspace: The local project directory receives ONLY the final compiled binary (e.g. ./my-app), eliminating gigabytes of intermediate target bloat.
+   - Clean Workspace: The local project directory receives the final compiled binary (e.g. ./my-app), targeting zero intermediate target bloat.
 ```
 
 ### 2. Universal Ecosystem Compatibility via `Cargo.lock`
@@ -66,9 +66,10 @@ For the majority of Rust crates, compilation is pure Rust (`rustc`). For crates 
 
 ## Decision Outcome
 
-Mitts evolves from a passive `cargo build` wrapper into an autonomous, high-performance Rust build engine and package runner, preserving 100% `Cargo.toml`/`Cargo.lock` ecosystem compatibility while delivering:
-- Zero workspace `target/` clutter for dependency artifacts.
-- Parallel fetching and DAG compilation.
+Mitts evolves from a passive `cargo build` wrapper into an autonomous Rust build engine and package runner, preserving Cargo.toml and Cargo.lock ecosystem compatibility with explicit staged goals:
+- Eliminate intermediate dependency artifacts from workspace targets.
+- Enable parallel fetching and DAG compilation.
 - Direct-from-store compilation via `rustc --extern`.
-- Shared, immutable, deduplicated artifact storage across all projects.
+- Shared, immutable, deduplicated artifact storage across all projects, with all speedup and disk-saving claims deferred to empirical measurement under M5.
+
 
