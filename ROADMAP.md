@@ -90,7 +90,7 @@ Gate: compatible action inputs reuse cached artifacts without re-execution; inco
 
 - [ ] Implement two-phase dependency management based on standard `Cargo.lock` (Decision 0002):
   - Fast-path: read existing `Cargo.lock` directly without re-resolution, validating compatibility with `Cargo.toml` and workspace settings.
-  - Sync-path: when `Cargo.lock` is missing or incompatible with manifest/workspace changes, resolve dependencies using PubGrub against crates.io sparse index (evaluating features, profiles, and target conditions) and generate standard, valid `Cargo.lock`.
+  - Sync-path: when `Cargo.lock` is missing or incompatible with manifest/workspace changes, resolve dependencies using PubGrub against crates.io sparse index (evaluating feature, target, and dependency constraints; treating compilation profiles as builder inputs) and generate standard, valid `Cargo.lock`.
 - [ ] Concurrent multithreaded downloader: fetch `.crate` archives in parallel directly into global sources store (`~/.cache/mitts/sources/`), verifying SHA-256 checksums from `Cargo.lock`.
 - [ ] Zero local source pollution: dependencies are fetched and unpacked once globally per machine, not duplicated per workspace.
 - [ ] Test lockfile generation equivalence with Cargo, missing lockfile handling, offline cache hits, and concurrent downloads.

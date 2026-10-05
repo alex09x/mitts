@@ -8,7 +8,7 @@ Contributors: implementing resident and reviewer.
 In Milestone M0/M1 (Decision 0001), Option 1 was selected as the first slice: relying on Cargo to drive resolution and build planning while Mitts isolates build artifacts into `.mitts/target/` and prepares an immutable cache.
 
 However, operational experience and architectural analysis reveal fundamental limitations with remaining an external wrapper around `cargo build`:
-1. **Target directory pollution**: Cargo inherently requires staging all intermediate compilation units (`.rlib`, `.rmeta`, `.d`, `.fingerprint`) inside a workspace target directory (`target/debug/deps/`). Even with isolated `.mitts/target/`, gigabytes of intermediate files are written per workspace.
+1. **Target directory pollution**: Cargo inherently requires staging all intermediate compilation units (`.rlib`, `.rmeta`, `.d`, `.fingerprint`) inside a workspace target directory (`target/debug/deps/`). Even with isolated `.mitts/target/`, substantial intermediate files are written per workspace (frequently growing to gigabytes in larger projects).
 2. **Lock contention and target thrashing**: Cargo's internal lock semantics prevent concurrent builds from safely sharing build trees, forcing either duplicate local targets or risky lock fights.
 3. **CoW Reflink vs Direct Store Reads**: While CoW reflinks protect immutable store files from mutable workspace overwrites, creating thousands of reflink entries in local directories remains an unnecessary overhead when modern compilers (`rustc`) can consume dependencies directly via `--extern crate_name=/path/to/store/...`.
 4. **Lockfile Generation vs Reuse**: A build tool cannot assume `Cargo.lock` always pre-exists (e.g. freshly created projects or modified `Cargo.toml`).
@@ -25,7 +25,7 @@ Mitts explicitly separates the build lifecycle into two decoupled phases:
       ▼
 PHASE 1: RESOLVER
    - If Cargo.lock exists and is compatible with Cargo.toml and workspace settings -> read directly without re-resolution.
-   - If Cargo.lock is missing or incompatible with manifest changes -> resolve dependencies via PubGrub against crates.io sparse index, evaluating features, profiles, and target conditions alongside lockfile state, and write a standard, valid Cargo.lock.
+   - If Cargo.lock is missing or incompatible with manifest changes -> resolve dependencies via PubGrub against crates.io sparse index, evaluating feature, target, and dependency constraints alongside lockfile state (treating compilation profiles as builder inputs), and write a standard, valid Cargo.lock.
       │
       ▼
 [ Cargo.lock ]  <-- Universal ecosystem compatibility contract
