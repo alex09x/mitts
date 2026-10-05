@@ -44,7 +44,7 @@ or use a documented fallback without concealing which engine actually ran.
 ## Required decisions
 
 - [x] **Scenario and fixture**: `fixtures/hello-rust` (pure binary + `itoa` dependency),
-  macOS Darwin `aarch64` (APFS) / Linux `x86_64` (ext4/btrfs), Rust stable (`>= 1.85.0`, host `1.97.1`).
+  macOS Darwin `aarch64` (APFS) / Linux `x86_64` (Btrfs/XFS for CoW reflink, ext4 for copy fallback), Rust stable (`>= 1.85.0`, host `1.97.1`).
 - [x] **Approach selection**: Option 1 (Cargo-driven first slice). Reuses Cargo resolution/planning
   while Mitts owns artifact store, cache keying, and CoW reflink target restoration.
 - [x] **Ownership allocation**:
