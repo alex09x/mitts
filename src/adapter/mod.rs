@@ -10,4 +10,7 @@
 
 pub mod rust;
 
-pub use rust::{RustAdapter, RustAdapterError, RustBuildOptions};
+pub use rust::{
+    EffectivePlanExplanation, PlannedCompilationUnit, RustAdapter, RustAdapterError,
+    RustBuildOptions,
+};

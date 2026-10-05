@@ -154,3 +154,57 @@ fn test_coexistence_with_ordinary_cargo() {
     assert_eq!(out_ordinary.stdout, out_mitts.stdout);
 }
 
+#[test]
+fn test_explain_effective_plan() {
+    let manifest = fixture_manifest();
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        release: false,
+        ..Default::default()
+    };
+
+    let explanation = RustAdapter::explain_plan(&opt).expect("Explain plan must succeed");
+    assert_eq!(explanation.manifest_path, manifest);
+    assert_eq!(explanation.profile, "debug");
+    assert_eq!(
+        explanation.target_directory,
+        manifest.parent().unwrap().join(".mitts").join("target")
+    );
+    assert!(!explanation.units.is_empty(), "Plan must have compilation units");
+
+    let bin_unit = explanation
+        .units
+        .iter()
+        .find(|u| u.package_name == "hello-rust" && u.kind == "bin");
+    assert!(bin_unit.is_some(), "Must contain hello-rust binary unit");
+    let bin_unit = bin_unit.unwrap();
+    assert_eq!(bin_unit.target_name, "hello-rust");
+    assert!(
+        bin_unit.cache_eligibility.contains("Uncached in M1"),
+        "Eligibility must state uncached in M1: {}",
+        bin_unit.cache_eligibility
+    );
+
+    let dep_unit = explanation
+        .units
+        .iter()
+        .find(|u| u.package_name == "itoa" && u.kind == "lib");
+    assert!(dep_unit.is_some(), "Must contain itoa dependency unit");
+    let dep_unit = dep_unit.unwrap();
+    assert_eq!(dep_unit.target_name, "itoa");
+    assert!(
+        dep_unit.cache_eligibility.contains("eligible in M2"),
+        "Eligibility must indicate M2 cache eligibility: {}",
+        dep_unit.cache_eligibility
+    );
+
+    // Test with release mode
+    let opt_release = RustBuildOptions {
+        manifest_path: Some(manifest),
+        release: true,
+        ..Default::default()
+    };
+    let exp_release = RustAdapter::explain_plan(&opt_release).expect("Explain release plan");
+    assert_eq!(exp_release.profile, "release");
+}
+

@@ -91,4 +91,16 @@ pub struct ExplainArgs {
     /// Check release mode profile
     #[arg(short, long)]
     pub release: bool,
+
+    /// Space or comma separated list of features to activate
+    #[arg(short = 'F', long)]
+    pub features: Vec<String>,
+
+    /// Do not activate the `default` feature
+    #[arg(long)]
+    pub no_default_features: bool,
+
+    /// Activate all available features
+    #[arg(long)]
+    pub all_features: bool,
 }
