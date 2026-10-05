@@ -63,6 +63,14 @@ pub struct BuildArgs {
     #[arg(long)]
     pub all_features: bool,
 
+    /// Do not read from or write to the shared action cache
+    #[arg(long)]
+    pub no_cache: bool,
+
+    /// Directory for the shared artifact and action cache
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,
