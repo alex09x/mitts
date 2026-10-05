@@ -42,4 +42,4 @@ cases or report an explicit unsupported case; never silently claim success.
 Planning only: no implementation, supported-language matrix, or performance
 claims yet. Licensing has not been selected. This repository is private.
 
-Agent rules: [AGENTS.md](AGENTS.md).
+Next steps: [ROADMAP.md](ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
