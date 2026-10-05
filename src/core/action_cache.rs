@@ -179,13 +179,19 @@ impl ActionCache {
         payload.push_str(profile.trim());
         payload.push('\n');
 
-        payload.push_str("flags: ");
-        payload.push_str(&flags.join(" "));
-        payload.push('\n');
+        payload.push_str("flags:\n");
+        for f in flags {
+            payload.push_str("  ");
+            payload.push_str(f);
+            payload.push('\n');
+        }
 
-        payload.push_str("features: ");
-        payload.push_str(&sorted_features.join(","));
-        payload.push('\n');
+        payload.push_str("features:\n");
+        for feat in &sorted_features {
+            payload.push_str("  ");
+            payload.push_str(feat);
+            payload.push('\n');
+        }
 
         payload.push_str("sources:\n");
         for (path, hash) in sorted_sources {
