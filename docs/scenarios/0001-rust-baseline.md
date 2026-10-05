@@ -27,7 +27,7 @@ Empirically measured baseline for `fixtures/hello-rust` under standard Cargo:
 - **Command**: `cargo build --message-format=json` (dev profile)
 - **Source revision**: `b7aff36`
 - **Toolchain**: `rustc 1.97.1` (8bab26f4f 2026-07-14) / `cargo 1.97.1` (c980f4866 2026-06-30)
-- **Host platform**: Linux `x86_64` (kernel 6.6) & macOS Darwin `aarch64`
+- **Measured host platform**: Linux `x86_64` (kernel 6.6); macOS Darwin `aarch64` remains supported target environment
 - **Exit status**: 0
 - **Elapsed time**: 0.09s compilation (0.1s wall time)
 - **Compilation units**: 2 (`itoa` v1.0.18 rlib, `hello-rust` v0.1.0 bin)
