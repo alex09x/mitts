@@ -38,8 +38,9 @@ speedup without measurements. Preserve normal build behavior for unsupported
 cases or report an explicit unsupported case; never silently claim success.
 
 ## Status
-
-Planning only: no implementation, supported-language matrix, or performance
-claims yet. Licensing has not been selected. This repository is private.
+ 
+M0 contract approved: Option 1 (Cargo-driven first slice), dual-licensed under
+MIT OR Apache-2.0. Active milestone: M1 (uncached build correctness).
+This repository is private.
 
 Next steps: [ROADMAP.md](ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).

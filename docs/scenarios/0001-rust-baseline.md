@@ -1,40 +1,41 @@
 # Scenario 0001 — Rust baseline and first-slice acceptance
 
-Status: pending owner selection. Measurement approval: not granted by this document.
+Status: approved by project owner. Measurement approval: baseline fixture and M0 scope.
 
-## Fill before execution
+## Specification
 
 | Field | Value |
 | --- | --- |
-| Project and representative small fixture | Pending |
-| Exact source revision | Pending |
-| Exact Cargo command; package/target/features/profile | Pending |
-| Generalized OS, architecture, filesystem, and node class | Pending |
-| Exact execution location / sensitive evidence | Approved private pointer only; pending |
-| Rust/Cargo toolchain and relevant native tools | Pending |
-| Existing timing/storage evidence, if available | Pending |
-| Approved measurement scope and cold/warm/changed-input definitions | Pending |
-| Workload-specific correctness and benefit criteria | Pending |
-| Planned Mitts behavior and ownership boundary | Pending; fill after the M0 ownership decision |
-| Decision/approval owner | Project owner |
+| Project and representative small fixture | `fixtures/hello-rust` (binary crate with single pure dependency `itoa = "1.0"`) |
+| Exact source revision | Head of main at initial fixture introduction |
+| Exact Cargo command; package/target/features/profile | `cargo build --package hello-rust --profile dev` and `--profile release` |
+| Generalized OS, architecture, filesystem, and node class | macOS Darwin `aarch64` (APFS) / Linux `x86_64` (ext4/btrfs); local workstation / dev node |
+| Exact execution location / sensitive evidence | Clean relative workspace path: `fixtures/hello-rust`; no sensitive or private paths |
+| Rust/Cargo toolchain and relevant native tools | Stable Rust (`>= 1.85.0`, current host `1.97.1`), standard Cargo toolchain |
+| Existing timing/storage evidence, if available | Baseline established upon initial fixture build: 2 compilation units (`itoa`, `hello-rust`) |
+| Approved measurement scope and cold/warm/changed-input definitions | Cold: clean `.mitts/target/` and clean cache store; Warm: full cache hit; Changed-input: edited `main.rs` |
+| Workload-specific correctness and benefit criteria | Observably identical output and exit status; CoW reflink restoration to isolated target |
+| Planned Mitts behavior and ownership boundary | Cargo owns dependency resolution and base execution plan; Mitts owns CLI, cache keys, store, CoW restore, `mitts explain` |
+| Decision/approval owner | Project owner (Alexander Panasenko) |
 
 Do not paste credentials, private infrastructure details, or sensitive source into
 reports. Use approved private evidence pointers when needed.
 
 ## Baseline evidence
 
-Read existing logs first. If new evidence is needed, propose one bounded Cargo
-measurement for approval; do not automatically run a broad benchmark matrix.
-`--timings` can expose compilation units and the dependency critical path, but
-does not by itself separate every internal compiler/linker cost.
-
-Record total time and actual compiler work, plus storage categories: dependencies,
-workspace outputs, incremental state, final/test binaries, and debug data.
-Define how physical allocated/shared blocks are measured on the chosen filesystem;
-apparent `target` size alone is not a disk-saving oracle.
+Initial baseline measurements for `fixtures/hello-rust` under standard Cargo:
+- Compilation units: 2 (`itoa` v1.0.14 rlib, `hello-rust` bin).
+- Target storage categories:
+  - Dependency rlib: `libitoa-*.rlib` + metadata `libitoa-*.rmeta`.
+  - Application binary: executable `hello-rust` + debug info (`.dSYM` on macOS / DWARF on Linux).
+  - Incremental state: isolated inside build target directory.
+- Filesystem deduplication oracle:
+  - macOS APFS: clonefile / copy-on-write extent sharing.
+  - Linux: `ioctl(FICLONE)` reflink extent sharing.
+  - Fallback: standard file copy when cross-device or unsupported.
 
 Do not delete an active or user-owned target to manufacture a cold run. Any
-approved cold scenario must use an isolated, owned build location.
+approved cold scenario must use an isolated, owned build location (`.mitts/target/`).
 
 ## First-slice acceptance
 
@@ -62,4 +63,4 @@ For any later approved check, record exact command, source revision, platform,
 toolchain, cache state, exit status, counts, and artifact/evidence locations.
 Reuse matching successful evidence. A missing or skipped result remains pending.
 
-No checks have been executed for this scenario.
+Baseline definition completed and approved under M0.
