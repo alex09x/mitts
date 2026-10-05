@@ -309,20 +309,32 @@ impl RustAdapter {
                         continue;
                     }
 
-                    let (kind_str, eligibility) = if target.kind.iter().any(|k| k == "bin") {
+                    let is_bin = target.kind.iter().any(|k| k == "bin");
+                    let is_pure_rlib = !target.kind.is_empty()
+                        && target.kind.iter().all(|k| k == "lib" || k == "rlib");
+                    let has_native_or_mixed_lib = target.kind.iter().any(|k| {
+                        matches!(k.as_str(), "cdylib" | "dylib" | "staticlib")
+                    });
+
+                    let (kind_str, eligibility) = if is_bin {
                         let elig = if is_workspace {
                             "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
                         } else {
                             "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
                         };
                         ("bin".to_string(), elig)
-                    } else if target.kind.iter().any(|k| k == "lib" || k == "rlib") {
+                    } else if is_pure_rlib {
                         let elig = if is_workspace {
                             "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
                         } else {
                             "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
                         };
                         ("lib".to_string(), elig)
+                    } else if has_native_or_mixed_lib {
+                        (
+                            target.kind.join(","),
+                            "Uncached (contains native/dynamic library crate types; outside initial M2 pure rlib subset)".to_string(),
+                        )
                     } else if target.kind.iter().any(|k| k == "proc-macro") {
                         (
                             "proc-macro".to_string(),

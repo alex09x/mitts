@@ -266,3 +266,42 @@ edition = "2021"
     );
 }
 
+#[test]
+fn test_explain_mixed_crate_type_marked_uncached() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let ws_root = temp_dir.path();
+
+    let cargo_toml = r#"
+[package]
+name = "mixed-lib"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[workspace]
+"#;
+    fs::write(ws_root.join("Cargo.toml"), cargo_toml).expect("write Cargo.toml");
+    fs::create_dir_all(ws_root.join("src")).expect("src");
+    fs::write(ws_root.join("src").join("lib.rs"), "pub fn foo() {}").expect("lib.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(ws_root.join("Cargo.toml")),
+        ..Default::default()
+    };
+    let exp = RustAdapter::explain_plan(&opt).expect("explain mixed");
+    let unit = exp
+        .units
+        .iter()
+        .find(|u| u.package_name == "mixed-lib")
+        .expect("find unit");
+    assert!(
+        unit.cache_eligibility
+            .contains("outside initial M2 pure rlib subset"),
+        "Mixed crate type must be marked uncached for initial M2: {}",
+        unit.cache_eligibility
+    );
+}
+
+
