@@ -193,7 +193,7 @@ fn test_explain_effective_plan() {
     let dep_unit = dep_unit.unwrap();
     assert_eq!(dep_unit.target_name, "itoa");
     assert!(
-        dep_unit.cache_eligibility.contains("eligible in M2"),
+        dep_unit.cache_eligibility.contains("eligible for M2"),
         "Eligibility must indicate M2 cache eligibility: {}",
         dep_unit.cache_eligibility
     );
@@ -206,5 +206,63 @@ fn test_explain_effective_plan() {
     };
     let exp_release = RustAdapter::explain_plan(&opt_release).expect("Explain release plan");
     assert_eq!(exp_release.profile, "release");
+}
+
+#[test]
+fn test_explain_unselected_workspace_member_excluded() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let ws_root = temp_dir.path();
+
+    // Create root workspace Cargo.toml
+    let ws_cargo = r#"
+[workspace]
+members = ["member_a", "member_b"]
+"#;
+    fs::write(ws_root.join("Cargo.toml"), ws_cargo).expect("write ws Cargo.toml");
+
+    // Member A
+    let dir_a = ws_root.join("member_a");
+    fs::create_dir_all(dir_a.join("src")).expect("dir_a");
+    fs::write(
+        dir_a.join("Cargo.toml"),
+        r#"
+[package]
+name = "member_a"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .expect("write a Cargo.toml");
+    fs::write(dir_a.join("src").join("main.rs"), "fn main() {}").expect("write a main.rs");
+
+    // Member B (independent)
+    let dir_b = ws_root.join("member_b");
+    fs::create_dir_all(dir_b.join("src")).expect("dir_b");
+    fs::write(
+        dir_b.join("Cargo.toml"),
+        r#"
+[package]
+name = "member_b"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .expect("write b Cargo.toml");
+    fs::write(dir_b.join("src").join("main.rs"), "fn main() {}").expect("write b main.rs");
+
+    // Explain member_a specifically
+    let opt = RustBuildOptions {
+        manifest_path: Some(dir_a.join("Cargo.toml")),
+        ..Default::default()
+    };
+    let exp = RustAdapter::explain_plan(&opt).expect("explain member_a");
+    assert!(
+        exp.units.iter().any(|u| u.package_name == "member_a"),
+        "Must contain member_a"
+    );
+    assert!(
+        !exp.units.iter().any(|u| u.package_name == "member_b"),
+        "Must NOT contain unselected sibling member_b"
+    );
 }
 

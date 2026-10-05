@@ -111,6 +111,8 @@ struct CargoProfile {
 struct MetadataOutput {
     packages: Vec<MetaPackage>,
     workspace_members: Vec<String>,
+    #[serde(default)]
+    workspace_default_members: Vec<String>,
     resolve: Option<MetaResolve>,
 }
 
@@ -119,6 +121,7 @@ struct MetaPackage {
     id: String,
     name: String,
     version: String,
+    manifest_path: String,
     #[allow(dead_code)]
     source: Option<String>,
     targets: Vec<MetaTarget>,
@@ -243,33 +246,52 @@ impl RustAdapter {
             .map(|p| (p.id.clone(), p))
             .collect();
 
-        let mut selected_ids = Vec::new();
+        let canonical_manifest = manifest_path.canonicalize().unwrap_or_else(|_| manifest_path.clone());
+        let mut root_ids = Vec::new();
+
         if let Some(ref target_pkg_name) = opt.package {
             let root_pkg = packages_by_id
                 .values()
                 .find(|p| &p.name == target_pkg_name)
                 .ok_or_else(|| anyhow::anyhow!("Package '{}' not found in workspace", target_pkg_name))?;
+            root_ids.push(root_pkg.id.clone());
+        } else {
+            // Check if manifest_path points directly to a package manifest
+            let matching_pkg = packages_by_id
+                .values()
+                .find(|p| {
+                    Path::new(&p.manifest_path)
+                        .canonicalize()
+                        .map(|cp| cp == canonical_manifest)
+                        .unwrap_or(false)
+                });
 
-            let mut to_visit = vec![root_pkg.id.clone()];
-            let mut visited = HashSet::new();
-            while let Some(id) = to_visit.pop() {
-                if visited.insert(id.clone()) {
-                    selected_ids.push(id.clone());
-                    if let Some(ref resolve) = meta.resolve {
-                        if let Some(node) = resolve.nodes.iter().find(|n| n.id == id) {
-                            for dep_id in &node.dependencies {
-                                if !visited.contains(dep_id) {
-                                    to_visit.push(dep_id.clone());
-                                }
+            if let Some(pkg) = matching_pkg {
+                root_ids.push(pkg.id.clone());
+            } else if !meta.workspace_default_members.is_empty() {
+                root_ids.extend(meta.workspace_default_members.clone());
+            } else {
+                root_ids.extend(meta.workspace_members.clone());
+            }
+        }
+
+        let mut selected_ids = Vec::new();
+        let mut to_visit = root_ids;
+        let mut visited = HashSet::new();
+
+        while let Some(id) = to_visit.pop() {
+            if visited.insert(id.clone()) {
+                selected_ids.push(id.clone());
+                if let Some(ref resolve) = meta.resolve {
+                    if let Some(node) = resolve.nodes.iter().find(|n| n.id == id) {
+                        for dep_id in &node.dependencies {
+                            if !visited.contains(dep_id) {
+                                to_visit.push(dep_id.clone());
                             }
                         }
                     }
                 }
             }
-        } else if let Some(ref resolve) = meta.resolve {
-            selected_ids = resolve.nodes.iter().map(|n| n.id.clone()).collect();
-        } else {
-            selected_ids = meta.workspace_members.clone();
         }
 
         let mut units = Vec::new();
@@ -287,22 +309,35 @@ impl RustAdapter {
                         continue;
                     }
 
-                    let kind_str = if target.kind.iter().any(|k| k == "bin") {
-                        "bin".to_string()
+                    let (kind_str, eligibility) = if target.kind.iter().any(|k| k == "bin") {
+                        let elig = if is_workspace {
+                            "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
+                        } else {
+                            "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
+                        };
+                        ("bin".to_string(), elig)
+                    } else if target.kind.iter().any(|k| k == "lib" || k == "rlib") {
+                        let elig = if is_workspace {
+                            "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
+                        } else {
+                            "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
+                        };
+                        ("lib".to_string(), elig)
                     } else if target.kind.iter().any(|k| k == "proc-macro") {
-                        "proc-macro".to_string()
+                        (
+                            "proc-macro".to_string(),
+                            "Uncached (procedural macro; outside initial M2 cache subset)".to_string(),
+                        )
                     } else if target.kind.iter().any(|k| k == "custom-build") {
-                        "custom-build".to_string()
+                        (
+                            "custom-build".to_string(),
+                            "Uncached (build script; outside initial M2 cache subset)".to_string(),
+                        )
                     } else {
-                        "lib".to_string()
-                    };
-
-                    let eligibility = if target.kind.iter().any(|k| k == "custom-build") {
-                        "Uncached in M1 (eligible in M2 with tracked environment and script inputs)".to_string()
-                    } else if is_workspace {
-                        "Uncached in M1 (eligible in M2 workspace action cache)".to_string()
-                    } else {
-                        "Uncached in M1 (eligible in M2 immutable dependency cache)".to_string()
+                        (
+                            target.kind.join(","),
+                            "Uncached (unsupported action kind for initial M2 cache)".to_string(),
+                        )
                     };
 
                     units.push(PlannedCompilationUnit {
