@@ -39,6 +39,8 @@ pub struct PlannedCompilationUnit {
     pub kind: String,
     pub src_path: PathBuf,
     pub cache_eligibility: String,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -359,6 +361,32 @@ impl RustAdapter {
                         )
                     };
 
+                    let mut unit_deps = Vec::new();
+                    if let Some(ref resolve) = meta.resolve {
+                        if let Some(node) = resolve.nodes.iter().find(|n| n.id == pkg.id) {
+                            for dep_id in &node.dependencies {
+                                if let Some(dep_pkg) = packages_by_id.get(dep_id) {
+                                    for dep_target in &dep_pkg.targets {
+                                        if dep_target.kind.iter().any(|k| k == "lib" || k == "rlib") {
+                                            unit_deps.push(dep_target.name.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if is_bin {
+                        for other_target in &pkg.targets {
+                            if other_target.name != target.name
+                                && other_target.kind.iter().any(|k| k == "lib" || k == "rlib")
+                            {
+                                unit_deps.push(other_target.name.clone());
+                            }
+                        }
+                    }
+                    unit_deps.sort();
+                    unit_deps.dedup();
+
                     units.push(PlannedCompilationUnit {
                         package_name: pkg.name.clone(),
                         version: pkg.version.clone(),
@@ -366,6 +394,7 @@ impl RustAdapter {
                         kind: kind_str,
                         src_path: PathBuf::from(&target.src_path),
                         cache_eligibility: eligibility,
+                        dependencies: unit_deps,
                     });
                 }
             }
@@ -410,180 +439,245 @@ impl RustAdapter {
                 .all(|u| u.cache_eligibility.contains("eligible for M2"));
 
         if is_cache_eligible {
-            let action_key = derive_build_action_key(opt, &explanation)?;
-            let cas = match opt.cache_dir {
-                Some(ref cd) => ContentAddressedStore::new(cd.join("cas"))?,
-                None => ContentAddressedStore::default_store()?,
-            };
-            let ac = match opt.cache_dir {
-                Some(ref cd) => ActionCache::new(cd.join("ac"))?,
-                None => ActionCache::default_cache()?,
-            };
+            if let Ok(unit_keys) = derive_unit_action_keys(opt, &explanation) {
+                let cas = match opt.cache_dir {
+                    Some(ref cd) => ContentAddressedStore::new(cd.join("cas"))?,
+                    None => ContentAddressedStore::default_store()?,
+                };
+                let ac = match opt.cache_dir {
+                    Some(ref cd) => ActionCache::new(cd.join("ac"))?,
+                    None => ActionCache::default_cache()?,
+                };
 
-            // 1. Fast path: check action cache without lock
-            if let Ok(Some(entry)) = ac.get(&action_key) {
-                let mut all_valid = !entry.outputs.is_empty();
-                for out in &entry.outputs {
-                    if !cas.has_object(&out.cas_hash)
-                        || !cas.verify_object(&out.cas_hash).unwrap_or(false)
-                    {
-                        all_valid = false;
-                        break;
-                    }
-                }
-                if all_valid {
-                    // Restore all outputs into isolated target directory
-                    for out in &entry.outputs {
-                        let dest = target_dir.join(&out.relative_path);
-                        cas.restore_object(&out.cas_hash, &dest, out.executable)?;
-                    }
+                // 1. Fast path: check action cache for all units
+                let mut all_units_hit = true;
+                let mut cached_entries = Vec::new();
 
-                    let mut actions = Vec::new();
-                    for out in &entry.outputs {
-                        let out_path = target_dir.join(&out.relative_path);
-                        actions.push(Action {
-                            id: format!("cached-{}", out.cas_hash),
-                            kind: if out.executable {
-                                ActionKind::CompileBin
-                            } else {
-                                ActionKind::CompileRlib
-                            },
-                            description: format!("Restored {} from CAS", out.relative_path.display()),
-                            toolchain: toolchain.clone(),
-                            inputs: Vec::new(),
-                            outputs: vec![out_path],
-                            args: Vec::new(),
-                            env: HashMap::new(),
-                            dependencies: Vec::new(),
-                        });
-                    }
-
-                    let plan = BuildPlan {
-                        actions,
-                        target_directory: target_dir,
-                    };
-                    let result = ActionResult {
-                        action_id: entry.action_id,
-                        exit_code: entry.exit_code,
-                        success: entry.exit_code == 0,
-                        stdout: entry.stdout,
-                        stderr: entry.stderr,
-                        cached: true,
-                    };
-                    return Ok((plan, result));
-                }
-            }
-
-            // 2. Cache miss or corrupt: acquire single-flight lock
-            let lock_path = ac.lock_path(&action_key);
-            let _lock = FileLock::acquire_exclusive(&lock_path)?;
-
-            // Double check inside lock
-            if let Ok(Some(entry)) = ac.get(&action_key) {
-                let mut all_valid = !entry.outputs.is_empty();
-                for out in &entry.outputs {
-                    if !cas.has_object(&out.cas_hash)
-                        || !cas.verify_object(&out.cas_hash).unwrap_or(false)
-                    {
-                        all_valid = false;
-                        break;
-                    }
-                }
-                if all_valid {
-                    for out in &entry.outputs {
-                        let dest = target_dir.join(&out.relative_path);
-                        cas.restore_object(&out.cas_hash, &dest, out.executable)?;
-                    }
-
-                    let mut actions = Vec::new();
-                    for out in &entry.outputs {
-                        let out_path = target_dir.join(&out.relative_path);
-                        actions.push(Action {
-                            id: format!("cached-{}", out.cas_hash),
-                            kind: if out.executable {
-                                ActionKind::CompileBin
-                            } else {
-                                ActionKind::CompileRlib
-                            },
-                            description: format!("Restored {} from CAS", out.relative_path.display()),
-                            toolchain: toolchain.clone(),
-                            inputs: Vec::new(),
-                            outputs: vec![out_path],
-                            args: Vec::new(),
-                            env: HashMap::new(),
-                            dependencies: Vec::new(),
-                        });
-                    }
-
-                    let plan = BuildPlan {
-                        actions,
-                        target_directory: target_dir,
-                    };
-                    let result = ActionResult {
-                        action_id: entry.action_id,
-                        exit_code: entry.exit_code,
-                        success: entry.exit_code == 0,
-                        stdout: entry.stdout,
-                        stderr: entry.stderr,
-                        cached: true,
-                    };
-                    return Ok((plan, result));
-                }
-            }
-
-            // 3. Execute compilation
-            let (plan, result) =
-                Self::run_cargo_build(&manifest_path, &target_dir, &toolchain, opt)?;
-
-            // 4. If build succeeded, publish artifacts to CAS and AC
-            if result.success {
-                let mut cached_outputs = Vec::new();
-                for action in &plan.actions {
-                    for output_file in &action.outputs {
-                        if output_file.is_file() {
-                            if let Ok((cas_hash, file_size)) = cas.store_file(output_file) {
-                                let rel = output_file
-                                    .strip_prefix(&target_dir)
-                                    .unwrap_or(output_file)
-                                    .to_path_buf();
-                                let is_executable = action.kind == ActionKind::CompileBin
-                                    && (output_file.extension().is_none()
-                                        || output_file
-                                            .extension()
-                                            .map(|e| e == "exe")
-                                            .unwrap_or(false));
-                                if !cached_outputs
-                                    .iter()
-                                    .any(|c: &CachedOutput| c.relative_path == rel)
+                for unit in &explanation.units {
+                    if let Some(key) = unit_keys.get(&unit.target_name) {
+                        if let Ok(Some(entry)) = ac.get(key) {
+                            let mut valid = !entry.outputs.is_empty();
+                            for out in &entry.outputs {
+                                if !cas.has_object(&out.cas_hash)
+                                    || !cas.verify_object(&out.cas_hash).unwrap_or(false)
                                 {
-                                    cached_outputs.push(CachedOutput {
-                                        relative_path: rel,
-                                        cas_hash,
-                                        file_size,
-                                        executable: is_executable,
-                                    });
+                                    valid = false;
+                                    break;
+                                }
+                            }
+                            if valid {
+                                cached_entries.push((unit, entry));
+                                continue;
+                            }
+                        }
+                    }
+                    all_units_hit = false;
+                    break;
+                }
+
+                if all_units_hit && cached_entries.len() == explanation.units.len() {
+                    let mut actions = Vec::new();
+                    for (_unit, entry) in cached_entries {
+                        let mut outputs = Vec::new();
+                        let mut is_bin = false;
+                        for out in &entry.outputs {
+                            let dest = target_dir.join(&out.relative_path);
+                            cas.restore_object(&out.cas_hash, &dest, out.executable)?;
+                            if out.executable {
+                                is_bin = true;
+                            }
+                            outputs.push(dest);
+                        }
+                        actions.push(Action {
+                            id: entry.action_id.clone(),
+                            kind: if is_bin {
+                                ActionKind::CompileBin
+                            } else {
+                                ActionKind::CompileRlib
+                            },
+                            description: format!("Restored {} from CAS", entry.action_id),
+                            toolchain: toolchain.clone(),
+                            inputs: Vec::new(),
+                            outputs,
+                            args: Vec::new(),
+                            env: HashMap::new(),
+                            dependencies: Vec::new(),
+                        });
+                    }
+
+                    let plan = BuildPlan {
+                        actions,
+                        target_directory: target_dir,
+                    };
+                    let result = ActionResult {
+                        action_id: "build-all".to_string(),
+                        exit_code: 0,
+                        success: true,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        cached: true,
+                    };
+                    return Ok((plan, result));
+                }
+
+                // 2. Cache miss: acquire single-flight lock on root unit
+                let root_unit = explanation.units.last().unwrap();
+                let root_key = &unit_keys[&root_unit.target_name];
+                let lock_path = ac.lock_path(root_key);
+                let _lock = FileLock::acquire_exclusive(&lock_path)?;
+
+                // Double check inside lock
+                let mut all_units_hit = true;
+                let mut cached_entries = Vec::new();
+
+                for unit in &explanation.units {
+                    if let Some(key) = unit_keys.get(&unit.target_name) {
+                        if let Ok(Some(entry)) = ac.get(key) {
+                            let mut valid = !entry.outputs.is_empty();
+                            for out in &entry.outputs {
+                                if !cas.has_object(&out.cas_hash)
+                                    || !cas.verify_object(&out.cas_hash).unwrap_or(false)
+                                {
+                                    valid = false;
+                                    break;
+                                }
+                            }
+                            if valid {
+                                cached_entries.push((unit, entry));
+                                continue;
+                            }
+                        }
+                    }
+                    all_units_hit = false;
+                    break;
+                }
+
+                if all_units_hit && cached_entries.len() == explanation.units.len() {
+                    let mut actions = Vec::new();
+                    for (_unit, entry) in cached_entries {
+                        let mut outputs = Vec::new();
+                        let mut is_bin = false;
+                        for out in &entry.outputs {
+                            let dest = target_dir.join(&out.relative_path);
+                            cas.restore_object(&out.cas_hash, &dest, out.executable)?;
+                            if out.executable {
+                                is_bin = true;
+                            }
+                            outputs.push(dest);
+                        }
+                        actions.push(Action {
+                            id: entry.action_id.clone(),
+                            kind: if is_bin {
+                                ActionKind::CompileBin
+                            } else {
+                                ActionKind::CompileRlib
+                            },
+                            description: format!("Restored {} from CAS", entry.action_id),
+                            toolchain: toolchain.clone(),
+                            inputs: Vec::new(),
+                            outputs,
+                            args: Vec::new(),
+                            env: HashMap::new(),
+                            dependencies: Vec::new(),
+                        });
+                    }
+
+                    let plan = BuildPlan {
+                        actions,
+                        target_directory: target_dir,
+                    };
+                    let result = ActionResult {
+                        action_id: "build-all".to_string(),
+                        exit_code: 0,
+                        success: true,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        cached: true,
+                    };
+                    return Ok((plan, result));
+                }
+
+                // 3. Execute compilation
+                let (plan, result) =
+                    Self::run_cargo_build(&manifest_path, &target_dir, &toolchain, opt)?;
+
+                // 4. Publish artifacts per action unit ONLY if ALL outputs for that action exist and store cleanly
+                if result.success {
+                    for action in &plan.actions {
+                        let matching_unit = explanation.units.iter().find(|u| {
+                            action.id.starts_with(&format!("{}-", u.target_name))
+                                || action.id == u.target_name
+                        });
+
+                        if let Some(unit) = matching_unit {
+                            if let Some(action_key) = unit_keys.get(&unit.target_name) {
+                                if action.outputs.is_empty() {
+                                    continue;
+                                }
+
+                                let mut stored_outputs = Vec::new();
+                                let mut all_outputs_stored = true;
+
+                                for output_file in &action.outputs {
+                                    if !output_file.is_file() {
+                                        all_outputs_stored = false;
+                                        break;
+                                    }
+
+                                    match cas.store_file(output_file) {
+                                        Ok((cas_hash, file_size)) => {
+                                            let rel = output_file
+                                                .strip_prefix(&target_dir)
+                                                .unwrap_or(output_file)
+                                                .to_path_buf();
+                                            let is_executable = action.kind == ActionKind::CompileBin
+                                                && (output_file.extension().is_none()
+                                                    || output_file
+                                                        .extension()
+                                                        .map(|e| e == "exe")
+                                                        .unwrap_or(false));
+                                            if !stored_outputs
+                                                .iter()
+                                                .any(|c: &CachedOutput| c.relative_path == rel)
+                                            {
+                                                stored_outputs.push(CachedOutput {
+                                                    relative_path: rel,
+                                                    cas_hash,
+                                                    file_size,
+                                                    executable: is_executable,
+                                                });
+                                            }
+                                        }
+                                        Err(_) => {
+                                            all_outputs_stored = false;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                // Publish ONLY if EVERY required output was captured and stored successfully
+                                if all_outputs_stored && !stored_outputs.is_empty() {
+                                    let entry = ActionCacheEntry {
+                                        action_key: action_key.clone(),
+                                        action_id: action.id.clone(),
+                                        created_at_secs: std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .map(|d| d.as_secs())
+                                            .unwrap_or(0),
+                                        outputs: stored_outputs,
+                                        stdout: String::new(),
+                                        stderr: String::new(),
+                                        exit_code: 0,
+                                    };
+                                    let _ = ac.put(&entry);
                                 }
                             }
                         }
                     }
                 }
 
-                let entry = ActionCacheEntry {
-                    action_key: action_key.clone(),
-                    action_id: "build-all".to_string(),
-                    created_at_secs: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0),
-                    outputs: cached_outputs,
-                    stdout: result.stdout.clone(),
-                    stderr: result.stderr.clone(),
-                    exit_code: result.exit_code,
-                };
-                let _ = ac.put(&entry);
+                return Ok((plan, result));
             }
-
-            return Ok((plan, result));
         }
 
         // Uncached execution (ineligible actions or --no-cache)
@@ -748,29 +842,174 @@ impl RustAdapter {
     }
 }
 
-/// Recursively discovers and hashes all Rust source files and manifests in a package directory.
-fn hash_package_sources(package_dir: &Path) -> Result<Vec<(String, String)>> {
-    let mut sources = Vec::new();
-    let cargo_toml = package_dir.join("Cargo.toml");
-    if cargo_toml.is_file() {
-        if let Ok(hash) = Sha256::digest_file(&cargo_toml) {
-            sources.push(("Cargo.toml".to_string(), hash));
+/// Discovers all matching dep-info (.d) files produced by rustc/cargo for the target.
+fn find_dep_info_files(target_dir: &Path, target_name: &str) -> Vec<PathBuf> {
+    let mut d_files = Vec::new();
+    let norm_target = target_name.replace('-', "_");
+    for profile in &["debug", "release"] {
+        let p_dir = target_dir.join(profile);
+        if !p_dir.is_dir() {
+            continue;
+        }
+        let direct = p_dir.join(format!("{}.d", target_name));
+        if direct.is_file() {
+            d_files.push(direct);
+        }
+        let direct_norm = p_dir.join(format!("{}.d", norm_target));
+        if direct_norm.is_file() && direct_norm != p_dir.join(format!("{}.d", target_name)) {
+            d_files.push(direct_norm);
+        }
+        let deps_dir = p_dir.join("deps");
+        if deps_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(&deps_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().map(|e| e == "d").unwrap_or(false) {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            let matches = stem == target_name
+                                || stem == norm_target
+                                || stem.starts_with(&format!("{}-", target_name))
+                                || stem.starts_with(&format!("{}-", norm_target))
+                                || stem.starts_with(&format!("lib{}-", norm_target))
+                                || stem.starts_with(&format!("lib{}-", target_name));
+                            if matches {
+                                d_files.push(path);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
-    let cargo_lock = package_dir.join("Cargo.lock");
-    if cargo_lock.is_file() {
-        if let Ok(hash) = Sha256::digest_file(&cargo_lock) {
-            sources.push(("Cargo.lock".to_string(), hash));
+    d_files
+}
+
+/// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths.
+fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
+    let content = fs::read_to_string(d_path)
+        .with_context(|| format!("Failed to read dep-info file {:?}", d_path))?;
+    let mut files = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        let tokens_part = if let Some((_, deps_part)) = line.split_once(':') {
+            deps_part
+        } else {
+            line
+        };
+        for token in tokens_part.split_whitespace() {
+            let token = token.trim_end_matches('\\');
+            if !token.is_empty() {
+                let p = PathBuf::from(token);
+                if p.is_file() {
+                    files.push(p);
+                }
+            }
+        }
+    }
+    Ok(files)
+}
+
+/// Gathers and hashes all effective compile-time inputs for a specific unit:
+/// - Cargo.toml and Cargo.lock
+/// - Applicable .cargo/config.toml or .cargo/config files
+/// - Global ~/.cargo/config.toml / $CARGO_HOME configs if present
+/// - All source and asset files in the package directory
+/// - Tracked dep-info (.d) files from rustc (including include_bytes! / include_str!)
+///
+/// Returns error on any read/hash failure to prevent publishing invalid cache keys.
+fn hash_unit_inputs(
+    package_dir: &Path,
+    target_dir: &Path,
+    target_name: &str,
+) -> Result<Vec<(String, String)>> {
+    let mut inputs = Vec::new();
+
+    // 1. Mandatory package manifest
+    let cargo_toml = package_dir.join("Cargo.toml");
+    if cargo_toml.is_file() {
+        let hash = Sha256::digest_file(&cargo_toml)
+            .with_context(|| format!("Failed to hash {:?}", cargo_toml))?;
+        inputs.push(("Cargo.toml".to_string(), hash));
+    } else {
+        bail!("Cargo.toml not found in {:?}", package_dir);
+    }
+
+    // 2. Lockfile in package directory or ancestors
+    let mut lock_candidate = Some(package_dir);
+    while let Some(dir) = lock_candidate {
+        let lock_path = dir.join("Cargo.lock");
+        if lock_path.is_file() {
+            let hash = Sha256::digest_file(&lock_path)
+                .with_context(|| format!("Failed to hash {:?}", lock_path))?;
+            inputs.push(("Cargo.lock".to_string(), hash));
+            break;
+        }
+        lock_candidate = dir.parent();
+    }
+
+    // 3. Applicable .cargo/config.toml or .cargo/config in package dir or ancestor dirs
+    let mut config_candidate = Some(package_dir);
+    while let Some(dir) = config_candidate {
+        let toml_cfg = dir.join(".cargo").join("config.toml");
+        if toml_cfg.is_file() {
+            let hash = Sha256::digest_file(&toml_cfg)
+                .with_context(|| format!("Failed to hash {:?}", toml_cfg))?;
+            inputs.push((format!("{}/.cargo/config.toml", dir.display()), hash));
+        }
+        let bare_cfg = dir.join(".cargo").join("config");
+        if bare_cfg.is_file() {
+            let hash = Sha256::digest_file(&bare_cfg)
+                .with_context(|| format!("Failed to hash {:?}", bare_cfg))?;
+            inputs.push((format!("{}/.cargo/config", dir.display()), hash));
+        }
+        config_candidate = dir.parent();
+    }
+
+    // 4. Global Cargo configs in $CARGO_HOME or $HOME/.cargo
+    if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+        let home_path = PathBuf::from(cargo_home);
+        for name in &["config.toml", "config"] {
+            let p = home_path.join(name);
+            if p.is_file() {
+                let hash = Sha256::digest_file(&p)
+                    .with_context(|| format!("Failed to hash {:?}", p))?;
+                inputs.push((format!("CARGO_HOME/{}", name), hash));
+            }
+        }
+    } else if let Ok(home) = std::env::var("HOME") {
+        let cargo_dir = PathBuf::from(home).join(".cargo");
+        for name in &["config.toml", "config"] {
+            let p = cargo_dir.join(name);
+            if p.is_file() {
+                let hash = Sha256::digest_file(&p)
+                    .with_context(|| format!("Failed to hash {:?}", p))?;
+                inputs.push((format!("~/.cargo/{}", name), hash));
+            }
         }
     }
 
+    // 5. Check if rustc .d (dep-info) file exists for tracked compile-time includes
+    for d_path in find_dep_info_files(target_dir, target_name) {
+        let tracked_files = parse_dep_info(&d_path)?;
+        for p in tracked_files {
+            let hash = Sha256::digest_file(&p)
+                .with_context(|| format!("Failed to hash tracked dep-info file {:?}", p))?;
+            let rel = p
+                .strip_prefix(package_dir)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .to_string();
+            inputs.push((rel, hash));
+        }
+    }
+
+    // 6. Recursive scan of package directory (src, assets, templates, etc.)
     let mut stack = vec![package_dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries = match fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
+        let entries = fs::read_dir(&dir)
+            .with_context(|| format!("Failed to read directory {:?}", dir))?;
+        for entry in entries {
+            let entry = entry?;
             let path = entry.path();
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
@@ -779,32 +1018,67 @@ fn hash_package_sources(package_dir: &Path) -> Result<Vec<(String, String)>> {
                     continue;
                 }
                 stack.push(path);
-            } else if path.is_file() && path.extension().map(|e| e == "rs").unwrap_or(false) {
-                if let Ok(rel) = path.strip_prefix(package_dir) {
-                    let rel_str = rel.to_string_lossy().to_string();
-                    if let Ok(h) = Sha256::digest_file(&path) {
-                        sources.push((rel_str, h));
-                    }
+            } else if path.is_file() {
+                let in_src = path.starts_with(package_dir.join("src"));
+                let is_rs = path.extension().map(|e| e == "rs").unwrap_or(false);
+                let is_manifest = name_str == "Cargo.toml" || name_str == "Cargo.lock";
+                let is_asset = path.starts_with(package_dir.join("assets"))
+                    || path.starts_with(package_dir.join("templates"))
+                    || path.starts_with(package_dir.join("data"))
+                    || path.starts_with(package_dir.join("static"));
+                if in_src || is_rs || is_manifest || is_asset {
+                    let hash = Sha256::digest_file(&path)
+                        .with_context(|| format!("Failed to hash source file {:?}", path))?;
+                    let rel = path
+                        .strip_prefix(package_dir)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+                    inputs.push((rel, hash));
                 }
             }
         }
     }
-    sources.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(sources)
+
+    inputs.sort_by(|a, b| a.0.cmp(&b.0));
+    inputs.dedup_by(|a, b| a.0 == b.0);
+    Ok(inputs)
 }
 
-/// Derives a deterministic Action Key for the entire build plan.
-fn derive_build_action_key(
+/// Derives independent deterministic Action Keys for each compilation unit in topological order.
+fn derive_unit_action_keys(
     opt: &RustBuildOptions,
     explanation: &EffectivePlanExplanation,
-) -> Result<String> {
-    let mut all_sources = Vec::new();
-    let mut visited_pkg_dirs = HashSet::new();
-    let mut dep_info = Vec::new();
+) -> Result<HashMap<String, String>> {
+    let mut unit_keys: HashMap<String, String> = HashMap::new();
+    let mut inputs_by_unit: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+    // Gather effective environment flags (RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS, etc.)
+    let mut effective_flags = opt.extra_args.clone();
+    let mut relevant_env_keys: Vec<String> = std::env::vars()
+        .filter_map(|(k, _)| {
+            if k == "RUSTFLAGS"
+                || k == "CARGO_ENCODED_RUSTFLAGS"
+                || k == "RUSTC_WRAPPER"
+                || k == "RUSTC_WORKSPACE_WRAPPER"
+                || k.starts_with("CARGO_CFG_")
+                || k.starts_with("CARGO_PKG_")
+                || k.starts_with("RUST_")
+            {
+                Some(k)
+            } else {
+                None
+            }
+        })
+        .collect();
+    relevant_env_keys.sort();
+    for k in relevant_env_keys {
+        if let Ok(v) = std::env::var(&k) {
+            effective_flags.push(format!("ENV:{}={}", k, v));
+        }
+    }
 
     for unit in &explanation.units {
-        dep_info.push((unit.package_name.as_str(), unit.version.as_str()));
-
         let mut cur = unit.src_path.parent();
         let mut pkg_dir = None;
         while let Some(dir) = cur {
@@ -815,40 +1089,93 @@ fn derive_build_action_key(
             cur = dir.parent();
         }
 
-        if let Some(p_dir) = pkg_dir {
-            if visited_pkg_dirs.insert(p_dir.clone()) {
-                if let Ok(pkg_sources) = hash_package_sources(&p_dir) {
-                    for (rel_path, h) in pkg_sources {
-                        let qualified = format!("{}/{}", unit.package_name, rel_path);
-                        all_sources.push((qualified, h));
-                    }
-                }
-            }
-        } else if let Ok(h) = Sha256::digest_file(&unit.src_path) {
-            all_sources.push((unit.target_name.clone(), h));
-        }
+        let pkg_dir = pkg_dir.unwrap_or_else(|| {
+            unit.src_path.parent().unwrap_or(&unit.src_path).to_path_buf()
+        });
+
+        let inputs = hash_unit_inputs(&pkg_dir, &explanation.target_directory, &unit.target_name)?;
+        inputs_by_unit.insert(unit.target_name.clone(), inputs);
     }
 
-    let source_refs: Vec<(&str, &str)> = all_sources
+    let planned_target_names: HashSet<&str> = explanation
+        .units
         .iter()
-        .map(|(p, h)| (p.as_str(), h.as_str()))
+        .map(|u| u.target_name.as_str())
         .collect();
 
+    let mut remaining: Vec<&PlannedCompilationUnit> = explanation.units.iter().collect();
     let target_triple = explanation
         .toolchain
         .target_triple
         .as_deref()
         .unwrap_or("unknown");
 
-    let action_key = ActionCache::derive_action_key(
-        &explanation.toolchain.version,
-        target_triple,
-        &explanation.profile,
-        &opt.extra_args,
-        &opt.features,
-        &source_refs,
-        &dep_info,
-    );
+    while !remaining.is_empty() {
+        let mut progress = false;
+        let mut next_remaining = Vec::new();
 
-    Ok(action_key)
+        for unit in remaining {
+            let all_deps_ready = unit
+                .dependencies
+                .iter()
+                .filter(|dep| planned_target_names.contains(dep.as_str()))
+                .all(|dep| unit_keys.contains_key(dep));
+
+            if all_deps_ready {
+                let unit_inputs = &inputs_by_unit[&unit.target_name];
+                let source_refs: Vec<(&str, &str)> = unit_inputs
+                    .iter()
+                    .map(|(p, h)| (p.as_str(), h.as_str()))
+                    .collect();
+
+                let mut dep_hashes = Vec::new();
+                for dep_name in &unit.dependencies {
+                    if let Some(dep_key) = unit_keys.get(dep_name) {
+                        dep_hashes.push((dep_name.as_str(), dep_key.as_str()));
+                    }
+                }
+                dep_hashes.sort();
+
+                let key = ActionCache::derive_action_key(
+                    &explanation.toolchain.version,
+                    target_triple,
+                    &explanation.profile,
+                    &effective_flags,
+                    &opt.features,
+                    &source_refs,
+                    &dep_hashes,
+                );
+
+                unit_keys.insert(unit.target_name.clone(), key);
+                progress = true;
+            } else {
+                next_remaining.push(unit);
+            }
+        }
+
+        if !progress {
+            for unit in next_remaining {
+                let unit_inputs = &inputs_by_unit[&unit.target_name];
+                let source_refs: Vec<(&str, &str)> = unit_inputs
+                    .iter()
+                    .map(|(p, h)| (p.as_str(), h.as_str()))
+                    .collect();
+                let key = ActionCache::derive_action_key(
+                    &explanation.toolchain.version,
+                    target_triple,
+                    &explanation.profile,
+                    &effective_flags,
+                    &opt.features,
+                    &source_refs,
+                    &[],
+                );
+                unit_keys.insert(unit.target_name.clone(), key);
+            }
+            break;
+        }
+
+        remaining = next_remaining;
+    }
+
+    Ok(unit_keys)
 }

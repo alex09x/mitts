@@ -155,9 +155,8 @@ impl ActionCache {
         source_hashes: &[(&str, &str)],
         dep_hashes: &[(&str, &str)],
     ) -> String {
-        let mut sorted_flags = flags.to_vec();
-        sorted_flags.sort();
-
+        // Compiler flags are order-sensitive (e.g. repeated arguments or overrides).
+        // Preserve exact command-line invocation order.
         let mut sorted_features = features.to_vec();
         sorted_features.sort();
 
@@ -181,7 +180,7 @@ impl ActionCache {
         payload.push('\n');
 
         payload.push_str("flags: ");
-        payload.push_str(&sorted_flags.join(" "));
+        payload.push_str(&flags.join(" "));
         payload.push('\n');
 
         payload.push_str("features: ");
