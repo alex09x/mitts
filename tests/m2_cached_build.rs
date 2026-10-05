@@ -871,3 +871,164 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn test_env_macro_tracking_differentiates_action_keys() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws.path()).expect("copy fixture");
+
+    let manifest = temp_ws.path().join("Cargo.toml");
+    let target_dir = temp_ws.path().join("target");
+    let main_rs = temp_ws.path().join("src").join("main.rs");
+
+    // Add env! macro to main.rs
+    fs::write(
+        &main_rs,
+        r#"
+fn main() {
+    let v = option_env!("MITTS_CUSTOM_TEST_VAR");
+    println!("var: {:?}", v);
+}
+"#,
+    )
+    .expect("write main.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(target_dir),
+        ..Default::default()
+    };
+
+    // 1. With var unset:
+    std::env::remove_var("MITTS_CUSTOM_TEST_VAR");
+    let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan unset");
+    let unit1 = expl1.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
+    assert!(unit1.env_vars.contains(&"MITTS_CUSTOM_TEST_VAR".to_string()));
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys");
+    let k_unset = keys1[&unit1.unit_id()].clone();
+
+    // 2. With var = "v1":
+    std::env::set_var("MITTS_CUSTOM_TEST_VAR", "v1");
+    let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan v1");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys");
+    let k_v1 = keys2[&unit1.unit_id()].clone();
+
+    // 3. With var = "v2":
+    std::env::set_var("MITTS_CUSTOM_TEST_VAR", "v2");
+    let expl3 = RustAdapter::explain_plan(&opt).expect("explain plan v2");
+    let keys3 = RustAdapter::derive_unit_action_keys(&opt, &expl3).expect("derive keys");
+    let k_v2 = keys3[&unit1.unit_id()].clone();
+
+    assert_ne!(k_unset, k_v1, "Unset and set env var must have distinct action keys");
+    assert_ne!(k_v1, k_v2, "Different env var values must have distinct action keys");
+
+    // Clean up env var
+    std::env::remove_var("MITTS_CUSTOM_TEST_VAR");
+}
+
+#[test]
+fn test_untracked_dynamic_env_macro_marks_unit_uncached() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws.path()).expect("copy fixture");
+
+    let manifest = temp_ws.path().join("Cargo.toml");
+    let target_dir = temp_ws.path().join("target");
+    let main_rs = temp_ws.path().join("src").join("main.rs");
+
+    // Add dynamic env!(concat!(...)) macro to main.rs
+    fs::write(
+        &main_rs,
+        r#"
+fn main() {
+    let v = env!(concat!("CARGO_", "PKG_NAME"));
+    println!("name: {}", v);
+}
+"#,
+    )
+    .expect("write main.rs");
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(target_dir),
+        ..Default::default()
+    };
+
+    let expl = RustAdapter::explain_plan(&opt).expect("explain plan");
+    let unit = expl.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
+    assert!(
+        unit.cache_eligibility.contains("Uncached (contains untracked dynamic env!/option_env! macro)"),
+        "Dynamic env! invocation must mark unit uncached, got: {}",
+        unit.cache_eligibility
+    );
+
+    // Build should succeed through uncached fallback
+    let (_, res) = RustAdapter::build(&opt).expect("build uncached");
+    assert!(res.success);
+    assert!(!res.cached, "Uncached unit must not be restored from cache");
+}
+
+#[test]
+fn test_cross_workspace_dependency_action_key_equivalence_and_reuse() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_ws1 = tempfile::tempdir().expect("ws1 tempdir");
+    let temp_ws2 = tempfile::tempdir().expect("ws2 tempdir");
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, temp_ws1.path()).expect("copy fixture to ws1");
+    copy_dir_recursive(&src_fixture, temp_ws2.path()).expect("copy fixture to ws2");
+
+    let m1 = temp_ws1.path().join("Cargo.toml");
+    let m2 = temp_ws2.path().join("Cargo.toml");
+
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(m1),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_ws1.path().join("target")),
+        ..Default::default()
+    };
+    let opt2 = RustBuildOptions {
+        manifest_path: Some(m2),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_ws2.path().join("target")),
+        ..Default::default()
+    };
+
+    let expl1 = RustAdapter::explain_plan(&opt1).expect("explain ws1");
+    let expl2 = RustAdapter::explain_plan(&opt2).expect("explain ws2");
+
+    let itoa1 = expl1.units.iter().find(|u| u.package_name == "itoa").expect("itoa in ws1");
+    let itoa2 = expl2.units.iter().find(|u| u.package_name == "itoa").expect("itoa in ws2");
+
+    assert!(!itoa1.is_workspace, "itoa must be external dependency");
+    assert!(!itoa2.is_workspace, "itoa must be external dependency");
+
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt1, &expl1).expect("keys ws1");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt2, &expl2).expect("keys ws2");
+
+    let key_itoa1 = &keys1[&itoa1.unit_id()];
+    let key_itoa2 = &keys2[&itoa2.unit_id()];
+
+    assert_eq!(
+        key_itoa1, key_itoa2,
+        "Dependency action keys must be identical across distinct consuming workspaces!"
+    );
+
+    // Build ws1 first to populate cache with itoa
+    let (_, res1) = RustAdapter::build(&opt1).expect("build ws1");
+    assert!(res1.success);
+
+    // Verify itoa was stored in ActionCache
+    let ac = ActionCache::new(temp_cache.path().join("ac")).expect("ac");
+    let itoa_entry = ac.get(key_itoa1).expect("get itoa entry");
+    assert!(itoa_entry.is_some(), "itoa must be cached in Action Cache");
+
+    // Build ws2: itoa should be reused from cache
+    let (_, res2) = RustAdapter::build(&opt2).expect("build ws2");
+    assert!(res2.success);
+}
+
