@@ -97,3 +97,67 @@ fn test_scan_env_macros_unicode_does_not_panic() {
         EnvMacroDiscovery::Tracked(vec!["VAR_AFTER_UNICODE".to_string()])
     );
 }
+
+#[test]
+fn test_scan_env_macros_whitespace_and_comments_around_bang() {
+    let code = r#"
+        fn main() {
+            let a = env ! ("TRIVIA_SPACE");
+            let b = option_env   !   ("TRIVIA_MANY_SPACES");
+            let c = env /* block */ ! /* block2 */ ("TRIVIA_BLOCK_COMMENT");
+            let d = env // line comment
+                ! // line comment 2
+                ("TRIVIA_LINE_COMMENT");
+            let e = core::env ! ("TRIVIA_CORE");
+            let f = std::env ! ("TRIVIA_STD");
+            let g = env ! [ "TRIVIA_BRACKET" ];
+            let h = env ! { "TRIVIA_BRACE" };
+        }
+    "#;
+    assert_eq!(
+        scan_env_macros(code),
+        EnvMacroDiscovery::Tracked(vec![
+            "TRIVIA_BLOCK_COMMENT".to_string(),
+            "TRIVIA_BRACE".to_string(),
+            "TRIVIA_BRACKET".to_string(),
+            "TRIVIA_CORE".to_string(),
+            "TRIVIA_LINE_COMMENT".to_string(),
+            "TRIVIA_MANY_SPACES".to_string(),
+            "TRIVIA_SPACE".to_string(),
+            "TRIVIA_STD".to_string(),
+        ])
+    );
+}
+
+#[test]
+fn test_scan_env_macros_ignores_non_macro_env() {
+    let code = r#"
+        fn main() {
+            let env = "value";
+            if env != "production" {
+                let env_var = 123;
+                let environmental = 456;
+                let my_env = 789;
+            }
+            let valid = env ! ("ACTUAL_VAR");
+        }
+    "#;
+    assert_eq!(
+        scan_env_macros(code),
+        EnvMacroDiscovery::Tracked(vec!["ACTUAL_VAR".to_string()])
+    );
+}
+
+#[test]
+fn test_scan_env_macros_dynamic_with_whitespace_before_bang() {
+    let code = r#"
+        fn main() {
+            let dynamic = env ! (concat!("DYNAMIC", "_VALUE"));
+        }
+    "#;
+    assert_eq!(
+        scan_env_macros(code),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
+}
+
