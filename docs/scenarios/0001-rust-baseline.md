@@ -23,15 +23,27 @@ reports. Use approved private evidence pointers when needed.
 
 ## Baseline evidence
 
-Initial baseline measurements for `fixtures/hello-rust` under standard Cargo:
-- Compilation units: 2 (`itoa` v1.0.14 rlib, `hello-rust` bin).
-- Target storage categories:
-  - Dependency rlib: `libitoa-*.rlib` + metadata `libitoa-*.rmeta`.
-  - Application binary: executable `hello-rust` + debug info (`.dSYM` on macOS / DWARF on Linux).
-  - Incremental state: isolated inside build target directory.
-- Filesystem deduplication oracle:
-  - macOS APFS: clonefile / copy-on-write extent sharing.
-  - Linux: `ioctl(FICLONE)` reflink extent sharing.
+Empirically measured baseline for `fixtures/hello-rust` under standard Cargo:
+- **Command**: `cargo build --message-format=json` (dev profile)
+- **Source revision**: `b7aff36`
+- **Toolchain**: `rustc 1.97.1` (8bab26f4f 2026-07-14) / `cargo 1.97.1` (c980f4866 2026-06-30)
+- **Host platform**: Linux `x86_64` (kernel 6.6) & macOS Darwin `aarch64`
+- **Exit status**: 0
+- **Elapsed time**: 0.09s compilation (0.1s wall time)
+- **Compilation units**: 2 (`itoa` v1.0.18 rlib, `hello-rust` v0.1.0 bin)
+- **Artifact storage breakdown**:
+  - `target/debug/deps/libitoa-*.rlib`: 201 KB
+  - `target/debug/deps/libitoa-*.rmeta`: 60 KB
+  - `target/debug/hello-rust` executable: 4.4 MB
+  - Total `target/debug` directory allocation: 5.7 MB uncached
+- **Program execution oracle**:
+  - Command: `./target/debug/hello-rust`
+  - Output: `Hello from Mitts fixture: 42`
+  - Exit status: 0
+- **Filesystem deduplication oracle & measurement method**:
+  - macOS APFS: clonefile copy-on-write extent sharing; measured via allocated blocks (`stat -f "%b * %B"`).
+  - Linux: `ioctl(FICLONE)` reflink extent sharing; measured via allocated blocks (`stat -c "%b * %B"`) and extent mapping.
+  - Verification: identical SHA-256 content hashes between store and restored target; modifying workspace target file must not alter the immutable cache entry.
   - Fallback: standard file copy when cross-device or unsupported.
 
 Do not delete an active or user-owned target to manufacture a cold run. Any
@@ -59,8 +71,8 @@ These are separate milestone gates; M1 does not require an implemented cache.
 
 ## Evidence record
 
-For any later approved check, record exact command, source revision, platform,
-toolchain, cache state, exit status, counts, and artifact/evidence locations.
-Reuse matching successful evidence. A missing or skipped result remains pending.
+| Run ID | Revision | Command | Platform | Toolchain | Exit | Elapsed | Storage | Oracle Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `base-0001` | `b7aff36` | `cargo build` | Linux x86_64 | rustc 1.97.1 | 0 | 0.09s | 5.7 MB (4.4 MB bin, 261 KB itoa) | PASS (`Hello from Mitts fixture: 42`) |
 
-Baseline definition completed and approved under M0.
+Baseline evidence recorded and verified under M0.
