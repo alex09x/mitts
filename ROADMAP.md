@@ -73,104 +73,66 @@ Gate: cleared. The supported program has the exact same observable behavior as i
 build (`Hello from Mitts fixture: 42`, exit 0); failures preserve diagnostics and exit codes.
 No speedup claim.
 
-## M2 — Share compatible compiler results
+## M2 — Content-Addressed Store (CAS) & Action Cache (AC)
 
-- [ ] Introduce an immutable, content-addressed local store and versioned key format.
-  Include compiler/backend, platform, flags/features, sources, dependency artifacts,
-  and relevant tracked environment/native inputs; hashes of manifests alone are insufficient.
-- [ ] Start with an explicitly eligible subset of Rust library actions. Keep
-  unknown-input actions uncached; initially exclude build-script execution,
-  procedural macros, and native-link work unless their input boundary is proven.
-- [ ] Restore eligible results into a separate build directory per live workspace;
-  keep mutable incremental state isolated. Record cache hits, misses, bypasses,
-  corruption, and errors with explanations.
-- [ ] Specify absolute-path handling before normalizing keys: preserve runtime,
-  diagnostic, and debugger meaning. Do not merge different real inputs under a
-  convenient shared path spelling.
-- [ ] Publish entries atomically; verify format/content hashes on restore and keep
-  partially written entries invisible. Establish same-key producer/reader races
-  and interrupted-write correctness before any shared store is enabled.
-- [ ] Provide a cache-off switch. Check coexistence with ordinary Cargo and
-  rust-analyzer without overwriting their configuration or poisoning their artifacts.
-- [ ] Test reuse across two checkouts, invalidation for each covered input class,
-  truncated/corrupt entries, interrupted writes, and unchanged error behavior.
+- [ ] Introduce an immutable, content-addressed local store (CAS) at `~/.cache/mitts/cas/` and versioned Action Cache (AC).
+- [ ] Implement deterministic Action Key derivation:
+  `Key = SHA256(rustc_version + target_triple + flags + features + source_hashes + dep_artifact_hashes)`.
+- [ ] Atomically publish artifacts into CAS (`chmod 444`, `rename` staging); guarantee corrupted/interrupted entries never appear.
+- [ ] Single-flight execution: file-based locking (`flock`) on active Action Keys to eliminate duplicate compilation across concurrent workspaces/terminals.
+- [ ] Initial eligible subset: pure Rust rlib and binary compile actions with verified input tracking.
+- [ ] Test CAS hash integrity, action cache hit/miss semantics, concurrent locks, and cache-off mode.
 
-Gate: the same supported inputs reuse work, changed covered inputs do not produce
-wrong hits, and incomplete/corrupt entries never become successful builds. If the
-covered workload cannot reuse enough work to meet M0's goal, stop or revise scope.
+Gate: compatible action inputs yield instant cache hits; incomplete or corrupt entries never become successful builds; concurrent builds coordinate safely on the same action key.
 
-## M3 — Save real disk space and survive concurrency
+## M3 — Fast parallel fetcher & Cargo.lock resolution
 
-- [ ] Restore immutable artifacts using copy-on-write where supported; clearly
-  report copy fallback and cross-volume limits. Do not share writable hardlinks.
-- [ ] Coordinate duplicate in-flight actions without serializing unrelated builds;
-  preserve each caller's cancellation and result delivery.
-- [ ] Add storage budgets and conservative cleanup of validated, owned cache entries.
-  Protect active restores/writes and never walk arbitrary projects deleting targets.
-- [ ] Test concurrent producers/readers, cancellation, cleanup during active work,
-  and immutable-store preservation after a restored file changes. M2's basic
-  publication/race correctness is a prerequisite, not deferred to this milestone.
+- [ ] Implement two-phase dependency management based on standard `Cargo.lock` (Decision 0002):
+  - Fast-path: read existing `Cargo.lock` directly in <2ms.
+  - Sync-path: when `Cargo.lock` is missing or `Cargo.toml` is modified, resolve dependencies using PubGrub against crates.io sparse index and generate standard, valid `Cargo.lock`.
+- [ ] Concurrent multithreaded downloader: fetch `.crate` archives in parallel directly into global sources store (`~/.cache/mitts/sources/`), verifying SHA-256 checksums from `Cargo.lock`.
+- [ ] Zero local source pollution: dependencies are fetched and unpacked once globally per machine, not duplicated per workspace.
+- [ ] Test lockfile generation equivalence with Cargo, missing lockfile handling, offline cache hits, and concurrent downloads.
 
-Gate: the supported filesystem demonstrates reduced physical allocation for
-compatible repeated artifacts, not just smaller-looking directories; concurrency
-and cleanup do not corrupt artifacts or break active builds.
+Gate: `Cargo.lock` is 100% compatible with ordinary Cargo; packages are fetched concurrently into the global store without invoking `cargo`; checksums match `Cargo.lock`.
 
-## M4 — Expand verified Rust compatibility
+## M4 — Mitts-native parallel DAG runner (Zero target pollution)
 
-- [ ] Publish a supported/bypassed/refused matrix and expand one category at a time:
-  workspaces, path/registry/Git dependencies, features, profiles, cfg, and patches.
-- [ ] Handle `build.rs`, proc macros, native libraries, and compile-time reads as
-  explicit input/trust boundaries. An undeclared external input stays uncached
-  unless a safe declared or isolated model covers it.
-- [ ] Validate debugger/diagnostic paths, platform-specific artifacts, toolchain
-  changes, and normal Cargo interoperability without timestamp-based freshness tricks.
-- [ ] If Mitts owns dependency resolution/planning, deliver that work explicitly
-  with lockfile/feature/build-script compatibility evidence. Otherwise document
-  the remaining Cargo-owned boundary; do not claim a complete replacement.
+- [ ] Implement the autonomous compilation DAG runner:
+  - Construct topological dependency graph from `Cargo.lock`.
+  - Compile leaf crates in parallel across all CPU cores directly invoking `rustc`.
+  - Pipelined compilation: feed `.rmeta` outputs directly from Global Store to dependent crates via `--extern crate_name=/path/to/cas/...`.
+- [ ] Zero intermediate target pollution: dependency `.rmeta` and `.rlib` live solely in Global Store; local workspace receives only the final compiled binary (`./my-app`).
+- [ ] CoW reflink fallback for tools requiring local file staging (e.g. legacy IDE workflows or specific linkers).
+- [ ] Handle `build.rs` and procedural macros with explicit sandboxed execution and environment tracking.
+- [ ] Test multi-crate DAG parallel compilation, compiler diagnostic preservation, and clean workspace behavior.
 
-Gate: each advertised compatibility category has directly affected regressions;
-unsupported categories are still honest. No second independent lockfile by default.
+Gate: full build succeeds via direct `rustc` invocations without running `cargo build`; local workspace contains only the requested output binary; builds are measurably faster and use zero duplicate disk space.
 
-## M5 — Run a bounded pilot, then prepare delivery
+## M5 — Real-world pilot, benchmarks, and coexistence validation
 
-- [ ] Select one real project and agree on its exact command, revision, toolchain,
-  profile, cache state, and platform. Reuse existing timing evidence when applicable.
-- [ ] Obtain approval for a bounded cold/warm/changed-input comparison before running
-  it. Change one causal variable; report build time, actual compiler work, physical
-  disk allocation, failures, and cache overhead. Do not extrapolate foreign benchmarks.
-- [ ] Make setup opt-in and reversible, with no silent global config changes or
-  automatic target deletion. Test build behavior after disabling Mitts.
-- [ ] Document installation, rollback, known limits, cache privacy/trust boundaries,
-  and release readiness; publish/install globally only when separately authorized.
+- [ ] Benchmark cold build, warm build (100% hit), and single-file incremental rebuild against standard Cargo on real-world projects.
+- [ ] Measure physical disk allocation across multiple worktrees sharing dependencies (demonstrating true 1:1 deduplication).
+- [ ] Validate coexistence: running ordinary `cargo build` and `mitts build` side-by-side does not corrupt either toolchain or invalidate caches.
+- [ ] Conservative GC and storage quotas: LRU pruning of old CAS objects without touching active builds.
 
-Gate: correctness is preserved and measured benefits justify the tradeoffs for
-the agreed workload. Otherwise report no improvement and revisit the design.
+Gate: physical disk savings and build speedup are verified with reproducible empirical evidence; coexistence with Cargo and IDEs is rock-solid.
 
-## M6 — Add one other language
+## M6 — Add one other language adapter
 
-- [ ] Let the owner select the next language after the Rust slice is demonstrated.
-- [ ] Write its adapter contract and respect its native manifest/lockfile semantics.
-  Keep the shared action/cache core independent of Cargo-specific types.
-- [ ] Deliver one build plus its cache-reuse/invalidation and failure boundaries,
-  without starting implementations for every language simultaneously.
+- [ ] Select next language adapter (e.g. C/C++ or Go) building upon the language-neutral CAS and DAG engine.
+- [ ] Implement native manifest parsing and toolchain invocation for the target language.
+- [ ] Verify multi-language artifact reuse in the shared CAS core.
 
-Gate: one real non-Rust workflow works through the shared core with its own evidence.
+Gate: one non-Rust project builds correctly through the shared core with verified caching and store reuse.
 
 ## Later, not part of the first implementation
 
-- Remote/team caches and CI integration with authentication, trust separation,
-  untrusted-writer handling, and controlled artifact publication. Entry: correct
-  local reuse, a real multi-user/CI scenario, and an owner-approved trust contract.
-- A Mitts-owned resolver/package manager if the initial plan delegates to Cargo.
-  Entry: accepted compatibility scope and evidence that this ownership adds value;
-  retain native Rust manifests/lockfile behavior unless a new format is explicitly chosen.
-- Broader package-management commands and additional language adapters after
-  the same ownership and compatibility criteria are met.
-- Website/public release, alternative codegen backends, and remote execution.
+- Remote/team distributed cache (HTTP/gRPC S3-compatible backend).
+- Remote execution engine (REAPI).
+- IDE daemon integration and language server direct indexing.
 
 ## First task to pick up
 
-M1 completed and cleared. Next task is **M2 — Share compatible compiler results**:
-Introduce an immutable, content-addressed local store and versioned key format,
-caching eligible Rust rlib actions and restoring results into isolated workspace
-target directories with verified invalidation on input changes.
+With M1 completed and approved, proceed to **M2 — Content-Addressed Store (CAS) & Action Cache (AC)**:
+Implement the immutable content-addressed store, atomic object publication, deterministic action key derivation, and file-based single-flight locks.
