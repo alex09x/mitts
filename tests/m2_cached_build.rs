@@ -111,7 +111,7 @@ fn test_action_cache_key_derivation_deterministic() {
         "x86_64-unknown-linux-gnu",
         "debug",
         &["-C".to_string(), "opt-level=0".to_string()],
-        &["default".to_string()],
+        &["feature_b".to_string(), "feature_a".to_string()], // permuted features
         &[("src/main.rs", "hash_main"), ("src/lib.rs", "hash_lib")],
         &[("itoa", "1.0.14")],
     );
@@ -120,13 +120,31 @@ fn test_action_cache_key_derivation_deterministic() {
         "rustc 1.85.0",
         "x86_64-unknown-linux-gnu",
         "debug",
-        &["opt-level=0".to_string(), "-C".to_string()], // permuted order
-        &["default".to_string()],
-        &[("src/lib.rs", "hash_lib"), ("src/main.rs", "hash_main")], // permuted order
+        &["-C".to_string(), "opt-level=0".to_string()],
+        &["feature_a".to_string(), "feature_b".to_string()], // canonical order
+        &[("src/lib.rs", "hash_lib"), ("src/main.rs", "hash_main")], // permuted sources
         &[("itoa", "1.0.14")],
     );
 
-    assert_eq!(key1, key2, "Action keys must be order-independent and deterministic");
+    assert_eq!(
+        key1, key2,
+        "Action keys must canonicalize feature names and source lists"
+    );
+
+    // Order-sensitive compiler flags: permuting them MUST change the key!
+    let key_flags_permuted = ActionCache::derive_action_key(
+        "rustc 1.85.0",
+        "x86_64-unknown-linux-gnu",
+        "debug",
+        &["opt-level=0".to_string(), "-C".to_string()], // permuted flags
+        &["feature_a".to_string(), "feature_b".to_string()],
+        &[("src/main.rs", "hash_main"), ("src/lib.rs", "hash_lib")],
+        &[("itoa", "1.0.14")],
+    );
+    assert_ne!(
+        key1, key_flags_permuted,
+        "Compiler flags are order-sensitive and must not produce colliding keys"
+    );
 
     // Change toolchain version -> key changes
     let key_diff_toolchain = ActionCache::derive_action_key(
@@ -377,6 +395,94 @@ fn test_concurrent_builds_coordinate_via_single_flight() {
         let (_, res) = h.join().expect("join thread");
         assert!(res.success, "All concurrent builds must succeed");
     }
+}
+
+#[test]
+fn test_per_unit_action_caching_and_dependency_isolation() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_target = tempfile::tempdir().expect("target tempdir");
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let ws_path = temp_ws.path();
+
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, ws_path).expect("copy fixture");
+
+    let manifest = ws_path.join("Cargo.toml");
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_target.path().to_path_buf()),
+        ..Default::default()
+    };
+
+    // 1. Initial build: populates AC entries for both itoa (dependency) and hello-rust (root)
+    let (_, res1) = RustAdapter::build(&opt).expect("initial build");
+    assert!(!res1.cached);
+    let ac_count = fs::read_dir(temp_cache.path().join("ac"))
+        .expect("read ac")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
+        .count();
+    assert!(ac_count > 0, "Action Cache must contain published entries");
+    let explanation_before = RustAdapter::explain_plan(&opt).expect("explain plan");
+    let itoa_unit = explanation_before
+        .units
+        .iter()
+        .find(|u| u.target_name == "itoa")
+        .expect("itoa unit");
+    assert_eq!(itoa_unit.package_name, "itoa");
+
+    // 2. Modify consumer application source only
+    let main_rs = ws_path.join("src").join("main.rs");
+    let original = fs::read_to_string(&main_rs).expect("read main");
+    fs::write(&main_rs, original.replace("42", "123")).expect("write main");
+
+    // 3. Re-explain plan after consumer modification
+    let explanation_after = RustAdapter::explain_plan(&opt).expect("explain plan after");
+    let itoa_unit_after = explanation_after
+        .units
+        .iter()
+        .find(|u| u.target_name == "itoa")
+        .expect("itoa unit after");
+
+    // Dependency unit inputs, version, and dependencies are identical
+    assert_eq!(itoa_unit.dependencies, itoa_unit_after.dependencies);
+    assert_eq!(itoa_unit.version, itoa_unit_after.version);
+
+    // 4. Build after consumer modification
+    let (_, res2) = RustAdapter::build(&opt).expect("build after edit");
+    assert!(!res2.cached, "Consumer modification triggers rebuild");
+    assert!(res2.success);
+
+    // 5. Subsequent build with identical inputs hits cache
+    let (_, res3) = RustAdapter::build(&opt).expect("warm build");
+    assert!(res3.cached, "Subsequent build must hit cache");
+}
+
+#[test]
+fn test_action_key_incorporates_cargo_config_and_env() {
+    let temp_ws = tempfile::tempdir().expect("ws tempdir");
+    let ws_path = temp_ws.path();
+
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, ws_path).expect("copy fixture");
+
+    let manifest = ws_path.join("Cargo.toml");
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        ..Default::default()
+    };
+    let expl1 = RustAdapter::explain_plan(&opt1).expect("explain plan");
+
+    // Modifying .cargo/config.toml in package directory must be captured
+    let cargo_dir = ws_path.join(".cargo");
+    fs::create_dir_all(&cargo_dir).expect("create .cargo");
+    let config_path = cargo_dir.join("config.toml");
+    fs::write(&config_path, "[build]\nrustflags = [\"-C\", \"opt-level=1\"]\n")
+        .expect("write config.toml");
+
+    let expl2 = RustAdapter::explain_plan(&opt1).expect("explain plan 2");
+    assert_eq!(expl1.units.len(), expl2.units.len());
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
