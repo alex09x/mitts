@@ -1,9 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <!-- Mitts Build mark: a build action graph with one cached node. © 2026 Alexander Panasenko, MIT OR Apache-2.0 -->
-  <style>.hit{fill:#c9ced4}@media (prefers-color-scheme:light){.hit{fill:#5e636b}}</style>
   <line x1="16" y1="7" x2="7.5" y2="23" stroke="#ff3b30" stroke-width="3"/>
   <line x1="16" y1="7" x2="24.5" y2="23" stroke="#ff3b30" stroke-width="3"/>
   <circle cx="16" cy="7" r="5" fill="#ff3b30"/>
   <circle cx="7.5" cy="23" r="5" fill="#ff3b30"/>
-  <circle class="hit" cx="24.5" cy="23" r="5"/>
+  <circle cx="24.5" cy="23" r="5" fill="#c9ced4"/>
 </svg>
