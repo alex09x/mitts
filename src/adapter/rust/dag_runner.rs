@@ -54,6 +54,13 @@ pub fn run_native_dag_build(
 
     let is_cache_enabled = !opt.no_cache;
 
+    if let Some(ref cb) = opt.progress {
+        cb.0(BuildProgressEvent::InitTotal {
+            total: explanation.units.len(),
+            cached: 0,
+        });
+    }
+
     for wave in waves {
         let mut compile_errors: Vec<String> = Vec::new();
 
@@ -390,6 +397,10 @@ fn execute_unit(
         env: HashMap::new(),
         dependencies: unit.dependencies.clone(),
     });
+
+    if let Some(ref cb) = ctx.opt.progress {
+        cb.0(BuildProgressEvent::UnitFinished);
+    }
 
     Ok(())
 }

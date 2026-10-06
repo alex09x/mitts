@@ -87,7 +87,9 @@ impl std::fmt::Debug for BuildProgressCallback {
 
 #[derive(Debug, Clone)]
 pub enum BuildProgressEvent {
+    InitTotal { total: usize, cached: usize },
     Compiling(String),
+    UnitFinished,
     CompilerMessage(String),
     Diagnostic(String),
 }

@@ -11,7 +11,7 @@
 use super::key::derive_unit_action_keys;
 use super::planner::explain_plan;
 use super::runner::run_cargo_build;
-use super::types::{RustAdapterError, RustBuildOptions};
+use super::types::{BuildProgressEvent, RustAdapterError, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use crate::core::action::{Action, ActionKind, ActionResult, BuildPlan};
 use crate::core::action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
@@ -36,6 +36,14 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
     }
 
     let explanation = explain_plan(opt)?;
+    let total_units = explanation.units.len();
+
+    if let Some(ref cb) = opt.progress {
+        cb.0(BuildProgressEvent::InitTotal {
+            total: total_units,
+            cached: 0,
+        });
+    }
 
     if opt.native {
         let unit_keys = derive_unit_action_keys(opt, &explanation)?;
@@ -232,6 +240,13 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
                     let dest = target_dir.join(&out.relative_path);
                     let _ = cas.restore_object(&out.cas_hash, &dest, out.executable);
                 }
+            }
+
+            if let Some(ref cb) = opt.progress {
+                cb.0(BuildProgressEvent::InitTotal {
+                    total: total_units,
+                    cached: locked_hit_units.len(),
+                });
             }
 
             // 4. Execute compilation for missed units

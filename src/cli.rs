@@ -165,5 +165,8 @@ pub struct GcArgs {
     pub max_age_secs: Option<u64>,
 }
 
+pub mod handlers;
 pub mod ui;
+
+pub use handlers::{handle_explain, handle_fetch, handle_gc};
 pub use ui::Ui;
