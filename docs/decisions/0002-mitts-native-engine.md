@@ -1,6 +1,6 @@
 # Decision 0002 — Mitts-native execution engine and Cargo.lock compatibility
 
-Status: proposed and aligned with project owner. Decision owner: Alexander Panasenko.
+Status: accepted and fully implemented across Milestones M3–M6. Decision owner: Alexander Panasenko.
 Contributors: implementing resident and reviewer.
 
 ## Context and Problem Statement

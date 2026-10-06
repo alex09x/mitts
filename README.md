@@ -39,8 +39,16 @@ cases or report an explicit unsupported case; never silently claim success.
 
 ## Status
  
-M0 contract approved; M1 (uncached build correctness and workspace coexistence)
-completed and verified. Active milestone: M2 (compatible artifact caching & store).
+Milestones M0 through M6 completed and verified across 65 passing workspace tests:
+- M0: Contract & architecture approved
+- M1: Uncached build correctness & Cargo capture
+- M2: Content-Addressed Store (CAS) & Action Cache (AC) with single-flight locking
+- M3: Fast parallel fetcher & Cargo.lock resolution
+- M4: Mitts-native parallel DAG runner (zero target pollution, direct `rustc`)
+- M5: Real-world pilot, benchmarks, 1:1 disk deduplication & conservative GC
+- M6: Second language adapter (C/C++) with multi-language CAS reuse
+
 Dual-licensed under MIT OR Apache-2.0. This repository is private.
 
-Next steps: [ROADMAP.md](ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
+Roadmap: [ROADMAP.md](ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
+
