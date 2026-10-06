@@ -1,0 +1,128 @@
+<!doctype html>
+<!--
+ * Mitts Build — project website
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#edf2f4">
+  <meta name="description" content="Mitts is a Rust-first build system with a shared artifact cache and explicit input tracking.">
+  <meta name="author" content="Alexander Panasenko">
+  <title>Mitts — build work, accounted for</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="shell topbar">
+    <a class="brand" href="#top" aria-label="Mitts home">
+      <span class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+      <span>MITTS / BUILD SYSTEMS</span>
+    </a>
+    <nav class="nav" aria-label="Main navigation">
+      <a href="#model">The model</a>
+      <a href="#scope">Cache scope</a>
+      <a href="#author">Author</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="shell hero" aria-labelledby="hero-title">
+      <div>
+        <div class="kicker">Rust first · inputs in view</div>
+        <h1 id="hero-title">Build work,<br><em>accounted for.</em></h1>
+        <p class="hero-copy">Mitts tracks the inputs behind eligible Rust compile actions, stores their outputs as immutable objects, and restores compatible work into an isolated target directory.</p>
+        <div class="actions">
+          <a class="button" href="#model">See how it works <span aria-hidden="true">&nbsp;↘</span></a>
+          <a class="button secondary" href="mailto:alex@prod.codes">Contact the author</a>
+        </div>
+      </div>
+
+      <div class="diagram" role="img" aria-label="A Rust compile action is identified from its inputs, stored as an immutable object, and restored to a workspace target directory.">
+        <div class="diagram-head">
+          <div><strong>COMPILE ACTION / RLIB</strong><small>local store · immutable output</small></div>
+          <small class="state">INPUTS TRACKED</small>
+        </div>
+        <div class="input-line"><span class="file-mark" aria-hidden="true"></span><code>Cargo.toml + source set</code></div>
+        <div class="input-line"><span class="file-mark" aria-hidden="true"></span><code>toolchain · target · flags · features</code></div>
+        <div class="flow">
+          <div class="key"><span>Action identity</span><code>unit inputs</code></div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="object"><span>Immutable object</span><code>sha256 / stored</code></div>
+        </div>
+        <div class="restore"><span>Workspace output</span><code>.mitts/target/</code></div>
+      </div>
+    </section>
+
+    <section class="shell section" id="model" aria-labelledby="model-title">
+      <div class="section-head">
+        <div class="eyebrow">A cache with a boundary</div>
+        <div>
+          <h2 id="model-title">Reuse follows the inputs.</h2>
+          <p>A cache hit is valid only when the effective compile inputs match. If Mitts cannot account for an input, that action stays on the uncached path.</p>
+        </div>
+      </div>
+
+      <div class="principles">
+        <article class="principle">
+          <span class="label">Input record</span>
+          <h3>Know what changed</h3>
+          <p>Action keys include tracked source, dependency, toolchain, target, feature, flag, configuration, and environment inputs.</p>
+        </article>
+        <article class="principle">
+          <span class="label">Shared store</span>
+          <h3>Keep objects immutable</h3>
+          <p>Content-addressed artifacts are verified before use. Compatible outputs can be reused across builds and workspaces.</p>
+        </article>
+        <article class="principle">
+          <span class="label">Workspace state</span>
+          <h3>Restore into a boundary</h3>
+          <p>Mutable build outputs stay in the workspace target directory, separate from the shared artifact objects.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="shell section" id="scope" aria-labelledby="scope-title">
+      <div class="section-head">
+        <div class="eyebrow">Current cache policy</div>
+        <div>
+          <h2 id="scope-title">Eligible work is a deliberate subset.</h2>
+          <p>Mitts starts with actions whose inputs it can track. Unsupported or unknown cases remain visible and uncached.</p>
+        </div>
+      </div>
+
+      <div class="scope">
+        <div>
+          <span class="label">Eligible when tracked</span>
+          <h3>Pure Rust compile actions</h3>
+          <p>The initial cache scope covers Rust library and binary actions with verified input identities.</p>
+        </div>
+        <ul class="scope-list">
+          <li>Library and binary outputs with matching action keys</li>
+          <li>Corrupt objects are rejected and rebuilt</li>
+          <li>Concurrent work coordinates through single-flight locks</li>
+          <li class="bypass">Build scripts, procedural macros, and mixed native library outputs bypass the initial cache</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="shell author" id="author" aria-labelledby="author-title">
+      <div>
+        <span class="label">Project author</span>
+        <h2 id="author-title">Alexander Panasenko</h2>
+        <p><a href="https://prod.codes/about/">Author profile</a> · <a href="mailto:alex@prod.codes">alex@prod.codes</a></p>
+      </div>
+      <div class="footer-mark">Mitts Build · Rust-first</div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell"><span>© 2026 Alexander Panasenko</span><span>MIT OR Apache-2.0</span><a href="https://mittsbuild.com">mittsbuild.com</a></div>
+  </footer>
+</body>
+</html>
