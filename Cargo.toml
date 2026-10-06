@@ -17,6 +17,10 @@ thiserror = "2.0"
 semver = "1.0"
 indicatif = "0.17"
 miette = { version = "7.6", features = ["fancy", "derive"] }
+toml = "0.8"
+flate2 = "1.0"
+tar = "0.4"
+ureq = "2.10"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

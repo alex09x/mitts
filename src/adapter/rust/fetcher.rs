@@ -13,8 +13,8 @@ use crate::core::lock::FileLock;
 use crate::core::source_store::SourceStore;
 use anyhow::{bail, Context, Result};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Default)]
@@ -35,12 +35,16 @@ pub struct FetchResult {
 /// Concurrent package fetcher that downloads missing `.crate` archives into the global SourceStore.
 pub struct CrateFetcher {
     store: SourceStore,
+    agent: ureq::Agent,
 }
 
 impl CrateFetcher {
     /// Creates a new CrateFetcher backed by the provided SourceStore.
     pub fn new(store: SourceStore) -> Self {
-        Self { store }
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
+        Self { store, agent }
     }
 
     /// Access the underlying SourceStore.
@@ -110,28 +114,18 @@ impl CrateFetcher {
             pkg.name, pkg.name, pkg.version
         );
 
-        let output = Command::new("curl")
-            .arg("-sSL")
-            .arg("--fail")
-            .arg(&url)
-            .output()
-            .with_context(|| format!("Failed to download crate from {}", url))?;
+        let mut body_bytes = Vec::new();
+        self.agent
+            .get(&url)
+            .call()
+            .with_context(|| format!("Failed to download crate from {}", url))?
+            .into_reader()
+            .read_to_end(&mut body_bytes)
+            .with_context(|| format!("Failed to read crate bytes from {}", url))?;
 
-        if !output.status.success() {
-            bail!(
-                "Failed to download crate {}-{} from {}",
-                pkg.name,
-                pkg.version,
-                url
-            );
-        }
-
-        let dir = self.store.unpack_archive(
-            &pkg.name,
-            &pkg.version,
-            &output.stdout,
-            expected_checksum,
-        )?;
+        let dir =
+            self.store
+                .unpack_archive(&pkg.name, &pkg.version, &body_bytes, expected_checksum)?;
         Ok(Some(dir))
     }
 

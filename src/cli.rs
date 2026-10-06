@@ -37,6 +37,28 @@ pub enum Commands {
 
     /// Prune old or unreferenced CAS objects according to storage quotas
     Gc(GcArgs),
+
+    /// Remove generated artifacts and fast build lock for the workspace
+    Clean(CleanArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CleanArgs {
+    /// Path to Cargo.toml
+    #[arg(long)]
+    pub manifest_path: Option<PathBuf>,
+
+    /// Clean release artifacts only
+    #[arg(short, long)]
+    pub release: bool,
+
+    /// Clean the shared global artifact and action cache as well
+    #[arg(long)]
+    pub cache: bool,
+
+    /// Directory for the shared artifact and action cache
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -84,6 +106,10 @@ pub struct BuildArgs {
     /// Force fallback to Cargo execution engine
     #[arg(long)]
     pub cargo: bool,
+
+    /// Use verbose output (-v, -vv for very verbose)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
@@ -165,10 +191,12 @@ pub struct GcArgs {
     pub max_age_secs: Option<u64>,
 }
 
+pub mod diagnostic;
 pub mod handlers;
 pub mod terminal;
 pub mod ui;
 
-pub use handlers::{handle_explain, handle_fetch, handle_gc};
+pub use diagnostic::render_compiler_diagnostics;
+pub use handlers::{handle_clean, handle_explain, handle_fetch, handle_gc};
 pub use terminal::TerminalGuard;
 pub use ui::Ui;

@@ -82,7 +82,11 @@ fn test_m6_c_adapter_cold_and_warm_build() {
     assert_eq!(plan.actions.len(), 1);
 
     let bin_path = temp_target.path().join("debug").join("hello-c");
-    assert!(bin_path.is_file(), "Compiled binary must exist at {:?}", bin_path);
+    assert!(
+        bin_path.is_file(),
+        "Compiled binary must exist at {:?}",
+        bin_path
+    );
 
     // Verify binary execution
     let run_out = Command::new(&bin_path).output().expect("execute C binary");
@@ -111,7 +115,9 @@ fn test_m6_c_adapter_cold_and_warm_build() {
     assert!(restored_result.cached, "Must hit cache");
     assert!(bin_path.is_file(), "Binary must be restored from CAS");
 
-    let rerun_out = Command::new(&bin_path).output().expect("execute restored binary");
+    let rerun_out = Command::new(&bin_path)
+        .output()
+        .expect("execute restored binary");
     assert!(rerun_out.status.success());
     let rerun_stdout = String::from_utf8_lossy(&rerun_out.stdout);
     assert!(rerun_stdout.contains("Hello from Mitts C fixture: 42"));
@@ -216,7 +222,10 @@ fn test_m6_multi_language_shared_cas_and_action_cache() {
 
     // 4. Rebuild C project — must be a cache hit even with Rust artifacts present
     let (_, c_res2) = CAdapter::build(&c_opt).expect("C rebuild");
-    assert!(c_res2.cached, "C build must hit cache cleanly in shared store");
+    assert!(
+        c_res2.cached,
+        "C build must hit cache cleanly in shared store"
+    );
 
     // 5. Test unified Garbage Collection across both languages
     let gc = CacheGc::new(&cas, &ac);
@@ -231,4 +240,3 @@ fn test_m6_multi_language_shared_cas_and_action_cache() {
         "Live multi-language artifacts must not be pruned"
     );
 }
-

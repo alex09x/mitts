@@ -9,7 +9,8 @@
  */
 
 use crate::adapter::{FetchOptions, RustAdapter, RustBuildOptions};
-use crate::cli::{ExplainArgs, FetchArgs, GcArgs, Ui};
+use crate::cli::{CleanArgs, ExplainArgs, FetchArgs, GcArgs, Ui};
+use crate::core::build_lock::FastBuildLock;
 use crate::core::{ActionCache, CacheGc, ContentAddressedStore, GcOptions, SourceStore};
 
 pub fn handle_explain(args: &ExplainArgs) -> i32 {
@@ -203,4 +204,97 @@ pub fn handle_gc(args: &GcArgs) -> i32 {
             1
         }
     }
+}
+
+pub fn handle_clean(args: &CleanArgs) -> i32 {
+    let opt = RustBuildOptions {
+        manifest_path: args.manifest_path.clone(),
+        ..Default::default()
+    };
+    let manifest_path = match RustAdapter::resolve_manifest(&opt) {
+        Ok(p) => p,
+        Err(err) => {
+            Ui::report_error(&err);
+            return 1;
+        }
+    };
+    let project_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
+    let mitts_dir = project_dir.join(".mitts");
+
+    Ui::header("clean");
+
+    // 1. Remove fast build lock and build log
+    if args.release {
+        let lock_file = FastBuildLock::lock_path(project_dir, "release");
+        if lock_file.exists() {
+            let _ = std::fs::remove_file(&lock_file);
+            Ui::stage_item(
+                true,
+                &Ui::badge_cached(),
+                "Removed fast build lock (release)",
+            );
+        }
+    } else {
+        let dev_lock = FastBuildLock::lock_path(project_dir, "dev");
+        let rel_lock = FastBuildLock::lock_path(project_dir, "release");
+        let legacy_lock = project_dir.join(".mitts").join("build.lock");
+        for lock_file in [&dev_lock, &rel_lock, &legacy_lock] {
+            if lock_file.exists() {
+                let _ = std::fs::remove_file(lock_file);
+            }
+        }
+        Ui::stage_item(true, &Ui::badge_cached(), "Removed fast build locks");
+    }
+    let log_file = mitts_dir.join("build.log");
+    if log_file.exists() {
+        let _ = std::fs::remove_file(&log_file);
+    }
+
+    // 2. Remove target directory
+    let target_dir = mitts_dir.join("target");
+    if args.release {
+        let rel_dir = target_dir.join("release");
+        if rel_dir.exists() {
+            let _ = std::fs::remove_dir_all(&rel_dir);
+            Ui::stage_item(
+                true,
+                &Ui::badge_cached(),
+                "Removed target/release directory",
+            );
+        }
+    } else if target_dir.exists() {
+        let _ = std::fs::remove_dir_all(&target_dir);
+        Ui::stage_item(true, &Ui::badge_cached(), "Removed target directory");
+    }
+
+    // 3. Clean global cache if requested
+    if args.cache {
+        let cas = match args.cache_dir {
+            Some(ref cd) => ContentAddressedStore::new(cd.join("cas")),
+            None => ContentAddressedStore::default_store(),
+        };
+        let ac = match args.cache_dir {
+            Some(ref cd) => ActionCache::new(cd.join("ac")),
+            None => ActionCache::default_cache(),
+        };
+        if let (Ok(cas), Ok(ac)) = (cas, ac) {
+            let gc = CacheGc::new(&cas, &ac);
+            let _ = gc.prune(&GcOptions {
+                max_bytes: Some(0),
+                max_age: None,
+            });
+            Ui::stage_item(
+                true,
+                &Ui::badge_cached(),
+                "Pruned global CAS and Action Cache",
+            );
+        }
+    }
+
+    Ui::finish(
+        "clean",
+        "ok",
+        &format!("workspace: {}", project_dir.display()),
+    );
+    0
 }

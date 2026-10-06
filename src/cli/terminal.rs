@@ -110,7 +110,8 @@ impl TerminalGuard {
                         libc::tcsetattr(fd, libc::TCSANOW, &modified);
 
                         // Hide cursor during progress bar rendering
-                        let _ = libc::write(libc::STDERR_FILENO, b"\x1b[?25l".as_ptr() as *const _, 6);
+                        let _ =
+                            libc::write(libc::STDERR_FILENO, b"\x1b[?25l".as_ptr() as *const _, 6);
 
                         return Self { active: true };
                     } else {

@@ -22,14 +22,41 @@ use std::path::{Path, PathBuf};
 /// - Tracked dep-info (.d) files from rustc (including include_bytes! / include_str!)
 ///
 /// Returns error on any read/hash failure to prevent publishing invalid cache keys.
-pub(crate) fn hash_unit_inputs(
+pub(crate) fn hash_package_base_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
-    target_dir: &Path,
-    target_name: &str,
     is_workspace: bool,
 ) -> Result<Vec<(String, String)>> {
     let mut inputs = Vec::new();
+
+    // Fast-path for immutable registry dependencies:
+    // Packages from crates.io or global source store are completely immutable.
+    let is_immutable_registry = !is_workspace
+        && (package_dir.join(".cargo-ok").is_file()
+            || package_dir
+                .to_string_lossy()
+                .contains(".cargo/registry/src")
+            || package_dir
+                .to_string_lossy()
+                .contains(".cargo/git/checkouts")
+            || package_dir.to_string_lossy().contains("/sources/"));
+
+    if is_immutable_registry {
+        let cargo_toml = package_dir.join("Cargo.toml");
+        let hash = if cargo_toml.is_file() {
+            Sha256::digest_file(&cargo_toml)
+                .with_context(|| format!("Failed to hash {:?}", cargo_toml))?
+        } else {
+            Sha256::digest(package_dir.display().to_string().as_bytes())
+        };
+        return Ok(vec![
+            ("Cargo.toml".to_string(), hash),
+            (
+                "immutable_pkg".to_string(),
+                package_dir.display().to_string(),
+            ),
+        ]);
+    }
 
     // 1. Mandatory package manifest
     let cargo_toml = package_dir.join("Cargo.toml");
@@ -45,8 +72,9 @@ pub(crate) fn hash_unit_inputs(
     if is_workspace {
         if let Some(ws_manifest) = workspace_manifest {
             if ws_manifest.is_file() && ws_manifest != cargo_toml {
-                let hash = Sha256::digest_file(ws_manifest)
-                    .with_context(|| format!("Failed to hash workspace manifest {:?}", ws_manifest))?;
+                let hash = Sha256::digest_file(ws_manifest).with_context(|| {
+                    format!("Failed to hash workspace manifest {:?}", ws_manifest)
+                })?;
                 inputs.push(("workspace:Cargo.toml".to_string(), hash));
             }
         }
@@ -131,8 +159,8 @@ pub(crate) fn hash_unit_inputs(
         for name in &["config.toml", "config"] {
             let p = home_path.join(name);
             if p.is_file() {
-                let hash = Sha256::digest_file(&p)
-                    .with_context(|| format!("Failed to hash {:?}", p))?;
+                let hash =
+                    Sha256::digest_file(&p).with_context(|| format!("Failed to hash {:?}", p))?;
                 inputs.push((format!("CARGO_HOME/{}", name), hash));
             }
         }
@@ -141,46 +169,50 @@ pub(crate) fn hash_unit_inputs(
         for name in &["config.toml", "config"] {
             let p = cargo_dir.join(name);
             if p.is_file() {
-                let hash = Sha256::digest_file(&p)
-                    .with_context(|| format!("Failed to hash {:?}", p))?;
+                let hash =
+                    Sha256::digest_file(&p).with_context(|| format!("Failed to hash {:?}", p))?;
                 inputs.push((format!("~/.cargo/{}", name), hash));
             }
         }
     }
 
-    // 5. Check if rustc .d (dep-info) file exists for tracked compile-time includes
-    for d_path in find_dep_info_files(target_dir, target_name) {
-        let tracked_files = parse_dep_info(&d_path)?;
-        for p in tracked_files {
-            let hash = Sha256::digest_file(&p)
-                .with_context(|| format!("Failed to hash tracked dep-info file {:?}", p))?;
-            let rel = p
-                .strip_prefix(package_dir)
-                .unwrap_or(&p)
-                .to_string_lossy()
-                .to_string();
-            inputs.push((rel, hash));
-        }
-    }
-
-    // 6. Recursive scan of package directory (src, assets, templates, etc.)
+    // 6. Scan workspace package directory (src, assets, custom directories)
     let mut stack = vec![package_dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries = fs::read_dir(&dir)
-            .with_context(|| format!("Failed to read directory {:?}", dir))?;
+        let entries =
+            fs::read_dir(&dir).with_context(|| format!("Failed to read directory {:?}", dir))?;
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
             if path.is_dir() {
-                if name_str == "target" || name_str == ".mitts" || name_str == ".git" {
+                // Ignore transient, venv, data dumps, backups, and nested crate directories
+                if name_str.starts_with('.')
+                    || name_str.starts_with("venv")
+                    || name_str.contains(".bak")
+                    || name_str == "target"
+                    || name_str == "node_modules"
+                    || name_str == "traces"
+                    || name_str == "test_data"
+                    || name_str == "file_test"
+                    || name_str == "cts"
+                    || name_str == "terraform"
+                    || name_str == "docs"
+                    || name_str == "logs"
+                    || (path != package_dir && path.join("Cargo.toml").is_file())
+                {
                     continue;
                 }
                 stack.push(path);
             } else if path.is_file() {
-                // Ignore transient OS metadata files (e.g. .DS_Store)
-                if name_str.starts_with('.') && !name_str.ends_with(".toml") && !name_str.ends_with(".lock") {
+                // Ignore hidden files, lockfiles, backups, and temporary editor files
+                if name_str.starts_with('.')
+                    || name_str.ends_with(".lock")
+                    || name_str.ends_with(".tmp")
+                    || name_str.ends_with(".swp")
+                    || name_str.ends_with(".bak")
+                {
                     continue;
                 }
                 let hash = Sha256::digest_file(&path)
@@ -198,4 +230,45 @@ pub(crate) fn hash_unit_inputs(
     inputs.sort_by(|a, b| a.0.cmp(&b.0));
     inputs.dedup_by(|a, b| a.0 == b.0);
     Ok(inputs)
+}
+
+/// Appends target-specific dep-info tracked assets to base package inputs.
+pub(crate) fn append_unit_dep_info_inputs(
+    mut inputs: Vec<(String, String)>,
+    package_dir: &Path,
+    target_dir: &Path,
+    target_name: &str,
+) -> Result<Vec<(String, String)>> {
+    for d_path in find_dep_info_files(target_dir, target_name) {
+        let tracked_files = parse_dep_info(&d_path)?;
+        for p in tracked_files {
+            if p.extension().map(|e| e == "rs").unwrap_or(false) {
+                continue;
+            }
+            let hash = Sha256::digest_file(&p)
+                .with_context(|| format!("Failed to hash tracked dep-info file {:?}", p))?;
+            let rel = p
+                .strip_prefix(package_dir)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .to_string();
+            inputs.push((rel, hash));
+        }
+    }
+    inputs.sort_by(|a, b| a.0.cmp(&b.0));
+    inputs.dedup_by(|a, b| a.0 == b.0);
+    Ok(inputs)
+}
+
+/// Gathers and hashes all inputs for a specific target unit, including target dep-info files.
+#[allow(dead_code)]
+pub(crate) fn hash_unit_inputs(
+    package_dir: &Path,
+    workspace_manifest: Option<&Path>,
+    target_dir: &Path,
+    target_name: &str,
+    is_workspace: bool,
+) -> Result<Vec<(String, String)>> {
+    let base = hash_package_base_inputs(package_dir, workspace_manifest, is_workspace)?;
+    append_unit_dep_info_inputs(base, package_dir, target_dir, target_name)
 }

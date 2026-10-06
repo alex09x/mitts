@@ -58,8 +58,9 @@ impl ActionCache {
 
         fs::create_dir_all(&root)
             .with_context(|| format!("Failed to create Action Cache directory: {:?}", root))?;
-        fs::create_dir_all(&tmp_dir)
-            .with_context(|| format!("Failed to create Action Cache tmp directory: {:?}", tmp_dir))?;
+        fs::create_dir_all(&tmp_dir).with_context(|| {
+            format!("Failed to create Action Cache tmp directory: {:?}", tmp_dir)
+        })?;
         fs::create_dir_all(&locks_dir)
             .with_context(|| format!("Failed to create locks directory: {:?}", locks_dir))?;
 
@@ -131,7 +132,9 @@ impl ActionCache {
 
         let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
-        let tmp_path = self.tmp_dir.join(format!("{}.{}.{}.tmp", entry.action_key, pid, counter));
+        let tmp_path = self
+            .tmp_dir
+            .join(format!("{}.{}.{}.tmp", entry.action_key, pid, counter));
 
         fs::write(&tmp_path, json_bytes)
             .with_context(|| format!("Failed to write AC tmp entry to {:?}", tmp_path))?;
@@ -139,7 +142,11 @@ impl ActionCache {
         let dest_path = self.entry_path(&entry.action_key);
         if let Err(err) = fs::rename(&tmp_path, &dest_path) {
             let _ = fs::remove_file(&tmp_path);
-            bail!("Failed to atomically publish AC entry to {:?}: {}", dest_path, err);
+            bail!(
+                "Failed to atomically publish AC entry to {:?}: {}",
+                dest_path,
+                err
+            );
         }
 
         Ok(())

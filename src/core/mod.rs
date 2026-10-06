@@ -11,6 +11,7 @@
 pub mod action;
 pub mod action_cache;
 pub mod build_lock;
+pub mod build_lock_types;
 pub mod build_logger;
 pub mod cas;
 pub mod file_scanner;

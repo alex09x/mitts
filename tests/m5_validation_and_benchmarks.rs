@@ -38,7 +38,10 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
     assert!(cargo_status.success(), "Standard cargo build must succeed");
 
     let cargo_bin = project_dir.join("target").join("debug").join("hello-rust");
-    assert!(cargo_bin.is_file(), "Cargo binary must exist in target/debug");
+    assert!(
+        cargo_bin.is_file(),
+        "Cargo binary must exist in target/debug"
+    );
 
     // 2. Run `mitts build` side-by-side on the exact same project
     let opt = RustBuildOptions {
@@ -48,14 +51,21 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
         ..Default::default()
     };
     let (plan, result) = RustAdapter::build_native(&opt).expect("Mitts build must succeed");
-    assert!(result.success, "Mitts build must succeed: {}", result.stderr);
+    assert!(
+        result.success,
+        "Mitts build must succeed: {}",
+        result.stderr
+    );
 
     let mitts_bin = project_dir
         .join(".mitts")
         .join("target")
         .join("debug")
         .join("hello-rust");
-    assert!(mitts_bin.is_file(), "Mitts binary must exist in .mitts/target/debug");
+    assert!(
+        mitts_bin.is_file(),
+        "Mitts binary must exist in .mitts/target/debug"
+    );
 
     // 3. Verify both binaries execute and produce expected output
     let cargo_out = Command::new(&cargo_bin).output().expect("run cargo bin");
@@ -68,7 +78,9 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
 
     // 4. Verify cargo target directory was NOT corrupted or modified by mitts
     assert!(cargo_bin.is_file());
-    assert!(!plan.target_directory.starts_with(project_dir.join("target")));
+    assert!(!plan
+        .target_directory
+        .starts_with(project_dir.join("target")));
 }
 
 #[test]
@@ -154,8 +166,20 @@ itoa = "1.0.14"
     );
 
     // Verify neither worktree target has intermediate dependency rlibs
-    assert!(!temp_wt1.path().join("target").join("debug").join("deps").join("libitoa.rlib").is_file());
-    assert!(!temp_wt2.path().join("target").join("debug").join("deps").join("libitoa.rlib").is_file());
+    assert!(!temp_wt1
+        .path()
+        .join("target")
+        .join("debug")
+        .join("deps")
+        .join("libitoa.rlib")
+        .is_file());
+    assert!(!temp_wt2
+        .path()
+        .join("target")
+        .join("debug")
+        .join("deps")
+        .join("libitoa.rlib")
+        .is_file());
 }
 
 #[test]
@@ -229,7 +253,10 @@ fn test_m5_conservative_gc_and_storage_quotas() {
 
     let report = gc.prune(&quota_opts).expect("prune quota");
     assert_eq!(report.objects_examined, 3);
-    assert_eq!(report.objects_pruned, 1, "Should prune exactly 1 object to meet quota");
+    assert_eq!(
+        report.objects_pruned, 1,
+        "Should prune exactly 1 object to meet quota"
+    );
     assert_eq!(report.bytes_freed, 1000);
     assert_eq!(report.bytes_retained, 2000);
 
@@ -270,7 +297,10 @@ fn test_m5_conservative_gc_and_storage_quotas() {
     let report2 = gc.prune(&aggressive_opts).expect("aggressive prune");
     assert_eq!(report2.objects_pruned, 1, "Only hash2 should be pruned");
     assert!(!cas.has_object(&hash2), "Hash2 should be pruned");
-    assert!(cas.has_object(&hash3), "Active build hash3 must be protected from GC");
+    assert!(
+        cas.has_object(&hash3),
+        "Active build hash3 must be protected from GC"
+    );
 }
 
 #[test]
@@ -301,27 +331,49 @@ fn test_m5_release_and_features_profile_coexistence() {
     let (_, res_dev1) = RustAdapter::build_native(&opt_dev).expect("cold dev build");
     assert!(res_dev1.success);
     assert!(!res_dev1.cached);
-    assert!(temp_target.path().join("debug").join("hello-rust").is_file());
+    assert!(temp_target
+        .path()
+        .join("debug")
+        .join("hello-rust")
+        .is_file());
 
     // 2. Cold release build: must not collide with dev build
     let (_, res_rel1) = RustAdapter::build_native(&opt_release).expect("cold release build");
     assert!(res_rel1.success);
     assert!(!res_rel1.cached);
-    assert!(temp_target.path().join("release").join("hello-rust").is_file());
+    assert!(temp_target
+        .path()
+        .join("release")
+        .join("hello-rust")
+        .is_file());
 
     // 3. Verify BOTH binaries coexist simultaneously on disk
-    assert!(temp_target.path().join("debug").join("hello-rust").is_file());
-    assert!(temp_target.path().join("release").join("hello-rust").is_file());
+    assert!(temp_target
+        .path()
+        .join("debug")
+        .join("hello-rust")
+        .is_file());
+    assert!(temp_target
+        .path()
+        .join("release")
+        .join("hello-rust")
+        .is_file());
 
     // 4. Switch back to dev: must be 100% warm cache hit!
     let (_, res_dev2) = RustAdapter::build_native(&opt_dev).expect("warm dev build");
     assert!(res_dev2.success);
-    assert!(res_dev2.cached, "Dev build must hit cache after release build");
+    assert!(
+        res_dev2.cached,
+        "Dev build must hit cache after release build"
+    );
 
     // 5. Switch back to release: must be 100% warm cache hit!
     let (_, res_rel2) = RustAdapter::build_native(&opt_release).expect("warm release build");
     assert!(res_rel2.success);
-    assert!(res_rel2.cached, "Release build must hit cache after dev build");
+    assert!(
+        res_rel2.cached,
+        "Release build must hit cache after dev build"
+    );
 }
 
 #[test]
@@ -334,23 +386,30 @@ fn test_m5_build_progress_events_and_clean_ui_reporting() {
     let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let events_clone = Arc::clone(&events);
 
-    let progress_cb = mitts::adapter::BuildProgressCallback(Arc::new(move |event| {
-        match event {
-            mitts::adapter::BuildProgressEvent::InitTotal { total, cached } => {
-                events_clone.lock().unwrap().push(format!("init:{}:{}", total, cached));
-            }
-            mitts::adapter::BuildProgressEvent::Compiling(name) => {
-                events_clone.lock().unwrap().push(format!("compiling:{}", name));
-            }
-            mitts::adapter::BuildProgressEvent::UnitFinished => {
-                events_clone.lock().unwrap().push("finished".to_string());
-            }
-            mitts::adapter::BuildProgressEvent::CompilerMessage(msg) => {
-                events_clone.lock().unwrap().push(format!("message:{}", msg));
-            }
-            mitts::adapter::BuildProgressEvent::Diagnostic(diag) => {
-                events_clone.lock().unwrap().push(format!("diag:{}", diag));
-            }
+    let progress_cb = mitts::adapter::BuildProgressCallback(Arc::new(move |event| match event {
+        mitts::adapter::BuildProgressEvent::InitTotal { total, cached } => {
+            events_clone
+                .lock()
+                .unwrap()
+                .push(format!("init:{}:{}", total, cached));
+        }
+        mitts::adapter::BuildProgressEvent::Compiling(name) => {
+            events_clone
+                .lock()
+                .unwrap()
+                .push(format!("compiling:{}", name));
+        }
+        mitts::adapter::BuildProgressEvent::UnitFinished => {
+            events_clone.lock().unwrap().push("finished".to_string());
+        }
+        mitts::adapter::BuildProgressEvent::CompilerMessage(msg) => {
+            events_clone
+                .lock()
+                .unwrap()
+                .push(format!("message:{}", msg));
+        }
+        mitts::adapter::BuildProgressEvent::Diagnostic(diag) => {
+            events_clone.lock().unwrap().push(format!("diag:{}", diag));
         }
     }));
 
@@ -367,10 +426,14 @@ fn test_m5_build_progress_events_and_clean_ui_reporting() {
     assert!(res.success);
 
     let recorded = events.lock().unwrap().clone();
-    assert!(!recorded.is_empty(), "Must capture compilation progress events");
     assert!(
-        recorded.iter().any(|e| e.starts_with("compiling:hello-rust")),
+        !recorded.is_empty(),
+        "Must capture compilation progress events"
+    );
+    assert!(
+        recorded
+            .iter()
+            .any(|e| e.starts_with("compiling:hello-rust")),
         "Must record compiling event for root binary"
     );
 }
-

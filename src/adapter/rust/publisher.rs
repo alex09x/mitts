@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+#[allow(dead_code)]
 pub(crate) fn publish_built_artifacts(
     target_dir: &Path,
     profile: &str,
@@ -95,15 +96,16 @@ pub(crate) fn publish_built_artifacts(
                                         for sub in sub_entries.flatten() {
                                             let sub_path = sub.path();
                                             if sub_path.is_file() {
-                                                if let Ok((cas_hash, file_size)) = cas.store_file(&sub_path) {
+                                                if let Ok((cas_hash, file_size)) =
+                                                    cas.store_file(&sub_path)
+                                                {
                                                     let rel = sub_path
                                                         .strip_prefix(target_dir)
                                                         .unwrap_or(&sub_path)
                                                         .to_path_buf();
-                                                    if !stored_outputs
-                                                        .iter()
-                                                        .any(|c: &CachedOutput| c.relative_path == rel)
-                                                    {
+                                                    if !stored_outputs.iter().any(
+                                                        |c: &CachedOutput| c.relative_path == rel,
+                                                    ) {
                                                         stored_outputs.push(CachedOutput {
                                                             relative_path: rel,
                                                             cas_hash,

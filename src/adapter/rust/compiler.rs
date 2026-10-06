@@ -8,9 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use super::build_script::BuildScriptDirectives;
 use super::types::PlannedCompilationUnit;
-use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,18 +22,9 @@ pub struct RustcOutput {
     pub exit_code: i32,
     pub stdout: String,
     pub stderr: String,
+    pub command_line: String,
     pub primary_output: Option<PathBuf>,
     pub metadata_output: Option<PathBuf>,
-}
-
-/// Output captured from running a `build.rs` build script.
-#[derive(Debug, Clone, Default)]
-pub struct BuildScriptDirectives {
-    pub cfgs: Vec<String>,
-    pub link_libs: Vec<String>,
-    pub link_searches: Vec<String>,
-    pub envs: HashMap<String, String>,
-    pub out_dir: Option<PathBuf>,
 }
 
 /// Direct `rustc` command invocation builder.
@@ -52,7 +43,7 @@ impl<'a> RustcInvocation<'a> {
     /// Executes the direct `rustc` compilation.
     pub fn execute(self) -> Result<RustcOutput> {
         let clean_crate = self.unit.target_name.replace('-', "_");
-        let edition = self.unit.edition.as_deref().unwrap_or("2021");
+        let edition = self.unit.edition.as_deref().unwrap_or("2015");
         let short_key = if self.action_key.len() > 16 {
             &self.action_key[..16]
         } else {
@@ -76,7 +67,11 @@ impl<'a> RustcInvocation<'a> {
                 .join("sources")
                 .join(format!("{}-{}", self.unit.package_name, self.unit.version))
                 .join("src")
-                .join(if self.unit.kind == "bin" { "main.rs" } else { "lib.rs" });
+                .join(if self.unit.kind == "bin" {
+                    "main.rs"
+                } else {
+                    "lib.rs"
+                });
             if store_src.is_file() {
                 store_src
             } else {
@@ -102,8 +97,11 @@ impl<'a> RustcInvocation<'a> {
             }
         } else if is_proc_macro {
             cmd.arg("--crate-type").arg("proc-macro");
+            cmd.arg("--extern").arg("proc_macro");
             cmd.arg("-C").arg("prefer-dynamic");
             cmd.arg("--emit=dep-info,link");
+            cmd.arg("-C").arg(format!("metadata={}", short_key));
+            cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
             cmd.arg("--out-dir").arg(self.out_dir);
         } else {
             // Standard library: rlib with metadata pipelining
@@ -124,10 +122,17 @@ impl<'a> RustcInvocation<'a> {
         // Features
         for feat in self.features {
             cmd.arg("--cfg").arg(format!("feature=\"{}\"", feat));
+            cmd.env(
+                format!("CARGO_FEATURE_{}", feat.to_uppercase().replace('-', "_")),
+                "1",
+            );
         }
 
-        // Build script directives (cfgs, link-libs, etc.)
+        // Build script directives (cfgs, link-libs, OUT_DIR, etc.)
         if let Some(dir) = self.directives {
+            if let Some(ref out) = dir.out_dir {
+                cmd.env("OUT_DIR", out);
+            }
             for cfg_item in &dir.cfgs {
                 cmd.arg("--cfg").arg(cfg_item);
             }
@@ -145,18 +150,60 @@ impl<'a> RustcInvocation<'a> {
         // Direct store reads via --extern
         for (dep_crate, dep_artifact_path) in self.extern_crates {
             let clean_dep = dep_crate.replace('-', "_");
-            cmd.arg("--extern").arg(format!("{}={}", clean_dep, dep_artifact_path.display()));
+            cmd.arg("--extern")
+                .arg(format!("{}={}", clean_dep, dep_artifact_path.display()));
             if let Some(parent) = dep_artifact_path.parent() {
-                cmd.arg("-L").arg(format!("dependency={}", parent.display()));
+                cmd.arg("-L")
+                    .arg(format!("dependency={}", parent.display()));
             }
         }
 
-        // Cargo-compatible environment variables
+        let (major, minor, patch, pre) = if let Ok(sem) = semver::Version::parse(&self.unit.version)
+        {
+            (
+                sem.major.to_string(),
+                sem.minor.to_string(),
+                sem.patch.to_string(),
+                sem.pre.as_str().to_string(),
+            )
+        } else {
+            let mut ver_parts = self.unit.version.split('.');
+            let maj = ver_parts.next().unwrap_or("0");
+            let min = ver_parts.next().unwrap_or("0");
+            let pat_with_pre = ver_parts.next().unwrap_or("0");
+            let (pat, p) = pat_with_pre.split_once('-').unwrap_or((pat_with_pre, ""));
+            (
+                maj.to_string(),
+                min.to_string(),
+                pat.to_string(),
+                p.to_string(),
+            )
+        };
+
+        // Cargo-compatible environment variables and working directory
         let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
+        cmd.current_dir(self.out_dir);
+        if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
+            cmd.env("RUSTUP_TOOLCHAIN", tc);
+        }
         cmd.env("CARGO_MANIFEST_DIR", pkg_dir);
         cmd.env("CARGO_PKG_NAME", &self.unit.package_name);
         cmd.env("CARGO_PKG_VERSION", &self.unit.version);
+        cmd.env("CARGO_PKG_VERSION_MAJOR", &major);
+        cmd.env("CARGO_PKG_VERSION_MINOR", &minor);
+        cmd.env("CARGO_PKG_VERSION_PATCH", &patch);
+        cmd.env("CARGO_PKG_VERSION_PRE", &pre);
         cmd.env("CARGO_CRATE_NAME", &self.unit.target_name);
+        if is_bin {
+            cmd.env("CARGO_BIN_NAME", &self.unit.target_name);
+        }
+
+        if !self.unit.is_workspace {
+            cmd.arg("--cap-lints").arg("allow");
+        }
+        cmd.arg("--color=never");
+
+        let command_line = format!("{:?}", cmd);
 
         let output = cmd.output().with_context(|| {
             format!("Failed to execute rustc for unit '{}'", self.unit.unit_id())
@@ -202,84 +249,9 @@ impl<'a> RustcInvocation<'a> {
             exit_code,
             stdout,
             stderr,
+            command_line,
             primary_output,
             metadata_output,
         })
     }
-}
-
-/// Executes a crate's `build.rs` build script in an isolated sandbox.
-pub fn execute_build_script(
-    unit: &PlannedCompilationUnit,
-    staging_dir: &Path,
-) -> Result<BuildScriptDirectives> {
-    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-    let build_rs = pkg_dir.join("build.rs");
-    if !build_rs.is_file() {
-        return Ok(BuildScriptDirectives::default());
-    }
-
-    let bin_path = staging_dir.join("build_script_build");
-    let out_dir = staging_dir.join("out");
-    fs::create_dir_all(&out_dir)?;
-
-    // Compile build.rs
-    let compile_status = Command::new("rustc")
-        .arg("--crate-name")
-        .arg("build_script_build")
-        .arg(&build_rs)
-        .arg("--crate-type")
-        .arg("bin")
-        .arg("--edition")
-        .arg(unit.edition.as_deref().unwrap_or("2021"))
-        .arg("-o")
-        .arg(&bin_path)
-        .output()
-        .context("Failed to compile build.rs")?;
-
-    if !compile_status.status.success() {
-        let err = String::from_utf8_lossy(&compile_status.stderr);
-        bail!("Failed to compile build.rs for '{}': {}", unit.package_name, err);
-    }
-
-    // Run build.rs
-    let run_status = Command::new(&bin_path)
-        .env("CARGO_MANIFEST_DIR", pkg_dir)
-        .env("CARGO_PKG_NAME", &unit.package_name)
-        .env("CARGO_PKG_VERSION", &unit.version)
-        .env("OUT_DIR", &out_dir)
-        .env("TARGET", std::env::var("TARGET").unwrap_or_else(|_| "host".to_string()))
-        .env("HOST", std::env::var("HOST").unwrap_or_else(|_| "host".to_string()))
-        .env("PROFILE", "debug")
-        .output()
-        .context("Failed to execute build.rs")?;
-
-    if !run_status.status.success() {
-        let err = String::from_utf8_lossy(&run_status.stderr);
-        bail!("build.rs failed for '{}': {}", unit.package_name, err);
-    }
-
-    let mut directives = BuildScriptDirectives {
-        out_dir: Some(out_dir),
-        ..Default::default()
-    };
-
-    let stdout_str = String::from_utf8_lossy(&run_status.stdout);
-    for line in stdout_str.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("cargo:rustc-cfg=") {
-            directives.cfgs.push(rest.to_string());
-        } else if let Some(rest) = trimmed.strip_prefix("cargo:rustc-link-lib=") {
-            directives.link_libs.push(rest.to_string());
-        } else if let Some(rest) = trimmed.strip_prefix("cargo:rustc-link-search=") {
-            let val = rest.strip_prefix("native=").unwrap_or(rest);
-            directives.link_searches.push(val.to_string());
-        } else if let Some(rest) = trimmed.strip_prefix("cargo:rustc-env=") {
-            if let Some((k, v)) = rest.split_once('=') {
-                directives.envs.insert(k.to_string(), v.to_string());
-            }
-        }
-    }
-
-    Ok(directives)
 }

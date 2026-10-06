@@ -56,10 +56,7 @@ fn test_scan_env_macros_detects_untracked_dynamic() {
             let dynamic = env!(concat!("FOO", "_BAR"));
         }
     "#;
-    assert_eq!(
-        scan_env_macros(code),
-        EnvMacroDiscovery::UntrackedDynamic
-    );
+    assert_eq!(scan_env_macros(code), EnvMacroDiscovery::UntrackedDynamic);
 }
 
 #[test]
@@ -72,10 +69,7 @@ fn test_scan_env_macros_escaped_string() {
     "#;
     assert_eq!(
         scan_env_macros(code),
-        EnvMacroDiscovery::Tracked(vec![
-            "BUILD_MODE".to_string(),
-            "UNICODE_NAME".to_string(),
-        ])
+        EnvMacroDiscovery::Tracked(vec!["BUILD_MODE".to_string(), "UNICODE_NAME".to_string(),])
     );
 }
 
@@ -155,9 +149,5 @@ fn test_scan_env_macros_dynamic_with_whitespace_before_bang() {
             let dynamic = env ! (concat!("DYNAMIC", "_VALUE"));
         }
     "#;
-    assert_eq!(
-        scan_env_macros(code),
-        EnvMacroDiscovery::UntrackedDynamic
-    );
+    assert_eq!(scan_env_macros(code), EnvMacroDiscovery::UntrackedDynamic);
 }
-

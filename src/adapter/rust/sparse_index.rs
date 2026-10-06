@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparseIndexEntry {
@@ -51,6 +50,7 @@ fn default_true() -> bool {
 pub struct SparseIndexClient {
     base_url: String,
     cache_dir: PathBuf,
+    agent: ureq::Agent,
 }
 
 impl SparseIndexClient {
@@ -67,18 +67,27 @@ impl SparseIndexClient {
         let cache_dir = base_dir.join("index");
         fs::create_dir_all(&cache_dir)?;
 
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
+
         Ok(Self {
             base_url: "https://index.crates.io".to_string(),
             cache_dir,
+            agent,
         })
     }
 
     /// Custom cache directory for tests or isolated environments.
     pub fn with_cache_dir(cache_dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&cache_dir)?;
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
         Ok(Self {
             base_url: "https://index.crates.io".to_string(),
             cache_dir,
+            agent,
         })
     }
 
@@ -124,32 +133,37 @@ impl SparseIndexClient {
 
         // Fetch from crates.io CDN
         let url = format!("{}/{}", self.base_url, rel_path);
-        let output = Command::new("curl")
-            .arg("-sSL")
-            .arg("--fail")
-            .arg(&url)
-            .output()
-            .with_context(|| {
-                format!(
-                    "Failed to fetch sparse index for '{}' from {}",
-                    crate_name, url
-                )
-            })?;
+        let resp = match self.agent.get(&url).call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(404, _)) => {
+                bail!(
+                    "Crate '{}' not found in crates.io index ({})",
+                    crate_name,
+                    url
+                );
+            }
+            Err(e) => {
+                bail!(
+                    "Failed to fetch sparse index for '{}' from {}: {}",
+                    crate_name,
+                    url,
+                    e
+                );
+            }
+        };
 
-        if !output.status.success() {
-            bail!(
-                "Crate '{}' not found in crates.io index ({})",
-                crate_name,
-                url
-            );
-        }
+        let content = resp.into_string().with_context(|| {
+            format!(
+                "Failed to read sparse index response for '{}' from {}",
+                crate_name, url
+            )
+        })?;
 
         if let Some(parent) = local_cache_path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let _ = fs::write(&local_cache_path, &output.stdout);
+        let _ = fs::write(&local_cache_path, &content);
 
-        let content = String::from_utf8_lossy(&output.stdout);
         Self::parse_lines(&content)
     }
 

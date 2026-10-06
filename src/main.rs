@@ -9,11 +9,10 @@
  */
 
 use clap::Parser;
-use mitts::adapter::{
-    BuildProgressCallback, BuildProgressEvent, RustAdapter, RustBuildOptions,
-};
+use mitts::adapter::{BuildProgressCallback, BuildProgressEvent, RustAdapter, RustBuildOptions};
 use mitts::cli::{
-    handle_explain, handle_fetch, handle_gc, BuildArgs, Cli, Commands, RunArgs, TerminalGuard, Ui,
+    handle_clean, handle_explain, handle_fetch, handle_gc, render_compiler_diagnostics, BuildArgs,
+    Cli, Commands, RunArgs, TerminalGuard, Ui,
 };
 use mitts::core::ActionKind;
 use std::process::{Command, ExitCode};
@@ -32,6 +31,7 @@ fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         cache_dir: args.cache_dir.clone(),
         native: args.native,
         cargo: args.cargo,
+        verbose: args.verbose,
         progress: None,
     }
 }
@@ -40,44 +40,73 @@ fn handle_build(args: &BuildArgs) -> i32 {
     let mut opt = to_rust_options(args);
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };
+    let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
 
     Ui::header(&format!("build [{}]", profile));
     let term_guard = TerminalGuard::acquire();
-    let progress = Ui::create_build_progress(profile);
+    let progress = if !is_verbose {
+        Some(Ui::create_build_progress(profile))
+    } else {
+        None
+    };
 
     let progress_clone = progress.clone();
-    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(move |event| {
-        match event {
+    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(
+        move |event| match event {
             BuildProgressEvent::InitTotal { total, cached } => {
-                Ui::set_build_progress_total(&progress_clone, total, cached);
+                if let Some(ref pb) = progress_clone {
+                    Ui::set_build_progress_total(pb, total, cached);
+                    pb.set_message("Compiling...".to_string());
+                } else {
+                    println!(
+                        "[mitts::dag] Initialized DAG: {} units ({} pre-cached)",
+                        total, cached
+                    );
+                }
             }
             BuildProgressEvent::Compiling(crate_name) => {
-                progress_clone.set_message(format!("• {}", crate_name));
+                if let Some(ref pb) = progress_clone {
+                    pb.set_message(format!("• {}", crate_name));
+                } else {
+                    println!("[mitts::compile] • {}", crate_name);
+                }
             }
             BuildProgressEvent::UnitFinished => {
-                if progress_clone.position() >= progress_clone.length().unwrap_or(0) {
-                    progress_clone.set_length(progress_clone.position() + 1);
+                if let Some(ref pb) = progress_clone {
+                    if pb.position() >= pb.length().unwrap_or(0) {
+                        pb.set_length(pb.position() + 1);
+                    }
+                    pb.inc(1);
                 }
-                progress_clone.inc(1);
             }
             BuildProgressEvent::CompilerMessage(rendered) => {
-                progress_clone.println(rendered);
+                if let Some(ref pb) = progress_clone {
+                    pb.println(rendered);
+                } else {
+                    println!("{}", rendered);
+                }
             }
             BuildProgressEvent::Diagnostic(line) => {
-                progress_clone.println(line);
+                if let Some(ref pb) = progress_clone {
+                    pb.println(line);
+                } else {
+                    println!("{}", line);
+                }
             }
-        }
-    })));
+        },
+    )));
 
     let build_res = RustAdapter::build(&opt);
-    progress.finish_and_clear();
+    if let Some(ref pb) = progress {
+        pb.finish_and_clear();
+    }
     drop(term_guard);
 
     match build_res {
         Ok((plan, result)) => {
-            Ui::stage_start("🔨", &format!("Compiled target [{}]", profile));
             let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             if result.success {
+                Ui::stage_start("🔨", &format!("Compiled target [{}]", profile));
                 if result.cached {
                     if result.action_id == "fast-lock-hit" {
                         Ui::stage_item(
@@ -139,10 +168,9 @@ fn handle_build(args: &BuildArgs) -> i32 {
                     );
                 }
             } else {
-                Ui::report_message(
-                    &format!("Compilation failed with exit code {}", result.exit_code),
-                    Some("Check the compiler error diagnostics above for details."),
-                );
+                Ui::stage_start("❌", &format!("Compilation failed [{}]", profile));
+                render_compiler_diagnostics(&result.stderr, is_verbose);
+                Ui::finish_failed(profile, &dur, "compilation errors");
             }
             result.exit_code
         }
@@ -159,10 +187,11 @@ fn handle_run(args: &RunArgs) -> i32 {
     let term_guard = TerminalGuard::acquire();
     let progress = Ui::create_build_progress(profile);
     let progress_clone = progress.clone();
-    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(move |event| {
-        match event {
+    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(
+        move |event| match event {
             BuildProgressEvent::InitTotal { total, cached } => {
                 Ui::set_build_progress_total(&progress_clone, total, cached);
+                progress_clone.set_message("Compiling...".to_string());
             }
             BuildProgressEvent::Compiling(crate_name) => {
                 progress_clone.set_message(format!("• {}", crate_name));
@@ -179,8 +208,8 @@ fn handle_run(args: &RunArgs) -> i32 {
             BuildProgressEvent::Diagnostic(line) => {
                 progress_clone.println(line);
             }
-        }
-    })));
+        },
+    )));
 
     let build_res = RustAdapter::build(&opt);
     progress.finish_and_clear();
@@ -253,6 +282,7 @@ fn main() -> ExitCode {
         Commands::Explain(ref args) => handle_explain(args),
         Commands::Fetch(ref args) => handle_fetch(args),
         Commands::Gc(ref args) => handle_gc(args),
+        Commands::Clean(ref args) => handle_clean(args),
     };
 
     if code == 0 {

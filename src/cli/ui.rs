@@ -24,6 +24,8 @@ impl Ui {
     pub const BOLD_GREEN: &'static str = "\x1b[1;32m";
     pub const BOLD_CYAN: &'static str = "\x1b[1;36m";
     pub const BOLD_YELLOW: &'static str = "\x1b[1;33m";
+    pub const RED: &'static str = "\x1b[31m";
+    pub const BOLD_RED: &'static str = "\x1b[1;31m";
 
     /// Prints the main Mitts header banner.
     pub fn header(title: &str) {
@@ -99,16 +101,41 @@ impl Ui {
         format!("{}[AC HIT]{}", Self::BOLD_GREEN, Self::RESET)
     }
 
+    /// Prints a failure badge: `[failed]` in bold red.
+    pub fn badge_failed() -> String {
+        format!("{}[failed]{}", Self::BOLD_RED, Self::RESET)
+    }
+
     /// Prints the final success closing footer: `└─ ✨ Finished in ...`
     pub fn finish(profile: &str, duration_str: &str, extra: &str) {
         println!(
-            "{}└─{} ✨ {}{}{} profile {} in {}{}{} {}({}){}",
+            "{}└─{} ✨ {}{}{} profile completed in {}{}{}{} {}({}){}",
             Self::CYAN,
             Self::RESET,
             Self::BOLD,
             profile,
             Self::RESET,
             Self::GREEN,
+            Self::BOLD,
+            duration_str,
+            Self::RESET,
+            Self::DIM,
+            extra,
+            Self::RESET
+        );
+        println!();
+    }
+
+    /// Prints the final failure closing footer: `└─ ❌ dev profile failed in ...`
+    pub fn finish_failed(profile: &str, duration_str: &str, extra: &str) {
+        println!(
+            "{}└─{} ❌ {}{}{} profile failed in {}{}{}{} {}({}){}",
+            Self::CYAN,
+            Self::RESET,
+            Self::BOLD,
+            profile,
+            Self::RESET,
+            Self::RED,
             Self::BOLD,
             duration_str,
             Self::RESET,
@@ -163,7 +190,9 @@ impl Ui {
         pb.set_position(cached as u64);
         let style = ProgressStyle::default_bar()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.cyan.bold} [{prefix:.bold}] [{bar:25.cyan/blue}] {pos}/{len} {msg}")
+            .template(
+                "{spinner:.cyan.bold} [{prefix:.bold}] [{bar:25.cyan/blue}] {pos}/{len} {msg}",
+            )
             .unwrap_or_else(|_| ProgressStyle::default_bar())
             .progress_chars("█▉▊▋▌▍▎▏ ");
         pb.set_style(style);

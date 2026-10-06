@@ -31,11 +31,7 @@ pub struct CompilationDag {
 impl CompilationDag {
     /// Builds a `CompilationDag` from an `EffectivePlanExplanation`.
     pub fn from_explanation(explanation: &EffectivePlanExplanation) -> Result<Self> {
-        let known_ids: HashSet<String> = explanation
-            .units
-            .iter()
-            .map(|u| u.unit_id())
-            .collect();
+        let known_ids: HashSet<String> = explanation.units.iter().map(|u| u.unit_id()).collect();
 
         let mut nodes: HashMap<String, DagNode> = HashMap::new();
 
@@ -191,6 +187,7 @@ mod tests {
             env_vars: Vec::new(),
             dependencies: Vec::new(),
             edition: Some("2021".to_string()),
+            features: Vec::new(),
         };
         let u2 = PlannedCompilationUnit {
             package_id: "pkg2".to_string(),
@@ -205,6 +202,7 @@ mod tests {
             env_vars: Vec::new(),
             dependencies: vec![u1.unit_id()],
             edition: Some("2021".to_string()),
+            features: Vec::new(),
         };
 
         let explanation = EffectivePlanExplanation {

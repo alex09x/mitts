@@ -12,7 +12,6 @@ use crate::core::hash::Sha256;
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Thread-safe global content store for downloaded and unpacked crate sources.
 /// Stored packages reside at `{root}/{crate_name}-{version}/` with zero workspace pollution.
@@ -164,29 +163,18 @@ impl SourceStore {
                 .unwrap_or(0)
         );
 
-        let temp_archive = self.locks_dir.join(format!("{}.crate", run_id));
         let staging_dir = self.locks_dir.join(format!("{}.staging", run_id));
-
-        fs::write(&temp_archive, archive_bytes)
-            .with_context(|| format!("Failed to write temporary archive {:?}", temp_archive))?;
         fs::create_dir_all(&staging_dir)
             .with_context(|| format!("Failed to create staging dir {:?}", staging_dir))?;
 
-        // Extract using system tar
-        let status = Command::new("tar")
-            .arg("-xzf")
-            .arg(&temp_archive)
-            .arg("-C")
-            .arg(&staging_dir)
-            .status()
-            .context("Failed to execute tar command for archive extraction")?;
-
-        let _ = fs::remove_file(&temp_archive);
-
-        if !status.success() {
-            let _ = fs::remove_dir_all(&staging_dir);
-            bail!("Failed to unpack crate archive for {}-{}", name, version);
-        }
+        let gz = flate2::read::GzDecoder::new(archive_bytes);
+        let mut archive = tar::Archive::new(gz);
+        archive.unpack(&staging_dir).with_context(|| {
+            format!(
+                "Failed to unpack crate archive in-memory for {}-{}",
+                name, version
+            )
+        })?;
 
         // Standard .crate archive has a root directory matching `{name}-{version}`
         let nested_dir = staging_dir.join(format!("{}-{}", name, version));

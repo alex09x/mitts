@@ -8,24 +8,31 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod build_script;
 pub mod builder;
 pub mod compiler;
 pub mod dag;
+pub mod dag_cache;
 pub mod dag_runner;
+pub mod dag_unit;
 pub mod dep_info;
 pub mod env_macro;
+pub mod features;
 pub mod fetcher;
 pub mod inputs;
 pub mod key;
 pub mod lockfile;
+pub mod manifest;
+pub mod package_selection;
 pub mod planner;
 pub mod publisher;
 pub mod resolver;
-pub mod runner;
+pub mod source_lookup;
 pub mod sparse_index;
 pub mod types;
 pub mod unescape;
 
+pub use build_script::{execute_build_script, BuildScriptDirectives};
 pub use compiler::{RustcInvocation, RustcOutput};
 pub use dag::CompilationDag;
 pub use dag_runner::run_native_dag_build;

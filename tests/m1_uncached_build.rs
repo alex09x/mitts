@@ -23,7 +23,11 @@ fn fixture_manifest() -> PathBuf {
 #[test]
 fn test_fixture_uncached_build_and_oracle() {
     let manifest = fixture_manifest();
-    assert!(manifest.exists(), "Fixture manifest must exist: {:?}", manifest);
+    assert!(
+        manifest.exists(),
+        "Fixture manifest must exist: {:?}",
+        manifest
+    );
 
     let opt = RustBuildOptions {
         manifest_path: Some(manifest.clone()),
@@ -38,7 +42,11 @@ fn test_fixture_uncached_build_and_oracle() {
     // Verify isolated .mitts/target directory was used
     let target_dir = manifest.parent().unwrap().join(".mitts").join("target");
     assert_eq!(plan.target_directory, target_dir);
-    assert!(target_dir.exists(), "Target directory must exist: {:?}", target_dir);
+    assert!(
+        target_dir.exists(),
+        "Target directory must exist: {:?}",
+        target_dir
+    );
 
     // Locate the built binary in the isolated target
     let debug_dir = target_dir.join("debug");
@@ -104,7 +112,10 @@ edition = "2021"
 
     let (_, result) = RustAdapter::build(&opt).expect("Execution should return failure result");
     assert!(!result.success, "Compilation must report failure");
-    assert_ne!(result.exit_code, 0, "Exit code must be non-zero on compiler error");
+    assert_ne!(
+        result.exit_code, 0,
+        "Exit code must be non-zero on compiler error"
+    );
     assert!(
         result.stderr.contains("mismatched types") || result.stdout.contains("mismatched types"),
         "Diagnostics must preserve compiler error"
@@ -143,7 +154,10 @@ fn test_coexistence_with_ordinary_cargo() {
     assert!(mitts_bin.exists(), "Mitts binary must exist");
 
     // 3. Verify ordinary target was not deleted, overwritten, or corrupted
-    assert!(ordinary_bin.exists(), "Ordinary target binary must remain intact");
+    assert!(
+        ordinary_bin.exists(),
+        "Ordinary target binary must remain intact"
+    );
 
     // Both binaries must be independently executable with identical observable output
     let out_ordinary = Command::new(&ordinary_bin).output().expect("exec ordinary");
@@ -170,7 +184,10 @@ fn test_explain_effective_plan() {
         explanation.target_directory,
         manifest.parent().unwrap().join(".mitts").join("target")
     );
-    assert!(!explanation.units.is_empty(), "Plan must have compilation units");
+    assert!(
+        !explanation.units.is_empty(),
+        "Plan must have compilation units"
+    );
 
     let bin_unit = explanation
         .units
@@ -303,5 +320,3 @@ crate-type = ["rlib", "cdylib"]
         unit.cache_eligibility
     );
 }
-
-

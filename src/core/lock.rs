@@ -37,8 +37,9 @@ impl FileLock {
     /// Acquires an exclusive blocking lock on the file at the given path.
     pub fn acquire_exclusive(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create parent directory for lock: {:?}", parent))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create parent directory for lock: {:?}", parent)
+            })?;
         }
 
         let file = OpenOptions::new()
@@ -69,8 +70,9 @@ impl FileLock {
     /// Attempts to acquire an exclusive lock without blocking. Returns `None` if already locked.
     pub fn try_acquire_exclusive(path: &Path) -> Result<Option<Self>> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create parent directory for lock: {:?}", parent))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create parent directory for lock: {:?}", parent)
+            })?;
         }
 
         let file = OpenOptions::new()
@@ -91,7 +93,11 @@ impl FileLock {
                 if err.raw_os_error() == Some(libc_ewouldblock()) {
                     return Ok(None);
                 }
-                anyhow::bail!("Failed to try-acquire exclusive lock on {:?}: {}", path, err);
+                anyhow::bail!(
+                    "Failed to try-acquire exclusive lock on {:?}: {}",
+                    path,
+                    err
+                );
             }
         }
 
@@ -104,8 +110,9 @@ impl FileLock {
     /// Acquires a shared blocking lock on the file at the given path.
     pub fn acquire_shared(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create parent directory for lock: {:?}", parent))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create parent directory for lock: {:?}", parent)
+            })?;
         }
 
         let file = OpenOptions::new()

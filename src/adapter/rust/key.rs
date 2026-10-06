@@ -8,12 +8,14 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::inputs::hash_unit_inputs;
+use super::inputs::{append_unit_dep_info_inputs, hash_package_base_inputs};
 use super::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions};
 use crate::core::action::ToolchainInfo;
 use crate::core::action_cache::ActionCache;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::thread;
 
 /// Resolves the effective target triple considering CLI args, Cargo env vars, and toolchain defaults.
 pub(crate) fn resolve_effective_target_triple(
@@ -46,13 +48,123 @@ pub(crate) fn resolve_effective_target_triple(
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+pub(crate) fn resolve_unit_pkg_dir(unit: &PlannedCompilationUnit) -> PathBuf {
+    if unit.manifest_path.is_file() {
+        unit.manifest_path.parent().unwrap().to_path_buf()
+    } else {
+        let mut cur = unit.src_path.parent();
+        let mut dir = None;
+        while let Some(d) = cur {
+            if d.join("Cargo.toml").is_file() {
+                dir = Some(d.to_path_buf());
+                break;
+            }
+            cur = d.parent();
+        }
+        dir.unwrap_or_else(|| {
+            unit.src_path
+                .parent()
+                .unwrap_or(&unit.src_path)
+                .to_path_buf()
+        })
+    }
+}
+
+pub(crate) fn compute_unit_flags(
+    unit: &PlannedCompilationUnit,
+    pkg_dir: &Path,
+    effective_flags: &[String],
+) -> Vec<String> {
+    let mut u_flags = effective_flags.to_vec();
+    if unit.is_workspace {
+        u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
+    }
+    u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
+    u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
+    u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));
+    u_flags.push(format!("CRATE_KIND={}", unit.kind));
+    if unit.kind == "bin" {
+        u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
+    }
+
+    for var in &unit.env_vars {
+        let entry = if var == "CARGO_MANIFEST_DIR" {
+            format!("ENV_MACRO:CARGO_MANIFEST_DIR={}", pkg_dir.display())
+        } else if var == "CARGO_PKG_NAME" {
+            format!("ENV_MACRO:CARGO_PKG_NAME={}", unit.package_name)
+        } else if var == "CARGO_PKG_VERSION" {
+            format!("ENV_MACRO:CARGO_PKG_VERSION={}", unit.version)
+        } else if var == "CARGO_PKG_VERSION_MAJOR" {
+            let maj = unit.version.split('.').next().unwrap_or("0");
+            format!("ENV_MACRO:CARGO_PKG_VERSION_MAJOR={}", maj)
+        } else if var == "CARGO_PKG_VERSION_MINOR" {
+            let min = unit.version.split('.').nth(1).unwrap_or("0");
+            format!("ENV_MACRO:CARGO_PKG_VERSION_MINOR={}", min)
+        } else if var == "CARGO_PKG_VERSION_PATCH" {
+            let patch = unit.version.split('.').nth(2).unwrap_or("0");
+            format!("ENV_MACRO:CARGO_PKG_VERSION_PATCH={}", patch)
+        } else if var == "CARGO_CRATE_NAME" {
+            format!("ENV_MACRO:CARGO_CRATE_NAME={}", unit.target_name)
+        } else if var == "CARGO_BIN_NAME" {
+            if unit.kind == "bin" {
+                format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
+            } else {
+                "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
+            }
+        } else {
+            match std::env::var(var) {
+                Ok(val) => format!("ENV_MACRO:{}={}", var, val),
+                Err(_) => format!("ENV_MACRO:{}=<unset>", var),
+            }
+        };
+        u_flags.push(entry);
+    }
+    u_flags
+}
+
+pub(crate) fn parallel_map_chunks<T, R, F>(items: &[T], f: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Sync + Send,
+{
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let num_threads = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(8)
+        .min(items.len());
+
+    if num_threads <= 1 {
+        return items.iter().map(f).collect();
+    }
+
+    let chunk_size = items.len().div_ceil(num_threads);
+    let chunks: Vec<&[T]> = items.chunks(chunk_size).collect();
+    let f = &f;
+
+    thread::scope(|s| {
+        let mut handles = Vec::new();
+        for chunk in chunks {
+            handles.push(s.spawn(move || chunk.iter().map(f).collect::<Vec<R>>()));
+        }
+        let mut all = Vec::with_capacity(items.len());
+        for h in handles {
+            if let Ok(res) = h.join() {
+                all.extend(res);
+            }
+        }
+        all
+    })
+}
+
 /// Derives independent deterministic Action Keys for each compilation unit in topological order.
 pub fn derive_unit_action_keys(
     opt: &RustBuildOptions,
     explanation: &EffectivePlanExplanation,
 ) -> Result<HashMap<String, String>> {
     let mut unit_keys: HashMap<String, String> = HashMap::new();
-    let mut inputs_by_unit: HashMap<String, Vec<(String, String)>> = HashMap::new();
 
     // Gather effective environment flags (all CARGO_*, RUST_*, RUSTFLAGS, etc.)
     let mut effective_flags = opt.extra_args.clone();
@@ -81,94 +193,57 @@ pub fn derive_unit_action_keys(
         }
     }
 
-    let mut flags_by_unit: HashMap<String, Vec<String>> = HashMap::new();
-
+    // 1. Gather all unique package directories and their workspace status
+    let mut unique_pkgs: HashMap<PathBuf, bool> = HashMap::new();
     for unit in &explanation.units {
-        let pkg_dir = if unit.manifest_path.is_file() {
-            unit.manifest_path.parent().unwrap().to_path_buf()
-        } else {
-            let mut cur = unit.src_path.parent();
-            let mut dir = None;
-            while let Some(d) = cur {
-                if d.join("Cargo.toml").is_file() {
-                    dir = Some(d.to_path_buf());
-                    break;
-                }
-                cur = d.parent();
-            }
-            dir.unwrap_or_else(|| {
-                unit.src_path.parent().unwrap_or(&unit.src_path).to_path_buf()
-            })
-        };
-
-        let inputs = hash_unit_inputs(
-            &pkg_dir,
-            if unit.is_workspace {
-                Some(&explanation.manifest_path)
-            } else {
-                None
-            },
-            &explanation.target_directory,
-            &unit.target_name,
-            unit.is_workspace,
-        )?;
-        inputs_by_unit.insert(unit.unit_id(), inputs);
-
-        // Include Cargo-generated compiler environment variables for this unit:
-        let mut u_flags = effective_flags.clone();
-        if unit.is_workspace {
-            u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
-        }
-        u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
-        u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
-        u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));
-        if unit.kind == "bin" {
-            u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
-        }
-
-        // Include tracked compile-time env! / option_env! variables for this unit:
-        for var in &unit.env_vars {
-            let entry = if var == "CARGO_MANIFEST_DIR" {
-                format!("ENV_MACRO:CARGO_MANIFEST_DIR={}", pkg_dir.display())
-            } else if var == "CARGO_PKG_NAME" {
-                format!("ENV_MACRO:CARGO_PKG_NAME={}", unit.package_name)
-            } else if var == "CARGO_PKG_VERSION" {
-                format!("ENV_MACRO:CARGO_PKG_VERSION={}", unit.version)
-            } else if var == "CARGO_PKG_VERSION_MAJOR" {
-                let maj = unit.version.split('.').next().unwrap_or("0");
-                format!("ENV_MACRO:CARGO_PKG_VERSION_MAJOR={}", maj)
-            } else if var == "CARGO_PKG_VERSION_MINOR" {
-                let min = unit.version.split('.').nth(1).unwrap_or("0");
-                format!("ENV_MACRO:CARGO_PKG_VERSION_MINOR={}", min)
-            } else if var == "CARGO_PKG_VERSION_PATCH" {
-                let patch = unit.version.split('.').nth(2).unwrap_or("0");
-                format!("ENV_MACRO:CARGO_PKG_VERSION_PATCH={}", patch)
-            } else if var == "CARGO_CRATE_NAME" {
-                format!("ENV_MACRO:CARGO_CRATE_NAME={}", unit.target_name)
-            } else if var == "CARGO_BIN_NAME" {
-                if unit.kind == "bin" {
-                    format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
-                } else {
-                    "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
-                }
-            } else {
-                match std::env::var(var) {
-                    Ok(val) => format!("ENV_MACRO:{}={}", var, val),
-                    Err(_) => format!("ENV_MACRO:{}=<unset>", var),
-                }
-            };
-            u_flags.push(entry);
-        }
-
-        flags_by_unit.insert(unit.unit_id(), u_flags);
+        let pkg_dir = resolve_unit_pkg_dir(unit);
+        unique_pkgs.entry(pkg_dir).or_insert(unit.is_workspace);
     }
 
-    let planned_unit_ids: HashSet<String> = explanation
-        .units
-        .iter()
-        .map(|u| u.unit_id())
-        .collect();
+    let ws_manifest = Some(explanation.manifest_path.as_path());
+    let pkg_list: Vec<(PathBuf, bool)> = unique_pkgs.into_iter().collect();
 
+    // Parallel hash base inputs across chunked workers
+    let computed_pkg_inputs = parallel_map_chunks(&pkg_list, |(pkg_dir, is_ws)| {
+        let ws_ref = if *is_ws { ws_manifest } else { None };
+        let inputs = hash_package_base_inputs(pkg_dir, ws_ref, *is_ws)?;
+        Ok::<_, anyhow::Error>((pkg_dir.clone(), inputs))
+    });
+
+    let mut pkg_inputs_cache: HashMap<PathBuf, Vec<(String, String)>> = HashMap::new();
+    for res in computed_pkg_inputs {
+        let (pkg_dir, inputs) = res?;
+        pkg_inputs_cache.insert(pkg_dir, inputs);
+    }
+
+    // 2. Parallel resolution of unit dep-info inputs and compiler flags
+    let unit_preps = parallel_map_chunks(&explanation.units, |unit| {
+        let pkg_dir = resolve_unit_pkg_dir(unit);
+        let base_inputs = pkg_inputs_cache.get(&pkg_dir).cloned().unwrap_or_default();
+        let inputs = if unit.is_workspace {
+            append_unit_dep_info_inputs(
+                base_inputs,
+                &pkg_dir,
+                &explanation.target_directory,
+                &unit.target_name,
+            )?
+        } else {
+            base_inputs
+        };
+        let u_flags = compute_unit_flags(unit, &pkg_dir, &effective_flags);
+        Ok::<_, anyhow::Error>((unit.unit_id(), inputs, u_flags))
+    });
+
+    let mut inputs_by_unit: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut flags_by_unit: HashMap<String, Vec<String>> = HashMap::new();
+    for res in unit_preps {
+        let (u_id, inputs, u_flags) = res?;
+        inputs_by_unit.insert(u_id.clone(), inputs);
+        flags_by_unit.insert(u_id, u_flags);
+    }
+
+    // 3. Fast in-memory topological Action Key derivation
+    let planned_unit_ids: HashSet<String> = explanation.units.iter().map(|u| u.unit_id()).collect();
     let mut remaining: Vec<&PlannedCompilationUnit> = explanation.units.iter().collect();
     let target_triple = resolve_effective_target_triple(opt, &explanation.toolchain);
 
@@ -205,7 +280,7 @@ pub fn derive_unit_action_keys(
                     &target_triple,
                     &explanation.profile,
                     u_flags,
-                    &opt.features,
+                    &unit.features,
                     &source_refs,
                     &dep_hashes,
                 );
@@ -231,7 +306,7 @@ pub fn derive_unit_action_keys(
                     &target_triple,
                     &explanation.profile,
                     u_flags,
-                    &opt.features,
+                    &unit.features,
                     &source_refs,
                     &[],
                 );

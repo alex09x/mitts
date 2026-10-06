@@ -253,7 +253,11 @@ impl CAdapter {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if !success {
-            bail!("C compilation failed with exit code {}:\n{}", exit_code, stderr);
+            bail!(
+                "C compilation failed with exit code {}:\n{}",
+                exit_code,
+                stderr
+            );
         }
 
         // Store output into CAS

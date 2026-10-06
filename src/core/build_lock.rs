@@ -11,84 +11,26 @@
 use super::file_scanner::{collect_project_files, mtime_parts};
 use super::hash::Sha256;
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct FileSnapshot {
-    pub relative_path: PathBuf,
-    pub mtime_secs: u64,
-    pub mtime_nanos: u32,
-    pub size: u64,
-    pub sha256: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FastBuildLock {
-    pub version: u32,
-    pub profile: String,
-    pub package: Option<String>,
-    pub features: Vec<String>,
-    pub no_default_features: bool,
-    pub all_features: bool,
-    pub toolchain_version: String,
-    pub created_at_secs: u64,
-    pub action_count: usize,
-    pub root_binary: Option<PathBuf>,
-    pub cargo_lock: Option<FileSnapshot>,
-    pub manifests: Vec<FileSnapshot>,
-    pub sources: Vec<FileSnapshot>,
-    pub outputs: Vec<FileSnapshot>,
-}
-
-#[derive(Debug)]
-pub enum FreshnessResult {
-    Fresh {
-        action_count: usize,
-        root_binary: Option<PathBuf>,
-    },
-    Stale(String),
-}
-
-#[derive(Debug, Clone)]
-pub struct FreshnessCheckArgs<'a> {
-    pub project_dir: &'a Path,
-    pub profile: &'a str,
-    pub package: &'a Option<String>,
-    pub features: &'a [String],
-    pub no_default_features: bool,
-    pub all_features: bool,
-    pub toolchain_version: &'a str,
-}
-
-#[derive(Debug, Clone)]
-pub struct RecordStateArgs<'a> {
-    pub project_dir: &'a Path,
-    pub profile: &'a str,
-    pub package: &'a Option<String>,
-    pub features: &'a [String],
-    pub no_default_features: bool,
-    pub all_features: bool,
-    pub toolchain_version: &'a str,
-    pub action_count: usize,
-    pub root_binary: Option<PathBuf>,
-    pub outputs: &'a [PathBuf],
-}
+pub use super::build_lock_types::*;
 
 impl FastBuildLock {
     pub const LOCK_FILE_NAME: &'static str = "build.lock";
 
-    /// Returns the canonical path to the fast build lockfile inside the project's .mitts directory.
-    pub fn lock_path(project_dir: &Path) -> PathBuf {
-        project_dir.join(".mitts").join(Self::LOCK_FILE_NAME)
+    /// Returns the canonical path to the fast build lockfile inside the project's .mitts directory for the given profile.
+    pub fn lock_path(project_dir: &Path, profile: &str) -> PathBuf {
+        project_dir
+            .join(".mitts")
+            .join(format!("build-{}.lock", profile))
     }
 
     /// Evaluates whether the workspace is 100% up-to-date in microsecond/sub-millisecond time
     /// without spawning cargo, rustc, or inspecting dependency graphs.
     pub fn check_freshness(args: &FreshnessCheckArgs<'_>) -> FreshnessResult {
-        let path = Self::lock_path(args.project_dir);
+        let path = Self::lock_path(args.project_dir, args.profile);
         let Ok(data) = fs::read(&path) else {
             return FreshnessResult::Stale("No build.lock found".to_string());
         };
@@ -280,9 +222,13 @@ impl FastBuildLock {
         };
 
         let bytes = serde_json::to_vec_pretty(&lock)?;
-        let temp_p = lock_dir.join(format!("{}.tmp.{}", Self::LOCK_FILE_NAME, std::process::id()));
+        let temp_p = lock_dir.join(format!(
+            "build-{}.lock.tmp.{}",
+            args.profile,
+            std::process::id()
+        ));
         fs::write(&temp_p, bytes)?;
-        fs::rename(temp_p, Self::lock_path(args.project_dir))?;
+        fs::rename(temp_p, Self::lock_path(args.project_dir, args.profile))?;
 
         Ok(())
     }
@@ -359,5 +305,74 @@ mod tests {
             toolchain_version: "rustc 1.85.0",
         });
         assert!(matches!(res2, FreshnessResult::Stale(_)));
+    }
+
+    #[test]
+    fn test_fast_build_lock_multi_profile() {
+        let temp = tempfile::tempdir().unwrap();
+        let pdir = temp.path();
+        let cargo_toml = pdir.join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let src_dir = pdir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(src_dir.join("main.rs"), "fn main() {}\n").unwrap();
+
+        let bin_dev = pdir.join("target/debug/foo");
+        let bin_rel = pdir.join("target/release/foo");
+        fs::create_dir_all(bin_dev.parent().unwrap()).unwrap();
+        fs::create_dir_all(bin_rel.parent().unwrap()).unwrap();
+        fs::write(&bin_dev, "dev-bin").unwrap();
+        fs::write(&bin_rel, "rel-bin").unwrap();
+
+        let make_args = |profile: &'static str| FreshnessCheckArgs {
+            project_dir: pdir,
+            profile,
+            package: &None,
+            features: &[],
+            no_default_features: false,
+            all_features: false,
+            toolchain_version: "rustc 1.85.0",
+        };
+
+        FastBuildLock::record_state(&RecordStateArgs {
+            project_dir: pdir,
+            profile: "dev",
+            package: &None,
+            features: &[],
+            no_default_features: false,
+            all_features: false,
+            toolchain_version: "rustc 1.85.0",
+            action_count: 1,
+            root_binary: Some(bin_dev.clone()),
+            outputs: &[bin_dev],
+        })
+        .unwrap();
+
+        FastBuildLock::record_state(&RecordStateArgs {
+            project_dir: pdir,
+            profile: "release",
+            package: &None,
+            features: &[],
+            no_default_features: false,
+            all_features: false,
+            toolchain_version: "rustc 1.85.0",
+            action_count: 1,
+            root_binary: Some(bin_rel.clone()),
+            outputs: &[bin_rel],
+        })
+        .unwrap();
+
+        assert!(matches!(
+            FastBuildLock::check_freshness(&make_args("dev")),
+            FreshnessResult::Fresh { .. }
+        ));
+        assert!(matches!(
+            FastBuildLock::check_freshness(&make_args("release")),
+            FreshnessResult::Fresh { .. }
+        ));
     }
 }

@@ -29,8 +29,7 @@ const K: [u32; 64] = [
 /// Initial hash state (first 32 bits of the fractional parts of the square
 /// roots of the first 8 prime numbers).
 const H_INIT: [u32; 8] = [
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
 #[inline]
@@ -227,7 +226,9 @@ impl Sha256 {
         let mut hasher = Self::new();
         let mut buffer = [0u8; 65536];
         loop {
-            let bytes_read = reader.read(&mut buffer).context("Failed to read from stream")?;
+            let bytes_read = reader
+                .read(&mut buffer)
+                .context("Failed to read from stream")?;
             if bytes_read == 0 {
                 break;
             }
@@ -238,7 +239,8 @@ impl Sha256 {
 
     /// Computes the hex-encoded SHA-256 digest of a file on disk.
     pub fn digest_file(path: &Path) -> Result<String> {
-        let file = File::open(path).with_context(|| format!("Failed to open file for hashing: {:?}", path))?;
+        let file = File::open(path)
+            .with_context(|| format!("Failed to open file for hashing: {:?}", path))?;
         Self::digest_reader(file)
     }
 }

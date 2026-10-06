@@ -59,6 +59,8 @@ pub struct PlannedCompilationUnit {
     pub dependencies: Vec<String>,
     #[serde(default)]
     pub edition: Option<String>,
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 impl PlannedCompilationUnit {
@@ -108,6 +110,7 @@ pub struct RustBuildOptions {
     pub cache_dir: Option<PathBuf>,
     pub native: bool,
     pub cargo: bool,
+    pub verbose: u8,
     pub progress: Option<BuildProgressCallback>,
 }
 
@@ -117,92 +120,4 @@ pub enum EnvMacroDiscovery {
     Tracked(Vec<String>),
     /// Encountered untracked or dynamic env!/option_env! macro whose variable name cannot be statically resolved
     UntrackedDynamic,
-}
-
-/// JSON message shapes emitted by Cargo with `--message-format=json`.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "reason")]
-#[allow(dead_code)]
-pub(crate) enum CargoMessage {
-    #[serde(rename = "compiler-artifact")]
-    CompilerArtifact {
-        package_id: String,
-        target: CargoTarget,
-        profile: CargoProfile,
-        features: Vec<String>,
-        filenames: Vec<String>,
-        executable: Option<String>,
-        fresh: bool,
-    },
-    #[serde(rename = "build-script-executed")]
-    BuildScriptExecuted {
-        package_id: String,
-        linked_libs: Vec<String>,
-        linked_paths: Vec<String>,
-    },
-    #[serde(rename = "compiler-message")]
-    CompilerMessage { rendered: Option<String> },
-    #[serde(rename = "build-finished")]
-    BuildFinished { success: bool },
-    #[serde(other)]
-    Unknown,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct CargoTarget {
-    pub name: String,
-    pub kind: Vec<String>,
-    pub src_path: String,
-    pub edition: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct CargoProfile {
-    pub opt_level: String,
-    pub debuginfo: Option<serde_json::Value>,
-    pub test: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct MetadataOutput {
-    pub packages: Vec<MetaPackage>,
-    pub workspace_members: Vec<String>,
-    #[serde(default)]
-    pub workspace_default_members: Vec<String>,
-    pub resolve: Option<MetaResolve>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct MetaPackage {
-    pub id: String,
-    pub name: String,
-    pub version: String,
-    pub manifest_path: String,
-    #[allow(dead_code)]
-    pub source: Option<String>,
-    pub targets: Vec<MetaTarget>,
-    #[serde(default)]
-    pub edition: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct MetaTarget {
-    pub name: String,
-    pub kind: Vec<String>,
-    pub src_path: String,
-    #[serde(default)]
-    pub edition: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct MetaResolve {
-    pub nodes: Vec<MetaResolveNode>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct MetaResolveNode {
-    pub id: String,
-    pub dependencies: Vec<String>,
 }

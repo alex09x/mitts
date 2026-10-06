@@ -103,26 +103,51 @@ impl BuildLogger {
         writeln!(f, "Profile:   [{}]", profile)?;
         writeln!(f, "Exit Code: {}", exit_code)?;
         writeln!(f, "Outcome:   {}", outcome)?;
-        writeln!(f, "Total Dur: {:.2}s ({:.1}ms)", total.as_secs_f64(), total.as_secs_f64() * 1000.0)?;
+        writeln!(
+            f,
+            "Total Dur: {:.2}s ({:.1}ms)",
+            total.as_secs_f64(),
+            total.as_secs_f64() * 1000.0
+        )?;
         writeln!(f)?;
         writeln!(f, "Phase Breakdown:")?;
-        writeln!(f, "--------------------------------------------------------------------------------")?;
-        writeln!(f, "{:<14} {:>10} {:>8}   DETAILS", "PHASE", "DURATION", "SHARE")?;
-        writeln!(f, "--------------------------------------------------------------------------------")?;
+        writeln!(
+            f,
+            "--------------------------------------------------------------------------------"
+        )?;
+        writeln!(
+            f,
+            "{:<14} {:>10} {:>8}   DETAILS",
+            "PHASE", "DURATION", "SHARE"
+        )?;
+        writeln!(
+            f,
+            "--------------------------------------------------------------------------------"
+        )?;
 
         let total_ms = total.as_secs_f64() * 1000.0;
         for p in &self.phases {
             let p_ms = p.duration.as_secs_f64() * 1000.0;
-            let share = if total_ms > 0.0 { (p_ms / total_ms) * 100.0 } else { 0.0 };
+            let share = if total_ms > 0.0 {
+                (p_ms / total_ms) * 100.0
+            } else {
+                0.0
+            };
             writeln!(
                 f,
                 "{:<14} {:>8.1}ms {:>7.1}%   {}",
                 p.name, p_ms, share, p.details
             )?;
         }
-        writeln!(f, "--------------------------------------------------------------------------------")?;
+        writeln!(
+            f,
+            "--------------------------------------------------------------------------------"
+        )?;
         writeln!(f, "Total: {:>17.1}ms", total_ms)?;
-        writeln!(f, "================================================================================")?;
+        writeln!(
+            f,
+            "================================================================================"
+        )?;
 
         Ok(())
     }
@@ -153,9 +178,7 @@ mod tests {
         });
         assert_eq!(val, 42);
 
-        logger
-            .write_trace("dev", 0, "All targets clean")
-            .unwrap();
+        logger.write_trace("dev", 0, "All targets clean").unwrap();
 
         let content = fs::read_to_string(&log_file).unwrap();
         assert!(content.contains("Mitts Build Execution Trace"));

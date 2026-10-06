@@ -57,7 +57,8 @@ fn test_cas_store_and_integrity_verification() {
 
     // Restore object as executable
     let dest_bin = temp_dir.path().join("restored_bin");
-    cas.restore_object(&hash, &dest_bin, true).expect("restore object");
+    cas.restore_object(&hash, &dest_bin, true)
+        .expect("restore object");
     assert!(dest_bin.is_file());
     assert_eq!(fs::read(&dest_bin).expect("read restored"), payload);
 
@@ -101,7 +102,10 @@ fn test_cas_detects_corrupted_object() {
     let dest = temp_dir.path().join("dest");
     let res = cas.restore_object(&hash, &dest, false);
     assert!(res.is_err(), "Restoring corrupted object must fail");
-    assert!(!obj_path.exists(), "Corrupted object must be removed from CAS");
+    assert!(
+        !obj_path.exists(),
+        "Corrupted object must be removed from CAS"
+    );
 }
 
 #[test]
@@ -206,13 +210,15 @@ fn test_cold_and_warm_build_with_cas_and_action_cache() {
         target_dir: Some(target_dir.clone()),
         ..Default::default()
     };
-    let (_plan_cold, result_cold) =
-        RustAdapter::build(&opt_cold).expect("Cold build must succeed");
+    let (_plan_cold, result_cold) = RustAdapter::build(&opt_cold).expect("Cold build must succeed");
     assert!(result_cold.success);
     assert!(!result_cold.cached, "Cold build must not be marked cached");
 
     let bin_path = target_dir.join("debug").join("hello-rust");
-    assert!(bin_path.exists(), "Target binary must exist after cold build");
+    assert!(
+        bin_path.exists(),
+        "Target binary must exist after cold build"
+    );
 
     // Verify CAS objects were written
     let cas_dir = temp_cache.path().join("cas").join("objects");
@@ -226,7 +232,12 @@ fn test_cold_and_warm_build_with_cas_and_action_cache() {
     let ac_count = fs::read_dir(&ac_dir)
         .expect("read ac")
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "json")
+                .unwrap_or(false)
+        })
         .count();
     assert!(ac_count > 0, "Action Cache must contain entry");
 
@@ -249,10 +260,15 @@ fn test_cold_and_warm_build_with_cas_and_action_cache() {
         RustAdapter::build(&opt_warm).expect("Warm build restore must succeed");
     assert!(result_restore.success);
     assert!(result_restore.cached, "Restored build must be cached");
-    assert!(bin_path.exists(), "Binary must be restored from CAS into target directory");
+    assert!(
+        bin_path.exists(),
+        "Binary must be restored from CAS into target directory"
+    );
 
     // Verify restored binary produces correct observable output
-    let run_out = Command::new(&bin_path).output().expect("execute restored binary");
+    let run_out = Command::new(&bin_path)
+        .output()
+        .expect("execute restored binary");
     assert_eq!(run_out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&run_out.stdout);
     assert!(stdout.contains("Hello from Mitts fixture: 42"));
@@ -268,7 +284,10 @@ fn test_cold_and_warm_build_with_cas_and_action_cache() {
     let (_, result_no_cache) =
         RustAdapter::build(&opt_no_cache).expect("Build with --no-cache must succeed");
     assert!(result_no_cache.success);
-    assert!(!result_no_cache.cached, "Build with --no-cache must not be cached");
+    assert!(
+        !result_no_cache.cached,
+        "Build with --no-cache must not be cached"
+    );
 }
 
 #[test]
@@ -310,7 +329,9 @@ fn test_source_modification_invalidates_action_cache() {
 
     // Verify modified output
     let bin = temp_target.path().join("debug").join("hello-rust");
-    let run_out = Command::new(&bin).output().expect("execute modified binary");
+    let run_out = Command::new(&bin)
+        .output()
+        .expect("execute modified binary");
     let stdout = String::from_utf8_lossy(&run_out.stdout);
     assert!(stdout.contains("Hello from Mitts fixture: 99"));
 
@@ -421,7 +442,12 @@ fn test_per_unit_action_caching_and_dependency_isolation() {
     let ac_count = fs::read_dir(temp_cache.path().join("ac"))
         .expect("read ac")
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "json")
+                .unwrap_or(false)
+        })
         .count();
     assert!(ac_count > 0, "Action Cache must contain published entries");
     let explanation_before = RustAdapter::explain_plan(&opt).expect("explain plan");
@@ -505,21 +531,31 @@ fn test_action_key_incorporates_cargo_config_and_env() {
     let cargo_dir = ws_path.join(".cargo");
     fs::create_dir_all(&cargo_dir).expect("create .cargo");
     let config_path = cargo_dir.join("config.toml");
-    fs::write(&config_path, "[build]\nrustflags = [\"-C\", \"opt-level=1\"]\n")
-        .expect("write config.toml");
+    fs::write(
+        &config_path,
+        "[build]\nrustflags = [\"-C\", \"opt-level=1\"]\n",
+    )
+    .expect("write config.toml");
 
     let expl2 = RustAdapter::explain_plan(&opt1).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt1, &expl2).expect("derive keys 2");
-    assert_ne!(keys1, keys2, "Modifying .cargo/config.toml must alter unit action keys");
+    assert_ne!(
+        keys1, keys2,
+        "Modifying .cargo/config.toml must alter unit action keys"
+    );
 
     // 2. Setting CLI --target must alter the action key
     let opt_target = RustBuildOptions {
         manifest_path: Some(manifest.clone()),
-        extra_args: vec!["--target".to_string(), "x86_64-unknown-linux-gnu".to_string()],
+        extra_args: vec![
+            "--target".to_string(),
+            "x86_64-unknown-linux-gnu".to_string(),
+        ],
         ..Default::default()
     };
     let expl_target = RustAdapter::explain_plan(&opt_target).expect("explain target");
-    let keys_target = RustAdapter::derive_unit_action_keys(&opt_target, &expl_target).expect("keys target");
+    let keys_target =
+        RustAdapter::derive_unit_action_keys(&opt_target, &expl_target).expect("keys target");
     assert_ne!(keys1, keys_target, "--target must alter unit action keys");
 }
 
@@ -549,12 +585,18 @@ fn test_fresh_target_hashes_non_src_files() {
 
     let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 2");
-    assert_ne!(keys1, keys2, "Adding a non-src asset file on a fresh target must change action keys");
+    assert_ne!(
+        keys1, keys2,
+        "Adding a non-src asset file on a fresh target must change action keys"
+    );
 
     // Modifying that asset file must also change the action key
     fs::write(&asset_file, b"modified arbitrary bytes").expect("modify asset");
     let keys3 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 3");
-    assert_ne!(keys2, keys3, "Modifying a non-src asset file must change action keys");
+    assert_ne!(
+        keys2, keys3,
+        "Modifying a non-src asset file must change action keys"
+    );
 }
 
 #[test]
@@ -619,13 +661,13 @@ fn test_partial_cache_hit_restores_dependency_and_avoids_recompilation() {
     // 4. Build with clean target directory: itoa is a cache HIT, hello-rust is a cache MISS
     let (_plan, res2) = RustAdapter::build(&opt).expect("partial hit build");
     assert!(res2.success);
-    assert!(!res2.cached, "Whole build is not cached since consumer changed");
+    assert!(
+        !res2.cached,
+        "Whole build is not cached since consumer changed"
+    );
 
     // Verify itoa was pre-restored from CAS into target_dir
-    let itoa_deps = temp_target
-        .path()
-        .join("debug")
-        .join("deps");
+    let itoa_deps = temp_target.path().join("debug").join("deps");
     assert!(itoa_deps.is_dir(), "Restored deps dir must exist");
     let mut found_itoa = false;
     for entry in fs::read_dir(&itoa_deps).expect("read deps").flatten() {
@@ -634,11 +676,16 @@ fn test_partial_cache_hit_restores_dependency_and_avoids_recompilation() {
             break;
         }
     }
-    assert!(found_itoa, "Cached itoa rlib must be pre-restored into target directory");
+    assert!(
+        found_itoa,
+        "Cached itoa rlib must be pre-restored into target directory"
+    );
 
     // Verify modified binary runs and prints updated output
     let bin = temp_target.path().join("debug").join("hello-rust");
-    let run_out = Command::new(&bin).output().expect("execute restored binary");
+    let run_out = Command::new(&bin)
+        .output()
+        .expect("execute restored binary");
     assert_eq!(run_out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&run_out.stdout);
     assert!(stdout.contains("Hello from Mitts fixture: 777"));
@@ -785,7 +832,10 @@ fn test_concurrent_warm_restores_in_same_workspace() {
 
     for h in handles {
         let (_, res) = h.join().expect("join thread");
-        assert!(res.success, "Concurrent warm restore must succeed without racing");
+        assert!(
+            res.success,
+            "Concurrent warm restore must succeed without racing"
+        );
         assert!(res.cached, "Warm builds must be cached");
     }
 
@@ -905,8 +955,14 @@ fn main() {
     // 1. With var unset:
     std::env::remove_var("MITTS_CUSTOM_TEST_VAR");
     let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan unset");
-    let unit1 = expl1.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
-    assert!(unit1.env_vars.contains(&"MITTS_CUSTOM_TEST_VAR".to_string()));
+    let unit1 = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "hello-rust")
+        .expect("unit");
+    assert!(unit1
+        .env_vars
+        .contains(&"MITTS_CUSTOM_TEST_VAR".to_string()));
     let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys");
     let k_unset = keys1[&unit1.unit_id()].clone();
 
@@ -922,8 +978,14 @@ fn main() {
     let keys3 = RustAdapter::derive_unit_action_keys(&opt, &expl3).expect("derive keys");
     let k_v2 = keys3[&unit1.unit_id()].clone();
 
-    assert_ne!(k_unset, k_v1, "Unset and set env var must have distinct action keys");
-    assert_ne!(k_v1, k_v2, "Different env var values must have distinct action keys");
+    assert_ne!(
+        k_unset, k_v1,
+        "Unset and set env var must have distinct action keys"
+    );
+    assert_ne!(
+        k_v1, k_v2,
+        "Different env var values must have distinct action keys"
+    );
 
     // Clean up env var
     std::env::remove_var("MITTS_CUSTOM_TEST_VAR");
@@ -960,9 +1022,14 @@ fn main() {
     };
 
     let expl = RustAdapter::explain_plan(&opt).expect("explain plan");
-    let unit = expl.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
+    let unit = expl
+        .units
+        .iter()
+        .find(|u| u.target_name == "hello-rust")
+        .expect("unit");
     assert!(
-        unit.cache_eligibility.contains("Uncached (contains untracked dynamic env!/option_env! macro)"),
+        unit.cache_eligibility
+            .contains("Uncached (contains untracked dynamic env!/option_env! macro)"),
         "Dynamic env! invocation must mark unit uncached, got: {}",
         unit.cache_eligibility
     );
@@ -1001,8 +1068,16 @@ fn test_cross_workspace_dependency_action_key_equivalence_and_reuse() {
     let expl1 = RustAdapter::explain_plan(&opt1).expect("explain ws1");
     let expl2 = RustAdapter::explain_plan(&opt2).expect("explain ws2");
 
-    let itoa1 = expl1.units.iter().find(|u| u.package_name == "itoa").expect("itoa in ws1");
-    let itoa2 = expl2.units.iter().find(|u| u.package_name == "itoa").expect("itoa in ws2");
+    let itoa1 = expl1
+        .units
+        .iter()
+        .find(|u| u.package_name == "itoa")
+        .expect("itoa in ws1");
+    let itoa2 = expl2
+        .units
+        .iter()
+        .find(|u| u.package_name == "itoa")
+        .expect("itoa in ws2");
 
     assert!(!itoa1.is_workspace, "itoa must be external dependency");
     assert!(!itoa2.is_workspace, "itoa must be external dependency");
@@ -1065,7 +1140,11 @@ fn main() {
     // 1. With var unset:
     std::env::remove_var("ESCAPED_BUILD_VAR");
     let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan unset");
-    let unit1 = expl1.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
+    let unit1 = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "hello-rust")
+        .expect("unit");
     assert!(
         unit1.env_vars.contains(&"ESCAPED_BUILD_VAR".to_string()),
         "Decoded unescaped var name must be tracked"
@@ -1079,7 +1158,10 @@ fn main() {
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys");
     let k_v1 = keys2[&unit1.unit_id()].clone();
 
-    assert_ne!(k_unset, k_v1, "Changing ESCAPED_BUILD_VAR must change action key");
+    assert_ne!(
+        k_unset, k_v1,
+        "Changing ESCAPED_BUILD_VAR must change action key"
+    );
 
     std::env::remove_var("ESCAPED_BUILD_VAR");
 }
@@ -1161,8 +1243,16 @@ fn main() {
     let expl1 = RustAdapter::explain_plan(&opt1).expect("explain ws1");
     let expl2 = RustAdapter::explain_plan(&opt2).expect("explain ws2");
 
-    let path_lib1 = expl1.units.iter().find(|u| u.package_name == "path-lib").expect("path-lib in ws1");
-    let path_lib2 = expl2.units.iter().find(|u| u.package_name == "path-lib").expect("path-lib in ws2");
+    let path_lib1 = expl1
+        .units
+        .iter()
+        .find(|u| u.package_name == "path-lib")
+        .expect("path-lib in ws1");
+    let path_lib2 = expl2
+        .units
+        .iter()
+        .find(|u| u.package_name == "path-lib")
+        .expect("path-lib in ws2");
 
     assert!(!path_lib1.is_workspace, "path-lib is external dependency");
     assert!(!path_lib2.is_workspace, "path-lib is external dependency");
@@ -1258,7 +1348,11 @@ fn main() {
     // 1. Unset:
     std::env::remove_var("MITTS_TRIVIA_VAR");
     let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan unset");
-    let unit1 = expl1.units.iter().find(|u| u.target_name == "hello-rust").expect("unit");
+    let unit1 = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "hello-rust")
+        .expect("unit");
     assert!(
         unit1.env_vars.contains(&"MITTS_TRIVIA_VAR".to_string()),
         "env_vars must contain MITTS_TRIVIA_VAR despite whitespace/comments before bang"
@@ -1278,12 +1372,15 @@ fn main() {
     let keys3 = RustAdapter::derive_unit_action_keys(&opt, &expl3).expect("derive keys");
     let k_v2 = keys3[&unit1.unit_id()].clone();
 
-    assert_ne!(k_unset, k_v1, "Unset and set env var with trivia before bang must have distinct keys");
-    assert_ne!(k_v1, k_v2, "Different env var values with trivia before bang must have distinct keys");
+    assert_ne!(
+        k_unset, k_v1,
+        "Unset and set env var with trivia before bang must have distinct keys"
+    );
+    assert_ne!(
+        k_v1, k_v2,
+        "Different env var values with trivia before bang must have distinct keys"
+    );
 
     // Clean up
     std::env::remove_var("MITTS_TRIVIA_VAR");
 }
-
-
-

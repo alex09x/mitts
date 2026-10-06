@@ -143,7 +143,9 @@ fn test_cargolock_fast_path_validation() {
                 name: "itoa".to_string(),
                 version: "1.0.14".to_string(),
                 source: Some("registry+https://github.com/rust-lang/crates.io-index".to_string()),
-                checksum: Some("6dd513fe1cb07431fa75df748df92a5ec2eb2531da4766bc0f50c609c124ae87".to_string()),
+                checksum: Some(
+                    "6dd513fe1cb07431fa75df748df92a5ec2eb2531da4766bc0f50c609c124ae87".to_string(),
+                ),
                 dependencies: Vec::new(),
             },
         ],
@@ -152,7 +154,8 @@ fn test_cargolock_fast_path_validation() {
 
     // Fast-path check: compatible!
     assert!(
-        lock.validate_manifest_compatibility(&manifest).expect("compat check"),
+        lock.validate_manifest_compatibility(&manifest)
+            .expect("compat check"),
         "Compatible manifest must pass fast-path validation"
     );
 
@@ -165,7 +168,9 @@ fn test_cargolock_fast_path_validation() {
 
     // Now incompatible because serde is missing from Cargo.lock:
     assert!(
-        !lock.validate_manifest_compatibility(&manifest).expect("compat check"),
+        !lock
+            .validate_manifest_compatibility(&manifest)
+            .expect("compat check"),
         "Manifest with added dependency must fail fast-path validation"
     );
 }
@@ -184,12 +189,19 @@ fn test_two_phase_sync_path_generates_lockfile() {
 
     // Lockfile is missing -> resolve_or_sync runs sync-path
     let lock = CargoLock::resolve_or_sync(&manifest, false).expect("sync-path resolve");
-    assert!(lock_path.is_file(), "Cargo.lock must be generated on sync path");
-    assert!(!lock.packages.is_empty(), "Resolved lock must contain packages");
+    assert!(
+        lock_path.is_file(),
+        "Cargo.lock must be generated on sync path"
+    );
+    assert!(
+        !lock.packages.is_empty(),
+        "Resolved lock must contain packages"
+    );
 
     // Fast-path check on generated lockfile passes directly
     assert!(
-        lock.validate_manifest_compatibility(&manifest).expect("validate"),
+        lock.validate_manifest_compatibility(&manifest)
+            .expect("validate"),
         "Generated lockfile must be compatible with manifest"
     );
 }
@@ -252,8 +264,7 @@ fn test_crate_fetcher_single_flight_and_offline_mode() {
     let temp_scratch = tempfile::tempdir().expect("scratch tempdir");
 
     let store = SourceStore::new(temp_store_dir.path().to_path_buf()).expect("create store");
-    let (archive_bytes, checksum) =
-        create_test_tar_gz("cached-pkg", "1.0.0", temp_scratch.path());
+    let (archive_bytes, checksum) = create_test_tar_gz("cached-pkg", "1.0.0", temp_scratch.path());
 
     // Pre-populate store
     store
@@ -277,7 +288,9 @@ fn test_crate_fetcher_single_flight_and_offline_mode() {
         frozen: false,
     };
 
-    let res = fetcher.fetch_package(&pkg, &opt_offline).expect("fetch cached package");
+    let res = fetcher
+        .fetch_package(&pkg, &opt_offline)
+        .expect("fetch cached package");
     assert!(res.is_some(), "Cached package must return source path");
 
     // 2. Fetch missing package in offline mode -> must fail
@@ -316,7 +329,10 @@ fn test_mitts_fetch_end_to_end() {
     let itoa_pkg = lock.get_package("itoa").expect("itoa package");
 
     let result = RustAdapter::fetch(&manifest, &store, &opt).expect("mitts fetch");
-    assert_eq!(result.total_packages, 1, "Expected 1 remote dependency package (itoa)");
+    assert_eq!(
+        result.total_packages, 1,
+        "Expected 1 remote dependency package (itoa)"
+    );
     assert_eq!(result.fetched, 1, "Initial fetch must download/unpack itoa");
     assert!(
         store.has_source("itoa", &itoa_pkg.version),

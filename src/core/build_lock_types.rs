@@ -1,0 +1,73 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct FileSnapshot {
+    pub relative_path: PathBuf,
+    pub mtime_secs: u64,
+    pub mtime_nanos: u32,
+    pub size: u64,
+    pub sha256: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FastBuildLock {
+    pub version: u32,
+    pub profile: String,
+    pub package: Option<String>,
+    pub features: Vec<String>,
+    pub no_default_features: bool,
+    pub all_features: bool,
+    pub toolchain_version: String,
+    pub created_at_secs: u64,
+    pub action_count: usize,
+    pub root_binary: Option<PathBuf>,
+    pub cargo_lock: Option<FileSnapshot>,
+    pub manifests: Vec<FileSnapshot>,
+    pub sources: Vec<FileSnapshot>,
+    pub outputs: Vec<FileSnapshot>,
+}
+
+#[derive(Debug)]
+pub enum FreshnessResult {
+    Fresh {
+        action_count: usize,
+        root_binary: Option<PathBuf>,
+    },
+    Stale(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct FreshnessCheckArgs<'a> {
+    pub project_dir: &'a Path,
+    pub profile: &'a str,
+    pub package: &'a Option<String>,
+    pub features: &'a [String],
+    pub no_default_features: bool,
+    pub all_features: bool,
+    pub toolchain_version: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecordStateArgs<'a> {
+    pub project_dir: &'a Path,
+    pub profile: &'a str,
+    pub package: &'a Option<String>,
+    pub features: &'a [String],
+    pub no_default_features: bool,
+    pub all_features: bool,
+    pub toolchain_version: &'a str,
+    pub action_count: usize,
+    pub root_binary: Option<PathBuf>,
+    pub outputs: &'a [PathBuf],
+}

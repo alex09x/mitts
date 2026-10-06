@@ -31,8 +31,9 @@ impl ContentAddressedStore {
         let objects_dir = root.join("objects");
         let tmp_dir = root.join("tmp");
 
-        fs::create_dir_all(&objects_dir)
-            .with_context(|| format!("Failed to create CAS objects directory: {:?}", objects_dir))?;
+        fs::create_dir_all(&objects_dir).with_context(|| {
+            format!("Failed to create CAS objects directory: {:?}", objects_dir)
+        })?;
         fs::create_dir_all(&tmp_dir)
             .with_context(|| format!("Failed to create CAS tmp directory: {:?}", tmp_dir))?;
 
@@ -99,18 +100,19 @@ impl ContentAddressedStore {
 
         let dest_path = self.object_path(&hash);
         if dest_path.is_file() {
-            // Already present in CAS. Verify size matches.
-            if let Ok(dest_meta) = fs::metadata(&dest_path) {
-                if dest_meta.len() == file_size {
-                    return Ok((hash, file_size));
-                }
+            if self.verify_object(&hash).unwrap_or(false) {
+                return Ok((hash, file_size));
+            } else {
+                let _ = fs::remove_file(&dest_path);
             }
         }
 
         // Staging via unique temporary file
         let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
-        let tmp_file_path = self.tmp_dir.join(format!("{}.{}.{}.tmp", hash, pid, counter));
+        let tmp_file_path = self
+            .tmp_dir
+            .join(format!("{}.{}.{}.tmp", hash, pid, counter));
 
         fs::copy(source_path, &tmp_file_path)
             .with_context(|| format!("Failed to stage file to {:?}", tmp_file_path))?;
@@ -129,7 +131,11 @@ impl ContentAddressedStore {
                 let _ = fs::remove_file(&tmp_file_path);
             } else {
                 let _ = fs::remove_file(&tmp_file_path);
-                bail!("Failed to atomically publish CAS object to {:?}: {}", dest_path, rename_err);
+                bail!(
+                    "Failed to atomically publish CAS object to {:?}: {}",
+                    dest_path,
+                    rename_err
+                );
             }
         }
 
@@ -152,7 +158,9 @@ impl ContentAddressedStore {
 
         let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
-        let tmp_file_path = self.tmp_dir.join(format!("{}.{}.{}.tmp", hash, pid, counter));
+        let tmp_file_path = self
+            .tmp_dir
+            .join(format!("{}.{}.{}.tmp", hash, pid, counter));
 
         fs::write(&tmp_file_path, bytes)
             .with_context(|| format!("Failed to write bytes to {:?}", tmp_file_path))?;
@@ -168,7 +176,11 @@ impl ContentAddressedStore {
                 let _ = fs::remove_file(&tmp_file_path);
             } else {
                 let _ = fs::remove_file(&tmp_file_path);
-                bail!("Failed to atomically publish CAS object to {:?}: {}", dest_path, rename_err);
+                bail!(
+                    "Failed to atomically publish CAS object to {:?}: {}",
+                    dest_path,
+                    rename_err
+                );
             }
         }
 
@@ -197,17 +209,42 @@ impl ContentAddressedStore {
     /// If the file does not yet exist in `{cas_root}/artifacts/`, links or copies it from `{objects_dir}/{hash}`.
     /// This allows `rustc --extern` to consume artifacts directly from the Global CAS with valid `lib*.rlib` naming.
     pub fn named_artifact_path(&self, crate_name: &str, hash: &str, ext: &str) -> Result<PathBuf> {
+        self.named_artifact_path_with_disambiguator(crate_name, hash, hash, ext)
+    }
+
+    /// Returns the path to a named artifact in `{cas_root}/artifacts/lib{crate_name}-{disambiguator}.{ext}`.
+    /// Uses the provided disambiguator (e.g. action key) for consistent filename pairing between rlib and rmeta.
+    pub fn named_artifact_path_with_disambiguator(
+        &self,
+        crate_name: &str,
+        content_hash: &str,
+        disambiguator: &str,
+        ext: &str,
+    ) -> Result<PathBuf> {
         let artifacts_dir = self.root.join("artifacts");
         fs::create_dir_all(&artifacts_dir)?;
         let clean_crate = crate_name.replace('-', "_");
-        let short_hash = if hash.len() > 16 { &hash[..16] } else { hash };
+        let short_hash = if disambiguator.len() > 16 {
+            &disambiguator[..16]
+        } else {
+            disambiguator
+        };
         let artifact_name = format!("lib{}-{}.{}", clean_crate, short_hash, ext);
         let artifact_path = artifacts_dir.join(&artifact_name);
-        if !artifact_path.is_file() {
-            let obj_path = self.object_path(hash);
-            if !obj_path.is_file() {
-                bail!("CAS object not found: {}", hash);
-            }
+        let obj_path = self.object_path(content_hash);
+        if !obj_path.is_file() {
+            bail!("CAS object not found: {}", content_hash);
+        }
+
+        let needs_link = if let Ok(meta) = fs::metadata(&artifact_path) {
+            let obj_meta = fs::metadata(&obj_path)?;
+            meta.len() != obj_meta.len()
+        } else {
+            true
+        };
+
+        if needs_link {
+            let _ = fs::remove_file(&artifact_path);
             if fs::hard_link(&obj_path, &artifact_path).is_err() {
                 reflink_or_copy(&obj_path, &artifact_path, false)?;
             }
@@ -215,4 +252,3 @@ impl ContentAddressedStore {
         Ok(artifact_path)
     }
 }
-

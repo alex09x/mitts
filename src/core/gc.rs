@@ -148,7 +148,8 @@ impl<'a> CacheGc<'a> {
                         #[cfg(unix)]
                         {
                             use std::os::unix::fs::PermissionsExt;
-                            let _ = fs::set_permissions(&obj.path, fs::Permissions::from_mode(0o644));
+                            let _ =
+                                fs::set_permissions(&obj.path, fs::Permissions::from_mode(0o644));
                         }
                         if fs::remove_file(&obj.path).is_ok() {
                             pruned_hashes.insert(obj.hash.clone());
@@ -191,7 +192,11 @@ impl<'a> CacheGc<'a> {
                     let path = entry.path();
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     for pruned in &pruned_hashes {
-                        let short = if pruned.len() > 16 { &pruned[..16] } else { pruned };
+                        let short = if pruned.len() > 16 {
+                            &pruned[..16]
+                        } else {
+                            pruned
+                        };
                         if name.contains(short) {
                             let _ = fs::remove_file(&path);
                         }

@@ -163,11 +163,15 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
         // 5. Check for compile-time env! or option_env! invocation
         let (ident_len, is_macro_ident) = if source[i..].starts_with("option_env") {
             let next_ch = source[i + 10..].chars().next();
-            let is_ident_boundary = next_ch.map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+            let is_ident_boundary = next_ch
+                .map(|c| !c.is_alphanumeric() && c != '_')
+                .unwrap_or(true);
             (10, is_ident_boundary)
         } else if source[i..].starts_with("env") {
             let next_ch = source[i + 3..].chars().next();
-            let is_ident_boundary = next_ch.map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true);
+            let is_ident_boundary = next_ch
+                .map(|c| !c.is_alphanumeric() && c != '_')
+                .unwrap_or(true);
             (3, is_ident_boundary)
         } else {
             (0, false)
@@ -186,7 +190,10 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
             let after_ident = i + ident_len;
             let bang_pos = skip_trivia(source, after_ident);
 
-            if bang_pos < len && source[bang_pos..].starts_with('!') && !source[bang_pos..].starts_with("!=") {
+            if bang_pos < len
+                && source[bang_pos..].starts_with('!')
+                && !source[bang_pos..].starts_with("!=")
+            {
                 let delim_pos = skip_trivia(source, bang_pos + 1);
                 if delim_pos < len {
                     let delim = source[delim_pos..].chars().next();

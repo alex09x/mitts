@@ -30,25 +30,15 @@ pub(crate) fn find_dep_info_files(target_dir: &Path, target_name: &str) -> Vec<P
             d_files.push(direct_norm);
         }
         let deps_dir = p_dir.join("deps");
-        if deps_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(&deps_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().map(|e| e == "d").unwrap_or(false) {
-                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                            let matches = stem == target_name
-                                || stem == norm_target
-                                || stem.starts_with(&format!("{}-", target_name))
-                                || stem.starts_with(&format!("{}-", norm_target))
-                                || stem.starts_with(&format!("lib{}-", norm_target))
-                                || stem.starts_with(&format!("lib{}-", target_name));
-                            if matches {
-                                d_files.push(path);
-                            }
-                        }
-                    }
-                }
-            }
+        let direct_dep = deps_dir.join(format!("{}.d", target_name));
+        if direct_dep.is_file() {
+            d_files.push(direct_dep);
+        }
+        let direct_dep_norm = deps_dir.join(format!("{}.d", norm_target));
+        if direct_dep_norm.is_file()
+            && direct_dep_norm != deps_dir.join(format!("{}.d", target_name))
+        {
+            d_files.push(direct_dep_norm);
         }
     }
     d_files

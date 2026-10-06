@@ -32,7 +32,10 @@ fn test_m4_compilation_dag_structure() {
     let dag = CompilationDag::from_explanation(&explanation).expect("build DAG");
 
     assert!(!dag.is_empty(), "DAG must contain nodes");
-    assert!(dag.len() >= 2, "DAG must contain at least itoa and hello-rust");
+    assert!(
+        dag.len() >= 2,
+        "DAG must contain at least itoa and hello-rust"
+    );
 
     // itoa must be a leaf unit (no dependencies)
     let leaf_nodes: Vec<_> = dag
@@ -52,7 +55,9 @@ fn test_m4_compilation_dag_structure() {
         .filter_map(|id| dag.get_node(id))
         .collect();
     assert!(
-        root_nodes.iter().any(|n| n.unit.package_name == "hello-rust"),
+        root_nodes
+            .iter()
+            .any(|n| n.unit.package_name == "hello-rust"),
         "hello-rust must be a root unit"
     );
 
@@ -70,7 +75,9 @@ fn test_m4_compilation_dag_structure() {
         "Wave 0 must contain leaf dependency itoa"
     );
 
-    let last_wave_packages: Vec<_> = waves.last().unwrap()
+    let last_wave_packages: Vec<_> = waves
+        .last()
+        .unwrap()
         .iter()
         .filter_map(|id| dag.get_node(id))
         .map(|n| n.unit.package_name.as_str())
@@ -99,10 +106,17 @@ fn test_m4_native_dag_build_end_to_end_and_zero_target_pollution() {
 
     // 1. Cold native DAG build directly invoking rustc
     let (plan, result) = RustAdapter::build_native(&opt).expect("Native DAG build must succeed");
-    assert!(result.success, "Native build must succeed: {}", result.stderr);
+    assert!(
+        result.success,
+        "Native build must succeed: {}",
+        result.stderr
+    );
     assert_eq!(result.exit_code, 0);
     assert!(!result.cached, "Cold build must not be marked cached");
-    assert!(!plan.actions.is_empty(), "Plan must contain recorded actions");
+    assert!(
+        !plan.actions.is_empty(),
+        "Plan must contain recorded actions"
+    );
 
     // 2. Output binary verification
     let bin_path = target_dir.join("debug").join("hello-rust");
@@ -155,9 +169,9 @@ fn test_m4_native_dag_build_end_to_end_and_zero_target_pollution() {
         "CAS artifacts dir must contain compiled dependency rlibs"
     );
     assert!(
-        artifact_entries.iter().any(|e| {
-            e.file_name().to_string_lossy().starts_with("libitoa")
-        }),
+        artifact_entries
+            .iter()
+            .any(|e| { e.file_name().to_string_lossy().starts_with("libitoa") }),
         "CAS must contain libitoa rlib"
     );
 
@@ -315,11 +329,19 @@ fn main() {
     };
 
     let (_plan, result) = RustAdapter::build_native(&opt).expect("Multi-crate build must succeed");
-    assert!(result.success, "Multi-crate build must succeed: {}", result.stderr);
+    assert!(
+        result.success,
+        "Multi-crate build must succeed: {}",
+        result.stderr
+    );
     assert_eq!(result.exit_code, 0);
 
     let bin_path = temp_target.path().join("debug").join("app");
-    assert!(bin_path.is_file(), "Executable app must exist: {:?}", bin_path);
+    assert!(
+        bin_path.is_file(),
+        "Executable app must exist: {:?}",
+        bin_path
+    );
 
     let run_output = Command::new(&bin_path)
         .output()
@@ -331,4 +353,106 @@ fn main() {
         "Unexpected output: {}",
         stdout
     );
+}
+
+#[test]
+fn test_m4_features_and_build_script_env() {
+    let temp_workspace = tempfile::tempdir().unwrap();
+    let temp_cache = tempfile::tempdir().unwrap();
+    let temp_target = tempfile::tempdir().unwrap();
+
+    let root = temp_workspace.path();
+    let dep_dir = root.join("dep_crate");
+    let app_dir = root.join("app");
+    fs::create_dir_all(dep_dir.join("src")).unwrap();
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+
+    // dep_crate has a build.rs that verifies compile-time CARGO_MANIFEST_DIR
+    fs::write(
+        dep_dir.join("build.rs"),
+        r#"
+fn main() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    assert!(!manifest_dir.is_empty());
+    println!("cargo:rustc-cfg=build_script_ran");
+}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dep_dir.join("Cargo.toml"),
+        r#"
+[package]
+name = "dep_crate"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["std"]
+std = ["feature_b"]
+feature_b = []
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dep_dir.join("src").join("lib.rs"),
+        r#"
+#[cfg(not(feature = "std"))]
+compile_error!("std feature must be enabled by default");
+
+#[cfg(not(feature = "feature_b"))]
+compile_error!("feature_b must be activated transitively through std");
+
+#[cfg(not(build_script_ran))]
+compile_error!("build_script_ran cfg must be set by build.rs");
+
+pub fn answer() -> u32 { 42 }
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        app_dir.join("Cargo.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dep_crate = { path = "../dep_crate" }
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        app_dir.join("src").join("main.rs"),
+        r#"
+fn main() {
+    println!("Answer: {}", dep_crate::answer());
+}
+"#,
+    )
+    .unwrap();
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(app_dir.join("Cargo.toml")),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_target.path().to_path_buf()),
+        native: true,
+        ..Default::default()
+    };
+
+    let (_plan, result) = RustAdapter::build_native(&opt).expect("Native build must succeed");
+    assert!(result.success, "Build failed: {}", result.stderr);
+
+    let bin_path = temp_target.path().join("debug").join("app");
+    let run_output = Command::new(&bin_path)
+        .output()
+        .expect("Failed to execute app");
+    assert_eq!(run_output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    assert!(stdout.contains("Answer: 42"));
 }

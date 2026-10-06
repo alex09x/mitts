@@ -9,6 +9,7 @@
  */
 
 use super::lockfile::{CargoLock, CargoLockPackage};
+use super::manifest::{CargoToml, TomlDependency};
 use super::sparse_index::SparseIndexClient;
 use anyhow::{bail, Context, Result};
 use semver::{Version, VersionReq};
@@ -44,11 +45,70 @@ impl NativeResolver {
     pub fn resolve_manifest(&self, manifest_path: &Path, offline: bool) -> Result<CargoLock> {
         let manifest_content = fs::read_to_string(manifest_path)
             .with_context(|| format!("Failed to read manifest at {:?}", manifest_path))?;
-        let root_deps = extract_dependencies_with_reqs(&manifest_content);
-        let mut lock = self.resolve_dependencies(&root_deps, offline)?;
+        let manifest_dir = manifest_path.parent().unwrap_or(Path::new("."));
+
+        let mut path_deps = Vec::new();
+        let mut remote_deps = Vec::new();
+
+        if let Ok(toml) = CargoToml::parse(&manifest_content) {
+            for (dep_name, dep_val) in toml.dependencies.iter().chain(&toml.build_dependencies) {
+                match dep_val {
+                    TomlDependency::Detailed(d) if d.path.is_some() => {
+                        let rel_p = d.path.as_ref().unwrap();
+                        let dep_manifest = manifest_dir.join(rel_p).join("Cargo.toml");
+                        if let Ok(dep_toml) = CargoToml::from_file(&dep_manifest) {
+                            let name = dep_toml
+                                .package
+                                .as_ref()
+                                .map(|p| p.name.clone())
+                                .unwrap_or_else(|| dep_name.clone());
+                            let version = dep_toml
+                                .package
+                                .as_ref()
+                                .and_then(|p| p.version.clone())
+                                .unwrap_or_else(|| "0.1.0".to_string());
+                            path_deps.push((name, version));
+                        }
+                    }
+                    TomlDependency::Simple(req) => {
+                        remote_deps.push(ManifestDirectDep {
+                            name: dep_name.clone(),
+                            req: req.clone(),
+                        });
+                    }
+                    TomlDependency::Detailed(d) => {
+                        remote_deps.push(ManifestDirectDep {
+                            name: d.package_name.as_ref().unwrap_or(dep_name).clone(),
+                            req: d.version.clone().unwrap_or_else(|| "*".to_string()),
+                        });
+                    }
+                }
+            }
+        } else {
+            remote_deps = extract_dependencies_with_reqs(&manifest_content);
+        }
+
+        let mut lock = self.resolve_dependencies(&remote_deps, offline)?;
+
+        for (p_name, p_ver) in &path_deps {
+            lock.packages.push(CargoLockPackage {
+                name: p_name.clone(),
+                version: p_ver.clone(),
+                source: None,
+                checksum: None,
+                dependencies: Vec::new(),
+            });
+        }
 
         if let Some((root_name, root_version)) = extract_root_package(&manifest_content) {
-            let root_dep_names: Vec<String> = root_deps.iter().map(|d| d.name.clone()).collect();
+            let mut root_dep_names: Vec<String> =
+                remote_deps.iter().map(|d| d.name.clone()).collect();
+            for (p_name, _) in &path_deps {
+                root_dep_names.push(p_name.clone());
+            }
+            root_dep_names.sort();
+            root_dep_names.dedup();
+
             lock.packages.push(CargoLockPackage {
                 name: root_name,
                 version: root_version,
