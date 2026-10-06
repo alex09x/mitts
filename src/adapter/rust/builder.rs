@@ -36,7 +36,8 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
     }
 
     let explanation = explain_plan(opt)?;
-    let total_units = explanation.units.len();
+    let custom_build_count = explanation.units.iter().filter(|u| u.kind == "custom-build").count();
+    let total_units = explanation.units.len() + custom_build_count;
 
     if let Some(ref cb) = opt.progress {
         cb.0(BuildProgressEvent::InitTotal {

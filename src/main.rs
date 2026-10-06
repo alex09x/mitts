@@ -52,6 +52,9 @@ fn handle_build(args: &BuildArgs) -> i32 {
                 progress_clone.set_message(format!("• {}", crate_name));
             }
             BuildProgressEvent::UnitFinished => {
+                if progress_clone.position() >= progress_clone.length().unwrap_or(0) {
+                    progress_clone.set_length(progress_clone.position() + 1);
+                }
                 progress_clone.inc(1);
             }
             BuildProgressEvent::CompilerMessage(rendered) => {
@@ -147,6 +150,9 @@ fn handle_run(args: &RunArgs) -> i32 {
                 progress_clone.set_message(format!("• {}", crate_name));
             }
             BuildProgressEvent::UnitFinished => {
+                if progress_clone.position() >= progress_clone.length().unwrap_or(0) {
+                    progress_clone.set_length(progress_clone.position() + 1);
+                }
                 progress_clone.inc(1);
             }
             BuildProgressEvent::CompilerMessage(rendered) => {
