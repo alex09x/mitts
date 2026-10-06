@@ -151,8 +151,9 @@ where
         }
         let mut all = Vec::with_capacity(items.len());
         for h in handles {
-            if let Ok(res) = h.join() {
-                all.extend(res);
+            match h.join() {
+                Ok(res) => all.extend(res),
+                Err(payload) => std::panic::resume_unwind(payload),
             }
         }
         all
@@ -219,7 +220,10 @@ pub fn derive_unit_action_keys(
     // 2. Parallel resolution of unit dep-info inputs and compiler flags
     let unit_preps = parallel_map_chunks(&explanation.units, |unit| {
         let pkg_dir = resolve_unit_pkg_dir(unit);
-        let base_inputs = pkg_inputs_cache.get(&pkg_dir).cloned().unwrap_or_default();
+        let base_inputs = pkg_inputs_cache
+            .get(&pkg_dir)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Missing base inputs for package {:?}", pkg_dir))?;
         let inputs = if unit.is_workspace {
             append_unit_dep_info_inputs(
                 base_inputs,

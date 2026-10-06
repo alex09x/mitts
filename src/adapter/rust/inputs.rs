@@ -30,16 +30,28 @@ pub(crate) fn hash_package_base_inputs(
     let mut inputs = Vec::new();
 
     // Fast-path for immutable registry dependencies:
-    // Packages from crates.io or global source store are completely immutable.
-    let is_immutable_registry = !is_workspace
-        && (package_dir.join(".cargo-ok").is_file()
-            || package_dir
-                .to_string_lossy()
-                .contains(".cargo/registry/src")
-            || package_dir
-                .to_string_lossy()
-                .contains(".cargo/git/checkouts")
-            || package_dir.to_string_lossy().contains("/sources/"));
+    // Only packages residing in official cargo cache or mitts source store are immutable.
+    let is_immutable_registry = if is_workspace {
+        false
+    } else {
+        let has_cargo_ok = package_dir.join(".cargo-ok").is_file();
+        let in_cargo_git = package_dir
+            .ancestors()
+            .any(|a| a.ends_with(".cargo/git/checkouts"));
+        let in_mitts_sources = if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
+            package_dir.starts_with(PathBuf::from(val).join("sources"))
+        } else if let Ok(home) = std::env::var("HOME") {
+            package_dir.starts_with(
+                PathBuf::from(home)
+                    .join(".cache")
+                    .join("mitts")
+                    .join("sources"),
+            )
+        } else {
+            false
+        };
+        has_cargo_ok || in_cargo_git || in_mitts_sources
+    };
 
     if is_immutable_registry {
         let cargo_toml = package_dir.join("Cargo.toml");
@@ -198,7 +210,6 @@ pub(crate) fn hash_package_base_inputs(
                     || name_str == "file_test"
                     || name_str == "cts"
                     || name_str == "terraform"
-                    || name_str == "docs"
                     || name_str == "logs"
                     || (path != package_dir && path.join("Cargo.toml").is_file())
                 {
@@ -214,6 +225,13 @@ pub(crate) fn hash_package_base_inputs(
                     || name_str.ends_with(".bak")
                 {
                     continue;
+                }
+                // Skip massive data dumps (> 20MB) during broad package scan;
+                // if they are actually included by rustc, dep-info will track them individually.
+                if let Ok(meta) = entry.metadata() {
+                    if meta.len() > 20 * 1024 * 1024 {
+                        continue;
+                    }
                 }
                 let hash = Sha256::digest_file(&path)
                     .with_context(|| format!("Failed to hash package file {:?}", path))?;
@@ -242,8 +260,13 @@ pub(crate) fn append_unit_dep_info_inputs(
     for d_path in find_dep_info_files(target_dir, target_name) {
         let tracked_files = parse_dep_info(&d_path)?;
         for p in tracked_files {
-            if p.extension().map(|e| e == "rs").unwrap_or(false) {
-                continue;
+            // Only skip .rs files that reside within package_dir and were already hashed
+            let is_inside_package = p.starts_with(package_dir);
+            if is_inside_package && p.extension().map(|e| e == "rs").unwrap_or(false) {
+                let rel = p.strip_prefix(package_dir).unwrap_or(&p).to_string_lossy();
+                if inputs.iter().any(|(k, _)| k == rel.as_ref()) {
+                    continue;
+                }
             }
             let hash = Sha256::digest_file(&p)
                 .with_context(|| format!("Failed to hash tracked dep-info file {:?}", p))?;

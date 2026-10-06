@@ -1384,3 +1384,78 @@ fn main() {
     // Clean up
     std::env::remove_var("MITTS_TRIVIA_VAR");
 }
+
+#[test]
+fn test_docs_directory_asset_hashes_on_fresh_target() {
+    let temp_ws = tempfile::tempdir().expect("temp dir");
+    let ws_path = temp_ws.path();
+
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, ws_path).expect("copy fixture");
+
+    let manifest = ws_path.join("Cargo.toml");
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        ..Default::default()
+    };
+
+    let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan 1");
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("keys 1");
+
+    // Add documentation file in docs/
+    let docs_dir = ws_path.join("docs");
+    fs::create_dir_all(&docs_dir).expect("create docs dir");
+    let doc_file = docs_dir.join("architecture.md");
+    fs::write(&doc_file, b"# Architecture Overview").expect("write doc");
+
+    let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 2");
+    assert_ne!(
+        keys1, keys2,
+        "Adding a doc file in docs/ on a fresh target must change action keys"
+    );
+}
+
+#[test]
+fn test_out_of_package_rs_dep_info_is_hashed() {
+    let temp_ws = tempfile::tempdir().expect("temp ws");
+    let ws_path = temp_ws.path();
+
+    let src_fixture = fixture_manifest().parent().unwrap().to_path_buf();
+    copy_dir_recursive(&src_fixture, ws_path).expect("copy fixture");
+
+    let manifest = ws_path.join("Cargo.toml");
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        ..Default::default()
+    };
+
+    let expl = RustAdapter::explain_plan(&opt).expect("explain plan");
+    let target_debug = expl.target_directory.join("debug");
+    fs::create_dir_all(&target_debug).expect("create target dir");
+
+    // Create an out-of-package .rs file
+    let ext_dir = tempfile::tempdir().expect("ext dir");
+    let ext_rs = ext_dir.path().join("external_helper.rs");
+    fs::write(&ext_rs, b"pub fn helper() {}").expect("write ext rs");
+
+    // Write dep-info .d referencing this external .rs
+    let d_file = target_debug.join("hello_rust.d");
+    let bin_out = target_debug.join("hello-rust");
+    fs::write(
+        &d_file,
+        format!("{}: {}", bin_out.display(), ext_rs.display()),
+    )
+    .expect("write .d");
+
+    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl).expect("keys 1");
+
+    // Modify external .rs file
+    fs::write(&ext_rs, b"pub fn helper_modified() {}").expect("write ext rs v2");
+    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl).expect("keys 2");
+
+    assert_ne!(
+        keys1, keys2,
+        "Modifying external out-of-package .rs referenced in dep-info must change action keys"
+    );
+}
