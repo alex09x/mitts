@@ -48,9 +48,9 @@ p { text-wrap: pretty; }
 
 /* top bar */
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 0; }
-.brand { display: flex; align-items: center; gap: 10px; font: 600 15px var(--mono); text-decoration: none; }
+.brand { display: flex; align-items: center; gap: 8px; font: 600 15px var(--mono); text-decoration: none; }
 .brand .dim { color: var(--muted); }
-.mark { width: 28px; height: 28px; display: block; }
+.mark { width: 20px; height: 20px; display: block; }
 .nav { display: flex; gap: 24px; font-size: 14px; }
 .nav a { color: var(--muted); text-decoration: none; }
 .nav a:hover { color: var(--ink); }
