@@ -212,6 +212,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                 unit_deps.sort();
                 unit_deps.dedup();
 
+                let unit_edition = target.edition.clone().or_else(|| pkg.edition.clone());
                 units.push(PlannedCompilationUnit {
                     package_id: pkg.id.clone(),
                     package_name: pkg.name.clone(),
@@ -224,6 +225,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                     is_workspace,
                     env_vars: env_vars.clone(),
                     dependencies: unit_deps,
+                    edition: unit_edition,
                 });
             }
         }

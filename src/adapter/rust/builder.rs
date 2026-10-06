@@ -37,6 +37,11 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
 
     let explanation = explain_plan(opt)?;
 
+    if opt.native {
+        let unit_keys = derive_unit_action_keys(opt, &explanation)?;
+        return super::dag_runner::run_native_dag_build(opt, &explanation, &unit_keys);
+    }
+
     // Cache eligibility: all units must be eligible for M2 pure rlib/bin caching
     let is_cache_eligible = !opt.no_cache
         && !explanation.units.is_empty()

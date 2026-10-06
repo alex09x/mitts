@@ -192,4 +192,27 @@ impl ContentAddressedStore {
         reflink_or_copy(&obj_path, dest_path, executable)?;
         Ok(())
     }
+
+    /// Returns the path to a named artifact in `{cas_root}/artifacts/lib{crate_name}-{hash}.{ext}`.
+    /// If the file does not yet exist in `{cas_root}/artifacts/`, links or copies it from `{objects_dir}/{hash}`.
+    /// This allows `rustc --extern` to consume artifacts directly from the Global CAS with valid `lib*.rlib` naming.
+    pub fn named_artifact_path(&self, crate_name: &str, hash: &str, ext: &str) -> Result<PathBuf> {
+        let artifacts_dir = self.root.join("artifacts");
+        fs::create_dir_all(&artifacts_dir)?;
+        let clean_crate = crate_name.replace('-', "_");
+        let short_hash = if hash.len() > 16 { &hash[..16] } else { hash };
+        let artifact_name = format!("lib{}-{}.{}", clean_crate, short_hash, ext);
+        let artifact_path = artifacts_dir.join(&artifact_name);
+        if !artifact_path.is_file() {
+            let obj_path = self.object_path(hash);
+            if !obj_path.is_file() {
+                bail!("CAS object not found: {}", hash);
+            }
+            if fs::hard_link(&obj_path, &artifact_path).is_err() {
+                reflink_or_copy(&obj_path, &artifact_path, false)?;
+            }
+        }
+        Ok(artifact_path)
+    }
 }
+

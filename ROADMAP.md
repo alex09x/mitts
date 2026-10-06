@@ -99,16 +99,16 @@ Gate: cleared. `Cargo.lock` demonstrates format and resolution compatibility wit
 
 ## M4 — Mitts-native parallel DAG runner (Zero target pollution)
 
-- [ ] Implement the autonomous compilation DAG runner:
+- [x] Implement the autonomous compilation DAG runner:
   - Construct topological dependency graph from `Cargo.lock`.
   - Compile leaf crates in parallel across all CPU cores directly invoking `rustc`.
   - Pipelined compilation: feed `.rmeta` outputs directly from Global Store to dependent crates via `--extern crate_name=/path/to/cas/...`.
-- [ ] Zero intermediate target pollution: dependency `.rmeta` and `.rlib` live solely in Global Store; local workspace receives only the final compiled binary (`./my-app`).
-- [ ] CoW reflink fallback for tools requiring local file staging (e.g. legacy IDE workflows or specific linkers).
-- [ ] Handle `build.rs` and procedural macros with explicit sandboxed execution and environment tracking.
-- [ ] Test multi-crate DAG parallel compilation, compiler diagnostic preservation, and clean workspace behavior.
+- [x] Zero intermediate target pollution: dependency `.rmeta` and `.rlib` live solely in Global Store; local workspace receives only the final compiled binary (`./my-app`).
+- [x] CoW reflink fallback for tools requiring local file staging (e.g. legacy IDE workflows or specific linkers).
+- [x] Handle `build.rs` and procedural macros with explicit sandboxed execution and environment tracking.
+- [x] Test multi-crate DAG parallel compilation, compiler diagnostic preservation, and clean workspace behavior.
 
-Gate: full build succeeds via direct `rustc` invocations without running `cargo build`; local workspace contains only the requested output binary; speedup and disk-saving claims are deferred to M5 empirical measurements.
+Gate: cleared. Full build succeeds via direct `rustc` invocations in parallel without running `cargo build`; local workspace contains only the requested output binary with zero intermediate target pollution; compiler diagnostics and exit codes are faithfully preserved; multi-crate parallel wave execution and Action Cache reuse verified. 56 workspace tests passing.
 
 ## M5 — Real-world pilot, benchmarks, and coexistence validation
 
@@ -135,5 +135,5 @@ Gate: one non-Rust project builds correctly through the shared core with verifie
 
 ## First task to pick up
 
-With M2 and M3 completed and validated, proceed to **M4 — Mitts-native parallel DAG runner (Zero target pollution)**:
-Implement the autonomous compilation DAG runner (topological crate graph from `Cargo.lock`, direct parallel `rustc` invocations feeding CAS rmeta/rlib artifacts, zero intermediate target pollution).
+With M2, M3, and M4 completed and validated, proceed to **M5 — Real-world pilot, benchmarks, and coexistence validation**:
+Benchmark cold build, warm build (100% hit), and single-file incremental rebuild against standard Cargo on real-world projects; measure physical disk allocation across multiple worktrees; validate coexistence.

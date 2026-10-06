@@ -9,6 +9,9 @@
  */
 
 pub mod builder;
+pub mod compiler;
+pub mod dag;
+pub mod dag_runner;
 pub mod dep_info;
 pub mod env_macro;
 pub mod fetcher;
@@ -20,6 +23,9 @@ pub mod runner;
 pub mod types;
 pub mod unescape;
 
+pub use compiler::{RustcInvocation, RustcOutput};
+pub use dag::CompilationDag;
+pub use dag_runner::run_native_dag_build;
 pub use env_macro::scan_env_macros;
 pub use fetcher::{CrateFetcher, FetchOptions, FetchResult};
 pub use key::derive_unit_action_keys;
@@ -114,9 +120,16 @@ impl RustAdapter {
         key::derive_unit_action_keys(opt, explanation)
     }
 
-    /// Executes the build according to the M2 caching contract.
+    /// Executes the build according to the M2/M4 caching contract.
     pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         builder::build(opt)
+    }
+
+    /// Executes native parallel DAG compilation directly invoking rustc (Milestone M4).
+    pub fn build_native(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
+        let explanation = Self::explain_plan(opt)?;
+        let unit_keys = Self::derive_unit_action_keys(opt, &explanation)?;
+        dag_runner::run_native_dag_build(opt, &explanation, &unit_keys)
     }
 
     /// Resolves or validates the project's Cargo.lock according to the two-phase contract.
