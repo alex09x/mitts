@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Mitts Build mark, full-bleed (apple-touch / maskable). © 2026 Alexander Panasenko, MIT OR Apache-2.0 -->
+  <!-- Mitts Build mark, full-bleed (app icons). © 2026 Alexander Panasenko, MIT OR Apache-2.0 -->
   <rect width="32" height="32" fill="#1b1d20"/>
-  <g transform="translate(16 16) scale(.72) translate(-16 -15.5)">
-    <line x1="16" y1="9" x2="9" y2="22" stroke="#ff3b30" stroke-width="2.5"/>
-    <line x1="16" y1="9" x2="23" y2="22" stroke="#ff3b30" stroke-width="2.5"/>
-    <circle cx="16" cy="9" r="4" fill="#ff3b30"/>
-    <circle cx="9" cy="22" r="4" fill="#ff3b30"/>
-    <circle cx="23" cy="22" r="4" fill="#c9ced4"/>
+  <g transform="translate(16 16) scale(.62) translate(-16 -15)">
+    <line x1="16" y1="7" x2="7.5" y2="23" stroke="#ff3b30" stroke-width="3"/>
+    <line x1="16" y1="7" x2="24.5" y2="23" stroke="#ff3b30" stroke-width="3"/>
+    <circle cx="16" cy="7" r="5" fill="#ff3b30"/>
+    <circle cx="7.5" cy="23" r="5" fill="#ff3b30"/>
+    <circle cx="24.5" cy="23" r="5" fill="#c9ced4"/>
   </g>
 </svg>
