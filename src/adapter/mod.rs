@@ -11,6 +11,6 @@
 pub mod rust;
 
 pub use rust::{
-    EffectivePlanExplanation, PlannedCompilationUnit, RustAdapter, RustAdapterError,
-    RustBuildOptions,
+    CargoLock, CargoLockPackage, CrateFetcher, EffectivePlanExplanation, FetchOptions, FetchResult,
+    PlannedCompilationUnit, RustAdapter, RustAdapterError, RustBuildOptions,
 };

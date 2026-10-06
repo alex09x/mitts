@@ -88,14 +88,14 @@ Gate: cleared. Compatible action inputs reuse cached artifacts without re-execut
 
 ## M3 — Fast parallel fetcher & Cargo.lock resolution
 
-- [ ] Implement two-phase dependency management based on standard `Cargo.lock` (Decision 0002):
+- [x] Implement two-phase dependency management based on standard `Cargo.lock` (Decision 0002):
   - Fast-path: read existing `Cargo.lock` directly without re-resolution, validating compatibility with `Cargo.toml` and workspace settings.
   - Sync-path: when `Cargo.lock` is missing or incompatible with manifest/workspace changes, resolve dependencies using PubGrub against crates.io sparse index (evaluating feature, target, and dependency constraints; treating compilation profiles as builder inputs) and generate standard, valid `Cargo.lock`.
-- [ ] Concurrent multithreaded downloader: fetch `.crate` archives in parallel directly into global sources store (`~/.cache/mitts/sources/`), verifying SHA-256 checksums from `Cargo.lock`.
-- [ ] Zero local source pollution: dependencies are fetched and unpacked once globally per machine, not duplicated per workspace.
-- [ ] Test lockfile generation equivalence with Cargo, missing lockfile handling, offline cache hits, and concurrent downloads.
+- [x] Concurrent multithreaded downloader: fetch `.crate` archives in parallel directly into global sources store (`~/.cache/mitts/sources/`), verifying SHA-256 checksums from `Cargo.lock`.
+- [x] Zero local source pollution: dependencies are fetched and unpacked once globally per machine, not duplicated per workspace.
+- [x] Test lockfile generation equivalence with Cargo, missing lockfile handling, offline cache hits, and concurrent downloads.
 
-Gate: `Cargo.lock` demonstrates format and resolution compatibility with ordinary Cargo; packages are fetched concurrently into the global store without invoking `cargo`; checksums match `Cargo.lock`.
+Gate: cleared. `Cargo.lock` demonstrates format and resolution compatibility with ordinary Cargo; packages are fetched concurrently into the global store (`SourceStore` at `~/.cache/mitts/sources/`) without local source duplication; archive integrity is verified against `Cargo.lock` SHA-256 checksums; offline cache hits and single-flight concurrency tested. 51 workspace tests passing.
 
 ## M4 — Mitts-native parallel DAG runner (Zero target pollution)
 
@@ -135,5 +135,5 @@ Gate: one non-Rust project builds correctly through the shared core with verifie
 
 ## First task to pick up
 
-With M2 completed and validated, proceed to **M3 — Fast parallel fetcher & Cargo.lock resolution**:
-Implement the two-phase dependency resolver (fast-path lockfile validation vs sync-path PubGrub resolution against crates.io sparse index) and parallel multi-threaded crate fetcher.
+With M2 and M3 completed and validated, proceed to **M4 — Mitts-native parallel DAG runner (Zero target pollution)**:
+Implement the autonomous compilation DAG runner (topological crate graph from `Cargo.lock`, direct parallel `rustc` invocations feeding CAS rmeta/rlib artifacts, zero intermediate target pollution).

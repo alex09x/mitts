@@ -14,6 +14,7 @@ pub mod cas;
 pub mod hash;
 pub mod lock;
 pub mod reflink;
+pub mod source_store;
 
 pub use action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 pub use action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
@@ -21,3 +22,4 @@ pub use cas::ContentAddressedStore;
 pub use hash::Sha256;
 pub use lock::FileLock;
 pub use reflink::reflink_or_copy;
+pub use source_store::SourceStore;

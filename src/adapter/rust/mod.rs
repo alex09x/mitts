@@ -11,15 +11,19 @@
 pub mod builder;
 pub mod dep_info;
 pub mod env_macro;
+pub mod fetcher;
 pub mod inputs;
 pub mod key;
+pub mod lockfile;
 pub mod planner;
 pub mod runner;
 pub mod types;
 pub mod unescape;
 
 pub use env_macro::scan_env_macros;
+pub use fetcher::{CrateFetcher, FetchOptions, FetchResult};
 pub use key::derive_unit_action_keys;
+pub use lockfile::{CargoLock, CargoLockPackage};
 pub use types::{
     EffectivePlanExplanation, EnvMacroDiscovery, PlannedCompilationUnit, RustAdapterError,
     RustBuildOptions,
@@ -113,5 +117,21 @@ impl RustAdapter {
     /// Executes the build according to the M2 caching contract.
     pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         builder::build(opt)
+    }
+
+    /// Resolves or validates the project's Cargo.lock according to the two-phase contract.
+    pub fn resolve_lockfile(manifest_path: &Path, offline: bool) -> Result<lockfile::CargoLock> {
+        lockfile::CargoLock::resolve_or_sync(manifest_path, offline)
+    }
+
+    /// Fetches all dependencies in Cargo.lock into the global SourceStore.
+    pub fn fetch(
+        manifest_path: &Path,
+        store: &crate::core::source_store::SourceStore,
+        opt: &fetcher::FetchOptions,
+    ) -> Result<fetcher::FetchResult> {
+        let lock = Self::resolve_lockfile(manifest_path, opt.offline)?;
+        let fetcher = fetcher::CrateFetcher::new(store.clone());
+        fetcher.fetch_all(&lock, opt)
     }
 }
