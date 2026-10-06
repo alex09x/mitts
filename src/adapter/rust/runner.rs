@@ -89,6 +89,10 @@ pub(crate) fn run_cargo_build(
                         (ActionKind::CompileBin, "bin")
                     } else if target.kind.iter().any(|k| k == "lib" || k == "rlib") {
                         (ActionKind::CompileRlib, "lib")
+                    } else if target.kind.iter().any(|k| k == "proc-macro") {
+                        (ActionKind::Custom("proc-macro".to_string()), "proc-macro")
+                    } else if target.kind.iter().any(|k| k == "custom-build") {
+                        (ActionKind::BuildScript, "custom-build")
                     } else {
                         (ActionKind::Custom(target.kind.join(",")), "custom")
                     };
