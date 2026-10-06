@@ -65,7 +65,8 @@ pub(crate) fn run_cargo_build(
             recorded_stderr.push_str(&line);
             recorded_stderr.push('\n');
 
-            let trimmed = line.trim_start();
+            let clean_line = strip_ansi(&line);
+            let trimmed = clean_line.trim_start();
             if let Some(ref cb) = progress_cb {
                 if let Some(crate_info) = trimmed.strip_prefix("Compiling ") {
                     let display = crate_info.split(" (").next().unwrap_or(crate_info);
@@ -197,4 +198,21 @@ pub(crate) fn run_cargo_build(
     };
 
     Ok((plan, result))
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_escape = false;
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if c.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
