@@ -74,6 +74,14 @@ pub struct BuildArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Force native rustc DAG compilation (zero intermediate target bloat)
+    #[arg(long)]
+    pub native: bool,
+
+    /// Force fallback to Cargo execution engine
+    #[arg(long)]
+    pub cargo: bool,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,

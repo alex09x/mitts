@@ -40,6 +40,8 @@ pub struct PlannedCompilationUnit {
     pub env_vars: Vec<String>,
     #[serde(default)]
     pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub edition: Option<String>,
 }
 
 impl PlannedCompilationUnit {
@@ -69,6 +71,8 @@ pub struct RustBuildOptions {
     pub extra_args: Vec<String>,
     pub no_cache: bool,
     pub cache_dir: Option<PathBuf>,
+    pub native: bool,
+    pub cargo: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -147,6 +151,8 @@ pub(crate) struct MetaPackage {
     #[allow(dead_code)]
     pub source: Option<String>,
     pub targets: Vec<MetaTarget>,
+    #[serde(default)]
+    pub edition: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,6 +160,8 @@ pub(crate) struct MetaTarget {
     pub name: String,
     pub kind: Vec<String>,
     pub src_path: String,
+    #[serde(default)]
+    pub edition: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
