@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::types::{CargoMessage, RustBuildOptions};
+use super::types::{BuildProgressEvent, CargoMessage, RustBuildOptions};
 use crate::core::action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -56,6 +56,7 @@ pub(crate) fn run_cargo_build(
     let stderr = child.stderr.take().context("Failed to open stderr")?;
 
     // Drain stderr concurrently to prevent pipe buffer deadlock
+    let progress_cb = opt.progress.clone();
     let stderr_thread = std::thread::spawn(move || -> std::io::Result<String> {
         let mut recorded_stderr = String::new();
         let reader = BufReader::new(stderr);
@@ -63,7 +64,24 @@ pub(crate) fn run_cargo_build(
             let line = line?;
             recorded_stderr.push_str(&line);
             recorded_stderr.push('\n');
-            eprintln!("{}", line);
+
+            let trimmed = line.trim_start();
+            if let Some(ref cb) = progress_cb {
+                if let Some(crate_info) = trimmed.strip_prefix("Compiling ") {
+                    let display = crate_info.split(" (").next().unwrap_or(crate_info);
+                    cb.0(BuildProgressEvent::Compiling(display.trim().to_string()));
+                } else if let Some(crate_info) = trimmed.strip_prefix("Checking ") {
+                    let display = crate_info.split(" (").next().unwrap_or(crate_info);
+                    cb.0(BuildProgressEvent::Compiling(format!("Checking {}", display.trim())));
+                } else if let Some(crate_info) = trimmed.strip_prefix("Downloading ") {
+                    let display = crate_info.split(" (").next().unwrap_or(crate_info);
+                    cb.0(BuildProgressEvent::Compiling(format!("Downloading {}", display.trim())));
+                } else if trimmed.starts_with("Finished ") || trimmed.starts_with("Fresh ") {
+                    // Suppress build completion line; handled by Mitts stage summary
+                } else if !trimmed.is_empty() {
+                    cb.0(BuildProgressEvent::Diagnostic(line));
+                }
+            }
         }
         Ok(recorded_stderr)
     });
@@ -128,7 +146,11 @@ pub(crate) fn run_cargo_build(
                     });
                 }
                 CargoMessage::CompilerMessage { rendered: Some(r) } => {
-                    eprint!("{}", r);
+                    if let Some(ref cb) = opt.progress {
+                        cb.0(BuildProgressEvent::CompilerMessage(r));
+                    } else {
+                        eprint!("{}", r);
+                    }
                 }
                 _ => {}
             }

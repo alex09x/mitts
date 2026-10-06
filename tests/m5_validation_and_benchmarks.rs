@@ -272,3 +272,99 @@ fn test_m5_conservative_gc_and_storage_quotas() {
     assert!(!cas.has_object(&hash2), "Hash2 should be pruned");
     assert!(cas.has_object(&hash3), "Active build hash3 must be protected from GC");
 }
+
+#[test]
+fn test_m5_release_and_features_profile_coexistence() {
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_target = tempfile::tempdir().expect("target tempdir");
+    let manifest = fixture_manifest();
+
+    let opt_dev = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_target.path().to_path_buf()),
+        native: true,
+        release: false,
+        ..Default::default()
+    };
+
+    let opt_release = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_target.path().to_path_buf()),
+        native: true,
+        release: true,
+        ..Default::default()
+    };
+
+    // 1. Cold dev build
+    let (_, res_dev1) = RustAdapter::build_native(&opt_dev).expect("cold dev build");
+    assert!(res_dev1.success);
+    assert!(!res_dev1.cached);
+    assert!(temp_target.path().join("debug").join("hello-rust").is_file());
+
+    // 2. Cold release build: must not collide with dev build
+    let (_, res_rel1) = RustAdapter::build_native(&opt_release).expect("cold release build");
+    assert!(res_rel1.success);
+    assert!(!res_rel1.cached);
+    assert!(temp_target.path().join("release").join("hello-rust").is_file());
+
+    // 3. Verify BOTH binaries coexist simultaneously on disk
+    assert!(temp_target.path().join("debug").join("hello-rust").is_file());
+    assert!(temp_target.path().join("release").join("hello-rust").is_file());
+
+    // 4. Switch back to dev: must be 100% warm cache hit!
+    let (_, res_dev2) = RustAdapter::build_native(&opt_dev).expect("warm dev build");
+    assert!(res_dev2.success);
+    assert!(res_dev2.cached, "Dev build must hit cache after release build");
+
+    // 5. Switch back to release: must be 100% warm cache hit!
+    let (_, res_rel2) = RustAdapter::build_native(&opt_release).expect("warm release build");
+    assert!(res_rel2.success);
+    assert!(res_rel2.cached, "Release build must hit cache after dev build");
+}
+
+#[test]
+fn test_m5_build_progress_events_and_clean_ui_reporting() {
+    use std::sync::{Arc, Mutex};
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let temp_target = tempfile::tempdir().expect("target tempdir");
+    let manifest = fixture_manifest();
+
+    let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+
+    let progress_cb = mitts::adapter::BuildProgressCallback(Arc::new(move |event| {
+        match event {
+            mitts::adapter::BuildProgressEvent::Compiling(name) => {
+                events_clone.lock().unwrap().push(format!("compiling:{}", name));
+            }
+            mitts::adapter::BuildProgressEvent::CompilerMessage(msg) => {
+                events_clone.lock().unwrap().push(format!("message:{}", msg));
+            }
+            mitts::adapter::BuildProgressEvent::Diagnostic(diag) => {
+                events_clone.lock().unwrap().push(format!("diag:{}", diag));
+            }
+        }
+    }));
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(manifest.clone()),
+        cache_dir: Some(temp_cache.path().to_path_buf()),
+        target_dir: Some(temp_target.path().to_path_buf()),
+        native: true,
+        progress: Some(progress_cb),
+        ..Default::default()
+    };
+
+    let (_, res) = RustAdapter::build_native(&opt).expect("native build with progress");
+    assert!(res.success);
+
+    let recorded = events.lock().unwrap().clone();
+    assert!(!recorded.is_empty(), "Must capture compilation progress events");
+    assert!(
+        recorded.iter().any(|e| e.starts_with("compiling:hello-rust")),
+        "Must record compiling event for root binary"
+    );
+}
+

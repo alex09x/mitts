@@ -10,7 +10,9 @@
 
 use super::compiler::{execute_build_script, RustcInvocation};
 use super::dag::CompilationDag;
-use super::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions};
+use super::types::{
+    BuildProgressEvent, EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions,
+};
 use crate::core::action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 use crate::core::action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
 use crate::core::cas::ContentAddressedStore;
@@ -229,6 +231,10 @@ fn execute_unit(
     }
 
     *ctx.any_missed.lock().unwrap() = true;
+
+    if let Some(ref cb) = ctx.opt.progress {
+        cb.0(BuildProgressEvent::Compiling(format!("{} v{}", unit.package_name, unit.version)));
+    }
 
     // 2. Single-flight lock to eliminate duplicate work across processes
     let lock_path = ctx.ac.lock_path(action_key);
