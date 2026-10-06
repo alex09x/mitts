@@ -76,6 +76,22 @@ pub struct EffectivePlanExplanation {
     pub units: Vec<PlannedCompilationUnit>,
 }
 
+#[derive(Clone)]
+pub struct BuildProgressCallback(pub std::sync::Arc<dyn Fn(BuildProgressEvent) + Send + Sync>);
+
+impl std::fmt::Debug for BuildProgressCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BuildProgressCallback")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum BuildProgressEvent {
+    Compiling(String),
+    CompilerMessage(String),
+    Diagnostic(String),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RustBuildOptions {
     pub manifest_path: Option<PathBuf>,
@@ -90,6 +106,7 @@ pub struct RustBuildOptions {
     pub cache_dir: Option<PathBuf>,
     pub native: bool,
     pub cargo: bool,
+    pub progress: Option<BuildProgressCallback>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

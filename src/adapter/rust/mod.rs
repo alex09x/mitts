@@ -35,8 +35,8 @@ pub use lockfile::{CargoLock, CargoLockPackage};
 pub use resolver::NativeResolver;
 pub use sparse_index::SparseIndexClient;
 pub use types::{
-    EffectivePlanExplanation, EnvMacroDiscovery, PlannedCompilationUnit, RustAdapterError,
-    RustBuildOptions,
+    BuildProgressCallback, BuildProgressEvent, EffectivePlanExplanation, EnvMacroDiscovery,
+    PlannedCompilationUnit, RustAdapterError, RustBuildOptions,
 };
 pub use unescape::unescape_rust_string;
 

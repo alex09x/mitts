@@ -9,7 +9,9 @@
  */
 
 use clap::Parser;
-use mitts::adapter::{FetchOptions, RustAdapter, RustBuildOptions};
+use mitts::adapter::{
+    BuildProgressCallback, BuildProgressEvent, FetchOptions, RustAdapter, RustBuildOptions,
+};
 use mitts::cli::{BuildArgs, Cli, Commands, ExplainArgs, FetchArgs, GcArgs, RunArgs, Ui};
 use mitts::core::{
     ActionCache, ActionKind, CacheGc, ContentAddressedStore, GcOptions, SourceStore,
@@ -30,16 +32,36 @@ fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         cache_dir: args.cache_dir.clone(),
         native: args.native,
         cargo: args.cargo,
+        progress: None,
     }
 }
 
 fn handle_build(args: &BuildArgs) -> i32 {
-    let opt = to_rust_options(args);
+    let mut opt = to_rust_options(args);
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };
 
     Ui::header(&format!("build [{}]", profile));
     let spinner = Ui::create_spinner(&format!("Compiling target [{}]...", profile));
+
+    let spinner_clone = spinner.clone();
+    let profile_str = profile.to_string();
+    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(move |event| {
+        match event {
+            BuildProgressEvent::Compiling(crate_name) => {
+                spinner_clone.set_message(format!(
+                    "Compiling target [{}] • {}",
+                    profile_str, crate_name
+                ));
+            }
+            BuildProgressEvent::CompilerMessage(rendered) => {
+                spinner_clone.println(rendered);
+            }
+            BuildProgressEvent::Diagnostic(line) => {
+                spinner_clone.println(line);
+            }
+        }
+    })));
 
     match RustAdapter::build(&opt) {
         Ok((plan, result)) => {
@@ -82,10 +104,37 @@ fn handle_build(args: &BuildArgs) -> i32 {
 }
 
 fn handle_run(args: &RunArgs) -> i32 {
-    let opt = to_rust_options(&args.build_args);
-    match RustAdapter::build(&opt) {
+    let mut opt = to_rust_options(&args.build_args);
+    let profile = if opt.release { "release" } else { "dev" };
+    let spinner = Ui::create_spinner(&format!("Compiling target [{}]...", profile));
+    let spinner_clone = spinner.clone();
+    let profile_str = profile.to_string();
+    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(move |event| {
+        match event {
+            BuildProgressEvent::Compiling(crate_name) => {
+                spinner_clone.set_message(format!(
+                    "Compiling target [{}] • {}",
+                    profile_str, crate_name
+                ));
+            }
+            BuildProgressEvent::CompilerMessage(rendered) => {
+                spinner_clone.println(rendered);
+            }
+            BuildProgressEvent::Diagnostic(line) => {
+                spinner_clone.println(line);
+            }
+        }
+    })));
+
+    let build_res = RustAdapter::build(&opt);
+    spinner.finish_and_clear();
+
+    match build_res {
         Ok((plan, result)) => {
             if !result.success {
+                if !result.stderr.is_empty() {
+                    eprintln!("{}", result.stderr);
+                }
                 return result.exit_code;
             }
 

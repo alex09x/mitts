@@ -13,7 +13,7 @@ pub mod rust;
 
 pub use c::{CAdapter, CBuildOptions, CPackageManifest};
 pub use rust::{
-    CargoLock, CargoLockPackage, CompilationDag, CrateFetcher, EffectivePlanExplanation,
-    FetchOptions, FetchResult, PlannedCompilationUnit, RustAdapter, RustAdapterError,
-    RustBuildOptions, RustcInvocation, RustcOutput,
+    BuildProgressCallback, BuildProgressEvent, CargoLock, CargoLockPackage, CompilationDag,
+    CrateFetcher, EffectivePlanExplanation, FetchOptions, FetchResult, PlannedCompilationUnit,
+    RustAdapter, RustAdapterError, RustBuildOptions, RustcInvocation, RustcOutput,
 };
