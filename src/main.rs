@@ -39,10 +39,12 @@ fn handle_build(args: &BuildArgs) -> i32 {
     let profile = if opt.release { "release" } else { "dev" };
 
     Ui::header(&format!("build [{}]", profile));
-    Ui::stage_start("🔨", &format!("Compiling target [{}]...", profile));
+    let spinner = Ui::create_spinner(&format!("Compiling target [{}]...", profile));
 
     match RustAdapter::build(&opt) {
         Ok((plan, result)) => {
+            spinner.finish_and_clear();
+            Ui::stage_start("🔨", &format!("Compiled target [{}]", profile));
             let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             if result.success {
                 if result.cached {
@@ -64,24 +66,16 @@ fn handle_build(args: &BuildArgs) -> i32 {
                     );
                 }
             } else {
-                eprintln!(
-                    "{}{}mitts error:{} compilation failed with exit code {}",
-                    Ui::BOLD,
-                    "\x1b[31m",
-                    Ui::RESET,
-                    result.exit_code
+                Ui::report_message(
+                    &format!("Compilation failed with exit code {}", result.exit_code),
+                    Some("Check the compiler error diagnostics above for details."),
                 );
             }
             result.exit_code
         }
         Err(err) => {
-            eprintln!(
-                "{}{}mitts error:{} {:#}",
-                Ui::BOLD,
-                "\x1b[31m",
-                Ui::RESET,
-                err
-            );
+            spinner.finish_and_clear();
+            Ui::report_error(&err);
             1
         }
     }
@@ -139,7 +133,7 @@ fn handle_run(args: &RunArgs) -> i32 {
             }
         }
         Err(err) => {
-            eprintln!("mitts error: {:#}", err);
+            Ui::report_error(&err);
             1
         }
     }
@@ -159,7 +153,7 @@ fn handle_explain(args: &ExplainArgs) -> i32 {
     let explanation = match RustAdapter::explain_plan(&opt) {
         Ok(exp) => exp,
         Err(err) => {
-            eprintln!("mitts error: {:#}", err);
+            Ui::report_error(&err);
             return 1;
         }
     };
@@ -212,7 +206,7 @@ fn handle_fetch(args: &FetchArgs) -> i32 {
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
         Ok(p) => p,
         Err(err) => {
-            eprintln!("mitts error: {:#}", err);
+            Ui::report_error(&err);
             return 1;
         }
     };
@@ -221,14 +215,14 @@ fn handle_fetch(args: &FetchArgs) -> i32 {
         Some(ref cd) => match SourceStore::new(cd.join("sources")) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("mitts error: {:#}", e);
+                Ui::report_error(&e);
                 return 1;
             }
         },
         None => match SourceStore::default_store() {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("mitts error: {:#}", e);
+                Ui::report_error(&e);
                 return 1;
             }
         },
@@ -273,13 +267,7 @@ fn handle_fetch(args: &FetchArgs) -> i32 {
             0
         }
         Err(err) => {
-            eprintln!(
-                "{}{}mitts error:{} {:#}",
-                Ui::BOLD,
-                "\x1b[31m",
-                Ui::RESET,
-                err
-            );
+            Ui::report_error(&err);
             1
         }
     }
@@ -290,14 +278,14 @@ fn handle_gc(args: &GcArgs) -> i32 {
         Some(ref cd) => match ContentAddressedStore::new(cd.join("cas")) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("mitts error: {:#}", e);
+                Ui::report_error(&e);
                 return 1;
             }
         },
         None => match ContentAddressedStore::default_store() {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("mitts error: {:#}", e);
+                Ui::report_error(&e);
                 return 1;
             }
         },
@@ -307,14 +295,14 @@ fn handle_gc(args: &GcArgs) -> i32 {
         Some(ref cd) => match ActionCache::new(cd.join("ac")) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("mitts error: {:#}", e);
+                Ui::report_error(&e);
                 return 1;
             }
         },
         None => match ActionCache::default_cache() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("mitts error: {:#}", e);
+                Ui::report_error(&e);
                 return 1;
             }
         },
@@ -338,7 +326,7 @@ fn handle_gc(args: &GcArgs) -> i32 {
             0
         }
         Err(err) => {
-            eprintln!("mitts error: {:#}", err);
+            Ui::report_error(&err);
             1
         }
     }
