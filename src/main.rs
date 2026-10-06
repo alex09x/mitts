@@ -79,12 +79,24 @@ fn handle_build(args: &BuildArgs) -> i32 {
             let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             if result.success {
                 if result.cached {
-                    Ui::stage_item(
-                        true,
-                        &Ui::badge_ac_hit(),
-                        &format!("Restored {} actions from Action Cache", plan.actions.len()),
-                    );
-                    Ui::finish(profile, &dur, "100% cache hit, 0 local target bloat");
+                    if result.action_id == "fast-lock-hit" {
+                        Ui::stage_item(
+                            plan.actions.is_empty(),
+                            &Ui::badge_ac_hit(),
+                            "Fast build lock verified: 0 project changes detected",
+                        );
+                        if let Some(bin) = plan.actions.first() {
+                            Ui::stage_item(true, &Ui::badge_cached(), &bin.description);
+                        }
+                        Ui::finish(profile, &dur, "Up-to-date (no-op)");
+                    } else {
+                        Ui::stage_item(
+                            true,
+                            &Ui::badge_ac_hit(),
+                            &format!("Restored {} actions from Action Cache", plan.actions.len()),
+                        );
+                        Ui::finish(profile, &dur, "100% cache hit, 0 local target bloat");
+                    }
                 } else if plan.actions.len() <= 3 {
                     for (i, action) in plan.actions.iter().enumerate() {
                         let is_last = i == plan.actions.len() - 1;

@@ -10,7 +10,10 @@
 
 pub mod action;
 pub mod action_cache;
+pub mod build_lock;
+pub mod build_logger;
 pub mod cas;
+pub mod file_scanner;
 pub mod gc;
 pub mod hash;
 pub mod lock;
@@ -19,6 +22,8 @@ pub mod source_store;
 
 pub use action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 pub use action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
+pub use build_lock::{FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs};
+pub use build_logger::BuildLogger;
 pub use cas::ContentAddressedStore;
 pub use gc::{CacheGc, GcOptions, GcReport};
 pub use hash::Sha256;

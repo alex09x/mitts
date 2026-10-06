@@ -10,23 +10,30 @@
 
 use super::key::derive_unit_action_keys;
 use super::planner::explain_plan;
+use super::publisher::publish_built_artifacts;
 use super::runner::run_cargo_build;
 use super::types::{BuildProgressEvent, RustAdapterError, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use crate::core::action::{Action, ActionKind, ActionResult, BuildPlan};
-use crate::core::action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
+use crate::core::action_cache::ActionCache;
+use crate::core::build_lock::{FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs};
+use crate::core::build_logger::BuildLogger;
 use crate::core::cas::ContentAddressedStore;
 use crate::core::hash::Sha256;
 use crate::core::lock::FileLock;
 use anyhow::Result;
 use std::collections::HashMap;
-use std::fs;
+use std::path::Path;
 
 /// Executes the build according to the M2 caching contract.
 pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
-    let toolchain = RustAdapter::detect_toolchain()?;
+    let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
+    let log_path = project_dir.join(".mitts").join("build.log");
+    let mut logger = BuildLogger::new(Some(log_path));
+
+    let profile = if opt.release { "release" } else { "dev" };
 
     // Validate unsupported options explicitly
     for arg in &opt.extra_args {
@@ -35,8 +42,83 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
         }
     }
 
-    let explanation = explain_plan(opt)?;
-    let custom_build_count = explanation.units.iter().filter(|u| u.kind == "custom-build").count();
+    let toolchain = logger.measure("toolchain", "Detected rustc toolchain", || {
+        RustAdapter::detect_toolchain()
+    })?;
+
+    // Fast build lock pre-flight check: if zero project files changed, return in microsecond time
+    if !opt.no_cache {
+        let lock_start = std::time::Instant::now();
+        let freshness = FastBuildLock::check_freshness(&FreshnessCheckArgs {
+            project_dir,
+            profile,
+            package: &opt.package,
+            features: &opt.features,
+            no_default_features: opt.no_default_features,
+            all_features: opt.all_features,
+            toolchain_version: &toolchain.version,
+        });
+        match freshness {
+            FreshnessResult::Fresh {
+                action_count,
+                root_binary,
+            } => {
+                let dur = lock_start.elapsed();
+                logger.record_phase(
+                    "lock_check",
+                    dur,
+                    &format!("Fast build lock HIT: {} actions up-to-date", action_count),
+                );
+                let _ = logger.write_trace(profile, 0, "Fast lock hit (0ms no-op)");
+
+                let mut actions = Vec::new();
+                if let Some(ref bin) = root_binary {
+                    actions.push(Action {
+                        id: "root-bin".to_string(),
+                        kind: ActionKind::CompileBin,
+                        description: format!("Existing bin {}", bin.display()),
+                        toolchain: toolchain.clone(),
+                        inputs: Vec::new(),
+                        outputs: vec![bin.clone()],
+                        args: Vec::new(),
+                        env: HashMap::new(),
+                        dependencies: Vec::new(),
+                    });
+                }
+                let plan = BuildPlan {
+                    actions,
+                    target_directory: target_dir,
+                };
+                let result = ActionResult {
+                    action_id: "fast-lock-hit".to_string(),
+                    exit_code: 0,
+                    success: true,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    cached: true,
+                };
+                return Ok((plan, result));
+            }
+            FreshnessResult::Stale(ref reason) => {
+                let dur = lock_start.elapsed();
+                logger.record_phase(
+                    "lock_check",
+                    dur,
+                    &format!("Lock miss / stale: {}", reason),
+                );
+            }
+        }
+    }
+
+    let explanation = logger.measure("plan", "cargo metadata & plan explanation", || {
+        explain_plan(opt)
+    })?;
+
+    let custom_build_count = explanation
+        .units
+        .iter()
+        .filter(|u| u.kind == "custom-build")
+        .count();
     let total_units = explanation.units.len() + custom_build_count;
 
     if let Some(ref cb) = opt.progress {
@@ -70,12 +152,10 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
                 None => ActionCache::default_cache()?,
             };
 
-            // Coordinate target directory access to prevent concurrent workers racing on target_dir
             let target_lock_hash = Sha256::digest(target_dir.to_string_lossy().as_bytes());
             let target_lock_path = ac.locks_dir().join(format!("target_{}.lock", target_lock_hash));
             let _target_lock = FileLock::acquire_exclusive(&target_lock_path)?;
 
-            // 1. Initial check: evaluate action cache for each compilation unit
             let mut hit_units = Vec::new();
             let mut missed_units = Vec::new();
 
@@ -101,7 +181,6 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
                 missed_units.push(unit);
             }
 
-            // If ALL units hit: restore all and return immediately without running Cargo
             if missed_units.is_empty() && hit_units.len() == explanation.units.len() {
                 let mut actions = Vec::new();
                 for (_unit, entry) in hit_units {
@@ -144,12 +223,19 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
                     stderr: String::new(),
                     cached: true,
                 };
+
+                record_state_and_trace(
+                    project_dir,
+                    profile,
+                    opt,
+                    &toolchain,
+                    &plan,
+                    &result,
+                    &mut logger,
+                );
                 return Ok((plan, result));
             }
 
-            // 2. Single-flight coordination across active action keys:
-            // Acquire exclusive locks for ALL missed action units in canonical sorted order.
-            // This eliminates duplicate compilation of shared dependencies across separate workspaces.
             let mut missed_keys: Vec<String> = missed_units
                 .iter()
                 .map(|u| unit_keys[&u.unit_id()].clone())
@@ -159,232 +245,126 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
 
             let mut _action_locks = Vec::new();
             for key in &missed_keys {
-                let lock_path = ac.lock_path(key);
-                _action_locks.push(FileLock::acquire_exclusive(&lock_path)?);
+                let lock_file = ac.locks_dir().join(format!("action_{}.lock", key));
+                _action_locks.push(FileLock::acquire_exclusive(&lock_file)?);
             }
 
-            // Double check inside locks in case concurrent workers finished missed units while we waited
-            let mut locked_hit_units = Vec::new();
-            let mut locked_missed_units = Vec::new();
-
-            for unit in &explanation.units {
+            let mut post_lock_hits = 0;
+            for unit in &missed_units {
                 let u_id = unit.unit_id();
                 if let Some(key) = unit_keys.get(&u_id) {
                     if let Ok(Some(entry)) = ac.get(key) {
                         let mut valid = !entry.outputs.is_empty();
                         for out in &entry.outputs {
-                            if !cas.has_object(&out.cas_hash)
-                                || !cas.verify_object(&out.cas_hash).unwrap_or(false)
-                            {
+                            let dest = target_dir.join(&out.relative_path);
+                            if !dest.exists() && cas.has_object(&out.cas_hash) {
+                                let _ = cas.restore_object(&out.cas_hash, &dest, out.executable);
+                            }
+                            if !dest.exists() {
                                 valid = false;
                                 break;
                             }
                         }
                         if valid {
-                            locked_hit_units.push((unit, entry));
-                            continue;
+                            post_lock_hits += 1;
                         }
                     }
                 }
-                locked_missed_units.push(unit);
             }
 
-            if locked_missed_units.is_empty() && locked_hit_units.len() == explanation.units.len() {
-                let mut actions = Vec::new();
-                for (_unit, entry) in locked_hit_units {
-                    let mut outputs = Vec::new();
-                    for out in &entry.outputs {
-                        let dest = target_dir.join(&out.relative_path);
-                        cas.restore_object(&out.cas_hash, &dest, out.executable)?;
-                        outputs.push(dest);
-                    }
-                    let is_bin = entry.action_id.contains("::bin:");
-                    let is_build_script = entry.action_id.contains("::custom-build:");
-                    actions.push(Action {
-                        id: entry.action_id.clone(),
-                        kind: if is_bin {
-                            ActionKind::CompileBin
-                        } else if is_build_script {
-                            ActionKind::BuildScript
-                        } else {
-                            ActionKind::CompileRlib
-                        },
-                        description: format!("Restored {} from CAS", entry.action_id),
-                        toolchain: toolchain.clone(),
-                        inputs: Vec::new(),
-                        outputs,
-                        args: Vec::new(),
-                        env: HashMap::new(),
-                        dependencies: Vec::new(),
-                    });
-                }
-
-                let plan = BuildPlan {
-                    actions,
-                    target_directory: target_dir,
-                };
-                let result = ActionResult {
-                    action_id: "build-all".to_string(),
-                    exit_code: 0,
-                    success: true,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    cached: true,
-                };
-                return Ok((plan, result));
-            }
-
-            // 3. Partial hits: Pre-restore valid cached dependency artifacts into target directory
-            // so Cargo reuses them and does not rebuild already-cached units!
-            for (_unit, entry) in &locked_hit_units {
-                for out in &entry.outputs {
-                    let dest = target_dir.join(&out.relative_path);
-                    let _ = cas.restore_object(&out.cas_hash, &dest, out.executable);
-                }
-            }
-
+            let total_cached = hit_units.len() + post_lock_hits;
             if let Some(ref cb) = opt.progress {
                 cb.0(BuildProgressEvent::InitTotal {
                     total: total_units,
-                    cached: locked_hit_units.len(),
+                    cached: total_cached,
                 });
             }
 
-            // 4. Execute compilation for missed units
-            let (plan, result) =
-                run_cargo_build(&manifest_path, &target_dir, &toolchain, opt)?;
+            let (plan, result) = logger.measure("compile", "cargo build execution", || {
+                run_cargo_build(&manifest_path, &target_dir, &toolchain, opt)
+            })?;
 
-            // 5. Publish artifacts per action unit ONLY if ALL outputs for that action exist and store cleanly
             if result.success {
-                for action in &plan.actions {
-                    let matching_unit = explanation.units.iter().find(|u| u.unit_id() == action.id);
-
-                    if let Some(unit) = matching_unit {
-                        let u_id = unit.unit_id();
-                        if let Some(action_key) = unit_keys.get(&u_id) {
-                            if action.outputs.is_empty() {
-                                continue;
-                            }
-
-                            let mut stored_outputs = Vec::new();
-                            let mut all_outputs_stored = true;
-
-                            for output_file in &action.outputs {
-                                if !output_file.is_file() {
-                                    all_outputs_stored = false;
-                                    break;
-                                }
-
-                                match cas.store_file(output_file) {
-                                    Ok((cas_hash, file_size)) => {
-                                        let rel = output_file
-                                            .strip_prefix(&target_dir)
-                                            .unwrap_or(output_file)
-                                            .to_path_buf();
-                                        let is_executable = (action.kind == ActionKind::CompileBin
-                                            || action.kind == ActionKind::BuildScript)
-                                            && (output_file.extension().is_none()
-                                                || output_file
-                                                    .extension()
-                                                    .map(|e| e == "exe")
-                                                    .unwrap_or(false));
-                                        if !stored_outputs
-                                            .iter()
-                                            .any(|c: &CachedOutput| c.relative_path == rel)
-                                        {
-                                            stored_outputs.push(CachedOutput {
-                                                relative_path: rel,
-                                                cas_hash,
-                                                file_size,
-                                                executable: is_executable,
-                                            });
-                                        }
-                                    }
-                                    Err(_) => {
-                                        all_outputs_stored = false;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Also capture .fingerprint files for this package if present
-                            let pkg_name_clean = &unit.package_name;
-                            let pkg_name_norm = pkg_name_clean.replace('-', "_");
-                            let fp_dir = target_dir.join(&explanation.profile).join(".fingerprint");
-                            if fp_dir.is_dir() {
-                                if let Ok(entries) = fs::read_dir(&fp_dir) {
-                                    for entry in entries.flatten() {
-                                        let path = entry.path();
-                                        let fname = entry.file_name();
-                                        let fname_str = fname.to_string_lossy();
-                                        if fname_str.starts_with(&format!("{}-", pkg_name_clean))
-                                            || fname_str.starts_with(&format!("{}-", pkg_name_norm))
-                                            || fname_str.starts_with(&format!("lib{}-", pkg_name_norm))
-                                        {
-                                            if path.is_dir() {
-                                                if let Ok(sub_entries) = fs::read_dir(&path) {
-                                                    for sub in sub_entries.flatten() {
-                                                        let sub_path = sub.path();
-                                                        if sub_path.is_file() {
-                                                            if let Ok((cas_hash, file_size)) = cas.store_file(&sub_path) {
-                                                                let rel = sub_path
-                                                                    .strip_prefix(&target_dir)
-                                                                    .unwrap_or(&sub_path)
-                                                                    .to_path_buf();
-                                                                stored_outputs.push(CachedOutput {
-                                                                    relative_path: rel,
-                                                                    cas_hash,
-                                                                    file_size,
-                                                                    executable: false,
-                                                                });
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            } else if path.is_file() {
-                                                if let Ok((cas_hash, file_size)) = cas.store_file(&path) {
-                                                    let rel = path
-                                                        .strip_prefix(&target_dir)
-                                                        .unwrap_or(&path)
-                                                        .to_path_buf();
-                                                    stored_outputs.push(CachedOutput {
-                                                        relative_path: rel,
-                                                        cas_hash,
-                                                        file_size,
-                                                        executable: false,
-                                                    });
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Publish ONLY if EVERY required output was captured and stored successfully
-                            if all_outputs_stored && !stored_outputs.is_empty() {
-                                let entry = ActionCacheEntry {
-                                    action_key: action_key.clone(),
-                                    action_id: unit.unit_id(),
-                                    created_at_secs: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .map(|d| d.as_secs())
-                                        .unwrap_or(0),
-                                    outputs: stored_outputs,
-                                    stdout: String::new(),
-                                    stderr: String::new(),
-                                    exit_code: 0,
-                                };
-                                let _ = ac.put(&entry);
-                            }
-                        }
-                    }
-                }
+                let _ = logger.measure("cas_publish", "published artifacts into CAS", || {
+                    publish_built_artifacts(
+                        &target_dir,
+                        profile,
+                        &plan,
+                        &explanation,
+                        &unit_keys,
+                        &cas,
+                        &ac,
+                    )
+                });
             }
 
+            record_state_and_trace(
+                project_dir,
+                profile,
+                opt,
+                &toolchain,
+                &plan,
+                &result,
+                &mut logger,
+            );
             return Ok((plan, result));
         }
     }
 
     // Uncached execution (ineligible actions or --no-cache)
-    run_cargo_build(&manifest_path, &target_dir, &toolchain, opt)
+    let (plan, result) = logger.measure("compile", "cargo build execution", || {
+        run_cargo_build(&manifest_path, &target_dir, &toolchain, opt)
+    })?;
+
+    record_state_and_trace(
+        project_dir,
+        profile,
+        opt,
+        &toolchain,
+        &plan,
+        &result,
+        &mut logger,
+    );
+    Ok((plan, result))
+}
+
+fn record_state_and_trace(
+    project_dir: &Path,
+    profile: &str,
+    opt: &RustBuildOptions,
+    toolchain: &crate::core::action::ToolchainInfo,
+    plan: &BuildPlan,
+    result: &ActionResult,
+    logger: &mut BuildLogger,
+) {
+    if result.success {
+        let mut outputs = Vec::new();
+        let mut root_binary = None;
+        for action in &plan.actions {
+            for out in &action.outputs {
+                outputs.push(out.clone());
+            }
+            if action.kind == ActionKind::CompileBin && root_binary.is_none() {
+                root_binary = action.outputs.first().cloned();
+            }
+        }
+        let _ = FastBuildLock::record_state(&RecordStateArgs {
+            project_dir,
+            profile,
+            package: &opt.package,
+            features: &opt.features,
+            no_default_features: opt.no_default_features,
+            all_features: opt.all_features,
+            toolchain_version: &toolchain.version,
+            action_count: plan.actions.len(),
+            root_binary,
+            outputs: &outputs,
+        });
+    }
+    let outcome = if result.success {
+        "Build completed successfully"
+    } else {
+        "Build failed"
+    };
+    let _ = logger.write_trace(profile, result.exit_code, outcome);
 }

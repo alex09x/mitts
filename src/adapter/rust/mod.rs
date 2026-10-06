@@ -19,6 +19,7 @@ pub mod inputs;
 pub mod key;
 pub mod lockfile;
 pub mod planner;
+pub mod publisher;
 pub mod resolver;
 pub mod runner;
 pub mod sparse_index;
@@ -51,28 +52,83 @@ pub struct RustAdapter;
 impl RustAdapter {
     /// Detects current installed rustc toolchain info.
     pub fn detect_toolchain() -> Result<ToolchainInfo> {
-        let output = Command::new("rustc")
-            .arg("--version")
-            .output()
-            .context("Failed to invoke rustc --version")?;
-        let version_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let rustc_path = std::env::var("RUSTC")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                if let Ok(home) = std::env::var("HOME") {
+                    let p = PathBuf::from(home).join(".cargo").join("bin").join("rustc");
+                    if p.is_file() {
+                        return p;
+                    }
+                }
+                PathBuf::from("rustc")
+            });
 
-        let target_output = Command::new("rustc").args(["-vV"]).output().ok();
-        let mut target_triple = None;
-        if let Some(t_out) = target_output {
-            let text = String::from_utf8_lossy(&t_out.stdout);
-            for line in text.lines() {
-                if let Some(rest) = line.strip_prefix("host: ") {
-                    target_triple = Some(rest.trim().to_string());
+        let cache_dir = std::env::var("HOME")
+            .map(|h| PathBuf::from(h).join(".mitts").join("cache"))
+            .unwrap_or_else(|_| PathBuf::from(".mitts"));
+        let cache_file = cache_dir.join("toolchain_v1.json");
+
+        if let Ok(meta) = std::fs::metadata(&rustc_path) {
+            if let Ok(mtime) = meta.modified() {
+                let mtime_secs = mtime
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if let Ok(data) = std::fs::read(&cache_file) {
+                    if let Ok((cached_mtime, info)) =
+                        serde_json::from_slice::<(u64, ToolchainInfo)>(&data)
+                    {
+                        if cached_mtime == mtime_secs {
+                            return Ok(info);
+                        }
+                    }
                 }
             }
         }
 
-        Ok(ToolchainInfo {
+        let output = Command::new("rustc")
+            .arg("-vV")
+            .output()
+            .context("Failed to invoke rustc -vV")?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut version_str = String::new();
+        let mut target_triple = None;
+
+        for line in text.lines() {
+            if version_str.is_empty() {
+                version_str = line.trim().to_string();
+            }
+            if let Some(rest) = line.strip_prefix("host: ") {
+                target_triple = Some(rest.trim().to_string());
+            }
+        }
+
+        if version_str.is_empty() {
+            version_str = "rustc".to_string();
+        }
+
+        let info = ToolchainInfo {
             name: "rustc".to_string(),
             version: version_str,
             target_triple,
-        })
+        };
+
+        if let Ok(meta) = std::fs::metadata(&rustc_path) {
+            if let Ok(mtime) = meta.modified() {
+                let mtime_secs = mtime
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let _ = std::fs::create_dir_all(&cache_dir);
+                let _ = std::fs::write(
+                    &cache_file,
+                    serde_json::to_vec(&(mtime_secs, &info)).unwrap_or_default(),
+                );
+            }
+        }
+
+        Ok(info)
     }
 
     /// Resolves the canonical manifest path for the target build.
