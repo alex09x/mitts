@@ -97,19 +97,19 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
                 let mut actions = Vec::new();
                 for (_unit, entry) in hit_units {
                     let mut outputs = Vec::new();
-                    let mut is_bin = false;
                     for out in &entry.outputs {
                         let dest = target_dir.join(&out.relative_path);
                         cas.restore_object(&out.cas_hash, &dest, out.executable)?;
-                        if out.executable {
-                            is_bin = true;
-                        }
                         outputs.push(dest);
                     }
+                    let is_bin = entry.action_id.contains("::bin:");
+                    let is_build_script = entry.action_id.contains("::custom-build:");
                     actions.push(Action {
                         id: entry.action_id.clone(),
                         kind: if is_bin {
                             ActionKind::CompileBin
+                        } else if is_build_script {
+                            ActionKind::BuildScript
                         } else {
                             ActionKind::CompileRlib
                         },
@@ -184,19 +184,19 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
                 let mut actions = Vec::new();
                 for (_unit, entry) in locked_hit_units {
                     let mut outputs = Vec::new();
-                    let mut is_bin = false;
                     for out in &entry.outputs {
                         let dest = target_dir.join(&out.relative_path);
                         cas.restore_object(&out.cas_hash, &dest, out.executable)?;
-                        if out.executable {
-                            is_bin = true;
-                        }
                         outputs.push(dest);
                     }
+                    let is_bin = entry.action_id.contains("::bin:");
+                    let is_build_script = entry.action_id.contains("::custom-build:");
                     actions.push(Action {
                         id: entry.action_id.clone(),
                         kind: if is_bin {
                             ActionKind::CompileBin
+                        } else if is_build_script {
+                            ActionKind::BuildScript
                         } else {
                             ActionKind::CompileRlib
                         },
@@ -265,7 +265,8 @@ pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)>
                                             .strip_prefix(&target_dir)
                                             .unwrap_or(output_file)
                                             .to_path_buf();
-                                        let is_executable = action.kind == ActionKind::CompileBin
+                                        let is_executable = (action.kind == ActionKind::CompileBin
+                                            || action.kind == ActionKind::BuildScript)
                                             && (output_file.extension().is_none()
                                                 || output_file
                                                     .extension()
