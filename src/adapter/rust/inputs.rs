@@ -61,12 +61,13 @@ pub(crate) fn hash_package_base_inputs(
         } else {
             Sha256::digest(package_dir.display().to_string().as_bytes())
         };
+        let pkg_label = package_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| package_dir.display().to_string());
         return Ok(vec![
             ("Cargo.toml".to_string(), hash),
-            (
-                "immutable_pkg".to_string(),
-                package_dir.display().to_string(),
-            ),
+            ("immutable_pkg".to_string(), pkg_label),
         ]);
     }
 
