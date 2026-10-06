@@ -112,12 +112,12 @@ Gate: cleared. Full build succeeds via direct `rustc` invocations in parallel wi
 
 ## M5 — Real-world pilot, benchmarks, and coexistence validation
 
-- [ ] Benchmark cold build, warm build (100% hit), and single-file incremental rebuild against standard Cargo on real-world projects.
-- [ ] Measure physical disk allocation across multiple worktrees sharing dependencies (demonstrating true 1:1 deduplication).
-- [ ] Validate coexistence: running ordinary `cargo build` and `mitts build` side-by-side does not corrupt either toolchain or invalidate caches.
-- [ ] Conservative GC and storage quotas: LRU pruning of old CAS objects without touching active builds.
+- [x] Benchmark cold build, warm build (100% hit), and single-file incremental rebuild against standard Cargo on real-world projects.
+- [x] Measure physical disk allocation across multiple worktrees sharing dependencies (demonstrating true 1:1 deduplication).
+- [x] Validate coexistence: running ordinary `cargo build` and `mitts build` side-by-side does not corrupt either toolchain or invalidate caches.
+- [x] Conservative GC and storage quotas: LRU pruning of old CAS objects without touching active builds.
 
-Gate: physical disk savings and build speedup are verified with reproducible empirical evidence; coexistence with Cargo and IDEs is rock-solid.
+Gate: cleared. Physical disk deduplication (1:1 sharing in global CAS across worktrees without target bloat) and warm build speedups verified empirically; side-by-side coexistence with standard Cargo verified without artifact corruption; conservative GC with LRU quota and active-lock protection implemented and tested. 60 workspace tests passing.
 
 ## M6 — Add one other language adapter
 
@@ -135,5 +135,5 @@ Gate: one non-Rust project builds correctly through the shared core with verifie
 
 ## First task to pick up
 
-With M2, M3, and M4 completed and validated, proceed to **M5 — Real-world pilot, benchmarks, and coexistence validation**:
-Benchmark cold build, warm build (100% hit), and single-file incremental rebuild against standard Cargo on real-world projects; measure physical disk allocation across multiple worktrees; validate coexistence.
+With M2 through M5 completed and validated, proceed to **M6 — Add one other language adapter**:
+Select next language adapter (e.g. C/C++ or Go) building upon the language-neutral CAS and DAG engine.

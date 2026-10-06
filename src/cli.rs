@@ -34,6 +34,9 @@ pub enum Commands {
 
     /// Fetch dependencies into the global source store
     Fetch(FetchArgs),
+
+    /// Prune old or unreferenced CAS objects according to storage quotas
+    Gc(GcArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -146,3 +149,19 @@ pub struct FetchArgs {
     #[arg(long)]
     pub frozen: bool,
 }
+
+#[derive(Args, Debug, Clone)]
+pub struct GcArgs {
+    /// Directory for the shared artifact and action cache
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
+
+    /// Maximum cache size in bytes (pruning oldest until under quota)
+    #[arg(long)]
+    pub max_bytes: Option<u64>,
+
+    /// Prune CAS objects older than specified seconds
+    #[arg(long)]
+    pub max_age_secs: Option<u64>,
+}
+
