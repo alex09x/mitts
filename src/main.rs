@@ -10,8 +10,8 @@
 
 use clap::Parser;
 use mitts::adapter::{FetchOptions, RustAdapter, RustBuildOptions};
-use mitts::cli::{BuildArgs, Cli, Commands, ExplainArgs, FetchArgs, RunArgs};
-use mitts::core::{ActionKind, SourceStore};
+use mitts::cli::{BuildArgs, Cli, Commands, ExplainArgs, FetchArgs, GcArgs, RunArgs};
+use mitts::core::{ActionCache, ActionKind, CacheGc, ContentAddressedStore, GcOptions, SourceStore};
 use std::process::{Command, ExitCode};
 
 fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
@@ -224,6 +224,62 @@ fn handle_fetch(args: &FetchArgs) -> i32 {
     }
 }
 
+fn handle_gc(args: &GcArgs) -> i32 {
+    let cas = match args.cache_dir {
+        Some(ref cd) => match ContentAddressedStore::new(cd.join("cas")) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("mitts error: {:#}", e);
+                return 1;
+            }
+        },
+        None => match ContentAddressedStore::default_store() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("mitts error: {:#}", e);
+                return 1;
+            }
+        },
+    };
+
+    let ac = match args.cache_dir {
+        Some(ref cd) => match ActionCache::new(cd.join("ac")) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mitts error: {:#}", e);
+                return 1;
+            }
+        },
+        None => match ActionCache::default_cache() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mitts error: {:#}", e);
+                return 1;
+            }
+        },
+    };
+
+    let gc = CacheGc::new(&cas, &ac);
+    let opts = GcOptions {
+        max_bytes: args.max_bytes,
+        max_age: args.max_age_secs.map(std::time::Duration::from_secs),
+    };
+
+    match gc.prune(&opts) {
+        Ok(report) => {
+            println!(
+                "mitts: GC completed — {} examined, {} pruned ({} bytes freed, {} bytes retained)",
+                report.objects_examined, report.objects_pruned, report.bytes_freed, report.bytes_retained
+            );
+            0
+        }
+        Err(err) => {
+            eprintln!("mitts error: {:#}", err);
+            1
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let code = match cli.command {
@@ -231,6 +287,7 @@ fn main() -> ExitCode {
         Commands::Run(ref args) => handle_run(args),
         Commands::Explain(ref args) => handle_explain(args),
         Commands::Fetch(ref args) => handle_fetch(args),
+        Commands::Gc(ref args) => handle_gc(args),
     };
 
     if code == 0 {
