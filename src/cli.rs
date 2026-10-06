@@ -166,7 +166,9 @@ pub struct GcArgs {
 }
 
 pub mod handlers;
+pub mod terminal;
 pub mod ui;
 
 pub use handlers::{handle_explain, handle_fetch, handle_gc};
+pub use terminal::TerminalGuard;
 pub use ui::Ui;

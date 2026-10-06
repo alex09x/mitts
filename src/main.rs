@@ -12,7 +12,9 @@ use clap::Parser;
 use mitts::adapter::{
     BuildProgressCallback, BuildProgressEvent, RustAdapter, RustBuildOptions,
 };
-use mitts::cli::{handle_explain, handle_fetch, handle_gc, BuildArgs, Cli, Commands, RunArgs, Ui};
+use mitts::cli::{
+    handle_explain, handle_fetch, handle_gc, BuildArgs, Cli, Commands, RunArgs, TerminalGuard, Ui,
+};
 use mitts::core::ActionKind;
 use std::process::{Command, ExitCode};
 
@@ -40,6 +42,7 @@ fn handle_build(args: &BuildArgs) -> i32 {
     let profile = if opt.release { "release" } else { "dev" };
 
     Ui::header(&format!("build [{}]", profile));
+    let term_guard = TerminalGuard::acquire();
     let progress = Ui::create_build_progress(profile);
 
     let progress_clone = progress.clone();
@@ -66,9 +69,12 @@ fn handle_build(args: &BuildArgs) -> i32 {
         }
     })));
 
-    match RustAdapter::build(&opt) {
+    let build_res = RustAdapter::build(&opt);
+    progress.finish_and_clear();
+    drop(term_guard);
+
+    match build_res {
         Ok((plan, result)) => {
-            progress.finish_and_clear();
             Ui::stage_start("🔨", &format!("Compiled target [{}]", profile));
             let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             if result.success {
@@ -129,7 +135,6 @@ fn handle_build(args: &BuildArgs) -> i32 {
             result.exit_code
         }
         Err(err) => {
-            progress.finish_and_clear();
             Ui::report_error(&err);
             1
         }
@@ -139,6 +144,7 @@ fn handle_build(args: &BuildArgs) -> i32 {
 fn handle_run(args: &RunArgs) -> i32 {
     let mut opt = to_rust_options(&args.build_args);
     let profile = if opt.release { "release" } else { "dev" };
+    let term_guard = TerminalGuard::acquire();
     let progress = Ui::create_build_progress(profile);
     let progress_clone = progress.clone();
     opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(move |event| {
@@ -166,6 +172,7 @@ fn handle_run(args: &RunArgs) -> i32 {
 
     let build_res = RustAdapter::build(&opt);
     progress.finish_and_clear();
+    drop(term_guard);
 
     match build_res {
         Ok((plan, result)) => {
