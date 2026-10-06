@@ -76,10 +76,40 @@ fn handle_build(args: &BuildArgs) -> i32 {
                         &format!("Restored {} actions from Action Cache", plan.actions.len()),
                     );
                     Ui::finish(profile, &dur, "100% cache hit, 0 local target bloat");
-                } else {
+                } else if plan.actions.len() <= 3 {
                     for (i, action) in plan.actions.iter().enumerate() {
                         let is_last = i == plan.actions.len() - 1;
                         Ui::stage_item(is_last, &Ui::badge_compile(), &action.description);
+                    }
+                    Ui::finish(
+                        profile,
+                        &dur,
+                        &format!("{} actions executed into CAS", plan.actions.len()),
+                    );
+                } else {
+                    let root_bins: Vec<_> = plan
+                        .actions
+                        .iter()
+                        .filter(|a| a.kind == ActionKind::CompileBin)
+                        .collect();
+                    let dep_count = plan.actions.len().saturating_sub(root_bins.len());
+                    if let Some(bin) = root_bins.first() {
+                        Ui::stage_item(
+                            false,
+                            &Ui::badge_compile(),
+                            &format!(
+                                "Compiled {} actions into CAS ({} dependencies)",
+                                plan.actions.len(),
+                                dep_count
+                            ),
+                        );
+                        Ui::stage_item(true, &Ui::badge_compile(), &bin.description);
+                    } else {
+                        Ui::stage_item(
+                            true,
+                            &Ui::badge_compile(),
+                            &format!("Compiled {} actions into CAS", plan.actions.len()),
+                        );
                     }
                     Ui::finish(
                         profile,

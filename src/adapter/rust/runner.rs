@@ -77,8 +77,14 @@ pub(crate) fn run_cargo_build(
                 } else if let Some(crate_info) = trimmed.strip_prefix("Downloading ") {
                     let display = crate_info.split(" (").next().unwrap_or(crate_info);
                     cb.0(BuildProgressEvent::Compiling(format!("Downloading {}", display.trim())));
-                } else if trimmed.starts_with("Finished ") || trimmed.starts_with("Fresh ") {
-                    // Suppress build completion line; handled by Mitts stage summary
+                } else if let Some(crate_info) = trimmed.strip_prefix("Downloaded ") {
+                    let display = crate_info.split(" (").next().unwrap_or(crate_info);
+                    cb.0(BuildProgressEvent::Compiling(format!("Downloaded {}", display.trim())));
+                } else if trimmed.starts_with("Finished ")
+                    || trimmed.starts_with("Fresh ")
+                    || trimmed.starts_with("Blocking ")
+                {
+                    // Suppress normal build completion lines; handled by Mitts stage summary
                 } else if !trimmed.is_empty() {
                     cb.0(BuildProgressEvent::Diagnostic(line));
                 }
