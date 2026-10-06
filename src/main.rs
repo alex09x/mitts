@@ -10,8 +10,10 @@
 
 use clap::Parser;
 use mitts::adapter::{FetchOptions, RustAdapter, RustBuildOptions};
-use mitts::cli::{BuildArgs, Cli, Commands, ExplainArgs, FetchArgs, GcArgs, RunArgs};
-use mitts::core::{ActionCache, ActionKind, CacheGc, ContentAddressedStore, GcOptions, SourceStore};
+use mitts::cli::{BuildArgs, Cli, Commands, ExplainArgs, FetchArgs, GcArgs, RunArgs, Ui};
+use mitts::core::{
+    ActionCache, ActionKind, CacheGc, ContentAddressedStore, GcOptions, SourceStore,
+};
 use std::process::{Command, ExitCode};
 
 fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
@@ -33,26 +35,53 @@ fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
 
 fn handle_build(args: &BuildArgs) -> i32 {
     let opt = to_rust_options(args);
+    let start = std::time::Instant::now();
+    let profile = if opt.release { "release" } else { "dev" };
+
+    Ui::header(&format!("build [{}]", profile));
+    Ui::stage_start("🔨", &format!("Compiling target [{}]...", profile));
+
     match RustAdapter::build(&opt) {
         Ok((plan, result)) => {
+            let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             if result.success {
                 if result.cached {
-                    println!(
-                        "mitts: build finished from cache (restored into {})",
-                        plan.target_directory.display()
+                    Ui::stage_item(
+                        true,
+                        &Ui::badge_ac_hit(),
+                        &format!("Restored {} actions from Action Cache", plan.actions.len()),
                     );
+                    Ui::finish(profile, &dur, "100% cache hit, 0 local target bloat");
                 } else {
-                    println!(
-                        "mitts: build finished successfully ({} actions recorded in {})",
-                        plan.actions.len(),
-                        plan.target_directory.display()
+                    for (i, action) in plan.actions.iter().enumerate() {
+                        let is_last = i == plan.actions.len() - 1;
+                        Ui::stage_item(is_last, &Ui::badge_compile(), &action.description);
+                    }
+                    Ui::finish(
+                        profile,
+                        &dur,
+                        &format!("{} actions executed into CAS", plan.actions.len()),
                     );
                 }
+            } else {
+                eprintln!(
+                    "{}{}mitts error:{} compilation failed with exit code {}",
+                    Ui::BOLD,
+                    "\x1b[31m",
+                    Ui::RESET,
+                    result.exit_code
+                );
             }
             result.exit_code
         }
         Err(err) => {
-            eprintln!("mitts error: {:#}", err);
+            eprintln!(
+                "{}{}mitts error:{} {:#}",
+                Ui::BOLD,
+                "\x1b[31m",
+                Ui::RESET,
+                err
+            );
             1
         }
     }
@@ -82,9 +111,7 @@ fn handle_run(args: &RunArgs) -> i32 {
                 return 1;
             };
 
-            let status = Command::new(&binary)
-                .args(&args.trailing_args)
-                .status();
+            let status = Command::new(&binary).args(&args.trailing_args).status();
 
             match status {
                 Ok(st) => {
@@ -140,7 +167,10 @@ fn handle_explain(args: &ExplainArgs) -> i32 {
     println!("Mitts Build Plan Explanation");
     println!("============================");
     println!("Manifest:         {}", explanation.manifest_path.display());
-    println!("Target Directory: {}", explanation.target_directory.display());
+    println!(
+        "Target Directory: {}",
+        explanation.target_directory.display()
+    );
     println!("Profile:          {}", explanation.profile);
     println!(
         "Toolchain:        {} ({})",
@@ -150,7 +180,10 @@ fn handle_explain(args: &ExplainArgs) -> i32 {
         println!("Host Target:      {}", target);
     }
     println!();
-    println!("Effective Compilation Units ({} total):", explanation.units.len());
+    println!(
+        "Effective Compilation Units ({} total):",
+        explanation.units.len()
+    );
     for (i, unit) in explanation.units.iter().enumerate() {
         println!(
             "  {}. {} v{} [{}: {}]",
@@ -207,18 +240,46 @@ fn handle_fetch(args: &FetchArgs) -> i32 {
         frozen: args.frozen,
     };
 
-    println!("mitts: resolving dependencies for {}", manifest_path.display());
+    Ui::header("fetch");
+    Ui::stage_start(
+        "🔍",
+        &format!("Resolving dependencies for {}", manifest_path.display()),
+    );
+
     match RustAdapter::fetch(&manifest_path, &store, &fetch_opt) {
         Ok(result) => {
-            println!(
-                "mitts: fetched {} crates ({} already cached, {} total) in {}ms",
-                result.fetched, result.already_cached, result.total_packages, result.duration_ms
+            Ui::stage_step("📦", "Synchronizing packages with registry");
+            Ui::stage_item(
+                false,
+                &Ui::badge_cached(),
+                &format!(
+                    "{} packages already present in registry",
+                    result.already_cached
+                ),
             );
-            println!("mitts: sources stored globally in {}", store.root().display());
+            Ui::stage_item(
+                true,
+                &Ui::badge_download(),
+                &format!(
+                    "{} packages downloaded & verified (parallel)",
+                    result.fetched
+                ),
+            );
+            Ui::finish(
+                "sources",
+                &format!("{}ms", result.duration_ms),
+                &format!("registry: {}", store.root().display()),
+            );
             0
         }
         Err(err) => {
-            eprintln!("mitts error: {:#}", err);
+            eprintln!(
+                "{}{}mitts error:{} {:#}",
+                Ui::BOLD,
+                "\x1b[31m",
+                Ui::RESET,
+                err
+            );
             1
         }
     }
@@ -269,7 +330,10 @@ fn handle_gc(args: &GcArgs) -> i32 {
         Ok(report) => {
             println!(
                 "mitts: GC completed — {} examined, {} pruned ({} bytes freed, {} bytes retained)",
-                report.objects_examined, report.objects_pruned, report.bytes_freed, report.bytes_retained
+                report.objects_examined,
+                report.objects_pruned,
+                report.bytes_freed,
+                report.bytes_retained
             );
             0
         }

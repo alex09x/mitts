@@ -12,7 +12,6 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 /// Represents a package entry in Cargo.lock.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,7 +196,10 @@ impl CargoLock {
 
         if lock_path.is_file() {
             if let Ok(lock) = Self::from_file(&lock_path) {
-                if lock.validate_manifest_compatibility(manifest_path).unwrap_or(false) {
+                if lock
+                    .validate_manifest_compatibility(manifest_path)
+                    .unwrap_or(false)
+                {
                     return Ok(lock);
                 }
             }
@@ -207,18 +209,11 @@ impl CargoLock {
             bail!("Cargo.lock is missing or incompatible and --offline was specified");
         }
 
-        // Sync-path: invoke cargo generate-lockfile
-        let mut cmd = Command::new("cargo");
-        cmd.arg("generate-lockfile");
-        cmd.arg("--manifest-path").arg(manifest_path);
-
-        let output = cmd.output().context("Failed to execute cargo generate-lockfile")?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("cargo generate-lockfile failed: {}", stderr.trim());
-        }
-
-        Self::from_file(&lock_path)
+        // Sync-path: standalone native resolution via crates.io sparse index
+        let resolver = super::resolver::NativeResolver::new()?;
+        let lock = resolver.resolve_manifest(manifest_path, offline)?;
+        let _ = lock.write_to_file(&lock_path);
+        Ok(lock)
     }
 }
 

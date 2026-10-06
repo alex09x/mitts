@@ -34,17 +34,67 @@ impl SourceStore {
         Ok(Self { root, locks_dir })
     }
 
-    /// Default global store location: `$MITTS_CACHE_DIR/sources` or `~/.cache/mitts/sources`.
+    /// Default global store location: uses `~/.cargo/registry/src/index.crates.io-*` if present,
+    /// otherwise `$MITTS_CACHE_DIR/sources` or `~/.cache/mitts/sources`.
     pub fn default_store() -> Result<Self> {
-        let base_dir = if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
-            PathBuf::from(val)
-        } else if let Ok(home) = std::env::var("HOME") {
+        if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
+            return Self::new(PathBuf::from(val).join("sources"));
+        }
+
+        if let Some(cargo_src) = Self::discover_cargo_registry_src() {
+            return Self::new(cargo_src);
+        }
+
+        let base_dir = if let Ok(home) = std::env::var("HOME") {
             PathBuf::from(home).join(".cache").join("mitts")
         } else {
             PathBuf::from(".mitts").join("cache")
         };
 
         Self::new(base_dir.join("sources"))
+    }
+
+    /// Discovers active standard ~/.cargo/registry/src/index.crates.io-* directory if present.
+    pub fn discover_cargo_registry_src() -> Option<PathBuf> {
+        let home = std::env::var("HOME").ok()?;
+        let reg_src = Path::new(&home).join(".cargo").join("registry").join("src");
+        if reg_src.is_dir() {
+            if let Ok(entries) = fs::read_dir(&reg_src) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("index.crates.io-") {
+                        return Some(entry.path());
+                    }
+                }
+            }
+            let default_dir = reg_src.join("index.crates.io-1949cf8c6b5b557f");
+            let _ = fs::create_dir_all(&default_dir);
+            return Some(default_dir);
+        }
+        None
+    }
+
+    /// Discovers active standard ~/.cargo/registry/cache/index.crates.io-* directory if present.
+    pub fn discover_cargo_registry_cache() -> Option<PathBuf> {
+        let home = std::env::var("HOME").ok()?;
+        let reg_cache = Path::new(&home)
+            .join(".cargo")
+            .join("registry")
+            .join("cache");
+        if reg_cache.is_dir() {
+            if let Ok(entries) = fs::read_dir(&reg_cache) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("index.crates.io-") {
+                        return Some(entry.path());
+                    }
+                }
+            }
+            let default_dir = reg_cache.join("index.crates.io-1949cf8c6b5b557f");
+            let _ = fs::create_dir_all(&default_dir);
+            return Some(default_dir);
+        }
+        None
     }
 
     /// Root directory of the source store.
@@ -93,6 +143,13 @@ impl SourceStore {
         }
 
         let target_dir = self.package_dir(name, version);
+        if let Some(cargo_cache) = Self::discover_cargo_registry_cache() {
+            let crate_archive = cargo_cache.join(format!("{}-{}.crate", name, version));
+            if !crate_archive.is_file() {
+                let _ = fs::write(&crate_archive, archive_bytes);
+            }
+        }
+
         if self.has_source(name, version) {
             return Ok(target_dir);
         }
@@ -145,14 +202,23 @@ impl SourceStore {
 
         if let Err(e) = fs::rename(&src_to_move, &target_dir) {
             // Fallback: cross-device or permission copy
-            Self::copy_dir_recursive(&src_to_move, &target_dir)
-                .with_context(|| format!("Failed to move unpacked crate to destination {:?}: {}", target_dir, e))?;
+            Self::copy_dir_recursive(&src_to_move, &target_dir).with_context(|| {
+                format!(
+                    "Failed to move unpacked crate to destination {:?}: {}",
+                    target_dir, e
+                )
+            })?;
         }
 
         let _ = fs::remove_dir_all(&staging_dir);
 
         if !self.has_source(name, version) {
-            bail!("Extracted crate {}-{} is missing Cargo.toml in {:?}", name, version, target_dir);
+            bail!(
+                "Extracted crate {}-{} is missing Cargo.toml in {:?}",
+                name,
+                version,
+                target_dir
+            );
         }
 
         Ok(target_dir)

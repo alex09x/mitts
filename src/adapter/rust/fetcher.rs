@@ -49,7 +49,11 @@ impl CrateFetcher {
     }
 
     /// Fetches and unpacks a single package into the global SourceStore.
-    pub fn fetch_package(&self, pkg: &CargoLockPackage, opt: &FetchOptions) -> Result<Option<PathBuf>> {
+    pub fn fetch_package(
+        &self,
+        pkg: &CargoLockPackage,
+        opt: &FetchOptions,
+    ) -> Result<Option<PathBuf>> {
         // Workspace member or path dependency without remote source
         if pkg.source.is_none() {
             return Ok(None);
@@ -60,8 +64,12 @@ impl CrateFetcher {
         }
 
         let lock_path = self.store.lock_path(&pkg.name, &pkg.version);
-        let _lock = FileLock::acquire_exclusive(&lock_path)
-            .with_context(|| format!("Failed to acquire download lock for {}-{}", pkg.name, pkg.version))?;
+        let _lock = FileLock::acquire_exclusive(&lock_path).with_context(|| {
+            format!(
+                "Failed to acquire download lock for {}-{}",
+                pkg.name, pkg.version
+            )
+        })?;
 
         // Re-check inside single-flight lock
         if self.store.has_source(&pkg.name, &pkg.version) {
@@ -73,7 +81,10 @@ impl CrateFetcher {
         // 1. Check local cargo cache (~/.cargo/registry/cache or src)
         if let Some(path) = self.find_in_cargo_registry_cache(&pkg.name, &pkg.version) {
             if let Ok(bytes) = fs::read(&path) {
-                if let Ok(dir) = self.store.unpack_archive(&pkg.name, &pkg.version, &bytes, expected_checksum) {
+                if let Ok(dir) =
+                    self.store
+                        .unpack_archive(&pkg.name, &pkg.version, &bytes, expected_checksum)
+                {
                     return Ok(Some(dir));
                 }
             }
@@ -107,19 +118,29 @@ impl CrateFetcher {
             .with_context(|| format!("Failed to download crate from {}", url))?;
 
         if !output.status.success() {
-            bail!("Failed to download crate {}-{} from {}", pkg.name, pkg.version, url);
+            bail!(
+                "Failed to download crate {}-{} from {}",
+                pkg.name,
+                pkg.version,
+                url
+            );
         }
 
-        let dir = self.store.unpack_archive(&pkg.name, &pkg.version, &output.stdout, expected_checksum)?;
+        let dir = self.store.unpack_archive(
+            &pkg.name,
+            &pkg.version,
+            &output.stdout,
+            expected_checksum,
+        )?;
         Ok(Some(dir))
     }
 
-    /// Fetches all remote dependencies declared in CargoLock into the global SourceStore.
+    /// Fetches all remote dependencies declared in CargoLock into the global SourceStore in parallel.
     pub fn fetch_all(&self, lock: &CargoLock, opt: &FetchOptions) -> Result<FetchResult> {
         let start = Instant::now();
         let mut total_packages = 0;
         let mut already_cached = 0;
-        let mut fetched = 0;
+        let mut to_fetch = Vec::new();
 
         for pkg in &lock.packages {
             if pkg.source.is_none() {
@@ -129,11 +150,39 @@ impl CrateFetcher {
 
             if self.store.has_source(&pkg.name, &pkg.version) {
                 already_cached += 1;
-                continue;
+            } else {
+                to_fetch.push(pkg.clone());
+            }
+        }
+
+        let mut fetched = 0;
+
+        if !to_fetch.is_empty() {
+            let num_threads = std::cmp::min(to_fetch.len(), 8);
+            let mut chunks = vec![Vec::new(); num_threads];
+            for (i, pkg) in to_fetch.into_iter().enumerate() {
+                chunks[i % num_threads].push(pkg);
             }
 
-            self.fetch_package(pkg, opt)?;
-            fetched += 1;
+            std::thread::scope(|s| {
+                let mut handles = Vec::new();
+                for chunk in chunks {
+                    let fetcher = self;
+                    let opt_ref = opt;
+                    handles.push(s.spawn(move || {
+                        let mut count = 0;
+                        for pkg in chunk {
+                            if fetcher.fetch_package(&pkg, opt_ref).is_ok() {
+                                count += 1;
+                            }
+                        }
+                        count
+                    }));
+                }
+                for h in handles {
+                    fetched += h.join().unwrap_or(0);
+                }
+            });
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -149,7 +198,10 @@ impl CrateFetcher {
     /// Searches standard ~/.cargo/registry/cache for downloaded .crate file.
     fn find_in_cargo_registry_cache(&self, name: &str, version: &str) -> Option<PathBuf> {
         let home = std::env::var("HOME").ok()?;
-        let cache_root = Path::new(&home).join(".cargo").join("registry").join("cache");
+        let cache_root = Path::new(&home)
+            .join(".cargo")
+            .join("registry")
+            .join("cache");
         if !cache_root.is_dir() {
             return None;
         }
