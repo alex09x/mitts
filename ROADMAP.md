@@ -121,11 +121,11 @@ Gate: cleared. Physical disk deduplication (1:1 sharing in global CAS across wor
 
 ## M6 — Add one other language adapter
 
-- [ ] Select next language adapter (e.g. C/C++ or Go) building upon the language-neutral CAS and DAG engine.
-- [ ] Implement native manifest parsing and toolchain invocation for the target language.
-- [ ] Verify multi-language artifact reuse in the shared CAS core.
+- [x] Select next language adapter (e.g. C/C++ or Go) building upon the language-neutral CAS and DAG engine: C adapter (`CAdapter`).
+- [x] Implement native manifest parsing (`Mitts.toml`) and toolchain invocation (`cc`) for the target language.
+- [x] Verify multi-language artifact reuse in the shared CAS core, Action Cache hit/miss lifecycle, and unified garbage collection.
 
-Gate: one non-Rust project builds correctly through the shared core with verified caching and store reuse.
+Gate: cleared. C fixture (`hello-c`) builds and runs with cold and warm execution caching; Rust and C artifacts coexist, verify, and prune cleanly within the shared CAS and Action Cache core without collision or cross-pollution. 65 workspace tests passing.
 
 ## Later, not part of the first implementation
 
@@ -133,7 +133,3 @@ Gate: one non-Rust project builds correctly through the shared core with verifie
 - Remote execution engine (REAPI).
 - IDE daemon integration and language server direct indexing.
 
-## First task to pick up
-
-With M2 through M5 completed and validated, proceed to **M6 — Add one other language adapter**:
-Select next language adapter (e.g. C/C++ or Go) building upon the language-neutral CAS and DAG engine.

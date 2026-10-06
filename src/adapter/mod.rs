@@ -8,8 +8,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod c;
 pub mod rust;
 
+pub use c::{CAdapter, CBuildOptions, CPackageManifest};
 pub use rust::{
     CargoLock, CargoLockPackage, CompilationDag, CrateFetcher, EffectivePlanExplanation,
     FetchOptions, FetchResult, PlannedCompilationUnit, RustAdapter, RustAdapterError,
