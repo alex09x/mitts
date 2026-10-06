@@ -18,6 +18,9 @@ semver = "1.0"
 indicatif = "0.17"
 miette = { version = "7.6", features = ["fancy", "derive"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3.17"
 

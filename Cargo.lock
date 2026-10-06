@@ -453,6 +453,7 @@ dependencies = [
  "anyhow",
  "clap",
  "indicatif",
+ "libc",
  "miette",
  "semver",
  "serde",
