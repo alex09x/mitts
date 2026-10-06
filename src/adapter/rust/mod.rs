@@ -19,7 +19,9 @@ pub mod inputs;
 pub mod key;
 pub mod lockfile;
 pub mod planner;
+pub mod resolver;
 pub mod runner;
+pub mod sparse_index;
 pub mod types;
 pub mod unescape;
 
@@ -30,6 +32,8 @@ pub use env_macro::scan_env_macros;
 pub use fetcher::{CrateFetcher, FetchOptions, FetchResult};
 pub use key::derive_unit_action_keys;
 pub use lockfile::{CargoLock, CargoLockPackage};
+pub use resolver::NativeResolver;
+pub use sparse_index::SparseIndexClient;
 pub use types::{
     EffectivePlanExplanation, EnvMacroDiscovery, PlannedCompilationUnit, RustAdapterError,
     RustBuildOptions,
@@ -53,10 +57,7 @@ impl RustAdapter {
             .context("Failed to invoke rustc --version")?;
         let version_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-        let target_output = Command::new("rustc")
-            .args(["-vV"])
-            .output()
-            .ok();
+        let target_output = Command::new("rustc").args(["-vV"]).output().ok();
         let mut target_triple = None;
         if let Some(t_out) = target_output {
             let text = String::from_utf8_lossy(&t_out.stdout);
