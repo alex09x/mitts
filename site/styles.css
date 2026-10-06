@@ -57,6 +57,7 @@ p { text-wrap: pretty; }
 
 /* hero */
 .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 56px; align-items: center; padding: 72px 0 96px; }
+.hero-logo { display: block; width: 96px; height: 96px; margin: 0 0 16px -9px; }
 .kicker { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 0 0 24px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--hit); box-shadow: 0 0 0 4px rgb(201 206 212 / .18); }
 h1 { font-size: clamp(48px, 7.4vw, 96px); font-weight: 800; line-height: .95; }

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Mitts Build mark, animated: the white node circles the graph. © 2026 Alexander Panasenko, MIT OR Apache-2.0 -->
+  <line x1="16" y1="7" x2="7.5" y2="23" stroke="#ff3b30" stroke-width="3"/>
+  <line x1="16" y1="7" x2="24.5" y2="23" stroke="#ff3b30" stroke-width="3"/>
+  <circle cx="16" cy="7" r="5" fill="#ff3b30">
+    <animate attributeName="fill" values="#ff3b30;#f2f3f4;#ff3b30" keyTimes="0;0.3333;0.6667" calcMode="discrete" dur="0.9s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="7.5" cy="23" r="5" fill="#ff3b30">
+    <animate attributeName="fill" values="#ff3b30;#ff3b30;#f2f3f4" keyTimes="0;0.3333;0.6667" calcMode="discrete" dur="0.9s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="24.5" cy="23" r="5" fill="#f2f3f4">
+    <animate attributeName="fill" values="#f2f3f4;#ff3b30;#ff3b30" keyTimes="0;0.3333;0.6667" calcMode="discrete" dur="0.9s" repeatCount="indefinite"/>
+  </circle>
+</svg>
