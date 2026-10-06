@@ -31,6 +31,9 @@ pub enum Commands {
 
     /// Explain the effective build plan, compilation units, and cache eligibility
     Explain(ExplainArgs),
+
+    /// Fetch dependencies into the global source store
+    Fetch(FetchArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -111,4 +114,27 @@ pub struct ExplainArgs {
     /// Activate all available features
     #[arg(long)]
     pub all_features: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct FetchArgs {
+    /// Path to Cargo.toml
+    #[arg(long)]
+    pub manifest_path: Option<PathBuf>,
+
+    /// Directory for the global source store
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
+
+    /// Run in offline mode without network access
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Require Cargo.lock and cache to be up to date
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Require Cargo.lock to be unchanged
+    #[arg(long)]
+    pub frozen: bool,
 }

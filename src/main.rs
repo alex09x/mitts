@@ -9,9 +9,9 @@
  */
 
 use clap::Parser;
-use mitts::adapter::{RustAdapter, RustBuildOptions};
-use mitts::cli::{BuildArgs, Cli, Commands, ExplainArgs, RunArgs};
-use mitts::core::ActionKind;
+use mitts::adapter::{FetchOptions, RustAdapter, RustBuildOptions};
+use mitts::cli::{BuildArgs, Cli, Commands, ExplainArgs, FetchArgs, RunArgs};
+use mitts::core::{ActionKind, SourceStore};
 use std::process::{Command, ExitCode};
 
 fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
@@ -162,11 +162,64 @@ fn handle_explain(args: &ExplainArgs) -> i32 {
         println!("     Eligibility: {}", unit.cache_eligibility);
     }
     println!();
-    println!("Active Milestone: M2 (Content-Addressed Store & Action Cache)");
-    println!("Cache Policy:     Immutable CAS and Action Cache with single-flight locks");
+    println!("Active Milestone: M3 (Fast parallel fetcher & Cargo.lock resolution)");
+    println!("Cache Policy:     Immutable CAS, Action Cache, and Global Source Store");
     println!("Coexistence:      Ordinary Cargo target/ and rust-analyzer untouched");
 
     0
+}
+
+fn handle_fetch(args: &FetchArgs) -> i32 {
+    let opt = RustBuildOptions {
+        manifest_path: args.manifest_path.clone(),
+        ..Default::default()
+    };
+    let manifest_path = match RustAdapter::resolve_manifest(&opt) {
+        Ok(p) => p,
+        Err(err) => {
+            eprintln!("mitts error: {:#}", err);
+            return 1;
+        }
+    };
+
+    let store = match args.cache_dir {
+        Some(ref cd) => match SourceStore::new(cd.join("sources")) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("mitts error: {:#}", e);
+                return 1;
+            }
+        },
+        None => match SourceStore::default_store() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("mitts error: {:#}", e);
+                return 1;
+            }
+        },
+    };
+
+    let fetch_opt = FetchOptions {
+        offline: args.offline,
+        locked: args.locked,
+        frozen: args.frozen,
+    };
+
+    println!("mitts: resolving dependencies for {}", manifest_path.display());
+    match RustAdapter::fetch(&manifest_path, &store, &fetch_opt) {
+        Ok(result) => {
+            println!(
+                "mitts: fetched {} crates ({} already cached, {} total) in {}ms",
+                result.fetched, result.already_cached, result.total_packages, result.duration_ms
+            );
+            println!("mitts: sources stored globally in {}", store.root().display());
+            0
+        }
+        Err(err) => {
+            eprintln!("mitts error: {:#}", err);
+            1
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -175,6 +228,7 @@ fn main() -> ExitCode {
         Commands::Build(ref args) => handle_build(args),
         Commands::Run(ref args) => handle_run(args),
         Commands::Explain(ref args) => handle_explain(args),
+        Commands::Fetch(ref args) => handle_fetch(args),
     };
 
     if code == 0 {
