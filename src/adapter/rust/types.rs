@@ -9,16 +9,33 @@
  */
 
 use crate::core::action::ToolchainInfo;
+use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error, Diagnostic)]
 pub enum RustAdapterError {
     #[error("Manifest not found at {0}")]
+    #[diagnostic(
+        code(mitts::rust::manifest_not_found),
+        help(
+            "Ensure Cargo.toml exists at the specified path or run from a valid project directory."
+        )
+    )]
     ManifestNotFound(PathBuf),
+
     #[error("Unsupported build option: {0}")]
+    #[diagnostic(
+        code(mitts::rust::unsupported_option),
+        help("Run 'mitts build --help' to see supported options.")
+    )]
     UnsupportedOption(String),
+
     #[error("Cargo execution failed with exit code {0}")]
+    #[diagnostic(
+        code(mitts::rust::cargo_failed),
+        help("Check the compiler diagnostic output above for details.")
+    )]
     CargoFailed(i32),
 }
 
@@ -105,13 +122,9 @@ pub(crate) enum CargoMessage {
         linked_paths: Vec<String>,
     },
     #[serde(rename = "compiler-message")]
-    CompilerMessage {
-        rendered: Option<String>,
-    },
+    CompilerMessage { rendered: Option<String> },
     #[serde(rename = "build-finished")]
-    BuildFinished {
-        success: bool,
-    },
+    BuildFinished { success: bool },
     #[serde(other)]
     Unknown,
 }

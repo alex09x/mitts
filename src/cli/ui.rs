@@ -8,6 +8,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use indicatif::{ProgressBar, ProgressStyle};
+
 pub struct Ui;
 
 impl Ui {
@@ -127,6 +129,54 @@ impl Ui {
             format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
         }
     }
+
+    /// Creates an animated spinner using indicatif for indeterminate tasks.
+    pub fn create_spinner(msg: &str) -> ProgressBar {
+        let pb = ProgressBar::new_spinner();
+        let style = ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan.bold} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner());
+        pb.set_style(style);
+        pb.set_message(msg.to_string());
+        pb.enable_steady_tick(std::time::Duration::from_millis(80));
+        pb
+    }
+
+    /// Creates a styled progress bar using indicatif with Unicode fractional blocks.
+    pub fn create_progress_bar(total: u64, prefix: &str) -> ProgressBar {
+        let pb = ProgressBar::new(total);
+        let style = ProgressStyle::default_bar()
+            .template("{prefix:.bold.cyan} {spinner:.green} [{elapsed_precise}] [{bar:30.cyan/blue}] {pos}/{len} ({msg})")
+            .unwrap_or_else(|_| ProgressStyle::default_bar())
+            .progress_chars("█▉▊▋▌▍▎▏ ");
+        pb.set_style(style);
+        pb.set_prefix(prefix.to_string());
+        pb.enable_steady_tick(std::time::Duration::from_millis(80));
+        pb
+    }
+
+    /// Renders an error or failure using miette's graphical diagnostic panel.
+    pub fn report_error(err: &anyhow::Error) {
+        if let Some(diag) = err.downcast_ref::<crate::adapter::RustAdapterError>() {
+            let report = miette::Report::new(diag.clone());
+            eprintln!("{:?}", report);
+        } else {
+            let report = miette::miette!("{:#}", err);
+            eprintln!("{:?}", report);
+        }
+    }
+
+    /// Renders a diagnostic message with optional help tip using miette.
+    pub fn report_message(msg: &str, help: Option<&str>) {
+        if let Some(h) = help {
+            let r = miette::miette!(help = h, "{}", msg);
+            eprintln!("{:?}", r);
+        } else {
+            let r = miette::miette!("{}", msg);
+            eprintln!("{:?}", r);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -146,5 +196,17 @@ mod tests {
         assert!(Ui::badge_download().contains("[download]"));
         assert!(Ui::badge_compile().contains("[compile]"));
         assert!(Ui::badge_ac_hit().contains("[AC HIT]"));
+    }
+
+    #[test]
+    fn test_ui_spinner_and_progress_bar() {
+        let spinner = Ui::create_spinner("testing spinner");
+        spinner.set_message("spinner updated");
+        spinner.finish_and_clear();
+
+        let pb = Ui::create_progress_bar(10, "testing pb");
+        pb.inc(5);
+        assert_eq!(pb.position(), 5);
+        pb.finish_and_clear();
     }
 }

@@ -158,6 +158,10 @@ impl CrateFetcher {
         let mut fetched = 0;
 
         if !to_fetch.is_empty() {
+            let pb = std::sync::Arc::new(crate::cli::Ui::create_progress_bar(
+                to_fetch.len() as u64,
+                "📦 Fetching",
+            ));
             let num_threads = std::cmp::min(to_fetch.len(), 8);
             let mut chunks = vec![Vec::new(); num_threads];
             for (i, pkg) in to_fetch.into_iter().enumerate() {
@@ -169,12 +173,15 @@ impl CrateFetcher {
                 for chunk in chunks {
                     let fetcher = self;
                     let opt_ref = opt;
+                    let pb_ref = std::sync::Arc::clone(&pb);
                     handles.push(s.spawn(move || {
                         let mut count = 0;
                         for pkg in chunk {
+                            pb_ref.set_message(format!("{} v{}", pkg.name, pkg.version));
                             if fetcher.fetch_package(&pkg, opt_ref).is_ok() {
                                 count += 1;
                             }
+                            pb_ref.inc(1);
                         }
                         count
                     }));
@@ -183,6 +190,7 @@ impl CrateFetcher {
                     fetched += h.join().unwrap_or(0);
                 }
             });
+            pb.finish_and_clear();
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;
