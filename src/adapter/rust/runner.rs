@@ -110,6 +110,10 @@ pub(crate) fn run_cargo_build(
                     filenames,
                     ..
                 } => {
+                    if let Some(ref cb) = opt.progress {
+                        cb.0(BuildProgressEvent::UnitFinished);
+                    }
+
                     let (kind, kind_str) = if target.kind.iter().any(|k| k == "bin") {
                         (ActionKind::CompileBin, "bin")
                     } else if target.kind.iter().any(|k| k == "lib" || k == "rlib") {
@@ -140,6 +144,10 @@ pub(crate) fn run_cargo_build(
                 CargoMessage::BuildScriptExecuted {
                     package_id, ..
                 } => {
+                    if let Some(ref cb) = opt.progress {
+                        cb.0(BuildProgressEvent::UnitFinished);
+                    }
+
                     actions.push(Action {
                         id: format!("build-script-{}", package_id),
                         kind: ActionKind::BuildScript,

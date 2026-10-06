@@ -143,6 +143,32 @@ impl Ui {
         pb
     }
 
+    /// Creates an animated build progress bar that starts with indeterminate planning and transitions to a fractional progress bar.
+    pub fn create_build_progress(prefix: &str) -> ProgressBar {
+        let pb = ProgressBar::new(0);
+        let style = ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan.bold} [{prefix:.bold}] {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner());
+        pb.set_style(style);
+        pb.set_prefix(prefix.to_string());
+        pb.set_message("Planning compilation...".to_string());
+        pb.enable_steady_tick(std::time::Duration::from_millis(80));
+        pb
+    }
+
+    /// Transitions a build progress bar into a determinate bar with exact position and length.
+    pub fn set_build_progress_total(pb: &ProgressBar, total: usize, cached: usize) {
+        pb.set_length(total as u64);
+        pb.set_position(cached as u64);
+        let style = ProgressStyle::default_bar()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan.bold} [{prefix:.bold}] [{bar:25.cyan/blue}] {pos}/{len} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_bar())
+            .progress_chars("█▉▊▋▌▍▎▏ ");
+        pb.set_style(style);
+    }
+
     /// Creates a styled progress bar using indicatif with Unicode fractional blocks.
     pub fn create_progress_bar(total: u64, prefix: &str) -> ProgressBar {
         let pb = ProgressBar::new(total);

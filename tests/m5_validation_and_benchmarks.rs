@@ -336,8 +336,14 @@ fn test_m5_build_progress_events_and_clean_ui_reporting() {
 
     let progress_cb = mitts::adapter::BuildProgressCallback(Arc::new(move |event| {
         match event {
+            mitts::adapter::BuildProgressEvent::InitTotal { total, cached } => {
+                events_clone.lock().unwrap().push(format!("init:{}:{}", total, cached));
+            }
             mitts::adapter::BuildProgressEvent::Compiling(name) => {
                 events_clone.lock().unwrap().push(format!("compiling:{}", name));
+            }
+            mitts::adapter::BuildProgressEvent::UnitFinished => {
+                events_clone.lock().unwrap().push("finished".to_string());
             }
             mitts::adapter::BuildProgressEvent::CompilerMessage(msg) => {
                 events_clone.lock().unwrap().push(format!("message:{}", msg));
