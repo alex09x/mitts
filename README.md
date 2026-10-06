@@ -4,6 +4,8 @@ Rust-first build and package tooling with a shared artifact cache.
 
 Project domain: [mittsbuild.com](https://mittsbuild.com).
 
+Author: [Alexander Panasenko](https://prod.codes/about/).
+
 ## Idea
 
 Build compatible inputs once and reuse the results across projects, worktrees,
