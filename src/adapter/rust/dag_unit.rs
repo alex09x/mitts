@@ -9,9 +9,9 @@
  */
 
 use super::build_script::execute_build_script;
-use super::dag_scheduler::{LockMode, UnitExecutionStatus};
 use super::compiler::RustcInvocation;
 use super::dag_cache::{try_restore_from_cache, ExecutionContext};
+use super::dag_scheduler::{LockMode, UnitExecutionStatus};
 use super::manifest::CargoToml;
 use super::types::{BuildProgressEvent, PlannedCompilationUnit};
 use crate::core::action::{Action, ActionKind};
@@ -67,10 +67,10 @@ pub(crate) fn execute_unit(
             if first_flag.swap(false, std::sync::atomic::Ordering::SeqCst) {
                 None
             } else {
-                js.acquire_token()
+                js.acquire_token()?
             }
         }
-        (Some(js), None) => js.acquire_token(),
+        (Some(js), None) => js.acquire_token()?,
         _ => None,
     };
     if let Some(ref cb) = ctx.opt.progress {

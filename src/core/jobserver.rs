@@ -17,7 +17,15 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub enum JobserverPool {
     /// Inherited from outer Cargo or GNU Make runner.
-    Inherited { auth: String },
+    Inherited {
+        auth: String,
+        #[cfg(unix)]
+        read_fd: Option<std::os::raw::c_int>,
+        #[cfg(unix)]
+        write_fd: Option<std::os::raw::c_int>,
+        #[cfg(unix)]
+        owned: bool,
+    },
     /// Global or process managed FIFO token pool.
     Managed {
         _lock: FileLock,
@@ -50,13 +58,43 @@ impl JobserverPool {
         {
             for token in flags.split_whitespace() {
                 if let Some(auth) = token.strip_prefix("--jobserver-auth=") {
-                    return Ok(Self::Inherited {
-                        auth: auth.to_string(),
-                    });
+                    let pool = Self::from_auth(auth);
+                    #[cfg(unix)]
+                    if let Self::Inherited {
+                        read_fd: Some(_), ..
+                    } = pool
+                    {
+                        return Ok(pool);
+                    }
+                    #[cfg(not(unix))]
+                    return Ok(pool);
                 }
             }
         }
 
+        Self::create_managed(cache_root, token_count)
+    }
+
+    /// Creates an inherited jobserver representation from an auth spec (e.g. `fifo:<path>` or `<r_fd>,<w_fd>`).
+    pub fn from_auth(auth: &str) -> Self {
+        #[cfg(unix)]
+        {
+            let (read_fd, write_fd, owned) = Self::try_open_inherited(auth);
+            Self::Inherited {
+                auth: auth.to_string(),
+                read_fd,
+                write_fd,
+                owned,
+            }
+        }
+        #[cfg(not(unix))]
+        Self::Inherited {
+            auth: auth.to_string(),
+        }
+    }
+
+    /// Creates or connects to a managed shared FIFO token pool under `cache_root/jobserver`.
+    pub fn create_managed(cache_root: &Path, token_count: usize) -> Result<Self> {
         #[cfg(unix)]
         {
             let js_dir = cache_root.join("jobserver");
@@ -96,9 +134,8 @@ impl JobserverPool {
                     // Seed tokens: write token_count bytes into the FIFO
                     let tokens = token_count.max(1);
                     let buf = vec![b'|'; tokens];
-                    let written = unsafe {
-                        libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len())
-                    };
+                    let written =
+                        unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
                     if written < 0 {
                         unsafe {
                             libc::close(fd);
@@ -143,31 +180,109 @@ impl JobserverPool {
         }
     }
 
-    /// Acquires a single execution token from the jobserver FIFO (blocking).
-    pub fn acquire_token(&self) -> Option<JobToken<'_>> {
-        #[cfg(unix)]
-        {
-            if let Self::Managed { open_fd, .. } = self {
-                let mut b = 0u8;
-                let n = unsafe { libc::read(*open_fd, &mut b as *mut u8 as *mut libc::c_void, 1) };
-                if n == 1 {
-                    return Some(JobToken {
-                        pool: self,
-                        byte: b,
-                    });
+    #[cfg(unix)]
+    fn try_open_inherited(
+        auth: &str,
+    ) -> (
+        Option<std::os::raw::c_int>,
+        Option<std::os::raw::c_int>,
+        bool,
+    ) {
+        if let Some(fifo_str) = auth.strip_prefix("fifo:") {
+            if let Ok(c_path) = std::ffi::CString::new(fifo_str) {
+                let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
+                if fd >= 0 {
+                    return (Some(fd), Some(fd), true);
                 }
             }
         }
-        None
+        let parts: Vec<&str> = auth.split(',').collect();
+        if parts.len() == 2 {
+            if let (Ok(r), Ok(w)) = (
+                parts[0].parse::<std::os::raw::c_int>(),
+                parts[1].parse::<std::os::raw::c_int>(),
+            ) {
+                if unsafe {
+                    libc::fcntl(r, libc::F_GETFD) >= 0 && libc::fcntl(w, libc::F_GETFD) >= 0
+                } {
+                    return (Some(r), Some(w), false);
+                }
+            }
+        } else if parts.len() == 1 {
+            if let Ok(r) = parts[0].parse::<std::os::raw::c_int>() {
+                if unsafe { libc::fcntl(r, libc::F_GETFD) >= 0 } {
+                    return (Some(r), Some(r), false);
+                }
+            }
+        }
+        (None, None, false)
+    }
+
+    /// Acquires a single execution token from the jobserver FIFO (blocking).
+    pub fn acquire_token(&self) -> Result<Option<JobToken<'_>>> {
+        #[cfg(unix)]
+        {
+            let read_fd = match self {
+                Self::Managed { open_fd, .. } => Some(*open_fd),
+                Self::Inherited { read_fd, .. } => *read_fd,
+                Self::None => None,
+            };
+
+            if let Some(fd) = read_fd {
+                loop {
+                    let mut b = 0u8;
+                    let n = unsafe { libc::read(fd, &mut b as *mut u8 as *mut libc::c_void, 1) };
+                    if n == 1 {
+                        return Ok(Some(JobToken {
+                            pool: self,
+                            byte: b,
+                        }));
+                    }
+                    if n < 0 {
+                        let err = std::io::Error::last_os_error();
+                        if err.raw_os_error() == Some(libc::EINTR) {
+                            continue;
+                        }
+                        return Err(anyhow::anyhow!(
+                            "Failed to acquire jobserver token: {}",
+                            err
+                        ));
+                    }
+                    return Err(anyhow::anyhow!(
+                        "Unexpected EOF reading token from jobserver pipe"
+                    ));
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// Releases a previously acquired token back to the pool.
     pub fn release_token(&self, byte: u8) {
         #[cfg(unix)]
         {
-            if let Self::Managed { open_fd, .. } = self {
+            let write_fd = match self {
+                Self::Managed { open_fd, .. } => Some(*open_fd),
+                Self::Inherited { write_fd, .. } => *write_fd,
+                Self::None => None,
+            };
+
+            if let Some(fd) = write_fd {
                 let buf = [byte];
-                let _ = unsafe { libc::write(*open_fd, buf.as_ptr() as *const libc::c_void, 1) };
+                loop {
+                    let n = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, 1) };
+                    if n == 1 {
+                        break;
+                    }
+                    if n < 0 {
+                        let err = std::io::Error::last_os_error();
+                        if err.raw_os_error() == Some(libc::EINTR) {
+                            continue;
+                        }
+                        eprintln!("mitts: warning: failed to release jobserver token: {}", err);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -175,7 +290,7 @@ impl JobserverPool {
     /// Returns the `--jobserver-auth=...` string if active.
     pub fn auth(&self) -> Option<&str> {
         match self {
-            Self::Inherited { auth } => Some(auth),
+            Self::Inherited { auth, .. } => Some(auth),
             Self::Managed { auth, .. } => Some(auth),
             Self::None => None,
         }
@@ -185,10 +300,24 @@ impl JobserverPool {
 #[cfg(unix)]
 impl Drop for JobserverPool {
     fn drop(&mut self) {
-        if let Self::Managed { open_fd, .. } = self {
-            unsafe {
+        match self {
+            Self::Managed { open_fd, .. } => unsafe {
                 libc::close(*open_fd);
-            }
+            },
+            Self::Inherited {
+                read_fd: Some(r),
+                write_fd: Some(w),
+                owned: true,
+                ..
+            } => unsafe {
+                if *r == *w {
+                    libc::close(*r);
+                } else {
+                    libc::close(*r);
+                    libc::close(*w);
+                }
+            },
+            _ => {}
         }
     }
 }
