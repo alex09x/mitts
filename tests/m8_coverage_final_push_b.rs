@@ -188,6 +188,7 @@ edition = "2021"
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
 
     let res = invocation.execute();

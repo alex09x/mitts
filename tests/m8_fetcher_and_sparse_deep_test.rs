@@ -140,8 +140,8 @@ fn test_m8_sparse_index_client_and_models() {
     assert_eq!(entries[0].vers, "0.1.0");
     assert_eq!(entries[0].deps.len(), 1);
     assert_eq!(entries[0].deps[0].name, "serde");
-    assert_eq!(entries[0].deps[0].optional, true);
-    assert_eq!(entries[0].deps[0].default_features, false);
+    assert!(entries[0].deps[0].optional);
+    assert!(!entries[0].deps[0].default_features);
     assert_eq!(entries[0].deps[0].target.as_deref(), Some("cfg(unix)"));
     assert_eq!(entries[0].deps[0].kind.as_deref(), Some("build"));
     assert_eq!(entries[0].deps[0].package.as_deref(), Some("serde_custom"));

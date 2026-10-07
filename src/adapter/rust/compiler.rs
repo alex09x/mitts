@@ -55,6 +55,7 @@ pub struct RustcInvocation<'a> {
     pub directives: Option<&'a BuildScriptDirectives>,
     pub mode: BuildMode,
     pub extra_compiler_args: &'a [String],
+    pub jobserver_auth: Option<&'a str>,
 }
 
 impl<'a> RustcInvocation<'a> {
@@ -240,6 +241,10 @@ impl<'a> RustcInvocation<'a> {
         cmd.current_dir(self.out_dir);
         if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
             cmd.env("RUSTUP_TOOLCHAIN", tc);
+        }
+        if let Some(auth) = self.jobserver_auth {
+            cmd.env("CARGO_MAKEFLAGS", format!("--jobserver-auth={}", auth));
+            cmd.env("MAKEFLAGS", format!("--jobserver-auth={}", auth));
         }
         cmd.env("CARGO_MANIFEST_DIR", pkg_dir);
         let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());

@@ -71,6 +71,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let _ = proc_inv.execute();
 
@@ -103,6 +104,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let _ = bin_inv.execute();
 
@@ -118,6 +120,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         directives: None,
         mode: BuildMode::Check,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let _ = check_inv.execute();
 }
@@ -131,14 +134,14 @@ fn test_m8_build_script_directives_and_parse_stdout() {
     assert!(!empty.is_empty());
 
     // dep_env_vars with links
-    let mut with_links = BuildScriptDirectives::default();
-    with_links.links = Some("zstd-sys".to_string());
-    with_links
-        .metadata
-        .insert("include".to_string(), "/usr/include".to_string());
-    with_links
-        .metadata
-        .insert("lib-version".to_string(), "1.5.0".to_string());
+    let mut meta = std::collections::HashMap::new();
+    meta.insert("include".to_string(), "/usr/include".to_string());
+    meta.insert("lib-version".to_string(), "1.5.0".to_string());
+    let with_links = BuildScriptDirectives {
+        links: Some("zstd-sys".to_string()),
+        metadata: meta,
+        ..Default::default()
+    };
 
     let dep_vars = with_links.dep_env_vars();
     assert_eq!(

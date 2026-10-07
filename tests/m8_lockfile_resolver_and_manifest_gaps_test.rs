@@ -42,12 +42,9 @@ unix-dep = "0.5.0"
     // 1. Compatibility with missing manifest file returns Ok(false)
     let non_existent_manifest = temp.path().join("NonExistent.toml");
     let empty_lock = CargoLock::parse("version = 3\n").unwrap();
-    assert_eq!(
-        empty_lock
-            .validate_manifest_compatibility(&non_existent_manifest)
-            .unwrap(),
-        false
-    );
+    assert!(!empty_lock
+        .validate_manifest_compatibility(&non_existent_manifest)
+        .unwrap());
 
     // 2. Compatibility check when dep is missing from lock returns Ok(false)
     let incomplete_lock = CargoLock::parse(
@@ -67,12 +64,9 @@ version = "1.0.0"
 "#,
     )
     .unwrap();
-    assert_eq!(
-        incomplete_lock
-            .validate_manifest_compatibility(&manifest)
-            .unwrap(),
-        false
-    );
+    assert!(!incomplete_lock
+        .validate_manifest_compatibility(&manifest)
+        .unwrap());
 
     // 3. Single-line inline dependencies array and unknown keys
     let inline_deps_lock = CargoLock::parse(
@@ -107,8 +101,7 @@ version = "0.5.0"
         .contains("Cargo.lock is missing or incompatible and --offline was specified"));
 
     // 5. resolve_or_sync succeeds when valid compatible lockfile already exists
-    let valid_lock = format!(
-        r#"version = 3
+    let valid_lock = r#"version = 3
 
 [[package]]
 name = "my-pkg"
@@ -125,8 +118,7 @@ version = "2.0.0"
 [[package]]
 name = "unix-dep"
 version = "0.5.0"
-"#
-    );
+"#;
     fs::write(&lock_path, valid_lock).unwrap();
     let synced = CargoLock::resolve_or_sync(&manifest, true).unwrap();
     assert_eq!(synced.packages.len(), 4);

@@ -8,6 +8,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+#![allow(clippy::permissions_set_readonly_false)]
+
 use mitts::core::action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
 use mitts::core::cas::ContentAddressedStore;
 use mitts::core::gc::{CacheGc, GcOptions};

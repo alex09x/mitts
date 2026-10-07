@@ -89,6 +89,8 @@ edition = "2021"
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        jobserver: None,
+        is_first_job: None,
     };
     assert!(!try_restore_from_cache(&unit, "key1", &ctx_no_cache, true).unwrap());
 

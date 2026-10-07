@@ -31,12 +31,12 @@ pub(crate) fn execute_unit(
     lock_mode: LockMode,
 ) -> Result<UnitExecutionStatus> {
     let clean_crate = unit.target_name.replace('-', "_");
-    let is_bin = unit.kind == "bin";
-    let is_test = unit.kind == "test";
-    let is_check_or_clippy_ws = unit.is_workspace
-        && (ctx.opt.mode == crate::adapter::BuildMode::Check
-            || ctx.opt.mode == crate::adapter::BuildMode::Clippy);
-    let is_executable = (is_bin || is_test) && !is_check_or_clippy_ws;
+    let is_executable = matches!(unit.kind.as_str(), "bin" | "test")
+        && !(unit.is_workspace
+            && matches!(
+                ctx.opt.mode,
+                crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
+            ));
 
     // 1. Check Action Cache (read phase)
     if try_restore_from_cache(unit, action_key, ctx, is_executable)? {
@@ -61,6 +61,18 @@ pub(crate) fn execute_unit(
     // Genuinely missed cache and we hold the exclusive compilation lock
     *ctx.any_missed.lock().unwrap() = true;
 
+    // Acquire execution token from jobserver pool before compiling (implicit token for 1st job)
+    let _job_token = match (ctx.jobserver, ctx.is_first_job) {
+        (Some(js), Some(first_flag)) => {
+            if first_flag.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                None
+            } else {
+                js.acquire_token()
+            }
+        }
+        (Some(js), None) => js.acquire_token(),
+        _ => None,
+    };
     if let Some(ref cb) = ctx.opt.progress {
         cb.0(BuildProgressEvent::Compiling(format!(
             "{} v{}",
@@ -219,12 +231,7 @@ pub(crate) fn execute_unit(
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
     let profile_dir = ctx.target_dir.join(profile_name);
     fs::create_dir_all(&profile_dir)?;
-
-    let dest_binary = if is_executable {
-        Some(profile_dir.join(&unit.target_name))
-    } else {
-        None
-    };
+    let dest_binary = is_executable.then(|| profile_dir.join(&unit.target_name));
 
     let invocation = RustcInvocation {
         unit,
@@ -237,6 +244,7 @@ pub(crate) fn execute_unit(
         directives: Some(&directives),
         mode: ctx.opt.mode,
         extra_compiler_args: &ctx.opt.extra_args,
+        jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
     };
 
     let output = invocation.execute()?;
@@ -275,22 +283,20 @@ pub(crate) fn execute_unit(
     let mut cached_outputs = Vec::new();
     let mut action_outputs = Vec::new();
 
-    if is_executable {
-        if let Some(bin_path) = dest_binary {
-            let (hash, size) = ctx.cas.store_file(&bin_path)?;
-            let rel_path = PathBuf::from(format!("{}/{}", profile_name, unit.target_name));
-            cached_outputs.push(CachedOutput {
-                relative_path: rel_path,
-                cas_hash: hash,
-                file_size: size,
-                executable: true,
-            });
-            let alt_path = profile_dir.join(&clean_crate);
-            if alt_path != bin_path {
-                let _ = fs::copy(&bin_path, &alt_path);
-            }
-            action_outputs.push(bin_path);
+    if let Some(bin_path) = dest_binary {
+        let (hash, size) = ctx.cas.store_file(&bin_path)?;
+        let rel_path = PathBuf::from(format!("{}/{}", profile_name, unit.target_name));
+        cached_outputs.push(CachedOutput {
+            relative_path: rel_path,
+            cas_hash: hash,
+            file_size: size,
+            executable: true,
+        });
+        let alt_path = profile_dir.join(&clean_crate);
+        if alt_path != bin_path {
+            let _ = fs::copy(&bin_path, &alt_path);
         }
+        action_outputs.push(bin_path);
     } else {
         // Publish primary rlib/dylib or rmeta to CAS
         if let Some(lib_path) = output

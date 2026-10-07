@@ -84,21 +84,11 @@ pub fn run_native_dag_build(
     let concurrency = max_concurrency.min(total_units.max(1));
 
     let cache_root = cas.root().parent().unwrap_or_else(|| cas.root());
-    let _jobserver =
-        crate::core::JobserverPool::acquire_or_create(cache_root, max_concurrency).ok();
-    if let Some(ref js) = _jobserver {
-        if let Some(auth) = js.auth() {
-            let mut existing = std::env::var("CARGO_MAKEFLAGS").unwrap_or_default();
-            if !existing.contains("--jobserver-auth=") {
-                if !existing.is_empty() {
-                    existing.push(' ');
-                }
-                existing.push_str(&format!("--jobserver-auth={}", auth));
-                std::env::set_var("CARGO_MAKEFLAGS", &existing);
-                std::env::set_var("MAKEFLAGS", &existing);
-            }
-        }
-    }
+    let jobserver =
+        crate::core::JobserverPool::acquire_or_create(cache_root, max_concurrency)
+            .ok()
+            .map(Arc::new);
+    let is_first_job = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     thread::scope(|s| {
         let mut handles = Vec::new();
@@ -113,6 +103,8 @@ pub fn run_native_dag_build(
             let compiler_messages = Arc::clone(&compiler_messages);
             let any_missed = Arc::clone(&any_missed);
             let dep_build_metadata = Arc::clone(&dep_build_metadata);
+            let jobserver = jobserver.clone();
+            let is_first_job = Arc::clone(&is_first_job);
             let target_dir = target_dir.clone();
             let toolchain = explanation.toolchain.clone();
             let opt = opt.clone();
@@ -131,6 +123,8 @@ pub fn run_native_dag_build(
                     compiler_messages: &compiler_messages,
                     any_missed: &any_missed,
                     dep_build_metadata: &dep_build_metadata,
+                    jobserver: jobserver.as_ref(),
+                    is_first_job: Some(&is_first_job),
                 };
 
                 struct WorkGuard<'a> {

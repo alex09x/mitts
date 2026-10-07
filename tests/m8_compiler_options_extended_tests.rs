@@ -58,12 +58,16 @@ fn test_m8_compiler_proc_macro_and_check_modes() {
         edition: Some("2021".to_string()),
     };
 
-    let mut directives = BuildScriptDirectives::default();
-    directives.out_dir = Some(tmp.path().join("out_dir"));
-    directives.cfgs.push("mitts_test_cfg".to_string());
-    directives.link_libs.push("c".to_string());
-    directives.link_searches.push(tmp.path().to_string_lossy().to_string());
-    directives.envs.insert("CUSTOM_KEY".to_string(), "CUSTOM_VAL".to_string());
+    let mut envs = std::collections::HashMap::new();
+    envs.insert("CUSTOM_KEY".to_string(), "CUSTOM_VAL".to_string());
+    let directives = BuildScriptDirectives {
+        out_dir: Some(tmp.path().join("out_dir")),
+        cfgs: vec!["mitts_test_cfg".to_string()],
+        link_libs: vec!["c".to_string()],
+        link_searches: vec![tmp.path().to_string_lossy().to_string()],
+        envs,
+        ..Default::default()
+    };
 
     let invocation = RustcInvocation {
         unit: &unit,
@@ -76,6 +80,7 @@ fn test_m8_compiler_proc_macro_and_check_modes() {
         directives: Some(&directives),
         mode: BuildMode::Build,
         extra_compiler_args: &["-v".to_string()],
+        jobserver_auth: None,
     };
 
     assert!(invocation.release);
@@ -124,6 +129,7 @@ fn test_m8_compiler_workspace_check_mode_and_nonsemver() {
         directives: None,
         mode: BuildMode::Check,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
 
     let res = invocation.execute().unwrap();
@@ -170,6 +176,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
 
     let res = invocation.execute().unwrap();

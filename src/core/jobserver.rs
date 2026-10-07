@@ -30,6 +30,18 @@ pub enum JobserverPool {
     None,
 }
 
+/// RAII token guard returning the token back to the FIFO on drop.
+pub struct JobToken<'a> {
+    pool: &'a JobserverPool,
+    byte: u8,
+}
+
+impl<'a> Drop for JobToken<'a> {
+    fn drop(&mut self) {
+        self.pool.release_token(self.byte);
+    }
+}
+
 impl JobserverPool {
     /// Discovers an existing jobserver or creates a managed shared FIFO pool.
     pub fn acquire_or_create(cache_root: &Path, token_count: usize) -> Result<Self> {
@@ -51,20 +63,22 @@ impl JobserverPool {
             fs::create_dir_all(&js_dir)
                 .with_context(|| format!("Failed to create jobserver directory {:?}", js_dir))?;
 
-            let lock_path = js_dir.join("pool.lock");
+            let init_lock_path = js_dir.join("init.lock");
+            let pool_lock_path = js_dir.join("pool.lock");
             let fifo_path = js_dir.join("pool.fifo");
 
             let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap_or(""))
                 .context("Invalid FIFO path for CString")?;
 
-            // Try to become the leader to initialize / re-seed the FIFO
-            match FileLock::try_acquire_exclusive(&lock_path)? {
-                Some(lock) => {
-                    // Leader: remove stale FIFO if present
+            // P3: Acquire exclusive lock on init.lock to serialize leader election
+            let init_lock = FileLock::acquire_exclusive(&init_lock_path)?;
+
+            let (pool_lock, fd) = match FileLock::try_acquire_exclusive(&pool_lock_path)? {
+                Some(ex_pool_lock) => {
+                    // Leader: no active builds hold pool.lock, safe to re-create and re-seed FIFO
                     if fifo_path.exists() {
                         let _ = fs::remove_file(&fifo_path);
                     }
-                    // Create named pipe
                     let res = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
                     if res != 0
                         && std::io::Error::last_os_error().raw_os_error() != Some(libc::EEXIST)
@@ -73,7 +87,6 @@ impl JobserverPool {
                             .with_context(|| format!("Failed to create FIFO {:?}", fifo_path));
                     }
 
-                    // Open O_RDWR to prevent EOF when readers/writers close
                     let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
                     if fd < 0 {
                         return Err(std::io::Error::last_os_error())
@@ -95,45 +108,67 @@ impl JobserverPool {
                         });
                     }
 
-                    // Downgrade to shared lock so other builds can join concurrently
-                    lock.downgrade_to_shared()?;
-
-                    let auth = format!("fifo:{}", fifo_path.display());
-                    Ok(Self::Managed {
-                        _lock: lock,
-                        fifo_path,
-                        open_fd: fd,
-                        auth,
-                    })
+                    drop(ex_pool_lock);
+                    // Acquire shared lock on pool.lock before releasing init_lock
+                    let sh_pool_lock = FileLock::acquire_shared(&pool_lock_path)?;
+                    (sh_pool_lock, fd)
                 }
                 None => {
-                    // Follower: wait for leader to complete initialization
-                    let lock = FileLock::acquire_shared(&lock_path)?;
-
-                    if !fifo_path.exists() {
-                        return Ok(Self::None);
-                    }
-
+                    // Follower: wait for leader, acquire shared lock on pool.lock
+                    let sh_pool_lock = FileLock::acquire_shared(&pool_lock_path)?;
                     let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
                     if fd < 0 {
                         return Ok(Self::None);
                     }
-
-                    let auth = format!("fifo:{}", fifo_path.display());
-                    Ok(Self::Managed {
-                        _lock: lock,
-                        fifo_path,
-                        open_fd: fd,
-                        auth,
-                    })
+                    (sh_pool_lock, fd)
                 }
-            }
+            };
+
+            // Release init_lock only after shared pool_lock is held
+            drop(init_lock);
+
+            let auth = format!("fifo:{}", fifo_path.display());
+            Ok(Self::Managed {
+                _lock: pool_lock,
+                fifo_path,
+                open_fd: fd,
+                auth,
+            })
         }
 
         #[cfg(not(unix))]
         {
             let _ = (cache_root, token_count);
             Ok(Self::None)
+        }
+    }
+
+    /// Acquires a single execution token from the jobserver FIFO (blocking).
+    pub fn acquire_token(&self) -> Option<JobToken<'_>> {
+        #[cfg(unix)]
+        {
+            if let Self::Managed { open_fd, .. } = self {
+                let mut b = 0u8;
+                let n = unsafe { libc::read(*open_fd, &mut b as *mut u8 as *mut libc::c_void, 1) };
+                if n == 1 {
+                    return Some(JobToken {
+                        pool: self,
+                        byte: b,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    /// Releases a previously acquired token back to the pool.
+    pub fn release_token(&self, byte: u8) {
+        #[cfg(unix)]
+        {
+            if let Self::Managed { open_fd, .. } = self {
+                let buf = [byte];
+                let _ = unsafe { libc::write(*open_fd, buf.as_ptr() as *const libc::c_void, 1) };
+            }
         }
     }
 

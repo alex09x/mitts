@@ -90,6 +90,8 @@ links = "native_zlib"
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        jobserver: None,
+        is_first_job: None,
     };
 
     let action_key = "test_missing_cas_key";
@@ -138,11 +140,13 @@ links = "native_zlib"
     // 3. Create metadata file with dep_vars, rmeta output, and progress message
     let meta_dir = ctx.cas.root().join("metadata");
     fs::create_dir_all(&meta_dir).unwrap();
-    let mut directives = BuildScriptDirectives::default();
-    directives.links = Some("native_zlib".to_string());
-    directives
-        .metadata
-        .insert("root".to_string(), "/opt/zlib".to_string());
+    let mut meta = HashMap::new();
+    meta.insert("root".to_string(), "/opt/zlib".to_string());
+    let directives = BuildScriptDirectives {
+        links: Some("native_zlib".to_string()),
+        metadata: meta,
+        ..Default::default()
+    };
     let toml_data = toml::to_string(&directives).unwrap();
     fs::write(meta_dir.join(format!("{}.toml", action_key)), toml_data).unwrap();
 
@@ -195,6 +199,8 @@ links = "native_zlib"
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        jobserver: None,
+        is_first_job: None,
     };
 
     let restored_with_meta = try_restore_from_cache(&unit, action_key, &ctx2, false).unwrap();
@@ -266,6 +272,8 @@ fn test_m8_dag_cache_binary_restore_copy() {
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        jobserver: None,
+        is_first_job: None,
     };
 
     let (bin_hash, bin_size) = ctx.cas.store_bytes(b"mock executable content").unwrap();

@@ -102,6 +102,7 @@ fn test_m8_compiler_invocation_modes_and_args() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &extra_args,
+        jobserver_auth: None,
     };
 
     let out = inv.execute().expect("execute rustc");
@@ -120,6 +121,7 @@ fn test_m8_compiler_invocation_modes_and_args() {
         directives: None,
         mode: BuildMode::Check,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
 
     let out_check = inv_check.execute().expect("execute check");
@@ -163,6 +165,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
 
     let out = inv.execute().expect("execute rustc non workspace");

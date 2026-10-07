@@ -32,6 +32,8 @@ pub struct ExecutionContext<'a> {
     pub compiler_messages: &'a Arc<Mutex<Vec<String>>>,
     pub any_missed: &'a Arc<Mutex<bool>>,
     pub dep_build_metadata: &'a Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
+    pub jobserver: Option<&'a Arc<crate::core::JobserverPool>>,
+    pub is_first_job: Option<&'a Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.

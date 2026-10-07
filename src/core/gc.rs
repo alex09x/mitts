@@ -248,6 +248,19 @@ impl<'a> CacheGc<'a> {
                                 let _ = fs::remove_dir_all(&exec_path);
                                 continue;
                             }
+                            // Clean up abandoned .tmp.* staging directories older than 1 hour
+                            if file_name.starts_with(".tmp.") {
+                                if let Ok(meta) = fs::metadata(&exec_path) {
+                                    if let Ok(mtime) = meta.modified() {
+                                        if let Ok(age) = now.duration_since(mtime) {
+                                            if age > Duration::from_secs(3600) {
+                                                let _ = fs::remove_dir_all(&exec_path);
+                                            }
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
                             if file_name.starts_with('.') || !exec_path.is_dir() {
                                 continue;
                             }

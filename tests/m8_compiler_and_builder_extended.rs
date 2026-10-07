@@ -61,6 +61,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         directives: None,
         mode: BuildMode::Check,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let out_check = inv_check.execute().unwrap();
     assert!(out_check.success);
@@ -85,6 +86,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         directives: None,
         mode: BuildMode::Check,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let out_bin = inv_bin_check.execute().unwrap();
     assert!(out_bin.success);
@@ -101,6 +103,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         directives: None,
         mode: BuildMode::Clippy,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let out_clippy = inv_clippy.execute().unwrap();
     // In environments where clippy-driver is a fallback, rustc succeeds with --emit=dep-info,metadata
@@ -168,6 +171,7 @@ fn test_m8_compiler_directives_and_error_handling() {
         directives: Some(&directives),
         mode: BuildMode::Build,
         extra_compiler_args: &["--verbose".to_string()],
+        jobserver_auth: None,
     };
     let out = inv.execute().unwrap();
     assert!(out.success);
@@ -189,6 +193,7 @@ fn test_m8_compiler_directives_and_error_handling() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let out_fail = inv_fail.execute().unwrap();
     assert!(!out_fail.success);

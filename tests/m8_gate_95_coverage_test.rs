@@ -201,6 +201,7 @@ fn test_m8_compiler_test_no_dest_and_non_semver() {
         directives: None,
         mode: BuildMode::Test,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
     let res = inv.execute().unwrap();
     assert!(res.success);

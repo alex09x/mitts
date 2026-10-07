@@ -152,6 +152,7 @@ fn test_m8_compiler_invocation_execution() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &empty_args,
+        jobserver_auth: None,
     };
 
     let res = inv.execute().expect("execute rustc");

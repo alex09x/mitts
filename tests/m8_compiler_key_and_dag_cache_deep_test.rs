@@ -139,6 +139,7 @@ fn test_m8_compiler_non_semver_and_invocation() {
         directives: None,
         mode: BuildMode::Build,
         extra_compiler_args: &[],
+        jobserver_auth: None,
     };
 
     let res = inv.execute();
@@ -212,6 +213,8 @@ fn test_m8_dag_cache_progress_and_non_native() {
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        jobserver: None,
+        is_first_job: None,
     };
 
     let unit = PlannedCompilationUnit {
