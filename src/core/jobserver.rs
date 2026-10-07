@@ -80,6 +80,9 @@ impl JobserverPool {
         #[cfg(unix)]
         {
             let (read_fd, write_fd, owned) = Self::try_open_inherited(auth);
+            if read_fd.is_none() {
+                eprintln!("[mitts] warning: inherited jobserver auth '{auth}' could not be opened; running unthrottled");
+            }
             Self::Inherited {
                 auth: auth.to_string(),
                 read_fd,
