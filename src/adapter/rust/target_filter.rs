@@ -218,10 +218,20 @@ fn eval_atom(atom: &str) -> bool {
             "target_family" => host_target_family() == val,
             "target_vendor" => host_target_vendor() == val,
             "target_pointer_width" => host_target_pointer_width() == val,
+            "target_endian" => host_target_endian() == val,
             _ => false,
         };
     }
     false
+}
+
+fn host_target_endian() -> &'static str {
+    #[cfg(target_endian = "little")]
+    return "little";
+    #[cfg(target_endian = "big")]
+    return "big";
+    #[cfg(not(any(target_endian = "little", target_endian = "big")))]
+    return "";
 }
 
 fn host_target_pointer_width() -> &'static str {
