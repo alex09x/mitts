@@ -236,6 +236,15 @@ impl ContentAddressedStore {
             bail!("CAS object not found: {}", content_hash);
         }
 
+        #[cfg(unix)]
+        let needs_link = if let (Ok(meta), Ok(obj_meta)) = (fs::metadata(&artifact_path), fs::metadata(&obj_path)) {
+            use std::os::unix::fs::MetadataExt;
+            meta.ino() != obj_meta.ino() || meta.dev() != obj_meta.dev()
+        } else {
+            true
+        };
+
+        #[cfg(not(unix))]
         let needs_link = if let Ok(meta) = fs::metadata(&artifact_path) {
             let obj_meta = fs::metadata(&obj_path)?;
             meta.len() != obj_meta.len()
