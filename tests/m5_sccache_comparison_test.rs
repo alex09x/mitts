@@ -30,7 +30,10 @@ fn resolve_sccache_bin() -> Option<PathBuf> {
         }
     }
     if let Ok(home) = std::env::var("HOME") {
-        let p = PathBuf::from(home).join(".cargo").join("bin").join("sccache");
+        let p = PathBuf::from(home)
+            .join(".cargo")
+            .join("bin")
+            .join("sccache");
         if p.is_file() {
             return Some(p);
         }
@@ -128,7 +131,66 @@ fn test_m5_three_way_comparison_cargo_alone_vs_sccache_vs_mitts_warm() {
     let temp_root = tempfile::tempdir().expect("temp root");
     let base_dir = temp_root.path();
 
-    // Seed Mitts CAS and sccache with worktree 1
+    // 1. Pure Cargo: cold build followed by warm target rebuild
+    let wt_cargo = create_isolated_worktree(base_dir, "wt_cargo");
+    let cargo_target = wt_cargo.join("target");
+    let cargo_status = Command::new("cargo")
+        .arg("build")
+        .current_dir(&wt_cargo)
+        .env("RUSTC_WRAPPER", "")
+        .env("CARGO_TARGET_DIR", &cargo_target)
+        .status()
+        .expect("cargo cold build");
+    assert!(cargo_status.success());
+
+    // Wipe target/ and rebuild with Pure Cargo (must recompile everything)
+    let _ = fs::remove_dir_all(&cargo_target);
+    let cargo_rebuild = Command::new("cargo")
+        .arg("build")
+        .current_dir(&wt_cargo)
+        .env("RUSTC_WRAPPER", "")
+        .env("CARGO_TARGET_DIR", &cargo_target)
+        .status()
+        .expect("cargo rebuild after clean target");
+    assert!(cargo_rebuild.success());
+    let cargo_bin = cargo_target.join("debug").join("hello-rust");
+    assert!(cargo_bin.is_file());
+
+    // 2. Cargo with sccache: seed cache, wipe target/, then warm rebuild from sccache
+    if let Some(sccache_bin) = resolve_sccache_bin() {
+        let wt_sccache = create_isolated_worktree(base_dir, "wt_sccache");
+        let sccache_target = wt_sccache.join("target");
+        let sccache_dir = base_dir.join("sccache_dir");
+        fs::create_dir_all(&sccache_dir).unwrap();
+
+        let _ = Command::new(&sccache_bin).arg("--stop-server").output();
+        let sc_seed = Command::new("cargo")
+            .arg("build")
+            .current_dir(&wt_sccache)
+            .env("RUSTC_WRAPPER", &sccache_bin)
+            .env("SCCACHE_DIR", &sccache_dir)
+            .env("CARGO_TARGET_DIR", &sccache_target)
+            .status()
+            .expect("sccache seed build");
+        assert!(sc_seed.success());
+
+        // Wipe target/ and rebuild with sccache (hits sccache cache)
+        let _ = fs::remove_dir_all(&sccache_target);
+        let sc_warm = Command::new("cargo")
+            .arg("build")
+            .current_dir(&wt_sccache)
+            .env("RUSTC_WRAPPER", &sccache_bin)
+            .env("SCCACHE_DIR", &sccache_dir)
+            .env("CARGO_TARGET_DIR", &sccache_target)
+            .status()
+            .expect("sccache warm rebuild");
+        assert!(sc_warm.success());
+        let sc_bin = sccache_target.join("debug").join("hello-rust");
+        assert!(sc_bin.is_file());
+        let _ = Command::new(&sccache_bin).arg("--stop-server").output();
+    }
+
+    // 3. Mitts: seed shared CAS, wipe target/, then warm rebuild from Mitts CAS
     let wt1 = create_isolated_worktree(base_dir, "wt1");
     let shared_cas = base_dir.join("shared_cas");
     let opt_seed = RustBuildOptions {
@@ -141,7 +203,7 @@ fn test_m5_three_way_comparison_cargo_alone_vs_sccache_vs_mitts_warm() {
     let (_, seed_res) = RustAdapter::build_native(&opt_seed).expect("seed mitts build");
     assert!(seed_res.success);
 
-    // 1. Warm build on wt1 after wiping local target directory (simulating clean target with shared CAS)
+    // Wipe local target/ and rebuild with Mitts (100% Action Cache & CAS hit)
     let _ = fs::remove_dir_all(wt1.join("target"));
     let (_, warm_res) = RustAdapter::build_native(&opt_seed).expect("warm mitts build");
     assert!(warm_res.success);
@@ -155,7 +217,7 @@ fn test_m5_three_way_comparison_cargo_alone_vs_sccache_vs_mitts_warm() {
     let out1 = Command::new(&mitts_bin1).output().unwrap();
     assert!(String::from_utf8_lossy(&out1.stdout).contains("Hello from Mitts fixture: 42"));
 
-    // 2. Cross-worktree build in wt2 sharing the same CAS (dependency cache hit)
+    // 4. Cross-worktree build in wt2 sharing the same CAS (dependency cache hit)
     let wt2 = create_isolated_worktree(base_dir, "wt2");
     let opt_wt2 = RustBuildOptions {
         manifest_path: Some(wt2.join("Cargo.toml")),
