@@ -62,6 +62,9 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
             unit.target_name
         );
         println!("     Source:      {}", unit.src_path.display());
+        if !unit.dependencies.is_empty() {
+            println!("     Deps:        {}", unit.dependencies.join(", "));
+        }
         println!("     Eligibility: {}", unit.cache_eligibility);
     }
     println!();
