@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::build_script::BuildScriptDirectives;
+use super::build_script_directives::BuildScriptDirectives;
 use super::types::{BuildMode, PlannedCompilationUnit};
 use anyhow::{Context, Result};
 use std::fs;
@@ -167,7 +167,7 @@ impl<'a> RustcInvocation<'a> {
         } else {
             cmd.arg("-C").arg("debuginfo=2");
             cmd.arg("-C").arg("embed-bitcode=no");
-            cmd.arg("-C").arg("codegen-units=16");
+            cmd.arg("-C").arg("codegen-units=256");
         }
 
         if !self.unit.is_workspace {

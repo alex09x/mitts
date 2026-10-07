@@ -305,7 +305,7 @@ mod tests {
         let queue = Arc::new(WaveWorkQueue::new(items));
 
         let mut handles = Vec::new();
-        for i in 0..4 {
+        for _ in 0..4 {
             let q = Arc::clone(&queue);
             handles.push(thread::spawn(move || {
                 while let Some((id, _)) = q.pop_work() {

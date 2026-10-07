@@ -9,6 +9,7 @@
  */
 
 pub mod build_script;
+pub mod build_script_directives;
 pub mod builder;
 pub mod compiler;
 pub mod dag;
@@ -35,7 +36,8 @@ pub mod sparse_index;
 pub mod types;
 pub mod unescape;
 
-pub use build_script::{execute_build_script, BuildScriptDirectives};
+pub use build_script::execute_build_script;
+pub use build_script_directives::BuildScriptDirectives;
 pub use compiler::{RustcInvocation, RustcOutput};
 pub use dag::CompilationDag;
 pub use dag_runner::run_native_dag_build;

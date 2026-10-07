@@ -104,10 +104,10 @@ pub fn select_transitive_packages<'a>(
     while let Some(pkg) = to_visit.pop() {
         let key = (pkg.name.clone(), pkg.version.clone());
         if visited.insert(key) {
-            let is_ws = workspace_manifests.get(&pkg.name).map_or(false, |(_, toml)| {
+            let is_ws = workspace_manifests.get(&pkg.name).is_some_and(|(_, toml)| {
                 toml.package
                     .as_ref()
-                    .map_or(false, |p| p.version.as_deref() == Some(&pkg.version))
+                    .is_some_and(|p| p.version.as_deref() == Some(&pkg.version))
             });
             selected_packages.push((pkg, is_ws));
 
