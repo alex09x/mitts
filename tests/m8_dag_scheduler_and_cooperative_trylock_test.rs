@@ -133,7 +133,7 @@ fn test_swarm_stress_queue_concurrency() {
             let mut prng = FastPrng::new(1000 + thread_idx as u64);
             while let Some((unit_id, lock_mode)) = q.pop_work() {
                 // In TryLock mode, randomly simulate contention for ~30% of attempts
-                if lock_mode == LockMode::TryLock && (prng.next_u64() % 3 == 0) {
+                if lock_mode == LockMode::TryLock && prng.next_u64().is_multiple_of(3) {
                     q.mark_contested(unit_id);
                     continue;
                 }

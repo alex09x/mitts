@@ -118,7 +118,7 @@ fn test_m8_cas_verify_and_ac_env_paths() {
     // 1. CAS verify_object with non-existent hash returns Ok(false)
     let cas_dir = root.join("cas");
     let cas = ContentAddressedStore::new(cas_dir).unwrap();
-    assert_eq!(cas.verify_object("nonexistent_hash_abc_123").unwrap(), false);
+    assert!(!cas.verify_object("nonexistent_hash_abc_123").unwrap());
 
     // 2. CAS store_bytes overwrite when existing object has mismatched size
     let bytes = b"hello cas world";

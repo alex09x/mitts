@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub use super::build_script_directives::{
-    compute_build_script_key, get_target_cfgs, BuildScriptDirectives,
+    compute_build_script_key, compute_execution_key, get_target_cfgs, BuildScriptDirectives,
 };
 
 /// Executes a crate's `build.rs` build script in an isolated sandbox with CAS caching.
@@ -57,20 +57,30 @@ pub fn execute_build_script(
 
     let target = std::env::var("TARGET").unwrap_or_else(|_| {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        { "aarch64-apple-darwin".to_string() }
+        {
+            "aarch64-apple-darwin".to_string()
+        }
         #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-        { "x86_64-apple-darwin".to_string() }
+        {
+            "x86_64-apple-darwin".to_string()
+        }
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        { "x86_64-unknown-linux-gnu".to_string() }
+        {
+            "x86_64-unknown-linux-gnu".to_string()
+        }
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-        { "aarch64-unknown-linux-gnu".to_string() }
+        {
+            "aarch64-unknown-linux-gnu".to_string()
+        }
         #[cfg(not(any(
             all(target_os = "macos", target_arch = "aarch64"),
             all(target_os = "macos", target_arch = "x86_64"),
             all(target_os = "linux", target_arch = "x86_64"),
             all(target_os = "linux", target_arch = "aarch64"),
         )))]
-        { "host".to_string() }
+        {
+            "host".to_string()
+        }
     });
 
     let out_dir = staging_dir.join("out");
@@ -89,59 +99,85 @@ pub fn execute_build_script(
     // 1. Check CAS execution cache
     if let Some(artifacts_dir) = cas_artifacts_dir {
         let cas_root = artifacts_dir.parent().unwrap_or(artifacts_dir);
-        let meta_file = cas_root.join("metadata").join(format!("build_{}.toml", build_key));
-        let cached_out_dir = artifacts_dir.join(format!("out_{}", build_key));
+        let script_cas_dir = cas_root.join("build_scripts").join(&build_key);
 
-        if meta_file.is_file() {
-            if let Ok(content) = fs::read_to_string(&meta_file) {
-                if let Ok(mut directives) = toml::from_str::<BuildScriptDirectives>(&content) {
-                    let mut is_fresh = true;
-                    // Check rerun-if-env-changed
-                    for var in &directives.rerun_if_env_changed {
-                        let cur_val = std::env::var(var).ok();
-                        let cached_val = directives.envs.get(var).cloned();
-                        if cur_val != cached_val {
-                            is_fresh = false;
-                            break;
-                        }
+        if script_cas_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(&script_cas_dir) {
+                for entry in entries.flatten() {
+                    let entry_dir = entry.path();
+                    let file_name = entry_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if file_name.starts_with('.') || !entry_dir.is_dir() {
+                        continue;
                     }
-                    // Check rerun-if-changed files via content hash (never mtimes)
-                    if is_fresh && !directives.rerun_if_changed_hashes.is_empty() {
-                        for (file_rel, expected_hash) in &directives.rerun_if_changed_hashes {
-                            let fpath = if Path::new(file_rel).is_absolute() {
-                                PathBuf::from(file_rel)
-                            } else {
-                                pkg_dir.join(file_rel)
-                            };
-                            if !fpath.exists() {
-                                is_fresh = false;
-                                break;
-                            }
-                            if let Ok(cur_hash) = Sha256::digest_path_recursive(&fpath) {
-                                if cur_hash != *expected_hash {
+                    let meta_file = entry_dir.join("meta.toml");
+                    let cached_out_dir = entry_dir.join("out");
+                    if !meta_file.is_file() {
+                        continue;
+                    }
+                    if let Ok(content) = fs::read_to_string(&meta_file) {
+                        if let Ok(mut directives) =
+                            toml::from_str::<BuildScriptDirectives>(&content)
+                        {
+                            let mut is_fresh = true;
+                            // Check rerun-if-env-changed
+                            for var in &directives.rerun_if_env_changed {
+                                let cur_val = std::env::var(var).ok();
+                                let cached_val = directives.envs.get(var).cloned();
+                                if cur_val != cached_val {
                                     is_fresh = false;
                                     break;
                                 }
-                            } else {
-                                is_fresh = false;
-                                break;
                             }
-                        }
-                    } else if is_fresh && !directives.rerun_if_changed.is_empty() {
-                        is_fresh = false;
-                    }
+                            // Check rerun-if-changed files via content hash (never mtimes)
+                            if is_fresh && !directives.rerun_if_changed_hashes.is_empty() {
+                                if directives.rerun_if_changed.len()
+                                    != directives.rerun_if_changed_hashes.len()
+                                {
+                                    is_fresh = false;
+                                } else {
+                                    for (file_rel, expected_hash) in
+                                        &directives.rerun_if_changed_hashes
+                                    {
+                                        let fpath = if Path::new(file_rel).is_absolute() {
+                                            PathBuf::from(file_rel)
+                                        } else {
+                                            pkg_dir.join(file_rel)
+                                        };
+                                        if !fpath.exists() {
+                                            is_fresh = false;
+                                            break;
+                                        }
+                                        if let Ok(cur_hash) = Sha256::digest_path_recursive(&fpath)
+                                        {
+                                            if cur_hash != *expected_hash {
+                                                is_fresh = false;
+                                                break;
+                                            }
+                                        } else {
+                                            is_fresh = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            } else if is_fresh && !directives.rerun_if_changed.is_empty() {
+                                is_fresh = false;
+                            }
 
-                    if is_fresh {
-                        let mut restore_ok = true;
-                        if cached_out_dir.is_dir()
-                            && reflink_or_copy_dir_recursive(&cached_out_dir, &out_dir).is_err()
-                        {
-                            restore_ok = false;
-                        }
-                        if restore_ok {
-                            directives.out_dir = Some(out_dir);
-                            directives.links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
-                            return Ok(directives);
+                            if is_fresh {
+                                let mut restore_ok = true;
+                                if cached_out_dir.is_dir()
+                                    && reflink_or_copy_dir_recursive(&cached_out_dir, &out_dir)
+                                        .is_err()
+                                {
+                                    restore_ok = false;
+                                }
+                                if restore_ok {
+                                    directives.out_dir = Some(out_dir);
+                                    directives.links =
+                                        pkg_toml.package.as_ref().and_then(|p| p.links.clone());
+                                    return Ok(directives);
+                                }
+                            }
                         }
                     }
                 }
@@ -164,7 +200,12 @@ pub fn execute_build_script(
         let min = ver_parts.next().unwrap_or("0");
         let pat_with_pre = ver_parts.next().unwrap_or("0");
         let (pat, p) = pat_with_pre.split_once('-').unwrap_or((pat_with_pre, ""));
-        (maj.to_string(), min.to_string(), pat.to_string(), p.to_string())
+        (
+            maj.to_string(),
+            min.to_string(),
+            pat.to_string(),
+            p.to_string(),
+        )
     };
 
     let mut compile_cmd = Command::new("rustc");
@@ -187,7 +228,10 @@ pub fn execute_build_script(
         .arg("-o")
         .arg(&bin_path)
         .env("CARGO_MANIFEST_DIR", pkg_dir)
-        .env("CARGO", std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
+        .env(
+            "CARGO",
+            std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()),
+        )
         .env("CARGO_PKG_NAME", &unit.package_name)
         .env("CARGO_PKG_VERSION", &unit.version)
         .env("CARGO_PKG_VERSION_MAJOR", &major)
@@ -204,20 +248,35 @@ pub fn execute_build_script(
         }
     }
     for feat in features {
-        compile_cmd.arg("--cfg").arg(format!("feature=\"{}\"", feat));
-        compile_cmd.env(format!("CARGO_FEATURE_{}", feat.to_uppercase().replace('-', "_")), "1");
+        compile_cmd
+            .arg("--cfg")
+            .arg(format!("feature=\"{}\"", feat));
+        compile_cmd.env(
+            format!("CARGO_FEATURE_{}", feat.to_uppercase().replace('-', "_")),
+            "1",
+        );
     }
     for (crate_name, artifact_path) in extern_crates {
-        compile_cmd.arg("--extern").arg(format!("{}={}", crate_name.replace('-', "_"), artifact_path.display()));
+        compile_cmd.arg("--extern").arg(format!(
+            "{}={}",
+            crate_name.replace('-', "_"),
+            artifact_path.display()
+        ));
     }
     if let Some(artifacts) = cas_artifacts_dir {
-        compile_cmd.arg("-L").arg(format!("dependency={}", artifacts.display()));
+        compile_cmd
+            .arg("-L")
+            .arg(format!("dependency={}", artifacts.display()));
     }
 
     let compile_status = compile_cmd.output().context("Failed to compile build.rs")?;
     if !compile_status.status.success() {
         let err = String::from_utf8_lossy(&compile_status.stderr);
-        bail!("Failed to compile build.rs for '{}': {}", unit.package_name, err);
+        bail!(
+            "Failed to compile build.rs for '{}': {}",
+            unit.package_name,
+            err
+        );
     }
 
     let rustc_bin = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
@@ -229,7 +288,10 @@ pub fn execute_build_script(
     run_cmd
         .current_dir(pkg_dir)
         .env("CARGO_MANIFEST_DIR", pkg_dir)
-        .env("CARGO", std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
+        .env(
+            "CARGO",
+            std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()),
+        )
         .env("CARGO_PKG_NAME", &unit.package_name)
         .env("CARGO_PKG_VERSION", &unit.version)
         .env("CARGO_PKG_VERSION_MAJOR", &major)
@@ -254,7 +316,10 @@ pub fn execute_build_script(
         run_cmd.env("CARGO_MANIFEST_LINKS", links);
     }
     for feat in features {
-        run_cmd.env(format!("CARGO_FEATURE_{}", feat.to_uppercase().replace('-', "_")), "1");
+        run_cmd.env(
+            format!("CARGO_FEATURE_{}", feat.to_uppercase().replace('-', "_")),
+            "1",
+        );
     }
     if let Some(extra) = extra_env {
         for (k, v) in extra {
@@ -294,31 +359,46 @@ pub fn execute_build_script(
         }
     }
 
-    // Publish to CAS metadata and output directory atomically
+    // Publish to CAS metadata and output directory atomically in a single execution entry
     if let Some(artifacts_dir) = cas_artifacts_dir {
         let cas_root = artifacts_dir.parent().unwrap_or(artifacts_dir);
-        let cached_out_dir = artifacts_dir.join(format!("out_{}", build_key));
+        let script_cas_dir = cas_root.join("build_scripts").join(&build_key);
+        let exec_key = compute_execution_key(
+            &build_key,
+            &directives.rerun_if_changed_hashes,
+            &directives.envs,
+        );
+        let entry_dir = script_cas_dir.join(&exec_key);
 
-        if out_dir.is_dir() {
+        if !entry_dir.exists() {
+            let _ = fs::create_dir_all(&script_cas_dir);
             let pid = std::process::id();
-            let tmp_out_dir = artifacts_dir.join(format!(".out_{}.tmp.{}", build_key, pid));
-            let _ = fs::remove_dir_all(&tmp_out_dir);
-            if reflink_or_copy_dir_recursive(&out_dir, &tmp_out_dir).is_ok()
-                && fs::rename(&tmp_out_dir, &cached_out_dir).is_err()
-            {
-                let _ = fs::remove_dir_all(&tmp_out_dir);
-            }
-        }
+            let tmp_entry_dir = script_cas_dir.join(format!(".tmp.{}.{}", exec_key, pid));
+            let _ = fs::remove_dir_all(&tmp_entry_dir);
 
-        // Publish metadata LAST via atomic rename so concurrent readers never observe partial OUT_DIR
-        let meta_dir = cas_root.join("metadata");
-        let _ = fs::create_dir_all(&meta_dir);
-        let meta_file = meta_dir.join(format!("build_{}.toml", build_key));
-        if let Ok(toml_str) = toml::to_string(&directives) {
-            let pid = std::process::id();
-            let tmp_meta_file = meta_dir.join(format!(".build_{}.tmp.{}.toml", build_key, pid));
-            if fs::write(&tmp_meta_file, toml_str).is_ok() {
-                let _ = fs::rename(&tmp_meta_file, &meta_file);
+            if fs::create_dir_all(&tmp_entry_dir).is_ok() {
+                let mut ok = true;
+                if out_dir.is_dir() {
+                    let tmp_out = tmp_entry_dir.join("out");
+                    if reflink_or_copy_dir_recursive(&out_dir, &tmp_out).is_err() {
+                        ok = false;
+                    }
+                }
+                if ok {
+                    if let Ok(toml_str) = toml::to_string(&directives) {
+                        if fs::write(tmp_entry_dir.join("meta.toml"), toml_str).is_ok() {
+                            if fs::rename(&tmp_entry_dir, &entry_dir).is_err() {
+                                let _ = fs::remove_dir_all(&tmp_entry_dir);
+                            }
+                        } else {
+                            let _ = fs::remove_dir_all(&tmp_entry_dir);
+                        }
+                    } else {
+                        let _ = fs::remove_dir_all(&tmp_entry_dir);
+                    }
+                } else {
+                    let _ = fs::remove_dir_all(&tmp_entry_dir);
+                }
             }
         }
     }

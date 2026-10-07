@@ -154,6 +154,7 @@ fn test_m8_compiler_directives_and_error_handling() {
         out_dir: Some(tmp.path().join("out_build")),
         metadata: HashMap::new(),
         links: None,
+        ..Default::default()
     };
 
     let inv = RustcInvocation {

@@ -534,3 +534,119 @@ fn main() {
         gen_b
     );
 }
+
+#[test]
+fn test_build_script_alternating_rerun_content_a_b_a_b_isolation() {
+    let temp = TempDir::new().unwrap();
+    let artifacts_dir = temp.path().join("cas_artifacts");
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    let build_rs_code = r#"
+use std::fs;
+use std::env;
+use std::path::Path;
+
+fn main() {
+    println!("cargo:rerun-if-changed=tracked.txt");
+    let content = fs::read_to_string("tracked.txt").unwrap_or_default();
+    let out_dir = env::var("OUT_DIR").unwrap();
+    fs::write(Path::new(&out_dir).join("generated.rs"), format!("pub const VAL: &str = {:?};", content.trim())).unwrap();
+}
+"#;
+
+    // Package A setup
+    let pkg_a = temp.path().join("pkg_a");
+    fs::create_dir_all(&pkg_a).unwrap();
+    fs::write(pkg_a.join("build.rs"), build_rs_code).unwrap();
+    fs::write(
+        pkg_a.join("Cargo.toml"),
+        "[package]\nname = \"demo_alt\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let tracked_a = pkg_a.join("tracked.txt");
+    fs::write(&tracked_a, "alpha_state").unwrap();
+
+    let unit_a = PlannedCompilationUnit {
+        package_id: "demo_alt@1.0.0".to_string(),
+        package_name: "demo_alt".to_string(),
+        version: "1.0.0".to_string(),
+        target_name: "demo_alt".to_string(),
+        kind: "lib".to_string(),
+        src_path: pkg_a.join("src/lib.rs"),
+        manifest_path: pkg_a.join("Cargo.toml"),
+        dependencies: Vec::new(),
+        edition: Some("2021".to_string()),
+        is_workspace: false,
+        cache_eligibility: "cacheable".to_string(),
+        env_vars: Vec::new(),
+        features: Vec::new(),
+    };
+
+    // Package B setup (same crate name/version, different tracked.txt content)
+    let pkg_b = temp.path().join("pkg_b");
+    fs::create_dir_all(&pkg_b).unwrap();
+    fs::write(pkg_b.join("build.rs"), build_rs_code).unwrap();
+    fs::write(
+        pkg_b.join("Cargo.toml"),
+        "[package]\nname = \"demo_alt\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let tracked_b = pkg_b.join("tracked.txt");
+    fs::write(&tracked_b, "beta_state").unwrap();
+
+    let unit_b = PlannedCompilationUnit {
+        package_id: "demo_alt@1.0.0".to_string(),
+        package_name: "demo_alt".to_string(),
+        version: "1.0.0".to_string(),
+        target_name: "demo_alt".to_string(),
+        kind: "lib".to_string(),
+        src_path: pkg_b.join("src/lib.rs"),
+        manifest_path: pkg_b.join("Cargo.toml"),
+        dependencies: Vec::new(),
+        edition: Some("2021".to_string()),
+        is_workspace: false,
+        cache_eligibility: "cacheable".to_string(),
+        env_vars: Vec::new(),
+        features: Vec::new(),
+    };
+
+    // Step 1: Run A (cold)
+    let s_a1 = temp.path().join("staging_a1");
+    fs::create_dir_all(&s_a1).unwrap();
+    let _d_a1 =
+        execute_build_script(&unit_a, &s_a1, false, &[], Some(&artifacts_dir), &[], None).unwrap();
+    let gen_a1 = fs::read_to_string(s_a1.join("out/generated.rs")).unwrap();
+    assert!(gen_a1.contains("alpha_state"));
+
+    // Step 2: Run B (cold, different content under same base_key)
+    let s_b1 = temp.path().join("staging_b1");
+    fs::create_dir_all(&s_b1).unwrap();
+    let _d_b1 =
+        execute_build_script(&unit_b, &s_b1, false, &[], Some(&artifacts_dir), &[], None).unwrap();
+    let gen_b1 = fs::read_to_string(s_b1.join("out/generated.rs")).unwrap();
+    assert!(gen_b1.contains("beta_state"));
+
+    // Step 3: Run A again (warm, A -> B -> A) -> MUST restore A's OUT_DIR, NOT B's!
+    let s_a2 = temp.path().join("staging_a2");
+    fs::create_dir_all(&s_a2).unwrap();
+    let _d_a2 =
+        execute_build_script(&unit_a, &s_a2, false, &[], Some(&artifacts_dir), &[], None).unwrap();
+    let gen_a2 = fs::read_to_string(s_a2.join("out/generated.rs")).unwrap();
+    assert!(
+        gen_a2.contains("alpha_state"),
+        "A->B->A must restore alpha_state! Got: {}",
+        gen_a2
+    );
+
+    // Step 4: Run B again (warm, B -> A -> B) -> MUST restore B's OUT_DIR, NOT A's!
+    let s_b2 = temp.path().join("staging_b2");
+    fs::create_dir_all(&s_b2).unwrap();
+    let _d_b2 =
+        execute_build_script(&unit_b, &s_b2, false, &[], Some(&artifacts_dir), &[], None).unwrap();
+    let gen_b2 = fs::read_to_string(s_b2.join("out/generated.rs")).unwrap();
+    assert!(
+        gen_b2.contains("beta_state"),
+        "B->A->B must restore beta_state! Got: {}",
+        gen_b2
+    );
+}

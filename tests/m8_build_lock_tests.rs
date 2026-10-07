@@ -154,7 +154,7 @@ fn test_m8_build_lock_files_and_record_state() {
         toolchain_version: "rustc 1.80.0",
         action_count: 1,
         root_binary: Some(PathBuf::from("target/dev/foo")),
-        outputs: &[out_file.clone()],
+        outputs: std::slice::from_ref(&out_file),
     };
 
     FastBuildLock::record_state(&rec_args).expect("record state");

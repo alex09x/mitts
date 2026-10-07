@@ -11,7 +11,7 @@
 use crate::adapter::rust::inputs::hash_package_base_inputs;
 use crate::adapter::rust::types::PlannedCompilationUnit;
 use crate::core::hash::{bytes_to_hex, Sha256};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -179,16 +179,20 @@ pub fn compute_build_script_key(
     extern_crates: &[(String, PathBuf)],
 ) -> Result<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v3:");
+    hasher.update(b"build_script_v4:");
     hasher.update(unit.package_name.as_bytes());
     hasher.update(b":");
     hasher.update(unit.version.as_bytes());
     hasher.update(b":");
     hasher.update(unit.edition.as_deref().unwrap_or("2015").as_bytes());
     hasher.update(b":");
-    if let Ok(script_bytes) = fs::read(build_rs) {
-        hasher.update(&script_bytes);
-    }
+    let script_bytes = fs::read(build_rs).with_context(|| {
+        format!(
+            "Failed to read build script source at {}",
+            build_rs.display()
+        )
+    })?;
+    hasher.update(&script_bytes);
     hasher.update(if release { b":release:" } else { b":dev:" });
     hasher.update(target.as_bytes());
     hasher.update(b":rustc:");
@@ -198,11 +202,14 @@ pub fn compute_build_script_key(
         hasher.update(b":build_dep:");
         hasher.update(crate_name.as_bytes());
         hasher.update(b"=");
-        if let Ok(digest) = Sha256::digest_file(artifact_path) {
-            hasher.update(digest.as_bytes());
-        } else if let Ok(meta) = fs::metadata(artifact_path) {
-            hasher.update(&meta.len().to_le_bytes());
-        }
+        let digest = Sha256::digest_file(artifact_path).with_context(|| {
+            format!(
+                "Failed to hash build-dependency artifact '{}' at {}",
+                crate_name,
+                artifact_path.display()
+            )
+        })?;
+        hasher.update(digest.as_bytes());
     }
 
     for f in features {
@@ -220,16 +227,57 @@ pub fn compute_build_script_key(
         }
     }
     if unit.is_workspace {
-        if let Some(pkg_dir) = build_rs.parent() {
-            if let Ok(base_inputs) = hash_package_base_inputs(pkg_dir, None, true) {
-                for (path, digest) in base_inputs {
-                    hasher.update(b":ws_input:");
-                    hasher.update(path.as_bytes());
-                    hasher.update(b"=");
-                    hasher.update(digest.as_bytes());
-                }
-            }
+        let pkg_dir = unit.manifest_path.parent().with_context(|| {
+            format!(
+                "Manifest path '{}' has no parent directory",
+                unit.manifest_path.display()
+            )
+        })?;
+        let base_inputs = hash_package_base_inputs(pkg_dir, None, true).with_context(|| {
+            format!(
+                "Failed to hash workspace package inputs for '{}' at {}",
+                unit.package_name,
+                pkg_dir.display()
+            )
+        })?;
+        for (path, digest) in base_inputs {
+            hasher.update(b":ws_input:");
+            hasher.update(path.as_bytes());
+            hasher.update(b"=");
+            hasher.update(digest.as_bytes());
         }
     }
     Ok(bytes_to_hex(&hasher.finalize()))
+}
+
+/// Computes an execution cache key combining the base build_key with sorted rerun-if-changed file hashes
+/// and sorted rerun-if-env-changed values.
+pub fn compute_execution_key(
+    base_key: &str,
+    rerun_if_changed_hashes: &HashMap<String, String>,
+    envs: &HashMap<String, String>,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"exec_v2:");
+    hasher.update(base_key.as_bytes());
+
+    let mut sorted_files: Vec<_> = rerun_if_changed_hashes.iter().collect();
+    sorted_files.sort_by_key(|(k, _)| *k);
+    for (k, v) in sorted_files {
+        hasher.update(b":file:");
+        hasher.update(k.as_bytes());
+        hasher.update(b"=");
+        hasher.update(v.as_bytes());
+    }
+
+    let mut sorted_envs: Vec<_> = envs.iter().collect();
+    sorted_envs.sort_by_key(|(k, _)| *k);
+    for (k, v) in sorted_envs {
+        hasher.update(b":env:");
+        hasher.update(k.as_bytes());
+        hasher.update(b"=");
+        hasher.update(v.as_bytes());
+    }
+
+    bytes_to_hex(&hasher.finalize())
 }
