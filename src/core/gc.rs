@@ -238,14 +238,40 @@ impl<'a> CacheGc<'a> {
                         let mut remaining_entries = 0;
                         for exec_entry in exec_entries.flatten() {
                             let exec_path = exec_entry.path();
-                            if let Ok(meta) = fs::metadata(&exec_path) {
-                                if let Ok(mtime) = meta.modified() {
-                                    if let Ok(age) = now.duration_since(mtime) {
-                                        if age > max_age {
-                                            let _ = fs::remove_dir_all(&exec_path);
-                                            continue;
-                                        }
+                            let file_name = exec_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("");
+
+                            // If leftover from an interrupted GC, clean it up
+                            if file_name.starts_with(".gc.") {
+                                let _ = fs::remove_dir_all(&exec_path);
+                                continue;
+                            }
+                            if file_name.starts_with('.') || !exec_path.is_dir() {
+                                continue;
+                            }
+
+                            // P3: Use .last_used marker if present, fallback to directory modified time
+                            let last_used = fs::metadata(exec_path.join(".last_used"))
+                                .and_then(|m| m.modified())
+                                .ok();
+                            let effective_time = last_used
+                                .or_else(|| fs::metadata(&exec_path).and_then(|m| m.modified()).ok())
+                                .unwrap_or(SystemTime::UNIX_EPOCH);
+
+                            if let Ok(age) = now.duration_since(effective_time) {
+                                if age > max_age {
+                                    // P2: Atomically unpublish first by renaming to .gc.<exec_key>.<pid>
+                                    // so concurrent readers (which skip dot-files) never observe partial removals.
+                                    let pid = std::process::id();
+                                    let gc_temp = base_path.join(format!(".gc.{}.{}", file_name, pid));
+                                    if fs::rename(&exec_path, &gc_temp).is_ok() {
+                                        let _ = fs::remove_dir_all(&gc_temp);
+                                    } else {
+                                        let _ = fs::remove_dir_all(&exec_path);
                                     }
+                                    continue;
                                 }
                             }
                             remaining_entries += 1;

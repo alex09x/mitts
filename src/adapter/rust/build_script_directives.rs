@@ -63,6 +63,44 @@ impl BuildScriptDirectives {
         vars
     }
 
+    /// Checks if this cached directive is still valid based on environment variables and file content hashes.
+    pub fn is_fresh(&self, pkg_dir: &Path) -> bool {
+        // Check rerun-if-env-changed
+        for var in &self.rerun_if_env_changed {
+            let cur_val = std::env::var(var).ok();
+            let cached_val = self.envs.get(var).cloned();
+            if cur_val != cached_val {
+                return false;
+            }
+        }
+        // Check rerun-if-changed files via content hash (never mtimes)
+        if !self.rerun_if_changed_hashes.is_empty() {
+            if self.rerun_if_changed.len() != self.rerun_if_changed_hashes.len() {
+                return false;
+            }
+            for (file_rel, expected_hash) in &self.rerun_if_changed_hashes {
+                let fpath = if Path::new(file_rel).is_absolute() {
+                    PathBuf::from(file_rel)
+                } else {
+                    pkg_dir.join(file_rel)
+                };
+                if !fpath.exists() {
+                    return false;
+                }
+                if let Ok(cur_hash) = Sha256::digest_path_recursive(&fpath) {
+                    if cur_hash != *expected_hash {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            true
+        } else {
+            self.rerun_if_changed.is_empty()
+        }
+    }
+
     /// Parses cargo: build script directives from raw stdout.
     pub fn parse_stdout(stdout: &str) -> Self {
         let mut directives = Self::default();

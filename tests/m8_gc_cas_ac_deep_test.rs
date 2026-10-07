@@ -139,3 +139,52 @@ fn test_m8_action_cache_key_derivation_order_and_paths() {
     assert_eq!(key1, key2);
     assert_eq!(key1.len(), 64);
 }
+
+#[test]
+fn test_m8_gc_build_scripts_atomic_unpublish_and_last_used() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    let cas = ContentAddressedStore::new(root.join("cas")).unwrap();
+    let ac = ActionCache::new(root.join("ac")).unwrap();
+
+    let build_scripts_base = cas.root().join("build_scripts").join("pkg_base_key_123");
+    let old_exec_dir = build_scripts_base.join("exec_key_old_456");
+    let active_exec_dir = build_scripts_base.join("exec_key_active_789");
+    let leftover_gc_dir = build_scripts_base.join(".gc.stale_key.999");
+
+    std::fs::create_dir_all(&old_exec_dir).unwrap();
+    std::fs::create_dir_all(&active_exec_dir).unwrap();
+    std::fs::create_dir_all(&leftover_gc_dir).unwrap();
+
+    std::fs::write(old_exec_dir.join("meta.toml"), b"cfgs = []").unwrap();
+    std::fs::write(old_exec_dir.join(".last_used"), b"").unwrap();
+
+    std::fs::write(active_exec_dir.join("meta.toml"), b"cfgs = []").unwrap();
+    std::fs::write(active_exec_dir.join(".last_used"), b"").unwrap();
+
+    // Sleep 60ms so both entries age past 50ms
+    std::thread::sleep(std::time::Duration::from_millis(60));
+
+    // Now touch .last_used on active_exec_dir, refreshing its effective time
+    std::fs::write(active_exec_dir.join(".last_used"), b"touched").unwrap();
+
+    let gc = CacheGc::new(&cas, &ac);
+    let _ = gc
+        .prune(&GcOptions {
+            max_bytes: None,
+            max_age: Some(std::time::Duration::from_millis(50)),
+        })
+        .unwrap();
+
+    // active_exec_dir must be preserved because its .last_used was refreshed
+    assert!(active_exec_dir.exists(), "active build script entry should be preserved by .last_used");
+    assert!(active_exec_dir.join("meta.toml").exists());
+
+    // old_exec_dir must be pruned because its .last_used is older than 50ms
+    assert!(!old_exec_dir.exists(), "stale build script entry should be pruned");
+
+    // leftover .gc.* directory must be cleaned up
+    assert!(!leftover_gc_dir.exists(), "leftover .gc.* directory should be cleaned up");
+}
+

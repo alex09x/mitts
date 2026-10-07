@@ -118,52 +118,7 @@ pub fn execute_build_script(
                         if let Ok(mut directives) =
                             toml::from_str::<BuildScriptDirectives>(&content)
                         {
-                            let mut is_fresh = true;
-                            // Check rerun-if-env-changed
-                            for var in &directives.rerun_if_env_changed {
-                                let cur_val = std::env::var(var).ok();
-                                let cached_val = directives.envs.get(var).cloned();
-                                if cur_val != cached_val {
-                                    is_fresh = false;
-                                    break;
-                                }
-                            }
-                            // Check rerun-if-changed files via content hash (never mtimes)
-                            if is_fresh && !directives.rerun_if_changed_hashes.is_empty() {
-                                if directives.rerun_if_changed.len()
-                                    != directives.rerun_if_changed_hashes.len()
-                                {
-                                    is_fresh = false;
-                                } else {
-                                    for (file_rel, expected_hash) in
-                                        &directives.rerun_if_changed_hashes
-                                    {
-                                        let fpath = if Path::new(file_rel).is_absolute() {
-                                            PathBuf::from(file_rel)
-                                        } else {
-                                            pkg_dir.join(file_rel)
-                                        };
-                                        if !fpath.exists() {
-                                            is_fresh = false;
-                                            break;
-                                        }
-                                        if let Ok(cur_hash) = Sha256::digest_path_recursive(&fpath)
-                                        {
-                                            if cur_hash != *expected_hash {
-                                                is_fresh = false;
-                                                break;
-                                            }
-                                        } else {
-                                            is_fresh = false;
-                                            break;
-                                        }
-                                    }
-                                }
-                            } else if is_fresh && !directives.rerun_if_changed.is_empty() {
-                                is_fresh = false;
-                            }
-
-                            if is_fresh {
+                            if directives.is_fresh(pkg_dir) {
                                 let mut restore_ok = true;
                                 if cached_out_dir.is_dir()
                                     && reflink_or_copy_dir_recursive(&cached_out_dir, &out_dir)
@@ -174,6 +129,8 @@ pub fn execute_build_script(
                                     let _ = fs::create_dir_all(&out_dir);
                                 }
                                 if restore_ok {
+                                    // Touch .last_used marker so GC knows this entry was accessed
+                                    let _ = fs::write(entry_dir.join(".last_used"), b"");
                                     directives.out_dir = Some(out_dir);
                                     directives.links =
                                         pkg_toml.package.as_ref().and_then(|p| p.links.clone());
@@ -387,6 +344,7 @@ pub fn execute_build_script(
                     }
                 }
                 if ok {
+                    let _ = fs::write(tmp_entry_dir.join(".last_used"), b"");
                     if let Ok(toml_str) = toml::to_string(&directives) {
                         if fs::write(tmp_entry_dir.join("meta.toml"), toml_str).is_ok() {
                             if fs::rename(&tmp_entry_dir, &entry_dir).is_err() {
