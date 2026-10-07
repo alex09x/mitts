@@ -319,3 +319,28 @@ pub fn compute_execution_key(
 
     bytes_to_hex(&hasher.finalize())
 }
+
+/// Detects the host target triple based on compile-time target attributes or TARGET env.
+pub fn detect_default_target_triple() -> String {
+    if let Ok(t) = std::env::var("TARGET") {
+        if !t.is_empty() {
+            return t;
+        }
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    return "aarch64-apple-darwin".to_string();
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    return "x86_64-apple-darwin".to_string();
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return "x86_64-unknown-linux-gnu".to_string();
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    return "aarch64-unknown-linux-gnu".to_string();
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "x86_64"),
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "linux", target_arch = "aarch64"),
+    )))]
+    return "host".to_string();
+}
+

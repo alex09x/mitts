@@ -19,7 +19,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub use super::build_script_directives::{
-    compute_build_script_key, compute_execution_key, get_target_cfgs, BuildScriptDirectives,
+    compute_build_script_key, compute_execution_key, detect_default_target_triple, get_target_cfgs,
+    BuildScriptDirectives,
 };
 
 /// Executes a crate's `build.rs` build script in an isolated sandbox with CAS caching.
@@ -55,33 +56,7 @@ pub fn execute_build_script(
         return Ok(BuildScriptDirectives::default());
     }
 
-    let target = std::env::var("TARGET").unwrap_or_else(|_| {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            "aarch64-apple-darwin".to_string()
-        }
-        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-        {
-            "x86_64-apple-darwin".to_string()
-        }
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        {
-            "x86_64-unknown-linux-gnu".to_string()
-        }
-        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-        {
-            "aarch64-unknown-linux-gnu".to_string()
-        }
-        #[cfg(not(any(
-            all(target_os = "macos", target_arch = "aarch64"),
-            all(target_os = "macos", target_arch = "x86_64"),
-            all(target_os = "linux", target_arch = "x86_64"),
-            all(target_os = "linux", target_arch = "aarch64"),
-        )))]
-        {
-            "host".to_string()
-        }
-    });
+    let target = detect_default_target_triple();
 
     let out_dir = staging_dir.join("out");
     fs::create_dir_all(&out_dir)?;
@@ -216,16 +191,49 @@ pub fn execute_build_script(
         );
     }
     for (crate_name, artifact_path) in extern_crates {
+        let rlib = artifact_path.with_extension("rlib");
+        let effective = if rlib.is_file() { &rlib } else { artifact_path };
         compile_cmd.arg("--extern").arg(format!(
             "{}={}",
             crate_name.replace('-', "_"),
-            artifact_path.display()
+            effective.display()
         ));
     }
     if let Some(artifacts) = cas_artifacts_dir {
         compile_cmd
             .arg("-L")
             .arg(format!("dependency={}", artifacts.display()));
+
+        let mut build_dep_names: Vec<String> =
+            pkg_toml.build_dependencies.keys().cloned().collect();
+        for target_spec in pkg_toml.target.values() {
+            for dep in target_spec.build_dependencies.keys() {
+                build_dep_names.push(dep.clone());
+            }
+        }
+        for dep in &build_dep_names {
+            let clean = dep.replace('-', "_");
+            if !extern_crates
+                .iter()
+                .any(|(c, _)| c.replace('-', "_") == clean)
+            {
+                if let Ok(entries) = fs::read_dir(artifacts) {
+                    let prefix = format!("lib{}-", clean);
+                    for entry in entries.flatten() {
+                        let fname = entry.file_name();
+                        let fstr = fname.to_string_lossy();
+                        if fstr.starts_with(&prefix) && fstr.ends_with(".rlib") {
+                            compile_cmd.arg("--extern").arg(format!(
+                                "{}={}",
+                                clean,
+                                entry.path().display()
+                            ));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     let compile_status = compile_cmd.output().context("Failed to compile build.rs")?;
@@ -328,6 +336,13 @@ pub fn execute_build_script(
             &directives.envs,
         );
         let entry_dir = script_cas_dir.join(&exec_key);
+        let cas_out = entry_dir.join("out");
+        directives.out_dir = Some(cas_out.clone());
+        for search in &mut directives.link_searches {
+            if *search == out_dir.to_string_lossy() {
+                *search = cas_out.to_string_lossy().to_string();
+            }
+        }
 
         if !entry_dir.exists() {
             let _ = fs::create_dir_all(&script_cas_dir);

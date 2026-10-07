@@ -13,6 +13,18 @@ use std::process::Command;
 
 /// Resolves standard LLVM tools (llvm-profdata, llvm-cov) from the rustlib sysroot or PATH.
 pub fn resolve_llvm_tool(tool_name: &str) -> Option<PathBuf> {
+    let env_var = match tool_name {
+        "llvm-profdata" => "MITTS_LLVM_PROFDATA",
+        "llvm-cov" => "MITTS_LLVM_COV",
+        _ => "",
+    };
+    if !env_var.is_empty() {
+        if let Ok(val) = std::env::var(env_var) {
+            if !val.is_empty() {
+                return Some(PathBuf::from(val));
+            }
+        }
+    }
     if let Ok(output) = Command::new("rustc").arg("--print").arg("sysroot").output() {
         if output.status.success() {
             let sysroot = String::from_utf8_lossy(&output.stdout).trim().to_string();
