@@ -412,3 +412,125 @@ fn main() {
     let content = fs::read_to_string(&restored_file).unwrap();
     assert_eq!(content, "pub const MAGIC_NUMBER: u32 = 42;");
 }
+
+#[test]
+fn test_build_script_same_mtime_different_content_invalidation() {
+    let temp = TempDir::new().unwrap();
+    let artifacts_dir = temp.path().join("cas_artifacts");
+    fs::create_dir_all(&artifacts_dir).unwrap();
+
+    let fixed_time =
+        std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+
+    // Package copy A
+    let pkg_a = temp.path().join("pkg_a");
+    let staging_a = temp.path().join("staging_a");
+    fs::create_dir_all(&pkg_a).unwrap();
+    fs::create_dir_all(&staging_a).unwrap();
+
+    let build_rs_code = r#"
+use std::fs;
+use std::env;
+use std::path::Path;
+
+fn main() {
+    println!("cargo:rerun-if-changed=tracked.txt");
+    let content = fs::read_to_string("tracked.txt").unwrap_or_default();
+    let out_dir = env::var("OUT_DIR").unwrap();
+    fs::write(Path::new(&out_dir).join("generated.rs"), format!("pub const VAL: &str = {:?};", content.trim())).unwrap();
+}
+"#;
+    fs::write(pkg_a.join("build.rs"), build_rs_code).unwrap();
+    fs::write(
+        pkg_a.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let tracked_a = pkg_a.join("tracked.txt");
+    fs::write(&tracked_a, "alpha_content").unwrap();
+    let f_a = fs::File::options().write(true).open(&tracked_a).unwrap();
+    f_a.set_times(std::fs::FileTimes::new().set_modified(fixed_time))
+        .unwrap();
+
+    let unit_a = PlannedCompilationUnit {
+        package_id: "demo@1.0.0".to_string(),
+        package_name: "demo".to_string(),
+        version: "1.0.0".to_string(),
+        target_name: "demo".to_string(),
+        kind: "lib".to_string(),
+        src_path: pkg_a.join("src/lib.rs"),
+        manifest_path: pkg_a.join("Cargo.toml"),
+        dependencies: Vec::new(),
+        edition: Some("2021".to_string()),
+        is_workspace: false,
+        cache_eligibility: "cacheable".to_string(),
+        env_vars: Vec::new(),
+        features: Vec::new(),
+    };
+
+    // First execution publishes with "alpha_content"
+    let _d1 = execute_build_script(
+        &unit_a,
+        &staging_a,
+        false,
+        &[],
+        Some(&artifacts_dir),
+        &[],
+        None,
+    )
+    .unwrap();
+    let gen_a = fs::read_to_string(staging_a.join("out/generated.rs")).unwrap();
+    assert!(gen_a.contains("alpha_content"));
+
+    // Package copy B (same name, version, edition, build.rs, and EXACT same mtime on tracked.txt, but DIFFERENT content)
+    let pkg_b = temp.path().join("pkg_b");
+    let staging_b = temp.path().join("staging_b");
+    fs::create_dir_all(&pkg_b).unwrap();
+    fs::create_dir_all(&staging_b).unwrap();
+
+    fs::write(pkg_b.join("build.rs"), build_rs_code).unwrap();
+    fs::write(
+        pkg_b.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let tracked_b = pkg_b.join("tracked.txt");
+    fs::write(&tracked_b, "beta_content").unwrap();
+    let f_b = fs::File::options().write(true).open(&tracked_b).unwrap();
+    f_b.set_times(std::fs::FileTimes::new().set_modified(fixed_time))
+        .unwrap();
+
+    let unit_b = PlannedCompilationUnit {
+        package_id: "demo@1.0.0".to_string(),
+        package_name: "demo".to_string(),
+        version: "1.0.0".to_string(),
+        target_name: "demo".to_string(),
+        kind: "lib".to_string(),
+        src_path: pkg_b.join("src/lib.rs"),
+        manifest_path: pkg_b.join("Cargo.toml"),
+        dependencies: Vec::new(),
+        edition: Some("2021".to_string()),
+        is_workspace: false,
+        cache_eligibility: "cacheable".to_string(),
+        env_vars: Vec::new(),
+        features: Vec::new(),
+    };
+
+    // Second execution with same mtime must detect different content hash and rerun
+    let _d2 = execute_build_script(
+        &unit_b,
+        &staging_b,
+        false,
+        &[],
+        Some(&artifacts_dir),
+        &[],
+        None,
+    )
+    .unwrap();
+    let gen_b = fs::read_to_string(staging_b.join("out/generated.rs")).unwrap();
+    assert!(
+        gen_b.contains("beta_content"),
+        "Must invalidate based on content hash, not mtime! Got: {}",
+        gen_b
+    );
+}

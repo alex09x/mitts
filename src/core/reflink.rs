@@ -124,3 +124,24 @@ pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
 
     Ok(())
 }
+
+/// Recursively copies or reflinks an entire directory tree from `src` to `dst`.
+pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    if !src.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(dst)
+        .with_context(|| format!("Failed to create destination dir: {:?}", dst))?;
+    for entry in fs::read_dir(src).with_context(|| format!("Failed to read dir: {:?}", src))? {
+        let entry = entry?;
+        let entry_path = entry.path();
+        let target_path = dst.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            reflink_or_copy_dir_recursive(&entry_path, &target_path)?;
+        } else if file_type.is_file() {
+            reflink_or_copy(&entry_path, &target_path, false)?;
+        }
+    }
+    Ok(())
+}

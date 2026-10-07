@@ -8,9 +8,15 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use crate::adapter::rust::inputs::hash_package_base_inputs;
+use crate::adapter::rust::types::PlannedCompilationUnit;
+use crate::core::hash::{bytes_to_hex, Sha256};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Output captured from running a `build.rs` build script.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -26,6 +32,8 @@ pub struct BuildScriptDirectives {
     pub links: Option<String>,
     #[serde(default)]
     pub rerun_if_changed: Vec<String>,
+    #[serde(default)]
+    pub rerun_if_changed_hashes: HashMap<String, String>,
     #[serde(default)]
     pub rerun_if_env_changed: Vec<String>,
 }
@@ -145,4 +153,83 @@ pub fn get_target_cfgs(target: &str) -> HashMap<String, String> {
     } else {
         HashMap::new()
     }
+}
+
+static RUSTC_VERBOSE_VERSION: OnceLock<String> = OnceLock::new();
+
+pub fn get_rustc_verbose_version() -> &'static str {
+    RUSTC_VERBOSE_VERSION.get_or_init(|| {
+        let cmd = std::process::Command::new("rustc").arg("-vV").output();
+        if let Ok(out) = cmd {
+            if out.status.success() {
+                return String::from_utf8_lossy(&out.stdout).trim().to_string();
+            }
+        }
+        "unknown_rustc".to_string()
+    })
+}
+
+pub fn compute_build_script_key(
+    unit: &PlannedCompilationUnit,
+    build_rs: &Path,
+    release: bool,
+    features: &[String],
+    target: &str,
+    extra_env: Option<&HashMap<String, String>>,
+    extern_crates: &[(String, PathBuf)],
+) -> Result<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"build_script_v3:");
+    hasher.update(unit.package_name.as_bytes());
+    hasher.update(b":");
+    hasher.update(unit.version.as_bytes());
+    hasher.update(b":");
+    hasher.update(unit.edition.as_deref().unwrap_or("2015").as_bytes());
+    hasher.update(b":");
+    if let Ok(script_bytes) = fs::read(build_rs) {
+        hasher.update(&script_bytes);
+    }
+    hasher.update(if release { b":release:" } else { b":dev:" });
+    hasher.update(target.as_bytes());
+    hasher.update(b":rustc:");
+    hasher.update(get_rustc_verbose_version().as_bytes());
+
+    for (crate_name, artifact_path) in extern_crates {
+        hasher.update(b":build_dep:");
+        hasher.update(crate_name.as_bytes());
+        hasher.update(b"=");
+        if let Ok(digest) = Sha256::digest_file(artifact_path) {
+            hasher.update(digest.as_bytes());
+        } else if let Ok(meta) = fs::metadata(artifact_path) {
+            hasher.update(&meta.len().to_le_bytes());
+        }
+    }
+
+    for f in features {
+        hasher.update(b":feat:");
+        hasher.update(f.as_bytes());
+    }
+    if let Some(env) = extra_env {
+        let mut sorted: Vec<_> = env.iter().collect();
+        sorted.sort_by_key(|(k, _)| *k);
+        for (k, v) in sorted {
+            hasher.update(b":env:");
+            hasher.update(k.as_bytes());
+            hasher.update(b"=");
+            hasher.update(v.as_bytes());
+        }
+    }
+    if unit.is_workspace {
+        if let Some(pkg_dir) = build_rs.parent() {
+            if let Ok(base_inputs) = hash_package_base_inputs(pkg_dir, None, true) {
+                for (path, digest) in base_inputs {
+                    hasher.update(b":ws_input:");
+                    hasher.update(path.as_bytes());
+                    hasher.update(b"=");
+                    hasher.update(digest.as_bytes());
+                }
+            }
+        }
+    }
+    Ok(bytes_to_hex(&hasher.finalize()))
 }

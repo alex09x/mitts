@@ -8,10 +8,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use anyhow::{Context, Result};
-use std::fs::File;
+use anyhow::{bail, Context, Result};
+use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Standard SHA-256 round constants (first 32 bits of the fractional parts
 /// of the cube roots of the first 64 prime numbers).
@@ -242,6 +242,52 @@ impl Sha256 {
         let file = File::open(path)
             .with_context(|| format!("Failed to open file for hashing: {:?}", path))?;
         Self::digest_reader(file)
+    }
+
+    /// Computes the hex-encoded SHA-256 digest of a file or directory on disk.
+    /// If the path is a directory, recursively walks and hashes all entries deterministically.
+    pub fn digest_path_recursive(path: &Path) -> Result<String> {
+        if !path.exists() {
+            bail!("Path does not exist: {:?}", path);
+        }
+        if path.is_file() {
+            return Self::digest_file(path);
+        }
+        let mut entries = Vec::new();
+        fn collect_entries(
+            base: &Path,
+            current: &Path,
+            list: &mut Vec<(String, PathBuf)>,
+        ) -> Result<()> {
+            for entry in fs::read_dir(current)
+                .with_context(|| format!("Failed to read dir {:?}", current))?
+            {
+                let entry = entry?;
+                let p = entry.path();
+                if p.is_dir() {
+                    collect_entries(base, &p, list)?;
+                } else if p.is_file() {
+                    let rel = p
+                        .strip_prefix(base)
+                        .unwrap_or(&p)
+                        .to_string_lossy()
+                        .to_string();
+                    list.push((rel, p));
+                }
+            }
+            Ok(())
+        }
+        collect_entries(path, path, &mut entries)?;
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut hasher = Self::new();
+        for (rel_path, file_path) in entries {
+            hasher.update(rel_path.as_bytes());
+            hasher.update(b":");
+            let file_digest = Self::digest_file(&file_path)?;
+            hasher.update(file_digest.as_bytes());
+            hasher.update(b";");
+        }
+        Ok(bytes_to_hex(&hasher.finalize()))
     }
 }
 

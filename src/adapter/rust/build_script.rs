@@ -10,70 +10,17 @@
 
 use crate::adapter::rust::manifest::{CargoToml, TomlBuild};
 use crate::adapter::rust::types::PlannedCompilationUnit;
-use crate::core::hash::{bytes_to_hex, Sha256};
-use crate::core::reflink::reflink_or_copy;
+use crate::core::hash::Sha256;
+use crate::core::reflink::reflink_or_copy_dir_recursive;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub use super::build_script_directives::{get_target_cfgs, BuildScriptDirectives};
-
-fn compute_build_script_key(
-    unit: &PlannedCompilationUnit,
-    build_rs: &Path,
-    release: bool,
-    features: &[String],
-    target: &str,
-    extra_env: Option<&HashMap<String, String>>,
-) -> Result<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v2:");
-    hasher.update(unit.package_name.as_bytes());
-    hasher.update(b":");
-    hasher.update(unit.version.as_bytes());
-    hasher.update(b":");
-    hasher.update(unit.edition.as_deref().unwrap_or("2015").as_bytes());
-    hasher.update(b":");
-    if let Ok(script_bytes) = fs::read(build_rs) {
-        hasher.update(&script_bytes);
-    }
-    hasher.update(if release { b":release:" } else { b":dev:" });
-    hasher.update(target.as_bytes());
-    for f in features {
-        hasher.update(b":feat:");
-        hasher.update(f.as_bytes());
-    }
-    if let Some(env) = extra_env {
-        let mut sorted: Vec<_> = env.iter().collect();
-        sorted.sort_by_key(|(k, _)| *k);
-        for (k, v) in sorted {
-            hasher.update(b":env:");
-            hasher.update(k.as_bytes());
-            hasher.update(b"=");
-            hasher.update(v.as_bytes());
-        }
-    }
-    if unit.is_workspace {
-        if let Some(pkg_dir) = build_rs.parent() {
-            if let Ok(entries) = fs::read_dir(pkg_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Ok(meta) = entry.metadata() {
-                            if let Ok(mtime) = meta.modified() {
-                                let dur = mtime.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                                hasher.update(dur.as_nanos().to_le_bytes().as_ref());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(bytes_to_hex(&hasher.finalize()))
-}
+pub use super::build_script_directives::{
+    compute_build_script_key, get_target_cfgs, BuildScriptDirectives,
+};
 
 /// Executes a crate's `build.rs` build script in an isolated sandbox with CAS caching.
 pub fn execute_build_script(
@@ -129,7 +76,15 @@ pub fn execute_build_script(
     let out_dir = staging_dir.join("out");
     fs::create_dir_all(&out_dir)?;
 
-    let build_key = compute_build_script_key(unit, &build_rs, release, features, &target, extra_env)?;
+    let build_key = compute_build_script_key(
+        unit,
+        &build_rs,
+        release,
+        features,
+        &target,
+        extra_env,
+        extern_crates,
+    )?;
 
     // 1. Check CAS execution cache
     if let Some(artifacts_dir) = cas_artifacts_dir {
@@ -150,38 +105,44 @@ pub fn execute_build_script(
                             break;
                         }
                     }
-                    // Check rerun-if-changed files
-                    if is_fresh && !directives.rerun_if_changed.is_empty() {
-                        let meta_mtime = fs::metadata(&meta_file).and_then(|m| m.modified()).ok();
-                        for file_rel in &directives.rerun_if_changed {
-                            let fpath = pkg_dir.join(file_rel);
+                    // Check rerun-if-changed files via content hash (never mtimes)
+                    if is_fresh && !directives.rerun_if_changed_hashes.is_empty() {
+                        for (file_rel, expected_hash) in &directives.rerun_if_changed_hashes {
+                            let fpath = if Path::new(file_rel).is_absolute() {
+                                PathBuf::from(file_rel)
+                            } else {
+                                pkg_dir.join(file_rel)
+                            };
                             if !fpath.exists() {
                                 is_fresh = false;
                                 break;
                             }
-                            if let (Some(m_meta), Ok(m_file)) = (meta_mtime, fs::metadata(&fpath).and_then(|m| m.modified())) {
-                                if m_file > m_meta {
+                            if let Ok(cur_hash) = Sha256::digest_path_recursive(&fpath) {
+                                if cur_hash != *expected_hash {
                                     is_fresh = false;
                                     break;
                                 }
+                            } else {
+                                is_fresh = false;
+                                break;
                             }
                         }
+                    } else if is_fresh && !directives.rerun_if_changed.is_empty() {
+                        is_fresh = false;
                     }
 
                     if is_fresh {
-                        // Restore generated artifacts from CAS into staging out_dir
-                        if cached_out_dir.is_dir() {
-                            if let Ok(entries) = fs::read_dir(&cached_out_dir) {
-                                for entry in entries.flatten() {
-                                    let src = entry.path();
-                                    let dst = out_dir.join(entry.file_name());
-                                    let _ = reflink_or_copy(&src, &dst, false);
-                                }
-                            }
+                        let mut restore_ok = true;
+                        if cached_out_dir.is_dir()
+                            && reflink_or_copy_dir_recursive(&cached_out_dir, &out_dir).is_err()
+                        {
+                            restore_ok = false;
                         }
-                        directives.out_dir = Some(out_dir);
-                        directives.links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
-                        return Ok(directives);
+                        if restore_ok {
+                            directives.out_dir = Some(out_dir);
+                            directives.links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
+                            return Ok(directives);
+                        }
                     }
                 }
             }
@@ -319,25 +280,45 @@ pub fn execute_build_script(
         }
     }
 
-    // Publish to CAS metadata and output directory
+    // Record tracked file hashes for rerun-if-changed via content hash
+    for file_rel in &directives.rerun_if_changed {
+        let fpath = if Path::new(file_rel).is_absolute() {
+            PathBuf::from(file_rel)
+        } else {
+            pkg_dir.join(file_rel)
+        };
+        if let Ok(hash) = Sha256::digest_path_recursive(&fpath) {
+            directives
+                .rerun_if_changed_hashes
+                .insert(file_rel.clone(), hash);
+        }
+    }
+
+    // Publish to CAS metadata and output directory atomically
     if let Some(artifacts_dir) = cas_artifacts_dir {
         let cas_root = artifacts_dir.parent().unwrap_or(artifacts_dir);
+        let cached_out_dir = artifacts_dir.join(format!("out_{}", build_key));
+
+        if out_dir.is_dir() {
+            let pid = std::process::id();
+            let tmp_out_dir = artifacts_dir.join(format!(".out_{}.tmp.{}", build_key, pid));
+            let _ = fs::remove_dir_all(&tmp_out_dir);
+            if reflink_or_copy_dir_recursive(&out_dir, &tmp_out_dir).is_ok()
+                && fs::rename(&tmp_out_dir, &cached_out_dir).is_err()
+            {
+                let _ = fs::remove_dir_all(&tmp_out_dir);
+            }
+        }
+
+        // Publish metadata LAST via atomic rename so concurrent readers never observe partial OUT_DIR
         let meta_dir = cas_root.join("metadata");
         let _ = fs::create_dir_all(&meta_dir);
         let meta_file = meta_dir.join(format!("build_{}.toml", build_key));
         if let Ok(toml_str) = toml::to_string(&directives) {
-            let _ = fs::write(&meta_file, toml_str);
-        }
-        let cached_out_dir = artifacts_dir.join(format!("out_{}", build_key));
-        if let Ok(entries) = fs::read_dir(&out_dir) {
-            let entries_vec: Vec<_> = entries.flatten().collect();
-            if !entries_vec.is_empty() {
-                let _ = fs::create_dir_all(&cached_out_dir);
-                for entry in entries_vec {
-                    let src = entry.path();
-                    let dst = cached_out_dir.join(entry.file_name());
-                    let _ = reflink_or_copy(&src, &dst, false);
-                }
+            let pid = std::process::id();
+            let tmp_meta_file = meta_dir.join(format!(".build_{}.tmp.{}.toml", build_key, pid));
+            if fs::write(&tmp_meta_file, toml_str).is_ok() {
+                let _ = fs::rename(&tmp_meta_file, &meta_file);
             }
         }
     }
