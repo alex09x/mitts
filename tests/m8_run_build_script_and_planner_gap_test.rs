@@ -87,6 +87,11 @@ fn main() {
 "#,
     )
     .unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"bs_fail\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
 
     let unit = PlannedCompilationUnit {
         package_id: "bs_fail".to_string(),

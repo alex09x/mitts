@@ -15,7 +15,9 @@ use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-pub use crate::adapter::rust::target_filter::is_target_incompatible_with_host;
+pub use crate::adapter::rust::target_filter::{
+    is_target_cfg_incompatible_with_host, is_target_incompatible_with_host,
+};
 
 /// Selects root packages and performs graph traversal to collect all reachable packages.
 pub fn select_transitive_packages<'a>(
@@ -39,7 +41,7 @@ pub fn select_transitive_packages<'a>(
         if let Some(pkgs) = packages_by_name.get(target_pkg) {
             root_pkgs.extend(pkgs);
         } else {
-            bail!("Package '{}' not found in workspace lockfile", target_pkg);
+            bail!("Package '{target_pkg}' not found in workspace lockfile");
         }
     } else {
         let default_members = root_toml
@@ -70,6 +72,20 @@ pub fn select_transitive_packages<'a>(
                             }
                         }
                     }
+                }
+            }
+        } else if let Some(ref root_pkg) = root_toml.package {
+            let root_name = &root_pkg.name;
+            let root_ver = root_pkg.version.as_deref();
+            if let Some(pkgs) = packages_by_name.get(root_name) {
+                if let Some(ver) = root_ver {
+                    if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
+                        root_pkgs.push(matching);
+                    } else if let Some(first) = pkgs.first() {
+                        root_pkgs.push(first);
+                    }
+                } else if let Some(first) = pkgs.first() {
+                    root_pkgs.push(first);
                 }
             }
         }
@@ -107,7 +123,8 @@ pub fn select_transitive_packages<'a>(
             let is_ws = workspace_manifests.get(&pkg.name).is_some_and(|(_, toml)| {
                 toml.package
                     .as_ref()
-                    .is_some_and(|p| p.version.as_deref() == Some(&pkg.version))
+                    .and_then(|p| p.version.as_deref())
+                    .is_none_or(|v| v == pkg.version)
             });
             selected_packages.push((pkg, is_ws));
 
@@ -118,7 +135,11 @@ pub fn select_transitive_packages<'a>(
                     continue;
                 }
                 if let Some((_, ws_toml)) = workspace_manifests.get(&pkg.name) {
-                    if !is_declared_dependency(ws_toml, dep_name, is_test) {
+                    let has_manifest_deps = !ws_toml.dependencies.is_empty()
+                        || !ws_toml.build_dependencies.is_empty()
+                        || !ws_toml.target.is_empty()
+                        || (is_test && !ws_toml.dev_dependencies.is_empty());
+                    if has_manifest_deps && !is_declared_dependency(ws_toml, dep_name, is_test) {
                         continue;
                     }
                 }
@@ -216,7 +237,10 @@ pub fn has_active_dependency(
         }
     }
 
-    for target in pkg_toml.target.values() {
+    for (target_spec, target) in &pkg_toml.target {
+        if is_target_cfg_incompatible_with_host(target_spec) {
+            continue;
+        }
         for (alias, d) in &target.dependencies {
             if check_dep(alias, d) {
                 return true;
@@ -271,7 +295,10 @@ pub fn is_declared_dependency(
         }
     }
 
-    for target in pkg_toml.target.values() {
+    for (target_spec, target) in &pkg_toml.target {
+        if is_target_cfg_incompatible_with_host(target_spec) {
+            continue;
+        }
         for (alias, d) in &target.dependencies {
             if check_dep(alias, d) {
                 return true;
@@ -294,3 +321,35 @@ pub fn is_declared_dependency(
 
     false
 }
+
+/// Prunes compilation units that are not reachable from root targets.
+pub fn prune_unreachable_units(
+    units: &mut Vec<crate::adapter::rust::types::PlannedCompilationUnit>,
+    root_unit_ids: &[String],
+) {
+    if root_unit_ids.is_empty() {
+        return;
+    }
+    let mut reachable = HashSet::new();
+    let mut to_visit = Vec::from(root_unit_ids);
+    let mut deps_by_unit = HashMap::new();
+
+    for unit in units.iter() {
+        deps_by_unit.insert(unit.unit_id(), unit.dependencies.clone());
+    }
+
+    while let Some(uid) = to_visit.pop() {
+        if reachable.insert(uid.clone()) {
+            if let Some(deps) = deps_by_unit.get(&uid) {
+                for dep in deps {
+                    if !reachable.contains(dep) {
+                        to_visit.push(dep.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    units.retain(|u| reachable.contains(&u.unit_id()));
+}
+

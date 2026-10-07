@@ -135,10 +135,8 @@ pub fn resolve_package_features(
                             } else if sub.starts_with("dep:") {
                                 // Optional dependency activated as a feature
                                 continue;
-                            } else {
-                                if requested.entry(id.clone()).or_default().insert(sub.clone()) {
-                                    changed = true;
-                                }
+                            } else if requested.entry(id.clone()).or_default().insert(sub.clone()) {
+                                changed = true;
                             }
                         }
                     }
@@ -166,11 +164,19 @@ pub fn resolve_package_features(
                 .get(&f)
                 .or_else(|| ctx.toml.build_dependencies.get(&f))
                 .or_else(|| {
-                    ctx.toml.target.values().find_map(|t| {
-                        t.dependencies
-                            .get(&f)
-                            .or_else(|| t.build_dependencies.get(&f))
-                    })
+                    ctx.toml
+                        .target
+                        .iter()
+                        .filter(|(spec, _)| {
+                            !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(
+                                spec,
+                            )
+                        })
+                        .find_map(|(_, t)| {
+                            t.dependencies
+                                .get(&f)
+                                .or_else(|| t.build_dependencies.get(&f))
+                        })
                 });
             let is_explicit_feature = ctx.toml.features.contains_key(&f);
             let is_inactive_optional = if is_explicit_feature {
@@ -213,8 +219,11 @@ fn collect_dependency_features(
     let target_deps = ctx
         .toml
         .target
-        .values()
-        .flat_map(|t| t.dependencies.iter().chain(&t.build_dependencies));
+        .iter()
+        .filter(|(spec, _)| {
+            !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec)
+        })
+        .flat_map(|(_, t)| t.dependencies.iter().chain(&t.build_dependencies));
 
     for (dep_key, dep) in ctx
         .toml

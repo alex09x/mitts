@@ -146,3 +146,60 @@ fn test_m8_cache_gc_pruning() {
     let report2 = gc.prune(&opts_age).expect("run gc age");
     assert_eq!(report2.objects_pruned, 0);
 }
+
+#[test]
+fn test_m8_package_selection_target_cfg_filtering_and_pruning() {
+    use mitts::adapter::rust::package_selection::{
+        is_target_cfg_incompatible_with_host, prune_unreachable_units,
+    };
+    use mitts::adapter::rust::types::PlannedCompilationUnit;
+
+    // 1. Incompatible target cfg detection
+    #[cfg(not(target_env = "musl"))]
+    assert!(is_target_cfg_incompatible_with_host(
+        "cfg(all(target_env = \"musl\", target_pointer_width = \"64\"))"
+    ));
+
+    #[cfg(not(target_os = "windows"))]
+    assert!(is_target_cfg_incompatible_with_host("cfg(windows)"));
+
+    #[cfg(unix)]
+    assert!(!is_target_cfg_incompatible_with_host("cfg(unix)"));
+
+    // 2. Unreachable unit pruning
+    let make_unit = |name: &str, kind: &str, deps: Vec<&str>| PlannedCompilationUnit {
+        package_id: format!("{}@0.1.0", name),
+        package_name: name.to_string(),
+        version: "0.1.0".to_string(),
+        target_name: name.to_string(),
+        kind: kind.to_string(),
+        src_path: PathBuf::from("src/lib.rs"),
+        manifest_path: PathBuf::from("Cargo.toml"),
+        cache_eligibility: "test".to_string(),
+        is_workspace: true,
+        env_vars: Vec::new(),
+        dependencies: deps
+            .into_iter()
+            .map(|d| format!("{}@0.1.0::lib:{}", d, d))
+            .collect(),
+        edition: Some("2021".to_string()),
+        features: Vec::new(),
+    };
+
+    let u1 = make_unit("rg", "bin", vec!["grep"]);
+    let u2 = make_unit("grep", "lib", vec!["grep_matcher"]);
+    let u3 = make_unit("grep_matcher", "lib", vec![]);
+    let u4_orphan = make_unit("pcre2_sys", "lib", vec![]);
+
+    let mut units = vec![u1.clone(), u2.clone(), u3.clone(), u4_orphan];
+    let root_ids = vec![u1.unit_id()];
+
+    prune_unreachable_units(&mut units, &root_ids);
+
+    assert_eq!(units.len(), 3);
+    assert!(units.iter().any(|u| u.package_name == "rg"));
+    assert!(units.iter().any(|u| u.package_name == "grep"));
+    assert!(units.iter().any(|u| u.package_name == "grep_matcher"));
+    assert!(!units.iter().any(|u| u.package_name == "pcre2_sys"));
+}
+

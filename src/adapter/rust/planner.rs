@@ -13,7 +13,9 @@ use super::features::{resolve_package_features, PackageFeatureContext};
 use super::fetcher::{CrateFetcher, FetchOptions};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::CargoToml;
-use super::package_selection::{parse_dep_spec, select_transitive_packages};
+use super::package_selection::{
+    parse_dep_spec, prune_unreachable_units, select_transitive_packages,
+};
 use super::source_lookup::find_crate_source_dir;
 use super::types::{
     EffectivePlanExplanation, EnvMacroDiscovery, PlannedCompilationUnit, RustBuildOptions,
@@ -32,7 +34,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
 
     let root_toml = CargoToml::from_file(&manifest_path)
-        .with_context(|| format!("Failed to parse root manifest at {:?}", manifest_path))?;
+        .with_context(|| format!("Failed to parse root manifest at {manifest_path:?}"))?;
 
     let members = root_toml.discover_workspace_members(project_dir);
     let mut workspace_manifests: HashMap<String, (PathBuf, CargoToml)> = HashMap::new();
@@ -358,6 +360,27 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         unit_deps.dedup();
         unit.dependencies = unit_deps;
     }
+
+    // Prune compilation units not reachable from active root targets
+    let target_pkg = opt.package.as_deref();
+    let has_all_ws = opt.extra_args.iter().any(|a| a == "--workspace" || a == "--all");
+    let mut root_unit_ids = Vec::new();
+    for u in &units {
+        let is_root_pkg = target_pkg == Some(&u.package_name)
+            || (target_pkg.is_none()
+                && root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(&u.package_name));
+        if (opt.mode == crate::adapter::rust::types::BuildMode::Test && u.kind == "test")
+            || u.kind == "bin"
+            || (is_root_pkg && (u.kind == "lib" || u.kind == "proc-macro"))
+            || (has_all_ws && u.is_workspace)
+        {
+            root_unit_ids.push(u.unit_id());
+        }
+    }
+    if root_unit_ids.is_empty() {
+        root_unit_ids.extend(units.iter().filter(|u| u.is_workspace).map(|u| u.unit_id()));
+    }
+    prune_unreachable_units(&mut units, &root_unit_ids);
 
     let profile = if opt.release {
         "release".to_string()
