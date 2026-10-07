@@ -38,13 +38,8 @@ fn test_m8_package_selection_target_not_found() {
         ..RustBuildOptions::default()
     };
 
-    let res = select_transitive_packages(
-        &lockfile,
-        &manifests,
-        &root_toml,
-        &PathBuf::from("."),
-        &opt,
-    );
+    let res =
+        select_transitive_packages(&lockfile, &manifests, &root_toml, &PathBuf::from("."), &opt);
     assert!(res.is_err(), "Non-existent package must return error");
     let err_str = res.unwrap_err().to_string();
     assert!(err_str.contains("Package 'non-existent-crate' not found"));
@@ -80,7 +75,10 @@ fn test_m8_package_selection_transitive_graph() {
     };
 
     let mut manifests = HashMap::new();
-    manifests.insert("crate-a".to_string(), (PathBuf::from("crates/a"), CargoToml::default()));
+    manifests.insert(
+        "crate-a".to_string(),
+        (PathBuf::from("crates/a"), CargoToml::default()),
+    );
 
     let root_toml = CargoToml::default();
     let opt = RustBuildOptions {
@@ -88,13 +86,9 @@ fn test_m8_package_selection_transitive_graph() {
         ..RustBuildOptions::default()
     };
 
-    let selected = select_transitive_packages(
-        &lockfile,
-        &manifests,
-        &root_toml,
-        &PathBuf::from("."),
-        &opt,
-    ).expect("select transitive");
+    let selected =
+        select_transitive_packages(&lockfile, &manifests, &root_toml, &PathBuf::from("."), &opt)
+            .expect("select transitive");
 
     let names: Vec<&str> = selected.iter().map(|(p, _)| p.name.as_str()).collect();
     assert!(names.contains(&"crate-a"));
@@ -166,6 +160,16 @@ fn test_m8_package_selection_target_cfg_filtering_and_pruning() {
     #[cfg(unix)]
     assert!(!is_target_cfg_incompatible_with_host("cfg(unix)"));
 
+    #[cfg(unix)]
+    assert!(!is_target_cfg_incompatible_with_host(
+        "cfg(not(all(windows, target_env = \"msvc\", not(target_vendor = \"uwp\"))))"
+    ));
+
+    #[cfg(not(target_os = "windows"))]
+    assert!(is_target_cfg_incompatible_with_host(
+        "cfg(any(windows, target_os = \"cygwin\"))"
+    ));
+
     // 2. Unreachable unit pruning
     let make_unit = |name: &str, kind: &str, deps: Vec<&str>| PlannedCompilationUnit {
         package_id: format!("{}@0.1.0", name),
@@ -202,4 +206,3 @@ fn test_m8_package_selection_target_cfg_filtering_and_pruning() {
     assert!(units.iter().any(|u| u.package_name == "grep_matcher"));
     assert!(!units.iter().any(|u| u.package_name == "pcre2_sys"));
 }
-
