@@ -36,6 +36,7 @@ fn test_m8_package_selection_default_members_and_incompatible() {
             members: vec!["member_a".to_string()],
             default_members: vec!["member_a".to_string()],
             exclude: Vec::new(),
+            ..Default::default()
         }),
         ..Default::default()
     };

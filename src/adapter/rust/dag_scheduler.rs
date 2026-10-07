@@ -79,6 +79,7 @@ struct QueueState {
     completed_count: usize,
     total_count: usize,
     fatal_error: Option<String>,
+    has_failed: bool,
 }
 
 impl WaveWorkQueue {
@@ -97,17 +98,22 @@ impl WaveWorkQueue {
                 completed_count: 0,
                 total_count,
                 fatal_error: None,
+                has_failed: false,
             }),
             cvar: Condvar::new(),
         }
     }
 
+    fn state_lock(&self) -> std::sync::MutexGuard<'_, QueueState> {
+        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     /// Fetches the next unit to work on. Blocks on condvar if all currently available work is in flight.
     /// Returns `None` when all units are completed or a fatal error occurred.
     pub fn pop_work(&self) -> Option<(String, LockMode)> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state_lock();
         loop {
-            if state.fatal_error.is_some() || state.completed_count >= state.total_count {
+            if state.has_failed || state.fatal_error.is_some() || state.completed_count >= state.total_count {
                 return None;
             }
 
@@ -125,7 +131,7 @@ impl WaveWorkQueue {
 
             // 3. No units available right now, but other local threads are still working
             if state.in_flight > 0 {
-                state = self.cvar.wait(state).unwrap();
+                state = self.cvar.wait(state).unwrap_or_else(|p| p.into_inner());
             } else {
                 return None;
             }
@@ -134,7 +140,7 @@ impl WaveWorkQueue {
 
     /// Marks a unit as successfully completed.
     pub fn mark_completed(&self, _unit_id: &str) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state_lock();
         state.in_flight = state.in_flight.saturating_sub(1);
         state.completed_count += 1;
         self.cvar.notify_all();
@@ -142,7 +148,7 @@ impl WaveWorkQueue {
 
     /// Marks a unit as contested by an external process, deferring it for later retry.
     pub fn mark_contested(&self, unit_id: String) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state_lock();
         state.in_flight = state.in_flight.saturating_sub(1);
         state.contested.push_back(unit_id);
         self.cvar.notify_all();
@@ -150,8 +156,9 @@ impl WaveWorkQueue {
 
     /// Records a fatal compilation error and wakes up all waiting threads to abort.
     pub fn mark_failed(&self, err: String) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state_lock();
         state.in_flight = state.in_flight.saturating_sub(1);
+        state.has_failed = true;
         if state.fatal_error.is_none() {
             state.fatal_error = Some(err);
         }
@@ -160,7 +167,7 @@ impl WaveWorkQueue {
 
     /// Takes the fatal error message if any occurred.
     pub fn take_error(&self) -> Option<String> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state_lock();
         state.fatal_error.take()
     }
 }
@@ -211,6 +218,7 @@ mod tests {
                 completed_count: 0,
                 total_count: 2,
                 fatal_error: None,
+                has_failed: false,
             }),
             cvar: Condvar::new(),
         };
@@ -287,7 +295,7 @@ mod tests {
             let q = Arc::clone(&queue);
             handles.push(thread::spawn(move || {
                 while let Some((id, _)) = q.pop_work() {
-                    if i == 0 && id.ends_with("_5") {
+                    if id == "pkg_5" {
                         q.mark_failed("synthetic rustc failure".to_string());
                         break;
                     }

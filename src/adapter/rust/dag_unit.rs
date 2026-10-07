@@ -43,8 +43,6 @@ pub(crate) fn execute_unit(
         return Ok(UnitExecutionStatus::Success);
     }
 
-    *ctx.any_missed.lock().unwrap() = true;
-
     // 2. Single-flight lock to eliminate duplicate work across processes
     let lock_path = ctx.ac.lock_path(action_key);
     let _lock = match lock_mode {
@@ -59,6 +57,9 @@ pub(crate) fn execute_unit(
     if try_restore_from_cache(unit, action_key, ctx, is_executable)? {
         return Ok(UnitExecutionStatus::Success);
     }
+
+    // Genuinely missed cache and we hold the exclusive compilation lock
+    *ctx.any_missed.lock().unwrap() = true;
 
     if let Some(ref cb) = ctx.opt.progress {
         cb.0(BuildProgressEvent::Compiling(format!(

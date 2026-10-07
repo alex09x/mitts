@@ -103,8 +103,32 @@ pub fn run_native_dag_build(
                         dep_build_metadata: &dep_build_metadata,
                     };
 
+                    struct WorkGuard<'a> {
+                        queue: &'a WaveWorkQueue,
+                        unit_id: String,
+                        resolved: bool,
+                    }
+
+                    impl<'a> Drop for WorkGuard<'a> {
+                        fn drop(&mut self) {
+                            if !self.resolved {
+                                self.queue.mark_failed(format!(
+                                    "Worker thread aborted or panicked while executing unit '{}'",
+                                    self.unit_id
+                                ));
+                            }
+                        }
+                    }
+
                     while let Some((unit_id, lock_mode)) = work_queue.pop_work() {
+                        let mut guard = WorkGuard {
+                            queue: &work_queue,
+                            unit_id: unit_id.clone(),
+                            resolved: false,
+                        };
+
                         let Some(node) = dag.get_node(&unit_id) else {
+                            guard.resolved = true;
                             work_queue.mark_completed(&unit_id);
                             continue;
                         };
@@ -114,15 +138,37 @@ pub fn run_native_dag_build(
                             .cloned()
                             .unwrap_or_else(|| unit_id.clone());
 
-                        match execute_unit(&unit, &action_key, &ctx, lock_mode) {
-                            Ok(UnitExecutionStatus::Success) => {
+                        let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            execute_unit(&unit, &action_key, &ctx, lock_mode)
+                        }));
+
+                        match exec_res {
+                            Ok(Ok(UnitExecutionStatus::Success)) => {
+                                guard.resolved = true;
                                 work_queue.mark_completed(&unit_id);
                             }
-                            Ok(UnitExecutionStatus::Contested) => {
+                            Ok(Ok(UnitExecutionStatus::Contested)) => {
+                                guard.resolved = true;
                                 work_queue.mark_contested(unit_id);
                             }
-                            Err(err) => {
+                            Ok(Err(err)) => {
+                                guard.resolved = true;
                                 work_queue.mark_failed(format!("{:#}", err));
+                                break;
+                            }
+                            Err(panic_err) => {
+                                guard.resolved = true;
+                                let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
+                                    s.to_string()
+                                } else if let Some(s) = panic_err.downcast_ref::<String>() {
+                                    s.clone()
+                                } else {
+                                    "Unknown worker thread panic".to_string()
+                                };
+                                work_queue.mark_failed(format!(
+                                    "Worker thread panicked on unit {}: {}",
+                                    unit_id, msg
+                                ));
                                 break;
                             }
                         }

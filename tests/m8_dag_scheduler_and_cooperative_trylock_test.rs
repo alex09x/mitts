@@ -153,3 +153,80 @@ fn test_swarm_stress_queue_concurrency() {
     assert!(queue.pop_work().is_none());
     assert!(queue.take_error().is_none());
 }
+
+#[test]
+fn test_worker_panic_clean_abort_without_deadlock() {
+    // Verifies that a panic in one worker thread does not leave remaining threads hanging in cvar.wait
+    let items: Vec<String> = (0..20).map(|i| format!("unit_{}", i)).collect();
+    let queue = Arc::new(WaveWorkQueue::new(items));
+
+    struct WorkGuard<'a> {
+        queue: &'a WaveWorkQueue,
+        unit_id: String,
+        resolved: bool,
+    }
+
+    impl<'a> Drop for WorkGuard<'a> {
+        fn drop(&mut self) {
+            if !self.resolved {
+                self.queue.mark_failed(format!(
+                    "Worker panicked while executing unit '{}'",
+                    self.unit_id
+                ));
+            }
+        }
+    }
+
+    let mut handles = Vec::new();
+    for _thread_idx in 0..4 {
+        let q = Arc::clone(&queue);
+        handles.push(thread::spawn(move || {
+            while let Some((unit_id, _lock_mode)) = q.pop_work() {
+                let mut guard = WorkGuard {
+                    queue: &q,
+                    unit_id: unit_id.clone(),
+                    resolved: false,
+                };
+
+                let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if unit_id == "unit_5" {
+                        panic!("Simulated compiler panic on unit_5!");
+                    }
+                }));
+
+                match res {
+                    Ok(()) => {
+                        guard.resolved = true;
+                        q.mark_completed(&unit_id);
+                    }
+                    Err(panic_err) => {
+                        guard.resolved = true;
+                        let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
+                            s.to_string()
+                        } else if let Some(s) = panic_err.downcast_ref::<String>() {
+                            s.clone()
+                        } else {
+                            "unknown panic".to_string()
+                        };
+                        q.mark_failed(format!("Worker thread panicked on unit {}: {}", unit_id, msg));
+                        break;
+                    }
+                }
+            }
+        }));
+    }
+
+    for h in handles {
+        h.join().expect("thread join without unhandled panic");
+    }
+
+    let err = queue.take_error();
+    assert!(err.is_some(), "Expected fatal error to be recorded");
+    assert!(
+        err.unwrap().contains("unit_5"),
+        "Error message should mention panicked unit"
+    );
+    // All work should now return None
+    assert!(queue.pop_work().is_none());
+}
+
