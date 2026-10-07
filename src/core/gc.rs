@@ -268,10 +268,10 @@ impl<'a> CacheGc<'a> {
                                     let gc_temp = base_path.join(format!(".gc.{}.{}", file_name, pid));
                                     if fs::rename(&exec_path, &gc_temp).is_ok() {
                                         let _ = fs::remove_dir_all(&gc_temp);
-                                    } else {
-                                        let _ = fs::remove_dir_all(&exec_path);
+                                        continue;
                                     }
-                                    continue;
+                                    // If rename failed (e.g. concurrent reader/writer race),
+                                    // do not delete in place — preserve entry and retry on next GC pass.
                                 }
                             }
                             remaining_entries += 1;
