@@ -83,6 +83,23 @@ pub fn run_native_dag_build(
     let mut compile_errors: Vec<String> = Vec::new();
     let concurrency = max_concurrency.min(total_units.max(1));
 
+    let cache_root = cas.root().parent().unwrap_or_else(|| cas.root());
+    let _jobserver =
+        crate::core::JobserverPool::acquire_or_create(cache_root, max_concurrency).ok();
+    if let Some(ref js) = _jobserver {
+        if let Some(auth) = js.auth() {
+            let mut existing = std::env::var("CARGO_MAKEFLAGS").unwrap_or_default();
+            if !existing.contains("--jobserver-auth=") {
+                if !existing.is_empty() {
+                    existing.push(' ');
+                }
+                existing.push_str(&format!("--jobserver-auth={}", auth));
+                std::env::set_var("CARGO_MAKEFLAGS", &existing);
+                std::env::set_var("MAKEFLAGS", &existing);
+            }
+        }
+    }
+
     thread::scope(|s| {
         let mut handles = Vec::new();
 

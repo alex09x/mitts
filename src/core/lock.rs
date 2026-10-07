@@ -140,6 +140,21 @@ impl FileLock {
         })
     }
 
+    /// Downgrades an exclusive lock to a shared lock atomically.
+    pub fn downgrade_to_shared(&self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = self.file.as_raw_fd();
+            let res = unsafe { sys::flock(fd, sys::LOCK_SH) };
+            if res != 0 {
+                let err = std::io::Error::last_os_error();
+                anyhow::bail!("Failed to downgrade lock on {:?}: {}", self.path, err);
+            }
+        }
+        Ok(())
+    }
+
     /// Returns the path of the lock file.
     pub fn path(&self) -> &Path {
         &self.path
