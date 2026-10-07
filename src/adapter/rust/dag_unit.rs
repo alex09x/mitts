@@ -125,18 +125,29 @@ pub(crate) fn execute_unit(
                     }
                 }
 
+                let chosen_artifact = if unit.kind != "bin" && unit.kind != "test" {
+                    let rmeta = artifact_path.with_extension("rmeta");
+                    if rmeta.is_file() {
+                        rmeta
+                    } else {
+                        artifact_path.clone()
+                    }
+                } else {
+                    artifact_path.clone()
+                };
+
                 if matched_aliases.is_empty() {
-                    extern_crates.push((dep_crate.to_string(), artifact_path.clone()));
+                    extern_crates.push((dep_crate.to_string(), chosen_artifact.clone()));
                     if dep_crate != norm_pkg {
-                        extern_crates.push((norm_pkg.clone(), artifact_path.clone()));
+                        extern_crates.push((norm_pkg.clone(), chosen_artifact.clone()));
                     }
                 } else {
                     for alias in matched_aliases {
-                        extern_crates.push((alias, artifact_path.clone()));
+                        extern_crates.push((alias, chosen_artifact.clone()));
                     }
-                    extern_crates.push((dep_crate.to_string(), artifact_path.clone()));
+                    extern_crates.push((dep_crate.to_string(), chosen_artifact.clone()));
                     if dep_crate != norm_pkg {
-                        extern_crates.push((norm_pkg.clone(), artifact_path.clone()));
+                        extern_crates.push((norm_pkg.clone(), chosen_artifact));
                     }
                 }
             }
