@@ -83,16 +83,15 @@ struct QueueState {
 }
 
 impl WaveWorkQueue {
-    /// Creates a new queue for a topological wave, randomizing unit order for cross-process concurrency.
-    pub fn new(mut units: Vec<String>) -> Self {
-        let total_count = units.len();
-        if units.len() > 1 {
+    /// Creates a dynamic work queue with initial ready units and total DAG count.
+    pub fn with_total(mut initial_ready: Vec<String>, total_count: usize) -> Self {
+        if initial_ready.len() > 1 {
             let mut rng = FastPrng::from_env();
-            rng.shuffle(&mut units);
+            rng.shuffle(&mut initial_ready);
         }
         Self {
             state: Mutex::new(QueueState {
-                pending: units.into(),
+                pending: initial_ready.into(),
                 contested: VecDeque::new(),
                 in_flight: 0,
                 completed_count: 0,
@@ -101,6 +100,21 @@ impl WaveWorkQueue {
                 has_failed: false,
             }),
             cvar: Condvar::new(),
+        }
+    }
+
+    /// Creates a new queue for a topological wave, randomizing unit order for cross-process concurrency.
+    pub fn new(units: Vec<String>) -> Self {
+        let total_count = units.len();
+        Self::with_total(units, total_count)
+    }
+
+    /// Dynamically pushes a newly unlocked unit whose dependencies are satisfied into the ready queue.
+    pub fn push_ready(&self, unit_id: String) {
+        let mut state = self.state_lock();
+        if !state.has_failed && state.fatal_error.is_none() {
+            state.pending.push_back(unit_id);
+            self.cvar.notify_one();
         }
     }
 

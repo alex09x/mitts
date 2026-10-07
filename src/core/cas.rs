@@ -114,7 +114,7 @@ impl ContentAddressedStore {
             .tmp_dir
             .join(format!("{}.{}.{}.tmp", hash, pid, counter));
 
-        fs::copy(source_path, &tmp_file_path)
+        reflink_or_copy(source_path, &tmp_file_path, false)
             .with_context(|| format!("Failed to stage file to {:?}", tmp_file_path))?;
 
         // Mark read-only in the immutable store

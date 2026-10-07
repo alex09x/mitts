@@ -40,7 +40,7 @@ pub fn run_native_dag_build(
     };
 
     let dag = CompilationDag::from_explanation(explanation)?;
-    let waves = dag.topological_waves()?;
+    let _ = dag.topological_waves()?;
 
     let completed_artifacts: Arc<Mutex<HashMap<String, PathBuf>>> =
         Arc::new(Mutex::new(HashMap::new()));
@@ -66,116 +66,138 @@ pub fn run_native_dag_build(
         .map(|n| n.get())
         .unwrap_or(8);
 
-    for wave in waves {
-        let mut compile_errors: Vec<String> = Vec::new();
-        let concurrency = max_concurrency.min(wave.len());
-        let work_queue = Arc::new(WaveWorkQueue::new(wave));
+    let total_units = dag.len();
+    let initial_leaves = dag.leaf_ids().to_vec();
+    let work_queue = Arc::new(WaveWorkQueue::with_total(initial_leaves, total_units));
 
-        thread::scope(|s| {
-            let mut handles = Vec::new();
+    let in_degrees: Arc<HashMap<String, std::sync::atomic::AtomicUsize>> = Arc::new(
+        dag.node_ids()
+            .into_iter()
+            .map(|id| {
+                let deg = dag.get_node(&id).map(|n| n.dependencies.len()).unwrap_or(0);
+                (id, std::sync::atomic::AtomicUsize::new(deg))
+            })
+            .collect(),
+    );
 
-            for _ in 0..concurrency {
-                let work_queue = Arc::clone(&work_queue);
-                let cas = cas.clone();
-                let ac = ac.clone();
-                let completed_artifacts = Arc::clone(&completed_artifacts);
-                let recorded_actions = Arc::clone(&recorded_actions);
-                let compiler_messages = Arc::clone(&compiler_messages);
-                let any_missed = Arc::clone(&any_missed);
-                let dep_build_metadata = Arc::clone(&dep_build_metadata);
-                let target_dir = target_dir.clone();
-                let toolchain = explanation.toolchain.clone();
-                let opt = opt.clone();
-                let dag = &dag;
+    let mut compile_errors: Vec<String> = Vec::new();
+    let concurrency = max_concurrency.min(total_units.max(1));
 
-                handles.push(s.spawn(move || -> Result<()> {
-                    let ctx = ExecutionContext {
-                        opt: &opt,
-                        toolchain: &toolchain,
-                        target_dir: &target_dir,
-                        cas: &cas,
-                        ac: &ac,
-                        is_cache_enabled,
-                        completed_artifacts: &completed_artifacts,
-                        recorded_actions: &recorded_actions,
-                        compiler_messages: &compiler_messages,
-                        any_missed: &any_missed,
-                        dep_build_metadata: &dep_build_metadata,
+    thread::scope(|s| {
+        let mut handles = Vec::new();
+
+        for _ in 0..concurrency {
+            let work_queue = Arc::clone(&work_queue);
+            let in_degrees = Arc::clone(&in_degrees);
+            let cas = cas.clone();
+            let ac = ac.clone();
+            let completed_artifacts = Arc::clone(&completed_artifacts);
+            let recorded_actions = Arc::clone(&recorded_actions);
+            let compiler_messages = Arc::clone(&compiler_messages);
+            let any_missed = Arc::clone(&any_missed);
+            let dep_build_metadata = Arc::clone(&dep_build_metadata);
+            let target_dir = target_dir.clone();
+            let toolchain = explanation.toolchain.clone();
+            let opt = opt.clone();
+            let dag = &dag;
+
+            handles.push(s.spawn(move || -> Result<()> {
+                let ctx = ExecutionContext {
+                    opt: &opt,
+                    toolchain: &toolchain,
+                    target_dir: &target_dir,
+                    cas: &cas,
+                    ac: &ac,
+                    is_cache_enabled,
+                    completed_artifacts: &completed_artifacts,
+                    recorded_actions: &recorded_actions,
+                    compiler_messages: &compiler_messages,
+                    any_missed: &any_missed,
+                    dep_build_metadata: &dep_build_metadata,
+                };
+
+                struct WorkGuard<'a> {
+                    queue: &'a WaveWorkQueue,
+                    unit_id: String,
+                    resolved: bool,
+                }
+
+                impl<'a> Drop for WorkGuard<'a> {
+                    fn drop(&mut self) {
+                        if !self.resolved {
+                            self.queue.mark_failed(format!(
+                                "Worker thread aborted or panicked while executing unit '{}'",
+                                self.unit_id
+                            ));
+                        }
+                    }
+                }
+
+                while let Some((unit_id, lock_mode)) = work_queue.pop_work() {
+                    let mut guard = WorkGuard {
+                        queue: &work_queue,
+                        unit_id: unit_id.clone(),
+                        resolved: false,
                     };
 
-                    struct WorkGuard<'a> {
-                        queue: &'a WaveWorkQueue,
-                        unit_id: String,
-                        resolved: bool,
-                    }
+                    let Some(node) = dag.get_node(&unit_id) else {
+                        guard.resolved = true;
+                        work_queue.mark_completed(&unit_id);
+                        continue;
+                    };
+                    let unit = node.unit.clone();
+                    let action_key = unit_keys
+                        .get(&unit_id)
+                        .cloned()
+                        .unwrap_or_else(|| unit_id.clone());
 
-                    impl<'a> Drop for WorkGuard<'a> {
-                        fn drop(&mut self) {
-                            if !self.resolved {
-                                self.queue.mark_failed(format!(
-                                    "Worker thread aborted or panicked while executing unit '{}'",
-                                    self.unit_id
-                                ));
-                            }
-                        }
-                    }
+                    let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        execute_unit(&unit, &action_key, &ctx, lock_mode)
+                    }));
 
-                    while let Some((unit_id, lock_mode)) = work_queue.pop_work() {
-                        let mut guard = WorkGuard {
-                            queue: &work_queue,
-                            unit_id: unit_id.clone(),
-                            resolved: false,
-                        };
-
-                        let Some(node) = dag.get_node(&unit_id) else {
+                    match exec_res {
+                        Ok(Ok(UnitExecutionStatus::Success)) => {
                             guard.resolved = true;
+                            if let Some(node) = dag.get_node(&unit_id) {
+                                for dep_id in &node.dependents {
+                                    if let Some(counter) = in_degrees.get(dep_id) {
+                                        if counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                                            work_queue.push_ready(dep_id.clone());
+                                        }
+                                    }
+                                }
+                            }
                             work_queue.mark_completed(&unit_id);
-                            continue;
-                        };
-                        let unit = node.unit.clone();
-                        let action_key = unit_keys
-                            .get(&unit_id)
-                            .cloned()
-                            .unwrap_or_else(|| unit_id.clone());
-
-                        let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            execute_unit(&unit, &action_key, &ctx, lock_mode)
-                        }));
-
-                        match exec_res {
-                            Ok(Ok(UnitExecutionStatus::Success)) => {
-                                guard.resolved = true;
-                                work_queue.mark_completed(&unit_id);
-                            }
-                            Ok(Ok(UnitExecutionStatus::Contested)) => {
-                                guard.resolved = true;
-                                work_queue.mark_contested(unit_id);
-                            }
-                            Ok(Err(err)) => {
-                                guard.resolved = true;
-                                work_queue.mark_failed(format!("{:#}", err));
-                                break;
-                            }
-                            Err(panic_err) => {
-                                guard.resolved = true;
-                                let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
-                                    s.to_string()
-                                } else if let Some(s) = panic_err.downcast_ref::<String>() {
-                                    s.clone()
-                                } else {
-                                    "Unknown worker thread panic".to_string()
-                                };
-                                work_queue.mark_failed(format!(
-                                    "Worker thread panicked on unit {}: {}",
-                                    unit_id, msg
-                                ));
-                                break;
-                            }
+                        }
+                        Ok(Ok(UnitExecutionStatus::Contested)) => {
+                            guard.resolved = true;
+                            work_queue.mark_contested(unit_id);
+                        }
+                        Ok(Err(err)) => {
+                            guard.resolved = true;
+                            work_queue.mark_failed(format!("{:#}", err));
+                            break;
+                        }
+                        Err(panic_err) => {
+                            guard.resolved = true;
+                            let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
+                                s.to_string()
+                            } else if let Some(s) = panic_err.downcast_ref::<String>() {
+                                s.clone()
+                            } else {
+                                "Unknown worker thread panic".to_string()
+                            };
+                            work_queue.mark_failed(format!(
+                                "Worker thread panicked on unit {}: {}",
+                                unit_id, msg
+                            ));
+                            break;
                         }
                     }
-                    Ok(())
-                }));
-            }
+                }
+                Ok(())
+            }));
+        }
 
             for handle in handles {
                 match handle.join() {
@@ -221,7 +243,6 @@ pub fn run_native_dag_build(
                 result,
             ));
         }
-    }
 
     let all_cached = !*any_missed.lock().unwrap();
     let actions = recorded_actions.lock().unwrap().clone();

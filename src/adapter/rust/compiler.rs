@@ -166,6 +166,12 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("-C").arg("opt-level=3");
         } else {
             cmd.arg("-C").arg("debuginfo=2");
+            cmd.arg("-C").arg("embed-bitcode=no");
+            cmd.arg("-C").arg("codegen-units=16");
+        }
+
+        if !self.unit.is_workspace {
+            cmd.arg("--cap-lints").arg("allow");
         }
 
         // Features

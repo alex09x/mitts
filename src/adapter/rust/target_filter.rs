@@ -54,6 +54,8 @@ pub fn is_target_incompatible_with_host(dep_name: &str) -> bool {
                 | "crossterm_winapi"
                 | "anstyle-wincon"
         ) || dep_name.starts_with("windows_")
+            || dep_name.starts_with("windows-")
+            || dep_name.starts_with("winapi")
             || dep_name.starts_with("crossterm_win")
         {
             return true;
