@@ -225,6 +225,39 @@ impl<'a> CacheGc<'a> {
             }
         }
 
+        // 4. Prune build_scripts entries older than max_age
+        if let Some(max_age) = opts.max_age {
+            let build_scripts_dir = self.cas.root().join("build_scripts");
+            if let Ok(base_entries) = fs::read_dir(&build_scripts_dir) {
+                for base_entry in base_entries.flatten() {
+                    let base_path = base_entry.path();
+                    if !base_path.is_dir() {
+                        continue;
+                    }
+                    if let Ok(exec_entries) = fs::read_dir(&base_path) {
+                        let mut remaining_entries = 0;
+                        for exec_entry in exec_entries.flatten() {
+                            let exec_path = exec_entry.path();
+                            if let Ok(meta) = fs::metadata(&exec_path) {
+                                if let Ok(mtime) = meta.modified() {
+                                    if let Ok(age) = now.duration_since(mtime) {
+                                        if age > max_age {
+                                            let _ = fs::remove_dir_all(&exec_path);
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            remaining_entries += 1;
+                        }
+                        if remaining_entries == 0 {
+                            let _ = fs::remove_dir(&base_path);
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(GcReport {
             objects_examined,
             objects_pruned: pruned_hashes.len(),

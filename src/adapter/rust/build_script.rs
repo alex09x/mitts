@@ -170,6 +170,8 @@ pub fn execute_build_script(
                                         .is_err()
                                 {
                                     restore_ok = false;
+                                    let _ = fs::remove_dir_all(&out_dir);
+                                    let _ = fs::create_dir_all(&out_dir);
                                 }
                                 if restore_ok {
                                     directives.out_dir = Some(out_dir);
