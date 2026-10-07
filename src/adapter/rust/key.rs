@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 /// Resolves the effective target triple considering CLI args, Cargo env vars, and toolchain defaults.
-pub(crate) fn resolve_effective_target_triple(
+pub fn resolve_effective_target_triple(
     opt: &RustBuildOptions,
     toolchain: &ToolchainInfo,
 ) -> String {
@@ -48,7 +48,7 @@ pub(crate) fn resolve_effective_target_triple(
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-pub(crate) fn resolve_unit_pkg_dir(unit: &PlannedCompilationUnit) -> PathBuf {
+pub fn resolve_unit_pkg_dir(unit: &PlannedCompilationUnit) -> PathBuf {
     if unit.manifest_path.is_file() {
         unit.manifest_path.parent().unwrap().to_path_buf()
     } else {
@@ -70,14 +70,16 @@ pub(crate) fn resolve_unit_pkg_dir(unit: &PlannedCompilationUnit) -> PathBuf {
     }
 }
 
-pub(crate) fn compute_unit_flags(
+pub fn compute_unit_flags(
     unit: &PlannedCompilationUnit,
     pkg_dir: &Path,
     effective_flags: &[String],
+    mode: super::types::BuildMode,
 ) -> Vec<String> {
     let mut u_flags = effective_flags.to_vec();
     if unit.is_workspace {
         u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
+        u_flags.push(format!("MODE={:?}", mode));
     }
     u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
     u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
@@ -111,6 +113,51 @@ pub(crate) fn compute_unit_flags(
             } else {
                 "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
             }
+        } else if var == "CARGO_PKG_DESCRIPTION" {
+            let desc = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                pkg_toml.package.and_then(|p| p.description).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!("ENV_MACRO:CARGO_PKG_DESCRIPTION={}", desc)
+        } else if var == "CARGO_PKG_AUTHORS" {
+            let auth = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                pkg_toml.package.and_then(|p| p.authors).map(|a| a.join(":")).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!("ENV_MACRO:CARGO_PKG_AUTHORS={}", auth)
+        } else if var == "CARGO_PKG_HOMEPAGE" {
+            let hp = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                pkg_toml.package.and_then(|p| p.homepage).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!("ENV_MACRO:CARGO_PKG_HOMEPAGE={}", hp)
+        } else if var == "CARGO_PKG_REPOSITORY" {
+            let repo = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                pkg_toml.package.and_then(|p| p.repository).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!("ENV_MACRO:CARGO_PKG_REPOSITORY={}", repo)
+        } else if var == "CARGO_PKG_LICENSE" {
+            let lic = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                pkg_toml.package.and_then(|p| p.license).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!("ENV_MACRO:CARGO_PKG_LICENSE={}", lic)
+        } else if var == "CARGO" {
+            let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+            format!("ENV_MACRO:CARGO={}", cargo_bin)
+        } else if var == "CARGO_PKG_README" {
+            let rm = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                pkg_toml.package.and_then(|p| p.readme).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!("ENV_MACRO:CARGO_PKG_README={}", rm)
         } else {
             match std::env::var(var) {
                 Ok(val) => format!("ENV_MACRO:{}={}", var, val),
@@ -122,7 +169,7 @@ pub(crate) fn compute_unit_flags(
     u_flags
 }
 
-pub(crate) fn parallel_map_chunks<T, R, F>(items: &[T], f: F) -> Vec<R>
+pub fn parallel_map_chunks<T, R, F>(items: &[T], f: F) -> Vec<R>
 where
     T: Sync,
     R: Send,
@@ -234,7 +281,7 @@ pub fn derive_unit_action_keys(
         } else {
             base_inputs
         };
-        let u_flags = compute_unit_flags(unit, &pkg_dir, &effective_flags);
+        let u_flags = compute_unit_flags(unit, &pkg_dir, &effective_flags, opt.mode);
         Ok::<_, anyhow::Error>((unit.unit_id(), inputs, u_flags))
     });
 

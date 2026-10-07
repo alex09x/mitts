@@ -9,13 +9,13 @@
  */
 
 use super::build_script::BuildScriptDirectives;
-use super::types::PlannedCompilationUnit;
+use super::types::{BuildMode, PlannedCompilationUnit};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Results from invoking `rustc`.
+/// Results from invoking `rustc` or `clippy-driver`.
 #[derive(Debug, Clone)]
 pub struct RustcOutput {
     pub success: bool,
@@ -27,7 +27,23 @@ pub struct RustcOutput {
     pub metadata_output: Option<PathBuf>,
 }
 
-/// Direct `rustc` command invocation builder.
+pub fn resolve_clippy_driver() -> PathBuf {
+    if let Ok(p) = std::env::var("CLIPPY_DRIVER") {
+        return PathBuf::from(p);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home)
+            .join(".cargo")
+            .join("bin")
+            .join("clippy-driver");
+        if p.is_file() {
+            return p;
+        }
+    }
+    PathBuf::from("clippy-driver")
+}
+
+/// Direct `rustc` or `clippy-driver` command invocation builder.
 pub struct RustcInvocation<'a> {
     pub unit: &'a PlannedCompilationUnit,
     pub action_key: &'a str,
@@ -37,10 +53,12 @@ pub struct RustcInvocation<'a> {
     pub release: bool,
     pub features: &'a [String],
     pub directives: Option<&'a BuildScriptDirectives>,
+    pub mode: BuildMode,
+    pub extra_compiler_args: &'a [String],
 }
 
 impl<'a> RustcInvocation<'a> {
-    /// Executes the direct `rustc` compilation.
+    /// Executes the direct `rustc` or `clippy-driver` compilation.
     pub fn execute(self) -> Result<RustcOutput> {
         let clean_crate = self.unit.target_name.replace('-', "_");
         let edition = self.unit.edition.as_deref().unwrap_or("2015");
@@ -50,7 +68,13 @@ impl<'a> RustcInvocation<'a> {
             self.action_key
         };
 
-        let mut cmd = Command::new("rustc");
+        let compiler_bin = if self.mode == BuildMode::Clippy && self.unit.is_workspace {
+            resolve_clippy_driver()
+        } else {
+            PathBuf::from("rustc")
+        };
+
+        let mut cmd = Command::new(&compiler_bin);
         cmd.arg("--crate-name").arg(&clean_crate);
 
         let actual_src = if self.unit.src_path.is_file() {
@@ -82,10 +106,11 @@ impl<'a> RustcInvocation<'a> {
         cmd.arg("--edition").arg(edition);
 
         let is_bin = self.unit.kind == "bin";
+        let is_test = self.unit.kind == "test";
         let is_proc_macro = self.unit.kind == "proc-macro";
 
-        if is_bin {
-            cmd.arg("--crate-type").arg("bin");
+        if is_test {
+            cmd.arg("--test");
             cmd.arg("--emit=dep-info,link");
             if let Some(dest) = self.dest_binary {
                 if let Some(parent) = dest.parent() {
@@ -103,6 +128,30 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("-C").arg(format!("metadata={}", short_key));
             cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
             cmd.arg("--out-dir").arg(self.out_dir);
+        } else if (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy)
+            && (self.unit.is_workspace
+                || self.extern_crates.iter().any(|(_, p)| p.extension().and_then(|e| e.to_str()) == Some("rmeta")))
+        {
+            if is_bin {
+                cmd.arg("--crate-type").arg("bin");
+            } else {
+                cmd.arg("--crate-type").arg("rlib");
+            }
+            cmd.arg("--emit=dep-info,metadata");
+            cmd.arg("-C").arg(format!("metadata={}", short_key));
+            cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
+            cmd.arg("--out-dir").arg(self.out_dir);
+        } else if is_bin {
+            cmd.arg("--crate-type").arg("bin");
+            cmd.arg("--emit=dep-info,link");
+            if let Some(dest) = self.dest_binary {
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                cmd.arg("-o").arg(dest);
+            } else {
+                cmd.arg("--out-dir").arg(self.out_dir);
+            }
         } else {
             // Standard library: rlib with metadata pipelining
             cmd.arg("--crate-type").arg("rlib");
@@ -187,6 +236,8 @@ impl<'a> RustcInvocation<'a> {
             cmd.env("RUSTUP_TOOLCHAIN", tc);
         }
         cmd.env("CARGO_MANIFEST_DIR", pkg_dir);
+        let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+        cmd.env("CARGO", &cargo_bin);
         cmd.env("CARGO_PKG_NAME", &self.unit.package_name);
         cmd.env("CARGO_PKG_VERSION", &self.unit.version);
         cmd.env("CARGO_PKG_VERSION_MAJOR", &major);
@@ -196,6 +247,22 @@ impl<'a> RustcInvocation<'a> {
         cmd.env("CARGO_CRATE_NAME", &self.unit.target_name);
         if is_bin {
             cmd.env("CARGO_BIN_NAME", &self.unit.target_name);
+        }
+
+        if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&self.unit.manifest_path) {
+            if let Some(ref p) = pkg_toml.package {
+                cmd.env("CARGO_PKG_DESCRIPTION", p.description.as_deref().unwrap_or(""));
+                cmd.env("CARGO_PKG_HOMEPAGE", p.homepage.as_deref().unwrap_or(""));
+                cmd.env("CARGO_PKG_REPOSITORY", p.repository.as_deref().unwrap_or(""));
+                cmd.env("CARGO_PKG_LICENSE", p.license.as_deref().unwrap_or(""));
+                cmd.env("CARGO_PKG_README", p.readme.as_deref().unwrap_or(""));
+                let authors = p.authors.as_deref().unwrap_or(&[]).join(":");
+                cmd.env("CARGO_PKG_AUTHORS", authors);
+            }
+        }
+
+        for arg in self.extra_compiler_args {
+            cmd.arg(arg);
         }
 
         if !self.unit.is_workspace {
@@ -218,7 +285,9 @@ impl<'a> RustcInvocation<'a> {
         let mut metadata_output = None;
 
         if success {
-            if is_bin {
+            let is_check_or_clippy_ws = self.unit.is_workspace
+                && (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy);
+            if (is_bin || is_test) && !is_check_or_clippy_ws {
                 if let Some(dest) = self.dest_binary {
                     primary_output = Some(dest.to_path_buf());
                 } else {
@@ -227,20 +296,27 @@ impl<'a> RustcInvocation<'a> {
                         primary_output = Some(bin_path);
                     }
                 }
-            } else {
-                // Find generated .rlib / .dylib and .rmeta in out_dir
-                if let Ok(entries) = fs::read_dir(self.out_dir) {
-                    for entry in entries.flatten() {
-                        let p = entry.path();
-                        if let Some(ext) = p.extension() {
-                            if ext == "rlib" || ext == "dylib" || ext == "so" {
-                                primary_output = Some(p.clone());
-                            } else if ext == "rmeta" {
-                                metadata_output = Some(p);
-                            }
+            }
+
+            // Find generated .rlib / .dylib and .rmeta in out_dir
+            if let Ok(entries) = fs::read_dir(self.out_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if let Some(ext) = p.extension() {
+                        if ext == "rlib" || ext == "dylib" || ext == "so" {
+                            primary_output = Some(p);
+                        } else if ext == "rmeta" {
+                            metadata_output = Some(p);
                         }
                     }
                 }
+            }
+
+            // In check / clippy mode where no rlib is emitted, primary_output falls back to metadata
+            if primary_output.is_none()
+                && (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy)
+            {
+                primary_output = metadata_output.clone();
             }
         }
 

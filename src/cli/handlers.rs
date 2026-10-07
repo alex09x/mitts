@@ -237,8 +237,18 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     } else {
         let dev_lock = FastBuildLock::lock_path(project_dir, "dev");
         let rel_lock = FastBuildLock::lock_path(project_dir, "release");
+        let check_lock = FastBuildLock::lock_path(project_dir, "check");
+        let clippy_lock = FastBuildLock::lock_path(project_dir, "clippy");
+        let test_lock = FastBuildLock::lock_path(project_dir, "test");
         let legacy_lock = project_dir.join(".mitts").join("build.lock");
-        for lock_file in [&dev_lock, &rel_lock, &legacy_lock] {
+        for lock_file in [
+            &dev_lock,
+            &rel_lock,
+            &check_lock,
+            &clippy_lock,
+            &test_lock,
+            &legacy_lock,
+        ] {
             if lock_file.exists() {
                 let _ = std::fs::remove_file(lock_file);
             }

@@ -143,4 +143,50 @@ mod tests {
         let guard = TerminalGuard::acquire();
         drop(guard);
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_terminal_guard_pty_and_restore() {
+        unsafe {
+            let master = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+            if master >= 0 {
+                if libc::grantpt(master) == 0 && libc::unlockpt(master) == 0 {
+                    let slave_name = libc::ptsname(master);
+                    if !slave_name.is_null() {
+                        let slave = libc::open(slave_name, libc::O_RDWR | libc::O_NOCTTY);
+                        if slave >= 0 {
+                            let old_stdin = libc::dup(libc::STDIN_FILENO);
+                            if libc::dup2(slave, libc::STDIN_FILENO) >= 0 {
+                                let guard = TerminalGuard::acquire();
+                                assert!(guard.active);
+
+                                // Second concurrent acquire fails because HAS_ORIGINAL is already true
+                                let second = TerminalGuard::acquire();
+                                assert!(!second.active);
+                                drop(second);
+
+                                drop(guard);
+                                assert!(!HAS_ORIGINAL.load(Ordering::SeqCst));
+                            }
+                            if old_stdin >= 0 {
+                                libc::dup2(old_stdin, libc::STDIN_FILENO);
+                                libc::close(old_stdin);
+                            }
+                            libc::close(slave);
+                        }
+                    }
+                }
+                libc::close(master);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_restore_terminal_when_not_active() {
+        assert!(!HAS_ORIGINAL.load(Ordering::SeqCst));
+        restore_terminal();
+        assert!(!HAS_ORIGINAL.load(Ordering::SeqCst));
+    }
 }
+

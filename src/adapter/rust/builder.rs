@@ -22,14 +22,43 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Executes the build purely natively with parallel rustc DAG compilation and CAS caching.
-pub(crate) fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
+pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let log_path = project_dir.join(".mitts").join("build.log");
     let mut logger = BuildLogger::new(Some(log_path));
 
-    let profile = if opt.release { "release" } else { "dev" };
+    let profile = match opt.mode {
+        super::types::BuildMode::Check => {
+            if opt.release {
+                "check-release"
+            } else {
+                "check"
+            }
+        }
+        super::types::BuildMode::Clippy => {
+            if opt.release {
+                "clippy-release"
+            } else {
+                "clippy"
+            }
+        }
+        super::types::BuildMode::Test => {
+            if opt.release {
+                "test-release"
+            } else {
+                "test"
+            }
+        }
+        super::types::BuildMode::Build => {
+            if opt.release {
+                "release"
+            } else {
+                "dev"
+            }
+        }
+    };
 
     // Validate unsupported options explicitly
     for arg in &opt.extra_args {

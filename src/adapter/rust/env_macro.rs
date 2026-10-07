@@ -276,7 +276,7 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
 }
 
 /// Recursively scans a package directory for compile-time env!/option_env! usages across all .rs files.
-pub(crate) fn discover_package_env_macros(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
+pub fn discover_package_env_macros(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
     let mut all_vars = Vec::new();
     let mut stack = vec![package_dir.to_path_buf()];
 

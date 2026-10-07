@@ -26,101 +26,17 @@ pub struct CargoToml {
     pub dependencies: HashMap<String, TomlDependency>,
     #[serde(default, rename = "build-dependencies")]
     pub build_dependencies: HashMap<String, TomlDependency>,
+    #[serde(default, rename = "dev-dependencies", alias = "dev_dependencies")]
+    pub dev_dependencies: HashMap<String, TomlDependency>,
+    #[serde(default)]
+    pub test: Vec<TomlTest>,
     #[serde(default)]
     pub features: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub target: HashMap<String, TomlTargetSpec>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TomlTargetSpec {
-    #[serde(default)]
-    pub dependencies: HashMap<String, TomlDependency>,
-    #[serde(default, rename = "build-dependencies", alias = "build_dependencies")]
-    pub build_dependencies: HashMap<String, TomlDependency>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TomlPackage {
-    pub name: String,
-    pub version: Option<String>,
-    pub edition: Option<String>,
-    pub build: Option<TomlBuild>,
-    pub links: Option<String>,
-    #[serde(default)]
-    pub autobins: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum TomlBuild {
-    Disabled(bool),
-    Path(String),
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TomlWorkspace {
-    #[serde(default)]
-    pub members: Vec<String>,
-    #[serde(default, rename = "default-members")]
-    pub default_members: Vec<String>,
-    #[serde(default)]
-    pub exclude: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TomlLib {
-    pub name: Option<String>,
-    pub path: Option<String>,
-    #[serde(default, rename = "proc-macro")]
-    pub proc_macro: Option<bool>,
-    #[serde(default, rename = "crate-type")]
-    pub crate_type: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TomlBin {
-    pub name: String,
-    pub path: Option<String>,
-    #[serde(rename = "required-features")]
-    pub required_features: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum TomlDependency {
-    Simple(String),
-    Detailed(TomlDetailedDep),
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TomlDetailedDep {
-    pub version: Option<String>,
-    pub path: Option<String>,
-    pub features: Option<Vec<String>>,
-    #[serde(rename = "default-features", alias = "default_features")]
-    pub default_features: Option<bool>,
-    pub optional: Option<bool>,
-    #[serde(rename = "package", alias = "package-name", alias = "package_name")]
-    pub package_name: Option<String>,
-}
-
-/// Bidirectional mapping between dependency alias and actual package name.
-#[derive(Debug, Default, Clone)]
-pub struct DependencyAliases {
-    pub alias_to_real: HashMap<String, String>,
-    pub real_to_aliases: HashMap<String, Vec<(String, Option<String>)>>,
-}
-
-/// A discovered compile target within a package.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiscoveredTarget {
-    pub name: String,
-    pub kind: String, // "lib", "bin", "proc-macro"
-    pub src_path: PathBuf,
-    pub edition: Option<String>,
-    pub crate_types: Vec<String>,
-}
+pub use super::manifest_models::*;
 
 impl CargoToml {
     /// Parses Cargo.toml content from a string.
@@ -132,7 +48,44 @@ impl CargoToml {
     pub fn from_file(path: &Path) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read manifest at {:?}", path))?;
-        Self::parse(&content)
+        let mut toml = Self::parse(&content)?;
+        toml.resolve_inherited_workspace_fields(path);
+        Ok(toml)
+    }
+
+    pub fn resolve_inherited_workspace_fields(&mut self, path: &Path) {
+        if let Some(ref mut pkg) = self.package {
+            if pkg.edition.is_none() {
+                if let Some(ref ws) = self.workspace {
+                    if let Some(ref ws_pkg) = ws.package {
+                        if let Some(toml::Value::String(ref ed)) = ws_pkg.get("edition") {
+                            pkg.edition = Some(ed.clone());
+                        }
+                    }
+                }
+                if pkg.edition.is_none() {
+                    let mut parent = path.parent().and_then(|p| p.parent());
+                    while let Some(dir) = parent {
+                        let candidate = dir.join("Cargo.toml");
+                        if candidate.is_file() {
+                            if let Ok(content) = fs::read_to_string(&candidate) {
+                                if let Ok(parent_toml) = Self::parse(&content) {
+                                    if let Some(ref ws) = parent_toml.workspace {
+                                        if let Some(ref ws_pkg) = ws.package {
+                                            if let Some(toml::Value::String(ref ed)) = ws_pkg.get("edition") {
+                                                pkg.edition = Some(ed.clone());
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        parent = dir.parent();
+                    }
+                }
+            }
+        }
     }
 
     /// Checks if this package defines or defaults to a build script.
@@ -162,10 +115,13 @@ impl CargoToml {
                         .entry(real.clone())
                         .or_default()
                         .push((alias.to_string(), d.version.clone()));
-                    res.real_to_aliases
-                        .entry(real.replace('-', "_"))
-                        .or_default()
-                        .push((alias.to_string(), d.version.clone()));
+                    let norm = real.replace('-', "_");
+                    if norm != *real {
+                        res.real_to_aliases
+                            .entry(norm)
+                            .or_default()
+                            .push((alias.to_string(), d.version.clone()));
+                    }
                 }
             }
         };
@@ -173,6 +129,9 @@ impl CargoToml {
             record(alias, dep);
         }
         for (alias, dep) in &self.build_dependencies {
+            record(alias, dep);
+        }
+        for (alias, dep) in &self.dev_dependencies {
             record(alias, dep);
         }
         for target_spec in self.target.values() {
@@ -219,6 +178,7 @@ impl CargoToml {
                     src_path: src,
                     edition: edition.clone(),
                     crate_types,
+                    required_features: None,
                 });
             }
         } else {
@@ -230,6 +190,7 @@ impl CargoToml {
                     src_path: default_lib,
                     edition: edition.clone(),
                     crate_types: vec!["lib".to_string()],
+                    required_features: None,
                 });
             }
         }
@@ -258,6 +219,7 @@ impl CargoToml {
                         src_path: src,
                         edition: edition.clone(),
                         crate_types: vec!["bin".to_string()],
+                        required_features: b.required_features.clone(),
                     });
                 }
             }
@@ -270,6 +232,7 @@ impl CargoToml {
                     src_path: default_main,
                     edition: edition.clone(),
                     crate_types: vec!["bin".to_string()],
+                    required_features: None,
                 });
             }
 
@@ -293,6 +256,7 @@ impl CargoToml {
                                     src_path: path,
                                     edition: edition.clone(),
                                     crate_types: vec!["bin".to_string()],
+                                    required_features: None,
                                 });
                             }
                         }

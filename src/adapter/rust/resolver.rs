@@ -212,7 +212,7 @@ struct ResolvedPackage {
 }
 
 /// Selects the highest non-yanked version matching the semver requirement.
-fn select_best_version<'a>(
+pub fn select_best_version<'a>(
     entries: &'a [super::sparse_index::SparseIndexEntry],
     req_str: &str,
 ) -> Result<&'a super::sparse_index::SparseIndexEntry> {
@@ -268,7 +268,7 @@ pub fn extract_root_package(content: &str) -> Option<(String, String)> {
         if in_pkg {
             if let Some((k, v)) = line.split_once('=') {
                 let key = k.trim();
-                let val = v.trim().trim_matches('"');
+                let val = v.split('#').next().unwrap_or(v).trim().trim_matches('"');
                 if key == "name" {
                     name = Some(val.to_string());
                 } else if key == "version" {

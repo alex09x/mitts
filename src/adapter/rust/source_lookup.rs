@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 /// Searches standard ~/.cargo/registry/src, ~/.cache/mitts/sources, and ~/.cargo/git/checkouts
 /// for unpacked crate source directory matching name, version, and optional lockfile source.
-pub(crate) fn find_crate_source_dir(
+pub fn find_crate_source_dir(
     name: &str,
     version: &str,
     source: Option<&str>,
@@ -36,7 +36,9 @@ pub(crate) fn find_crate_source_dir(
                             let commit_dir_name = commit.file_name();
                             let commit_str = commit_dir_name.to_string_lossy();
                             if let Some(exp) = expected_hash {
-                                if !exp.starts_with(commit_str.as_ref()) {
+                                if !exp.starts_with(commit_str.as_ref())
+                                    && !commit_str.starts_with(exp)
+                                {
                                     continue;
                                 }
                             }

@@ -14,6 +14,7 @@ pub mod compiler;
 pub mod dag;
 pub mod dag_cache;
 pub mod dag_runner;
+pub mod dag_scheduler;
 pub mod dag_unit;
 pub mod dep_info;
 pub mod env_macro;
@@ -23,11 +24,13 @@ pub mod inputs;
 pub mod key;
 pub mod lockfile;
 pub mod manifest;
+pub mod manifest_models;
+pub mod manifest_tests;
 pub mod package_selection;
 pub mod planner;
-pub mod publisher;
 pub mod resolver;
 pub mod source_lookup;
+pub mod target_filter;
 pub mod sparse_index;
 pub mod types;
 pub mod unescape;
@@ -36,6 +39,7 @@ pub use build_script::{execute_build_script, BuildScriptDirectives};
 pub use compiler::{RustcInvocation, RustcOutput};
 pub use dag::CompilationDag;
 pub use dag_runner::run_native_dag_build;
+pub use dag_scheduler::{LockMode, UnitExecutionStatus, WaveWorkQueue};
 pub use env_macro::scan_env_macros;
 pub use fetcher::{CrateFetcher, FetchOptions, FetchResult};
 pub use key::derive_unit_action_keys;
@@ -43,8 +47,8 @@ pub use lockfile::{CargoLock, CargoLockPackage};
 pub use resolver::NativeResolver;
 pub use sparse_index::SparseIndexClient;
 pub use types::{
-    BuildProgressCallback, BuildProgressEvent, EffectivePlanExplanation, EnvMacroDiscovery,
-    PlannedCompilationUnit, RustAdapterError, RustBuildOptions,
+    BuildMode, BuildProgressCallback, BuildProgressEvent, EffectivePlanExplanation,
+    EnvMacroDiscovery, PlannedCompilationUnit, RustAdapterError, RustBuildOptions,
 };
 pub use unescape::unescape_rust_string;
 

@@ -76,6 +76,20 @@ impl BuildLogger {
         res
     }
 
+    /// Starts a named phase timer that can be finished with detailed description.
+    pub fn start_phase<'a>(&'a mut self, name: &str) -> PhaseTimer<'a> {
+        PhaseTimer {
+            logger: self,
+            name: name.to_string(),
+            start: Instant::now(),
+        }
+    }
+
+    /// Returns recorded phase records.
+    pub fn phases(&self) -> &[PhaseRecord] {
+        &self.phases
+    }
+
     /// Returns total elapsed time since logger initialization.
     pub fn total_elapsed(&self) -> Duration {
         self.start.elapsed()

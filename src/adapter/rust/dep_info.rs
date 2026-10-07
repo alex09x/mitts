@@ -13,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Discovers all matching dep-info (.d) files produced by rustc/cargo for the target.
-pub(crate) fn find_dep_info_files(target_dir: &Path, target_name: &str) -> Vec<PathBuf> {
+pub fn find_dep_info_files(target_dir: &Path, target_name: &str) -> Vec<PathBuf> {
     let mut d_files = Vec::new();
     let norm_target = target_name.replace('-', "_");
     for profile in &["debug", "release"] {
@@ -45,7 +45,7 @@ pub(crate) fn find_dep_info_files(target_dir: &Path, target_name: &str) -> Vec<P
 }
 
 /// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths.
-pub(crate) fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
+pub fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
     let content = fs::read_to_string(d_path)
         .with_context(|| format!("Failed to read dep-info file {:?}", d_path))?;
     let mut files = Vec::new();

@@ -10,6 +10,7 @@
 
 use super::dag::CompilationDag;
 use super::dag_cache::ExecutionContext;
+use super::dag_scheduler::{UnitExecutionStatus, WaveWorkQueue};
 use super::dag_unit::execute_unit;
 use super::types::{BuildProgressEvent, EffectivePlanExplanation, RustBuildOptions};
 use crate::core::action::{Action, ActionResult, BuildPlan};
@@ -68,19 +69,13 @@ pub fn run_native_dag_build(
     for wave in waves {
         let mut compile_errors: Vec<String> = Vec::new();
         let concurrency = max_concurrency.min(wave.len());
-
-        let (tx, rx) = std::sync::mpsc::channel();
-        for unit_id in wave {
-            let _ = tx.send(unit_id);
-        }
-        drop(tx);
-        let rx = Arc::new(Mutex::new(rx));
+        let work_queue = Arc::new(WaveWorkQueue::new(wave));
 
         thread::scope(|s| {
             let mut handles = Vec::new();
 
             for _ in 0..concurrency {
-                let rx = Arc::clone(&rx);
+                let work_queue = Arc::clone(&work_queue);
                 let cas = cas.clone();
                 let ac = ac.clone();
                 let completed_artifacts = Arc::clone(&completed_artifacts);
@@ -108,11 +103,9 @@ pub fn run_native_dag_build(
                         dep_build_metadata: &dep_build_metadata,
                     };
 
-                    while let Ok(unit_id) = {
-                        let lock = rx.lock().unwrap();
-                        lock.recv()
-                    } {
+                    while let Some((unit_id, lock_mode)) = work_queue.pop_work() {
                         let Some(node) = dag.get_node(&unit_id) else {
+                            work_queue.mark_completed(&unit_id);
                             continue;
                         };
                         let unit = node.unit.clone();
@@ -121,7 +114,18 @@ pub fn run_native_dag_build(
                             .cloned()
                             .unwrap_or_else(|| unit_id.clone());
 
-                        execute_unit(&unit, &action_key, &ctx)?;
+                        match execute_unit(&unit, &action_key, &ctx, lock_mode) {
+                            Ok(UnitExecutionStatus::Success) => {
+                                work_queue.mark_completed(&unit_id);
+                            }
+                            Ok(UnitExecutionStatus::Contested) => {
+                                work_queue.mark_contested(unit_id);
+                            }
+                            Err(err) => {
+                                work_queue.mark_failed(format!("{:#}", err));
+                                break;
+                            }
+                        }
                     }
                     Ok(())
                 }));
@@ -146,6 +150,12 @@ pub fn run_native_dag_build(
                 }
             }
         });
+
+        if let Some(err) = work_queue.take_error() {
+            if !compile_errors.contains(&err) {
+                compile_errors.push(err);
+            }
+        }
 
         if !compile_errors.is_empty() {
             let combined_error = compile_errors.join("\n");

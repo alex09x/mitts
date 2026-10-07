@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 /// - Tracked dep-info (.d) files from rustc (including include_bytes! / include_str!)
 ///
 /// Returns error on any read/hash failure to prevent publishing invalid cache keys.
-pub(crate) fn hash_package_base_inputs(
+pub fn hash_package_base_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
     is_workspace: bool,
@@ -34,6 +34,14 @@ pub(crate) fn hash_package_base_inputs(
     let is_immutable_registry = if is_workspace {
         false
     } else {
+        let cargo_registry_src = std::env::var("CARGO_HOME")
+            .map(|h| PathBuf::from(h).join("registry").join("src"))
+            .unwrap_or_else(|_| {
+                std::env::var("HOME")
+                    .map(|h| PathBuf::from(h).join(".cargo").join("registry").join("src"))
+                    .unwrap_or_else(|_| PathBuf::from(".cargo/registry/src"))
+            });
+        let in_cargo_registry = package_dir.starts_with(&cargo_registry_src);
         let has_cargo_ok = package_dir.join(".cargo-ok").is_file();
         let in_cargo_git = package_dir
             .ancestors()
@@ -50,7 +58,7 @@ pub(crate) fn hash_package_base_inputs(
         } else {
             false
         };
-        has_cargo_ok || in_cargo_git || in_mitts_sources
+        in_cargo_registry || has_cargo_ok || in_cargo_git || in_mitts_sources
     };
 
     if is_immutable_registry {
@@ -200,39 +208,19 @@ pub(crate) fn hash_package_base_inputs(
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
             if path.is_dir() {
-                // Ignore transient, venv, data dumps, backups, and nested crate directories
-                if name_str.starts_with('.')
-                    || name_str.starts_with("venv")
-                    || name_str.contains(".bak")
-                    || name_str == "target"
-                    || name_str == "node_modules"
-                    || name_str == "traces"
-                    || name_str == "test_data"
-                    || name_str == "file_test"
-                    || name_str == "cts"
-                    || name_str == "terraform"
-                    || name_str == "logs"
+                // Ignore build outputs, VCS metadata, mitts state, and nested crate directories
+                if name_str == "target"
+                    || name_str == ".git"
+                    || name_str == ".mitts"
                     || (path != package_dir && path.join("Cargo.toml").is_file())
                 {
                     continue;
                 }
                 stack.push(path);
             } else if path.is_file() {
-                // Ignore hidden files, lockfiles, backups, and temporary editor files
-                if name_str.starts_with('.')
-                    || name_str.ends_with(".lock")
-                    || name_str.ends_with(".tmp")
-                    || name_str.ends_with(".swp")
-                    || name_str.ends_with(".bak")
-                {
+                // Ignore transient editor swap and temporary files, and Cargo.lock (already hashed in Step 3)
+                if name_str.ends_with(".tmp") || name_str.ends_with(".swp") || name_str == "Cargo.lock" {
                     continue;
-                }
-                // Skip massive data dumps (> 20MB) during broad package scan;
-                // if they are actually included by rustc, dep-info will track them individually.
-                if let Ok(meta) = entry.metadata() {
-                    if meta.len() > 20 * 1024 * 1024 {
-                        continue;
-                    }
                 }
                 let hash = Sha256::digest_file(&path)
                     .with_context(|| format!("Failed to hash package file {:?}", path))?;
@@ -252,7 +240,7 @@ pub(crate) fn hash_package_base_inputs(
 }
 
 /// Appends target-specific dep-info tracked assets to base package inputs.
-pub(crate) fn append_unit_dep_info_inputs(
+pub fn append_unit_dep_info_inputs(
     mut inputs: Vec<(String, String)>,
     package_dir: &Path,
     target_dir: &Path,
@@ -286,7 +274,7 @@ pub(crate) fn append_unit_dep_info_inputs(
 
 /// Gathers and hashes all inputs for a specific target unit, including target dep-info files.
 #[allow(dead_code)]
-pub(crate) fn hash_unit_inputs(
+pub fn hash_unit_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
     target_dir: &Path,

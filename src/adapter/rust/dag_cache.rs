@@ -20,23 +20,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-pub(crate) struct ExecutionContext<'a> {
-    pub(crate) opt: &'a RustBuildOptions,
-    pub(crate) toolchain: &'a ToolchainInfo,
-    pub(crate) target_dir: &'a Path,
-    pub(crate) cas: &'a ContentAddressedStore,
-    pub(crate) ac: &'a ActionCache,
-    pub(crate) is_cache_enabled: bool,
-    pub(crate) completed_artifacts: &'a Arc<Mutex<HashMap<String, PathBuf>>>,
-    pub(crate) recorded_actions: &'a Arc<Mutex<Vec<Action>>>,
-    pub(crate) compiler_messages: &'a Arc<Mutex<Vec<String>>>,
-    pub(crate) any_missed: &'a Arc<Mutex<bool>>,
-    pub(crate) dep_build_metadata: &'a Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
+pub struct ExecutionContext<'a> {
+    pub opt: &'a RustBuildOptions,
+    pub toolchain: &'a ToolchainInfo,
+    pub target_dir: &'a Path,
+    pub cas: &'a ContentAddressedStore,
+    pub ac: &'a ActionCache,
+    pub is_cache_enabled: bool,
+    pub completed_artifacts: &'a Arc<Mutex<HashMap<String, PathBuf>>>,
+    pub recorded_actions: &'a Arc<Mutex<Vec<Action>>>,
+    pub compiler_messages: &'a Arc<Mutex<Vec<String>>>,
+    pub any_missed: &'a Arc<Mutex<bool>>,
+    pub dep_build_metadata: &'a Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
 }
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.
 /// Returns Ok(true) if restored from cache, Ok(false) otherwise.
-pub(crate) fn try_restore_from_cache(
+pub fn try_restore_from_cache(
     unit: &PlannedCompilationUnit,
     action_key: &str,
     ctx: &ExecutionContext,
@@ -137,12 +137,26 @@ pub(crate) fn try_restore_from_cache(
                             .unwrap()
                             .insert(unit.unit_id(), named);
                     } else if ext == "rmeta" {
-                        let _ = ctx.cas.named_artifact_path_with_disambiguator(
+                        let named = ctx.cas.named_artifact_path_with_disambiguator(
                             &unit.target_name,
                             &out.cas_hash,
                             action_key,
                             "rmeta",
-                        );
+                        )?;
+                        let mut map = ctx.completed_artifacts.lock().unwrap();
+                        map.entry(unit.unit_id()).or_insert(named);
+                    }
+                }
+            }
+
+            if !entry.stderr.is_empty() {
+                ctx.compiler_messages
+                    .lock()
+                    .unwrap()
+                    .push(entry.stderr.clone());
+                if unit.is_workspace {
+                    if let Some(ref cb) = ctx.opt.progress {
+                        cb.0(BuildProgressEvent::CompilerMessage(entry.stderr.clone()));
                     }
                 }
             }

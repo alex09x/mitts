@@ -97,11 +97,17 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                 .and_then(|p| p.version.clone())
                 .unwrap_or_else(|| "0.1.0".to_string());
             let mut deps = Vec::new();
-            for dep_name in manifest.dependencies.keys() {
-                if let Some(target) = lockfile.packages.iter().find(|p| &p.name == dep_name) {
+            for (dep_name, dep_val) in &manifest.dependencies {
+                let real_name = match dep_val {
+                    super::manifest::TomlDependency::Detailed(d) => {
+                        d.package_name.as_deref().unwrap_or(dep_name.as_str())
+                    }
+                    _ => dep_name.as_str(),
+                };
+                if let Some(target) = lockfile.packages.iter().find(|p| p.name == real_name) {
                     deps.push(target.name.clone());
-                } else if path_dependencies.contains_key(dep_name) {
-                    deps.push(dep_name.clone());
+                } else if path_dependencies.contains_key(real_name) {
+                    deps.push(real_name.to_string());
                 }
             }
             lockfile.packages.push(CargoLockPackage {
@@ -176,10 +182,15 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let mut units = Vec::new();
     for (pkg, is_workspace, pkg_dir, pkg_toml) in &resolved_packages {
         let is_local = *is_workspace || path_dependencies.contains_key(&pkg.name);
-        let mut targets = pkg_toml.discover_targets(pkg_dir);
         let is_target_pkg = opt.package.as_deref() == Some(&pkg.name);
-        if !*is_workspace && !is_target_pkg {
+        let mut targets = pkg_toml.discover_targets(pkg_dir);
+        if opt.mode == crate::adapter::BuildMode::Test && (*is_workspace || is_target_pkg) {
+            let test_targets = pkg_toml.discover_test_targets(pkg_dir);
+            targets.extend(test_targets);
             targets.retain(|t| t.kind != "bin");
+        }
+        if !*is_workspace && !is_target_pkg {
+            targets.retain(|t| t.kind != "bin" && t.kind != "test");
         }
         let (env_discovery, env_vars) = if is_local {
             discover_package_env_macros(pkg_dir)
@@ -193,6 +204,14 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .or_else(|| package_features.get(&pkg.name))
             .cloned()
             .unwrap_or_default();
+
+        targets.retain(|t| {
+            if let Some(ref req_feats) = t.required_features {
+                req_feats.iter().all(|req| features.contains(req) || opt.features.contains(req))
+            } else {
+                true
+            }
+        });
 
         for target in targets {
             let is_bin = target.kind == "bin";
@@ -210,6 +229,11 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                 (
                     target.crate_types.join(","),
                     "Uncached (contains native/dynamic library crate types; outside initial M2 pure rlib subset)".to_string(),
+                )
+            } else if target.kind == "test" {
+                (
+                    "test".to_string(),
+                    "Uncached in M1 (eligible for M2 test binary artifact cache)".to_string(),
                 )
             } else if is_bin {
                 (
@@ -256,7 +280,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let mut lib_units_by_name: HashMap<String, Vec<(String, String)>> = HashMap::new();
 
     for unit in &units {
-        if unit.kind != "bin" {
+        if unit.kind != "bin" && unit.kind != "test" {
             let uid = unit.unit_id();
             lib_units_by_exact.insert(
                 (unit.package_name.clone(), unit.version.clone()),
@@ -283,10 +307,23 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .iter()
             .find(|(p, _)| p.name == unit.package_name && p.version == unit.version);
 
+        let pkg_toml_opt = CargoToml::from_file(&unit.manifest_path).ok();
+        let is_test = unit.kind == "test";
+
         let mut unit_deps = Vec::new();
         if let Some((pkg, _)) = pkg_match {
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
+                if let Some(ref toml) = pkg_toml_opt {
+                    if !super::package_selection::has_active_dependency(
+                        toml,
+                        dep_name,
+                        &unit.features,
+                        is_test,
+                    ) {
+                        continue;
+                    }
+                }
                 let resolved_dep_uid = if let Some(ver) = dep_ver {
                     lib_units_by_exact
                         .get(&(dep_name.to_string(), ver.to_string()))
@@ -309,7 +346,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             }
         }
 
-        if unit.kind == "bin" {
+        if unit.kind == "bin" || unit.kind == "test" {
             if let Some(self_lib_uid) =
                 lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone()))
             {

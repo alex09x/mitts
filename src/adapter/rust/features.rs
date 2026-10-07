@@ -172,15 +172,20 @@ pub fn resolve_package_features(
                             .or_else(|| t.build_dependencies.get(&f))
                     })
                 });
-            let is_inactive_optional = match dep_opt {
-                Some(TomlDependency::Detailed(d)) if d.optional == Some(true) => {
-                    let real = d.package_name.as_deref().unwrap_or(&f);
-                    !active_deps.contains(&f)
-                        && !active_deps.contains(&f.replace('-', "_"))
-                        && !active_deps.contains(real)
-                        && !active_deps.contains(&real.replace('-', "_"))
+            let is_explicit_feature = ctx.toml.features.contains_key(&f);
+            let is_inactive_optional = if is_explicit_feature {
+                false
+            } else {
+                match dep_opt {
+                    Some(TomlDependency::Detailed(d)) if d.optional == Some(true) => {
+                        let real = d.package_name.as_deref().unwrap_or(&f);
+                        !active_deps.contains(&f)
+                            && !active_deps.contains(&f.replace('-', "_"))
+                            && !active_deps.contains(real)
+                            && !active_deps.contains(&real.replace('-', "_"))
+                    }
+                    _ => false,
                 }
-                _ => false,
             };
 
             if !is_inactive_optional {

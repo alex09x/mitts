@@ -9,11 +9,13 @@
  */
 
 use crate::adapter::rust::lockfile::{CargoLock, CargoLockPackage};
-use crate::adapter::rust::manifest::CargoToml;
+use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
 use crate::adapter::rust::types::RustBuildOptions;
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+
+pub use crate::adapter::rust::target_filter::is_target_incompatible_with_host;
 
 /// Selects root packages and performs graph traversal to collect all reachable packages.
 pub fn select_transitive_packages<'a>(
@@ -53,10 +55,19 @@ pub fn select_transitive_packages<'a>(
                 } else {
                     project_dir.join(member_pat)
                 };
-                for (name, (dir, _)) in workspace_manifests {
+                for (name, (dir, ws_toml)) in workspace_manifests {
                     if dir == &member_dir || (member_pat == "." && dir == project_dir) {
+                        let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                         if let Some(pkgs) = packages_by_name.get(name) {
-                            root_pkgs.extend(pkgs);
+                            if let Some(ver) = ws_version {
+                                if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
+                                    root_pkgs.push(matching);
+                                } else if let Some(first) = pkgs.first() {
+                                    root_pkgs.push(first);
+                                }
+                            } else if let Some(first) = pkgs.first() {
+                                root_pkgs.push(first);
+                            }
                         }
                     }
                 }
@@ -64,9 +75,22 @@ pub fn select_transitive_packages<'a>(
         }
 
         if root_pkgs.is_empty() {
-            for name in workspace_manifests.keys() {
+            for (name, (member_dir, ws_toml)) in workspace_manifests {
+                let targets = ws_toml.discover_targets(member_dir);
+                if targets.is_empty() {
+                    continue;
+                }
+                let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                 if let Some(pkgs) = packages_by_name.get(name) {
-                    root_pkgs.extend(pkgs);
+                    if let Some(ver) = ws_version {
+                        if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
+                            root_pkgs.push(matching);
+                        } else if let Some(first) = pkgs.first() {
+                            root_pkgs.push(first);
+                        }
+                    } else if let Some(first) = pkgs.first() {
+                        root_pkgs.push(first);
+                    }
                 }
             }
         }
@@ -80,13 +104,23 @@ pub fn select_transitive_packages<'a>(
     while let Some(pkg) = to_visit.pop() {
         let key = (pkg.name.clone(), pkg.version.clone());
         if visited.insert(key) {
-            let is_ws = workspace_manifests.contains_key(&pkg.name);
+            let is_ws = workspace_manifests.get(&pkg.name).map_or(false, |(_, toml)| {
+                toml.package
+                    .as_ref()
+                    .map_or(false, |p| p.version.as_deref() == Some(&pkg.version))
+            });
             selected_packages.push((pkg, is_ws));
 
+            let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
                 if is_target_incompatible_with_host(dep_name) {
                     continue;
+                }
+                if let Some((_, ws_toml)) = workspace_manifests.get(&pkg.name) {
+                    if !is_declared_dependency(ws_toml, dep_name, is_test) {
+                        continue;
+                    }
                 }
                 if let Some(candidates) = packages_by_name.get(dep_name) {
                     if let Some(ver) = dep_ver {
@@ -109,74 +143,154 @@ pub fn select_transitive_packages<'a>(
     Ok(selected_packages)
 }
 
-/// Checks whether a package is strictly exclusive to a foreign target platform.
-pub fn is_target_incompatible_with_host(dep_name: &str) -> bool {
-    #[cfg(not(target_os = "android"))]
-    if matches!(
-        dep_name,
-        "ndk-sys" | "ndk" | "android-activity" | "android_system_properties"
-    ) {
-        return true;
-    }
-    #[cfg(not(target_os = "redox"))]
-    if matches!(dep_name, "orbclient") {
-        return true;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    if matches!(dep_name, "web-sys" | "js-sys" | "wasm-bindgen-futures") {
-        return true;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        if matches!(
-            dep_name,
-            "glutin_wgl_sys"
-                | "accesskit_windows"
-                | "windows"
-                | "windows-future"
-                | "windows-collections"
-                | "windows-numerics"
-                | "windows-threading"
-                | "schannel"
-        ) || dep_name.starts_with("windows_")
-        {
-            return true;
-        }
-    }
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    )))]
-    {
-        if matches!(
-            dep_name,
-            "accesskit_unix"
-                | "accesskit_atspi_common"
-                | "glutin_glx_sys"
-                | "calloop-wayland-source"
-                | "sctk-adwaita"
-                | "smithay-client-toolkit"
-                | "smithay-clipboard"
-                | "xkbcommon-dl"
-                | "x11-dl"
-                | "x11rb"
-                | "x11rb-protocol"
-        ) || dep_name.starts_with("wayland-")
-            || dep_name.starts_with("smithay-")
-        {
-            return true;
-        }
-    }
-    false
-}
-
 /// Parses a dependency specification from Cargo.lock into name and optional version.
 pub fn parse_dep_spec(spec: &str) -> (&str, Option<&str>) {
     let mut parts = spec.split_whitespace();
     let name = parts.next().unwrap_or(spec);
     let version = parts.next();
     (name, version)
+}
+
+/// Checks if a package manifest has an active dependency on `dep_name`,
+/// filtering out inactive optional dependencies and dev-dependencies for non-test units.
+pub fn has_active_dependency(
+    pkg_toml: &CargoToml,
+    dep_name: &str,
+    unit_features: &[String],
+    is_test: bool,
+) -> bool {
+    let clean = dep_name.replace('-', "_");
+    let check_dep = |alias: &str, d: &TomlDependency| -> bool {
+        let real_name = match d {
+            TomlDependency::Simple(_) => alias,
+            TomlDependency::Detailed(dt) => dt.package_name.as_deref().unwrap_or(alias),
+        };
+        if alias == dep_name
+            || alias.replace('-', "_") == clean
+            || real_name == dep_name
+            || real_name.replace('-', "_") == clean
+        {
+            let is_optional = match d {
+                TomlDependency::Simple(_) => false,
+                TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
+            };
+            if !is_optional {
+                return true;
+            }
+            if unit_features
+                .iter()
+                .any(|f| f == alias || f.replace('-', "_") == clean || f == real_name)
+            {
+                return true;
+            }
+            for f in unit_features {
+                if let Some(sub_feats) = pkg_toml.features.get(f) {
+                    for sub in sub_feats {
+                        let sub_dep = sub.strip_prefix("dep:").unwrap_or(sub);
+                        let sub_crate = sub_dep.split('/').next().unwrap_or(sub_dep);
+                        let sub_crate_clean = sub_crate.strip_suffix('?').unwrap_or(sub_crate);
+                        if sub_crate_clean == alias
+                            || sub_crate_clean.replace('-', "_") == clean
+                            || sub_crate_clean == real_name
+                            || sub_crate_clean.replace('-', "_") == real_name.replace('-', "_")
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        false
+    };
+
+    for (alias, d) in &pkg_toml.dependencies {
+        if check_dep(alias, d) {
+            return true;
+        }
+    }
+
+    for (alias, d) in &pkg_toml.build_dependencies {
+        if check_dep(alias, d) {
+            return true;
+        }
+    }
+
+    for target in pkg_toml.target.values() {
+        for (alias, d) in &target.dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
+        }
+        for (alias, d) in &target.build_dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
+        }
+    }
+
+    if is_test {
+        for (alias, d) in &pkg_toml.dev_dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Checks if `dep_name` is declared in `[dependencies]`, `[build-dependencies]`,
+/// or `[target.*.dependencies]` (or `[dev-dependencies]` if `is_test` is true).
+pub fn is_declared_dependency(
+    pkg_toml: &CargoToml,
+    dep_name: &str,
+    is_test: bool,
+) -> bool {
+    let clean = dep_name.replace('-', "_");
+    let check_dep = |alias: &str, d: &TomlDependency| -> bool {
+        let real_name = match d {
+            TomlDependency::Simple(_) => alias,
+            TomlDependency::Detailed(dt) => dt.package_name.as_deref().unwrap_or(alias),
+        };
+        alias == dep_name
+            || alias.replace('-', "_") == clean
+            || real_name == dep_name
+            || real_name.replace('-', "_") == clean
+    };
+
+    for (alias, d) in &pkg_toml.dependencies {
+        if check_dep(alias, d) {
+            return true;
+        }
+    }
+
+    for (alias, d) in &pkg_toml.build_dependencies {
+        if check_dep(alias, d) {
+            return true;
+        }
+    }
+
+    for target in pkg_toml.target.values() {
+        for (alias, d) in &target.dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
+        }
+        for (alias, d) in &target.build_dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
+        }
+    }
+
+    if is_test {
+        for (alias, d) in &pkg_toml.dev_dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
+        }
+    }
+
+    false
 }

@@ -124,8 +124,15 @@ edition = "2021"
 
 #[test]
 fn test_coexistence_with_ordinary_cargo() {
-    let manifest = fixture_manifest();
-    let fixture_dir = manifest.parent().unwrap();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let orig_fixture = fixture_manifest();
+    let fixture_dir = tmp.path().join("hello-rust");
+    mitts::core::source_store::SourceStore::copy_dir_recursive(
+        orig_fixture.parent().unwrap(),
+        &fixture_dir,
+    )
+    .unwrap();
+    let manifest = fixture_dir.join("Cargo.toml");
 
     // 1. Run ordinary Cargo build
     let cargo_status = Command::new("cargo")

@@ -96,6 +96,15 @@ pub enum BuildProgressEvent {
     Diagnostic(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BuildMode {
+    #[default]
+    Build,
+    Check,
+    Clippy,
+    Test,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RustBuildOptions {
     pub manifest_path: Option<PathBuf>,
@@ -111,6 +120,7 @@ pub struct RustBuildOptions {
     pub native: bool,
     pub cargo: bool,
     pub verbose: u8,
+    pub mode: BuildMode,
     pub progress: Option<BuildProgressCallback>,
 }
 

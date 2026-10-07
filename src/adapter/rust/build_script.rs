@@ -32,6 +32,15 @@ pub struct BuildScriptDirectives {
 }
 
 impl BuildScriptDirectives {
+    /// Returns true if all directive collections are empty.
+    pub fn is_empty(&self) -> bool {
+        self.cfgs.is_empty()
+            && self.link_libs.is_empty()
+            && self.link_searches.is_empty()
+            && self.envs.is_empty()
+            && self.metadata.is_empty()
+    }
+
     /// Generates DEP_<LINKS>_<KEY>=<VALUE> environment variables from this build script's metadata.
     pub fn dep_env_vars(&self) -> HashMap<String, String> {
         let mut vars = HashMap::new();
@@ -43,6 +52,46 @@ impl BuildScriptDirectives {
             }
         }
         vars
+    }
+
+    /// Parses cargo: build script directives from raw stdout.
+    pub fn parse_stdout(stdout: &str) -> Self {
+        let mut directives = Self::default();
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            let directive = if let Some(rest) = trimmed.strip_prefix("cargo::") {
+                rest
+            } else if let Some(rest) = trimmed.strip_prefix("cargo:") {
+                rest
+            } else {
+                continue;
+            };
+
+            if let Some(rest) = directive.strip_prefix("rustc-cfg=") {
+                directives.cfgs.push(rest.to_string());
+            } else if let Some(rest) = directive.strip_prefix("rustc-link-lib=") {
+                directives.link_libs.push(rest.to_string());
+            } else if let Some(rest) = directive.strip_prefix("rustc-link-search=") {
+                let val = rest.strip_prefix("native=").unwrap_or(rest);
+                directives.link_searches.push(val.to_string());
+            } else if let Some(rest) = directive.strip_prefix("rustc-env=") {
+                if let Some((k, v)) = rest.split_once('=') {
+                    directives.envs.insert(k.to_string(), v.to_string());
+                }
+            } else {
+                let effective = directive.strip_prefix("metadata=").unwrap_or(directive);
+                if let Some((k, v)) = effective.split_once('=') {
+                    if !k.starts_with("rerun-")
+                        && k != "warning"
+                        && k != "rustc-check-cfg"
+                        && k != "rustc-flags"
+                    {
+                        directives.metadata.insert(k.to_string(), v.to_string());
+                    }
+                }
+            }
+        }
+        directives
     }
 }
 
@@ -121,6 +170,8 @@ pub fn execute_build_script(
         .arg("-o")
         .arg(&bin_path)
         .env("CARGO_MANIFEST_DIR", pkg_dir)
+        .env("CARGO", std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
+        .env("CARGO", std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
         .env("CARGO_PKG_NAME", &unit.package_name)
         .env("CARGO_PKG_VERSION", &unit.version)
         .env("CARGO_PKG_VERSION_MAJOR", &major)
@@ -318,47 +369,10 @@ pub fn execute_build_script(
     }
 
     let links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
-    let mut directives = BuildScriptDirectives {
-        out_dir: Some(out_dir),
-        links,
-        ..Default::default()
-    };
-
     let stdout_str = String::from_utf8_lossy(&run_status.stdout);
-    for line in stdout_str.lines() {
-        let trimmed = line.trim();
-        let directive = if let Some(rest) = trimmed.strip_prefix("cargo::") {
-            rest
-        } else if let Some(rest) = trimmed.strip_prefix("cargo:") {
-            rest
-        } else {
-            continue;
-        };
-
-        if let Some(rest) = directive.strip_prefix("rustc-cfg=") {
-            directives.cfgs.push(rest.to_string());
-        } else if let Some(rest) = directive.strip_prefix("rustc-link-lib=") {
-            directives.link_libs.push(rest.to_string());
-        } else if let Some(rest) = directive.strip_prefix("rustc-link-search=") {
-            let val = rest.strip_prefix("native=").unwrap_or(rest);
-            directives.link_searches.push(val.to_string());
-        } else if let Some(rest) = directive.strip_prefix("rustc-env=") {
-            if let Some((k, v)) = rest.split_once('=') {
-                directives.envs.insert(k.to_string(), v.to_string());
-            }
-        } else if let Some((k, v)) = directive.split_once('=') {
-            let k_clean = k.strip_prefix("metadata=").unwrap_or(k);
-            if !k_clean.starts_with("rerun-")
-                && k_clean != "warning"
-                && k_clean != "rustc-check-cfg"
-                && k_clean != "rustc-flags"
-            {
-                directives
-                    .metadata
-                    .insert(k_clean.to_string(), v.to_string());
-            }
-        }
-    }
+    let mut directives = BuildScriptDirectives::parse_stdout(&stdout_str);
+    directives.out_dir = Some(out_dir);
+    directives.links = links;
 
     Ok(directives)
 }

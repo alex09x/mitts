@@ -26,6 +26,24 @@ pub enum Commands {
     /// Compile the local package and its dependencies into the isolated Mitts target
     Build(BuildArgs),
 
+    /// Check a package to catch errors without producing binary artifacts
+    Check(CheckArgs),
+
+    /// Run Clippy lints over local packages in the workspace
+    Clippy(ClippyArgs),
+
+    /// Format Rust source files in the workspace using rustfmt
+    Fmt(FmtArgs),
+
+    /// Execute unit and integration tests of a package
+    Test(TestArgs),
+
+    /// Generate code coverage using LLVM source-based coverage tools
+    Coverage(CoverageArgs),
+
+    /// Cargo-compatible llvm-cov wrapper command
+    LlvmCov(CoverageArgs),
+
     /// Run a binary of the local package
     Run(RunArgs),
 
@@ -42,7 +60,7 @@ pub enum Commands {
     Clean(CleanArgs),
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct CleanArgs {
     /// Path to Cargo.toml
     #[arg(long)]
@@ -61,7 +79,7 @@ pub struct CleanArgs {
     pub cache_dir: Option<PathBuf>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct BuildArgs {
     /// Path to Cargo.toml
     #[arg(long)]
@@ -116,17 +134,17 @@ pub struct BuildArgs {
     pub extra_args: Vec<String>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct RunArgs {
     #[command(flatten)]
     pub build_args: BuildArgs,
 
     /// Arguments for the binary
-    #[arg(last = true)]
+    #[arg(skip)]
     pub trailing_args: Vec<String>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct ExplainArgs {
     /// Path to Cargo.toml
     #[arg(long)]
@@ -153,7 +171,7 @@ pub struct ExplainArgs {
     pub all_features: bool,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct FetchArgs {
     /// Path to Cargo.toml
     #[arg(long)]
@@ -176,7 +194,7 @@ pub struct FetchArgs {
     pub frozen: bool,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct GcArgs {
     /// Directory for the shared artifact and action cache
     #[arg(long)]
@@ -191,12 +209,27 @@ pub struct GcArgs {
     pub max_age_secs: Option<u64>,
 }
 
+pub mod build;
+pub mod check;
+pub mod clippy;
+pub mod coverage;
+pub mod coverage_tools;
 pub mod diagnostic;
+pub mod fmt;
 pub mod handlers;
+pub mod run;
 pub mod terminal;
+pub mod test;
 pub mod ui;
 
+pub use build::handle_build;
+pub use check::{handle_check, CheckArgs};
+pub use clippy::{handle_clippy, ClippyArgs};
+pub use coverage::{handle_coverage, CoverageArgs};
 pub use diagnostic::render_compiler_diagnostics;
+pub use fmt::{handle_fmt, FmtArgs};
 pub use handlers::{handle_clean, handle_explain, handle_fetch, handle_gc};
+pub use run::handle_run;
 pub use terminal::TerminalGuard;
+pub use test::{handle_test, TestArgs};
 pub use ui::Ui;

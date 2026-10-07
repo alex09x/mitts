@@ -115,9 +115,20 @@ fn test_m6_c_adapter_cold_and_warm_build() {
     assert!(restored_result.cached, "Must hit cache");
     assert!(bin_path.is_file(), "Binary must be restored from CAS");
 
-    let rerun_out = Command::new(&bin_path)
-        .output()
-        .expect("execute restored binary");
+    let mut rerun_out = None;
+    for _ in 0..10 {
+        match Command::new(&bin_path).output() {
+            Ok(out) => {
+                rerun_out = Some(out);
+                break;
+            }
+            Err(e) if e.raw_os_error() == Some(26) => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(e) => panic!("execute restored binary: {}", e),
+        }
+    }
+    let rerun_out = rerun_out.expect("execute restored binary");
     assert!(rerun_out.status.success());
     let rerun_stdout = String::from_utf8_lossy(&rerun_out.stdout);
     assert!(rerun_stdout.contains("Hello from Mitts C fixture: 42"));

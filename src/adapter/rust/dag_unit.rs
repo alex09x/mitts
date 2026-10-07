@@ -9,6 +9,7 @@
  */
 
 use super::build_script::execute_build_script;
+use super::dag_scheduler::{LockMode, UnitExecutionStatus};
 use super::compiler::RustcInvocation;
 use super::dag_cache::{try_restore_from_cache, ExecutionContext};
 use super::manifest::CargoToml;
@@ -27,16 +28,37 @@ pub(crate) fn execute_unit(
     unit: &PlannedCompilationUnit,
     action_key: &str,
     ctx: &ExecutionContext,
-) -> Result<()> {
+    lock_mode: LockMode,
+) -> Result<UnitExecutionStatus> {
     let clean_crate = unit.target_name.replace('-', "_");
     let is_bin = unit.kind == "bin";
+    let is_test = unit.kind == "test";
+    let is_check_or_clippy_ws = unit.is_workspace
+        && (ctx.opt.mode == crate::adapter::BuildMode::Check
+            || ctx.opt.mode == crate::adapter::BuildMode::Clippy);
+    let is_executable = (is_bin || is_test) && !is_check_or_clippy_ws;
 
     // 1. Check Action Cache (read phase)
-    if try_restore_from_cache(unit, action_key, ctx, is_bin)? {
-        return Ok(());
+    if try_restore_from_cache(unit, action_key, ctx, is_executable)? {
+        return Ok(UnitExecutionStatus::Success);
     }
 
     *ctx.any_missed.lock().unwrap() = true;
+
+    // 2. Single-flight lock to eliminate duplicate work across processes
+    let lock_path = ctx.ac.lock_path(action_key);
+    let _lock = match lock_mode {
+        LockMode::TryLock => match FileLock::try_acquire_exclusive(&lock_path)? {
+            Some(l) => l,
+            None => return Ok(UnitExecutionStatus::Contested),
+        },
+        LockMode::Blocking => FileLock::acquire_exclusive(&lock_path)?,
+    };
+
+    // Double-checked locking: re-check action cache in case a concurrent process just compiled it
+    if try_restore_from_cache(unit, action_key, ctx, is_executable)? {
+        return Ok(UnitExecutionStatus::Success);
+    }
 
     if let Some(ref cb) = ctx.opt.progress {
         cb.0(BuildProgressEvent::Compiling(format!(
@@ -44,10 +66,6 @@ pub(crate) fn execute_unit(
             unit.package_name, unit.version
         )));
     }
-
-    // 2. Single-flight lock to eliminate duplicate work across processes
-    let lock_path = ctx.ac.lock_path(action_key);
-    let _lock = FileLock::acquire_exclusive(&lock_path)?;
 
     // Staging directory for build isolation
     let pid = std::process::id();
@@ -186,7 +204,7 @@ pub(crate) fn execute_unit(
     let profile_dir = ctx.target_dir.join(profile_name);
     fs::create_dir_all(&profile_dir)?;
 
-    let dest_binary = if is_bin {
+    let dest_binary = if is_executable {
         Some(profile_dir.join(&unit.target_name))
     } else {
         None
@@ -201,6 +219,8 @@ pub(crate) fn execute_unit(
         release: ctx.opt.release,
         features: &unit.features,
         directives: Some(&directives),
+        mode: ctx.opt.mode,
+        extra_compiler_args: &ctx.opt.extra_args,
     };
 
     let output = invocation.execute()?;
@@ -239,7 +259,7 @@ pub(crate) fn execute_unit(
     let mut cached_outputs = Vec::new();
     let mut action_outputs = Vec::new();
 
-    if is_bin {
+    if is_executable {
         if let Some(bin_path) = dest_binary {
             let (hash, size) = ctx.cas.store_file(&bin_path)?;
             let rel_path = PathBuf::from(format!("{}/{}", profile_name, unit.target_name));
@@ -256,8 +276,12 @@ pub(crate) fn execute_unit(
             action_outputs.push(bin_path);
         }
     } else {
-        // Publish primary rlib/dylib to CAS
-        if let Some(ref lib_path) = output.primary_output {
+        // Publish primary rlib/dylib or rmeta to CAS
+        if let Some(lib_path) = output
+            .primary_output
+            .as_ref()
+            .or(output.metadata_output.as_ref())
+        {
             let (hash, size) = ctx.cas.store_file(lib_path)?;
             let ext = lib_path
                 .extension()
@@ -323,7 +347,7 @@ pub(crate) fn execute_unit(
             created_at_secs: now_secs,
             outputs: cached_outputs,
             stdout: String::new(),
-            stderr: String::new(),
+            stderr: output.stderr,
             exit_code: 0,
         };
         let _ = ctx.ac.put(&entry);
@@ -331,7 +355,7 @@ pub(crate) fn execute_unit(
 
     ctx.recorded_actions.lock().unwrap().push(Action {
         id: unit.unit_id(),
-        kind: if is_bin {
+        kind: if is_executable {
             ActionKind::CompileBin
         } else {
             ActionKind::CompileRlib
@@ -349,5 +373,5 @@ pub(crate) fn execute_unit(
         cb.0(BuildProgressEvent::UnitFinished);
     }
 
-    Ok(())
+    Ok(UnitExecutionStatus::Success)
 }
