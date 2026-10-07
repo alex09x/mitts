@@ -140,19 +140,28 @@ pub fn resolve_package_features(
                                     &mut requested,
                                     &mut changed,
                                 );
-                            } else if ctx.toml.dependencies.get(sub).is_some_and(|d| match d {
-                                TomlDependency::Detailed(dt) => dt.optional == Some(true),
-                                _ => false,
-                            }) {
-                                activate_dep_target(
-                                    ctx,
-                                    packages,
-                                    sub,
-                                    &mut requested,
-                                    &mut changed,
-                                );
-                            } else if requested.entry(id.clone()).or_default().insert(sub.clone()) {
-                                changed = true;
+                            } else {
+                                if requested.entry(id.clone()).or_default().insert(sub.clone()) {
+                                    changed = true;
+                                }
+                                let is_optional_dep = ctx
+                                    .toml
+                                    .dependencies
+                                    .get(sub)
+                                    .or_else(|| ctx.toml.build_dependencies.get(sub))
+                                    .is_some_and(|d| match d {
+                                        TomlDependency::Detailed(dt) => dt.optional == Some(true),
+                                        _ => false,
+                                    });
+                                if is_optional_dep {
+                                    activate_dep_target(
+                                        ctx,
+                                        packages,
+                                        sub,
+                                        &mut requested,
+                                        &mut changed,
+                                    );
+                                }
                             }
                         }
                     }
@@ -240,12 +249,28 @@ fn activate_dep_target(
     });
     let req_ver = dep_spec.and_then(|s| parse_dep_spec(s).1);
     if let Some(target_id) = resolve_dep_id(packages, real, req_ver) {
-        if requested
-            .entry(target_id)
-            .or_default()
-            .insert("default".to_string())
-        {
+        let (feats, default_feats) = ctx
+            .toml
+            .dependencies
+            .get(dep_name)
+            .or_else(|| ctx.toml.build_dependencies.get(dep_name))
+            .map(|d| match d {
+                TomlDependency::Simple(_) => (Vec::new(), true),
+                TomlDependency::Detailed(dt) => (
+                    dt.features.clone().unwrap_or_default(),
+                    dt.default_features.unwrap_or(true),
+                ),
+            })
+            .unwrap_or_else(|| (Vec::new(), true));
+
+        let set = requested.entry(target_id).or_default();
+        if default_feats && set.insert("default".to_string()) {
             *changed = true;
+        }
+        for f in feats {
+            if set.insert(f) {
+                *changed = true;
+            }
         }
     }
 }
