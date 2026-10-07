@@ -125,7 +125,11 @@ pub(crate) fn execute_unit(
                     }
                 }
 
-                let chosen_artifact = if unit.kind != "bin" && unit.kind != "test" {
+                let is_linking_kind = matches!(
+                    unit.kind.as_str(),
+                    "bin" | "test" | "proc-macro" | "dylib" | "cdylib" | "example" | "bench"
+                );
+                let chosen_artifact = if !is_linking_kind {
                     let rmeta = artifact_path.with_extension("rmeta");
                     if rmeta.is_file() {
                         rmeta
