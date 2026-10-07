@@ -67,7 +67,7 @@ pub fn resolve_package_features(
 
     // 2. Initial feature requests from dependency specifications in manifests
     for ctx in packages {
-        collect_dependency_features(ctx, packages, &mut requested);
+        collect_dependency_features(ctx, packages, opt, &mut requested);
     }
 
     // 3. Fixed-point propagation loop: expand intra-crate and cross-crate features
@@ -132,9 +132,25 @@ pub fn resolve_package_features(
                                         changed = true;
                                     }
                                 }
-                            } else if sub.starts_with("dep:") {
-                                // Optional dependency activated as a feature
-                                continue;
+                            } else if let Some(dep_name) = sub.strip_prefix("dep:") {
+                                activate_dep_target(
+                                    ctx,
+                                    packages,
+                                    dep_name,
+                                    &mut requested,
+                                    &mut changed,
+                                );
+                            } else if ctx.toml.dependencies.get(sub).is_some_and(|d| match d {
+                                TomlDependency::Detailed(dt) => dt.optional == Some(true),
+                                _ => false,
+                            }) {
+                                activate_dep_target(
+                                    ctx,
+                                    packages,
+                                    sub,
+                                    &mut requested,
+                                    &mut changed,
+                                );
                             } else if requested.entry(id.clone()).or_default().insert(sub.clone()) {
                                 changed = true;
                             }
@@ -205,17 +221,41 @@ pub fn resolve_package_features(
     result
 }
 
+fn activate_dep_target(
+    ctx: &PackageFeatureContext,
+    packages: &[PackageFeatureContext],
+    dep_name: &str,
+    requested: &mut HashMap<String, HashSet<String>>,
+    changed: &mut bool,
+) {
+    let aliases = ctx.toml.dependency_aliases();
+    let real = aliases
+        .alias_to_real
+        .get(dep_name)
+        .map(|s| s.as_str())
+        .unwrap_or(dep_name);
+    let dep_spec = ctx.dependencies.iter().find(|s| {
+        let (name, _) = parse_dep_spec(s);
+        name == real || name == dep_name
+    });
+    let req_ver = dep_spec.and_then(|s| parse_dep_spec(s).1);
+    if let Some(target_id) = resolve_dep_id(packages, real, req_ver) {
+        if requested
+            .entry(target_id)
+            .or_default()
+            .insert("default".to_string())
+        {
+            *changed = true;
+        }
+    }
+}
+
 fn collect_dependency_features(
     ctx: &PackageFeatureContext,
     packages: &[PackageFeatureContext],
+    opt: &RustBuildOptions,
     requested: &mut HashMap<String, HashSet<String>>,
 ) {
-    let active_deps: HashSet<String> = ctx
-        .dependencies
-        .iter()
-        .map(|d| parse_dep_spec(d).0.to_string())
-        .collect();
-
     let target_deps = ctx
         .toml
         .target
@@ -250,12 +290,11 @@ fn collect_dependency_features(
             }
         };
 
-        if is_optional {
-            let is_active = active_deps.contains(dep_key)
-                || active_deps.contains(&dep_key.replace('-', "_"))
-                || active_deps.contains(&real_name)
-                || active_deps.contains(&real_name.replace('-', "_"));
-            if !is_active {
+        if is_optional && !opt.all_features {
+            let is_requested = requested
+                .get(&ctx.id())
+                .is_some_and(|feats| feats.contains(dep_key) || feats.contains(&real_name));
+            if !is_requested {
                 continue;
             }
         }
