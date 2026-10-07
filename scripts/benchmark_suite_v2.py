@@ -356,16 +356,30 @@ def main():
         ("clap", PROJECTS_DIR / "clap", BENCH_ROOT / "clap_swarm_30")
     ]
     
-    full_report = {
-        "metadata": {
+    if len(sys.argv) > 1:
+        selected = sys.argv[1].split(",")
+        projects = [p for p in projects if p[0] in selected]
+
+    out_file = BENCH_ROOT / "benchmark_results_v2.json"
+    full_report = {}
+    if out_file.exists():
+        try:
+            with open(out_file, "r") as f:
+                full_report = json.load(f)
+        except Exception:
+            full_report = {}
+
+    if "metadata" not in full_report:
+        full_report["metadata"] = {
             "timestamp": int(time.time()),
             "host": "booster (64 cores, 128 GB RAM, ZFS)",
             "mitts_version": "0.1.0-release",
             "worktrees_count": 30,
             "engines": ["cargo", "cargo_sccache", "mitts"]
-        },
-        "projects": {}
-    }
+        }
+    full_report["metadata"]["timestamp"] = int(time.time())
+    if "projects" not in full_report:
+        full_report["projects"] = {}
 
     for name, p_dir, wt_dir in projects:
         try:
@@ -375,7 +389,6 @@ def main():
             import traceback
             traceback.print_exc()
 
-    out_file = BENCH_ROOT / "benchmark_results_v2.json"
     with open(out_file, "w") as f:
         json.dump(full_report, f, indent=2)
     print(f"\n✅ All benchmarks finished! Results saved to {out_file}")
