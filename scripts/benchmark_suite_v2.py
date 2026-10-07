@@ -8,7 +8,13 @@ import sys
 import time
 from pathlib import Path
 
-MITTS_BIN = Path("/home/user/mitts/target/release/mitts")
+# Paths
+CANDIDATE_MITTS = [
+    Path("/home/user/mitts/target/release/mitts"),
+    Path("/home/user/mitts/target/release/mitts")
+]
+MITTS_BIN = next((p for p in CANDIDATE_MITTS if p.exists()), CANDIDATE_MITTS[0])
+SCCACHE_BIN = Path(shutil.which("sccache") or "/home/user/.cargo/bin/sccache")
 PROJECTS_DIR = Path("/home/user/mitts-benchmarks/projects")
 BENCH_ROOT = Path("/home/user/mitts-benchmarks")
 
@@ -22,7 +28,7 @@ def measure_command(cmd, cwd, env=None):
         stderr=subprocess.PIPE,
         text=True
     )
-    # wait4 captures child and all grandchild processes (rustc etc)
+    # wait4 captures child and grandchild processes (rustc, linkers, etc)
     _, status, ru = os.wait4(p.pid, 0)
     stdout, stderr = p.communicate()
     elapsed = time.perf_counter() - start
@@ -64,8 +70,6 @@ def get_dir_size_mb(path):
 def prepare_worktrees(project_name, repo_dir, worktree_base_dir, num_worktrees=30):
     worktree_base_dir.mkdir(parents=True, exist_ok=True)
     worktrees = []
-    
-    # Check if worktrees already exist
     existing_wts = sorted([d for d in worktree_base_dir.glob("wt-*") if d.is_dir()])
     if len(existing_wts) >= num_worktrees:
         print(f"[{project_name}] Using existing {num_worktrees} worktrees in {worktree_base_dir}")
@@ -121,37 +125,71 @@ def run_parallel_builds(command_builder_fn, worktrees, max_workers=30):
         "total_count": len(worktrees)
     }
 
+def clean_sccache(sccache_dir):
+    try:
+        subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    if sccache_dir.exists():
+        shutil.rmtree(sccache_dir, ignore_errors=True)
+    sccache_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["SCCACHE_DIR"] = str(sccache_dir)
+    try:
+        subprocess.run([str(SCCACHE_BIN), "--start-server"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([str(SCCACHE_BIN), "--zero-stats"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
 def benchmark_project(project_name, project_repo_dir, worktree_base_dir):
     print(f"\n=======================================================")
-    print(f"🚀 BENCHMARKING PROJECT: {project_name.upper()}")
+    print(f"🚀 BENCHMARKING: {project_name.upper()} (3-Way: Cargo vs Sccache vs Mitts)")
     print(f"=======================================================")
     results = {}
     
     single_wt = project_repo_dir
     shared_cas = BENCH_ROOT / f"cas_bench_{project_name}"
+    sccache_dir = BENCH_ROOT / f"sccache_bench_{project_name}"
     
+    # Environment setups
+    cargo_env = os.environ.copy()
+    cargo_env["RUSTC_WRAPPER"] = ""
+    
+    sccache_env = os.environ.copy()
+    sccache_env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
+    sccache_env["SCCACHE_DIR"] = str(sccache_dir)
+    sccache_env["CARGO_INCREMENTAL"] = "0"
+    
+    mitts_env = os.environ.copy()
+    mitts_env["MITTS_CACHE_DIR"] = str(shared_cas)
+
     # -------------------------------------------------------------
-    # 1. Single-Worktree Cold Start (Mitts Cold vs Cargo Cold)
+    # 1. Single-Worktree Cold Build
     # -------------------------------------------------------------
     print(f"\n--- [1] Single-Worktree Cold Build ---")
     
-    # 1A. Cargo Pure Cold
+    # 1A. Pure Cargo Cold
     subprocess.run(["cargo", "clean"], cwd=single_wt, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    cargo_env = os.environ.copy()
-    cargo_env["RUSTC_WRAPPER"] = "" # pure cold cargo without sccache
     print(f"Running Cargo Single Cold...")
     cargo_cold = measure_command(["cargo", "build"], single_wt, env=cargo_env)
     cargo_cold_disk = get_dir_size_mb(single_wt / "target")
     cargo_cold["disk_written_mb"] = cargo_cold_disk
     print(f"  -> Cargo Cold: {cargo_cold['wall_sec']}s | CPU: {cargo_cold['cpu_percent']}% | Disk: {cargo_cold_disk}MB")
 
-    # 1B. Mitts Pure Cold
+    # 1B. Cargo + sccache Cold
+    subprocess.run(["cargo", "clean"], cwd=single_wt, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    clean_sccache(sccache_dir)
+    print(f"Running Sccache Single Cold...")
+    sccache_cold = measure_command(["cargo", "build"], single_wt, env=sccache_env)
+    sccache_cold_disk = get_dir_size_mb(single_wt / "target") + get_dir_size_mb(sccache_dir)
+    sccache_cold["disk_written_mb"] = sccache_cold_disk
+    print(f"  -> Sccache Cold: {sccache_cold['wall_sec']}s | CPU: {sccache_cold['cpu_percent']}% | Disk: {sccache_cold_disk}MB")
+
+    # 1C. Mitts Single Cold
     if shared_cas.exists():
         shutil.rmtree(shared_cas)
     if (single_wt / ".mitts").exists():
         shutil.rmtree(single_wt / ".mitts")
-    mitts_env = os.environ.copy()
-    mitts_env["MITTS_CACHE_DIR"] = str(shared_cas)
     print(f"Running Mitts Single Cold...")
     mitts_cold = measure_command([str(MITTS_BIN), "build"], single_wt, env=mitts_env)
     mitts_cold_disk = get_dir_size_mb(single_wt / ".mitts") + get_dir_size_mb(shared_cas)
@@ -160,27 +198,39 @@ def benchmark_project(project_name, project_repo_dir, worktree_base_dir):
     
     results["single_cold"] = {
         "cargo": cargo_cold,
+        "sccache": sccache_cold,
         "mitts": mitts_cold,
-        "speedup_ratio": round(cargo_cold["wall_sec"] / max(mitts_cold["wall_sec"], 0.001), 2),
-        "disk_savings_ratio": round(cargo_cold_disk / max(mitts_cold_disk, 0.001), 2)
+        "speedup_vs_cargo": round(cargo_cold["wall_sec"] / max(mitts_cold["wall_sec"], 0.001), 2),
+        "speedup_vs_sccache": round(sccache_cold["wall_sec"] / max(mitts_cold["wall_sec"], 0.001), 2),
+        "disk_savings_vs_cargo": round(cargo_cold_disk / max(mitts_cold_disk, 0.001), 2)
     }
 
     # -------------------------------------------------------------
-    # 2. Single-Worktree Warm No-Op Build
+    # 2. Single-Worktree Warm Build
     # -------------------------------------------------------------
-    print(f"\n--- [2] Single-Worktree Warm No-Op Build ---")
+    print(f"\n--- [2] Single-Worktree Warm Build ---")
+    # Cargo Warm (no-op check)
     print(f"Running Cargo Warm No-Op...")
     cargo_warm = measure_command(["cargo", "build"], single_wt, env=cargo_env)
     print(f"  -> Cargo Warm: {cargo_warm['wall_sec']}s | CPU: {cargo_warm['cpu_percent']}%")
 
+    # Sccache Warm (clean target, warm sccache cache)
+    subprocess.run(["cargo", "clean"], cwd=single_wt, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print(f"Running Sccache Warm (Clean Target + Warm Sccache Cache)...")
+    sccache_warm = measure_command(["cargo", "build"], single_wt, env=sccache_env)
+    print(f"  -> Sccache Warm: {sccache_warm['wall_sec']}s | CPU: {sccache_warm['cpu_percent']}%")
+
+    # Mitts Warm (fast-lock no-op)
     print(f"Running Mitts Warm No-Op (Fast Lock)...")
     mitts_warm = measure_command([str(MITTS_BIN), "build"], single_wt, env=mitts_env)
     print(f"  -> Mitts Warm: {mitts_warm['wall_sec']}s | CPU: {mitts_warm['cpu_percent']}%")
 
-    results["single_warm_noop"] = {
+    results["single_warm"] = {
         "cargo": cargo_warm,
+        "sccache": sccache_warm,
         "mitts": mitts_warm,
-        "speedup_ratio": round(cargo_warm["wall_sec"] / max(mitts_warm["wall_sec"], 0.0001), 2)
+        "speedup_vs_cargo": round(cargo_warm["wall_sec"] / max(mitts_warm["wall_sec"], 0.0001), 2),
+        "speedup_vs_sccache": round(sccache_warm["wall_sec"] / max(mitts_warm["wall_sec"], 0.0001), 2)
     }
 
     # -------------------------------------------------------------
@@ -192,6 +242,8 @@ def benchmark_project(project_name, project_repo_dir, worktree_base_dir):
     # 3. 30-Worktree Concurrent Cold Build (Swarm)
     # -------------------------------------------------------------
     print(f"\n--- [3] 30-Worktree Concurrent Cold Swarm ---")
+    
+    # 3A. Mitts 30x Cold
     if shared_cas.exists():
         shutil.rmtree(shared_cas)
     for _, wt_dir in worktrees:
@@ -199,58 +251,99 @@ def benchmark_project(project_name, project_repo_dir, worktree_base_dir):
         if m_dir.exists():
             shutil.rmtree(m_dir)
 
-    def mitts_cold_swarm_fn(wt):
+    def mitts_cmd_fn(wt):
         _, wt_dir = wt
         return measure_command([str(MITTS_BIN), "build"], wt_dir, env=mitts_env)
 
-    print(f"Running Mitts 30x Concurrent Cold...")
-    mitts_swarm_cold = run_parallel_builds(mitts_cold_swarm_fn, worktrees)
+    print(f"Running Mitts 30x Concurrent Cold (TryLock Coordination)...")
+    mitts_swarm_cold = run_parallel_builds(mitts_cmd_fn, worktrees)
     mitts_swarm_cold_disk = sum(get_dir_size_mb(wt_dir / ".mitts") for _, wt_dir in worktrees) + get_dir_size_mb(shared_cas)
     mitts_swarm_cold["disk_written_mb"] = round(mitts_swarm_cold_disk, 1)
     print(f"  -> Mitts 30x Cold: {mitts_swarm_cold['wall_sec']}s | CPU: {mitts_swarm_cold['cpu_percent']}% | Disk: {mitts_swarm_cold_disk:.1f}MB")
 
+    # 3B. Cargo + sccache 30x Cold
+    clean_sccache(sccache_dir)
     for _, wt_dir in worktrees:
         c_dir = wt_dir / "target"
         if c_dir.exists():
             shutil.rmtree(c_dir)
 
-    def cargo_cold_swarm_fn(wt):
+    def sccache_cmd_fn(wt):
+        _, wt_dir = wt
+        return measure_command(["cargo", "build"], wt_dir, env=sccache_env)
+
+    print(f"Running Sccache 30x Concurrent Cold...")
+    sccache_swarm_cold = run_parallel_builds(sccache_cmd_fn, worktrees)
+    sccache_swarm_cold_disk = sum(get_dir_size_mb(wt_dir / "target") for _, wt_dir in worktrees) + get_dir_size_mb(sccache_dir)
+    sccache_swarm_cold["disk_written_mb"] = round(sccache_swarm_cold_disk, 1)
+    print(f"  -> Sccache 30x Cold: {sccache_swarm_cold['wall_sec']}s | CPU: {sccache_swarm_cold['cpu_percent']}% | Disk: {sccache_swarm_cold_disk:.1f}MB")
+
+    # 3C. Pure Cargo 30x Cold
+    for _, wt_dir in worktrees:
+        c_dir = wt_dir / "target"
+        if c_dir.exists():
+            shutil.rmtree(c_dir)
+
+    def cargo_cmd_fn(wt):
         _, wt_dir = wt
         return measure_command(["cargo", "build"], wt_dir, env=cargo_env)
 
-    print(f"Running Cargo 30x Concurrent Cold...")
-    cargo_swarm_cold = run_parallel_builds(cargo_cold_swarm_fn, worktrees)
+    print(f"Running Cargo 30x Concurrent Cold (Uncoordinated)...")
+    cargo_swarm_cold = run_parallel_builds(cargo_cmd_fn, worktrees)
     cargo_swarm_cold_disk = sum(get_dir_size_mb(wt_dir / "target") for _, wt_dir in worktrees)
     cargo_swarm_cold["disk_written_mb"] = round(cargo_swarm_cold_disk, 1)
     print(f"  -> Cargo 30x Cold: {cargo_swarm_cold['wall_sec']}s | CPU: {cargo_swarm_cold['cpu_percent']}% | Disk: {cargo_swarm_cold_disk:.1f}MB")
 
     results["swarm_cold_30x"] = {
         "cargo": cargo_swarm_cold,
+        "sccache": sccache_swarm_cold,
         "mitts": mitts_swarm_cold,
-        "speedup_ratio": round(cargo_swarm_cold["wall_sec"] / max(mitts_swarm_cold["wall_sec"], 0.001), 2),
-        "disk_savings_ratio": round(cargo_swarm_cold_disk / max(mitts_swarm_cold_disk, 0.001), 2)
+        "speedup_vs_cargo": round(cargo_swarm_cold["wall_sec"] / max(mitts_swarm_cold["wall_sec"], 0.001), 2),
+        "speedup_vs_sccache": round(sccache_swarm_cold["wall_sec"] / max(mitts_swarm_cold["wall_sec"], 0.001), 2),
+        "disk_savings_vs_cargo": round(cargo_swarm_cold_disk / max(mitts_swarm_cold_disk, 0.001), 2),
+        "disk_savings_vs_sccache": round(sccache_swarm_cold_disk / max(mitts_swarm_cold_disk, 0.001), 2)
     }
 
     # -------------------------------------------------------------
-    # 4. 30-Worktree Concurrent Warm Build (Populated CAS vs Cargo from Scratch)
+    # 4. 30-Worktree Concurrent Warm Build (Warm Cache Restoration)
     # -------------------------------------------------------------
-    print(f"\n--- [4] 30-Worktree Concurrent Warm Build (Clean WT target, Populated CAS) ---")
+    print(f"\n--- [4] 30-Worktree Concurrent Warm Build (Populated Caches) ---")
+    
+    # 4A. Mitts Warm Swarm (Clean .mitts, warm CAS)
     for _, wt_dir in worktrees:
         m_dir = wt_dir / ".mitts"
         if m_dir.exists():
             shutil.rmtree(m_dir)
 
-    print(f"Running Mitts 30x Concurrent Warm (Instant CAS linking)...")
-    mitts_swarm_warm = run_parallel_builds(mitts_cold_swarm_fn, worktrees)
+    print(f"Running Mitts 30x Warm (Instant Reflink/Hardlink from CAS)...")
+    mitts_swarm_warm = run_parallel_builds(mitts_cmd_fn, worktrees)
     mitts_swarm_warm_disk = sum(get_dir_size_mb(wt_dir / ".mitts") for _, wt_dir in worktrees)
     mitts_swarm_warm["disk_written_mb"] = round(mitts_swarm_warm_disk, 1)
     print(f"  -> Mitts 30x Warm: {mitts_swarm_warm['wall_sec']}s | CPU: {mitts_swarm_warm['cpu_percent']}% | Disk: {mitts_swarm_warm_disk:.1f}MB")
 
+    # 4B. Sccache Warm Swarm (Clean target, warm Sccache cache)
+    for _, wt_dir in worktrees:
+        c_dir = wt_dir / "target"
+        if c_dir.exists():
+            shutil.rmtree(c_dir)
+
+    print(f"Running Sccache 30x Warm (Warm Sccache Cache)...")
+    sccache_swarm_warm = run_parallel_builds(sccache_cmd_fn, worktrees)
+    sccache_swarm_warm_disk = sum(get_dir_size_mb(wt_dir / "target") for _, wt_dir in worktrees)
+    sccache_swarm_warm["disk_written_mb"] = round(sccache_swarm_warm_disk, 1)
+    print(f"  -> Sccache 30x Warm: {sccache_swarm_warm['wall_sec']}s | CPU: {sccache_swarm_warm['cpu_percent']}% | Disk: {sccache_swarm_warm_disk:.1f}MB")
+
+    # 4C. Cargo: Cargo has no cross-worktree cache, so warm swarm equals clean rebuild
+    cargo_swarm_warm = cargo_swarm_cold
+
     results["swarm_warm_30x"] = {
-        "cargo": cargo_swarm_cold, # Cargo has no cross-worktree cache, must rebuild
+        "cargo": cargo_swarm_warm,
+        "sccache": sccache_swarm_warm,
         "mitts": mitts_swarm_warm,
-        "speedup_ratio": round(cargo_swarm_cold["wall_sec"] / max(mitts_swarm_warm["wall_sec"], 0.001), 2),
-        "disk_savings_ratio": round(cargo_swarm_cold_disk / max(mitts_swarm_warm_disk, 0.001), 2)
+        "speedup_vs_cargo": round(cargo_swarm_warm["wall_sec"] / max(mitts_swarm_warm["wall_sec"], 0.001), 2),
+        "speedup_vs_sccache": round(sccache_swarm_warm["wall_sec"] / max(mitts_swarm_warm["wall_sec"], 0.001), 2),
+        "disk_savings_vs_cargo": round(cargo_swarm_cold_disk / max(mitts_swarm_warm_disk, 0.001), 2),
+        "disk_savings_vs_sccache": round(sccache_swarm_warm_disk / max(mitts_swarm_warm_disk, 0.001), 2)
     }
 
     return results
@@ -259,7 +352,8 @@ def main():
     projects = [
         ("serde", PROJECTS_DIR / "serde", BENCH_ROOT / "worktrees_stress"),
         ("tokio", PROJECTS_DIR / "tokio", BENCH_ROOT / "tokio_swarm_30"),
-        ("ripgrep", PROJECTS_DIR / "ripgrep", BENCH_ROOT / "ripgrep_swarm_30")
+        ("ripgrep", PROJECTS_DIR / "ripgrep", BENCH_ROOT / "ripgrep_swarm_30"),
+        ("clap", PROJECTS_DIR / "clap", BENCH_ROOT / "clap_swarm_30")
     ]
     
     full_report = {
@@ -267,7 +361,8 @@ def main():
             "timestamp": int(time.time()),
             "host": "booster (64 cores, 128 GB RAM, ZFS)",
             "mitts_version": "0.1.0-release",
-            "worktrees_count": 30
+            "worktrees_count": 30,
+            "engines": ["cargo", "cargo_sccache", "mitts"]
         },
         "projects": {}
     }
