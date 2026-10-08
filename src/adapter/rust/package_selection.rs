@@ -93,7 +93,10 @@ pub fn select_transitive_packages<'a>(
 
         if root_pkgs.is_empty() {
             for (name, (member_dir, ws_toml)) in workspace_manifests {
-                let targets = ws_toml.discover_targets(member_dir);
+                let mut targets = ws_toml.discover_targets(member_dir);
+                if opt.mode == crate::adapter::BuildMode::Test {
+                    targets.extend(ws_toml.discover_test_targets(member_dir));
+                }
                 if targets.is_empty() {
                     continue;
                 }

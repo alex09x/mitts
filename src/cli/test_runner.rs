@@ -36,11 +36,7 @@ pub fn discover_test_binaries(
         if action.kind == ActionKind::CompileBin {
             if action.id.contains("::test:") {
                 for out in &action.outputs {
-                    if out.is_file() {
-                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                            continue;
-                        }
+                    if is_executable_binary(out) {
                         test_binaries.push((
                             action.description.clone(),
                             out.clone(),
@@ -50,13 +46,10 @@ pub fn discover_test_binaries(
                 }
             } else {
                 for out in &action.outputs {
-                    if out.is_file() {
-                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if ext.is_empty() || ext == "exe" {
-                            if let Some(stem) = out.file_name().and_then(|s| s.to_str()) {
-                                cli_binaries
-                                    .insert(stem.trim_end_matches(".exe").to_string(), out.clone());
-                            }
+                    if is_executable_binary(out) {
+                        if let Some(stem) = out.file_name().and_then(|s| s.to_str()) {
+                            cli_binaries
+                                .insert(stem.trim_end_matches(".exe").to_string(), out.clone());
                         }
                     }
                 }
@@ -99,11 +92,7 @@ pub fn discover_test_binaries(
         if let Ok(entries) = std::fs::read_dir(&profile_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if p.is_file() {
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                        continue;
-                    }
+                if is_executable_binary(&p) {
                     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     let bin_key = name.trim_end_matches(".exe");
                     if declared_bin_names.contains(bin_key) {
@@ -119,11 +108,7 @@ pub fn discover_test_binaries(
         if let Ok(entries) = std::fs::read_dir(&profile_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if p.is_file() {
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                        continue;
-                    }
+                if is_executable_binary(&p) {
                     if test_binaries.iter().any(|(_, path, _)| path == &p) {
                         continue;
                     }
@@ -300,4 +285,28 @@ pub fn execute_test_binaries(
         ),
     );
     0
+}
+
+fn is_executable_binary(path: &Path) -> bool {
+    let Ok(meta) = path.metadata() else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if matches!(
+        ext,
+        "d" | "rmeta" | "rlib" | "pdb" | "txt" | "json" | "toml" | "lock" | "log" | "a" | "o"
+    ) {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o111 == 0 {
+            return false;
+        }
+    }
+    true
 }

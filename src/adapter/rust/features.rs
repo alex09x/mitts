@@ -211,6 +211,9 @@ fn find_manifest_dependency<'a>(toml: &'a CargoToml, name: &str) -> Option<&'a T
     if let Some(d) = toml.dependencies.get(name) {
         return Some(d);
     }
+    if let Some(d) = toml.dev_dependencies.get(name) {
+        return Some(d);
+    }
     if let Some(d) = toml.build_dependencies.get(name) {
         return Some(d);
     }
@@ -293,11 +296,20 @@ fn collect_dependency_features(
         })
         .flat_map(|(_, t)| t.dependencies.iter().chain(&t.build_dependencies));
 
+    let is_test = opt.mode == crate::adapter::BuildMode::Test;
+    let empty_map = HashMap::new();
+    let dev_deps = if is_test && ctx.is_workspace {
+        &ctx.toml.dev_dependencies
+    } else {
+        &empty_map
+    };
+
     for (dep_key, dep) in ctx
         .toml
         .dependencies
         .iter()
         .chain(&ctx.toml.build_dependencies)
+        .chain(dev_deps.iter())
         .chain(target_deps)
     {
         let is_optional = match dep {
