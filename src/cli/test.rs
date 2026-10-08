@@ -237,6 +237,29 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         }
     }
 
+    let profile_name = if opt.release { "release" } else { "debug" };
+    let profile_dir = plan.target_directory.join(profile_name);
+
+    // Also populate cli_binaries from profile_dir for any executable CLI binaries
+    if profile_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&profile_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
+                        continue;
+                    }
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if !name.contains("test") && !name.contains("integration") {
+                        let bin_key = name.trim_end_matches(".exe");
+                        cli_binaries.insert(bin_key.to_string(), p);
+                    }
+                }
+            }
+        }
+    }
+
     // Map test targets to their defining package directory and package name
     let root_manifest = opt
         .manifest_path
