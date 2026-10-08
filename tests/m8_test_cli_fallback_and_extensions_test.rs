@@ -65,17 +65,20 @@ fn test_m8_test_cli_profile_dir_scanning_and_extension_skips() {
     let code_run = handle_test(&args_run);
     assert_eq!(code_run, 0);
 
-    // 3. Test failure exit code
-    let failing_test = debug_dir.join("failing_test");
-    fs::write(&failing_test, "#!/bin/sh\nexit 42\n").unwrap();
+    // 3. Stale or rogue executable in debug_dir not in build plan must NOT be executed
+    let rogue_test = debug_dir.join("rogue_stale_test");
+    fs::write(&rogue_test, "#!/bin/sh\nexit 42\n").unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&failing_test, fs::Permissions::from_mode(0o755));
+        let _ = fs::set_permissions(&rogue_test, fs::Permissions::from_mode(0o755));
     }
 
-    let code_fail = handle_test(&args_run);
-    assert!(code_fail != 0);
+    let code_after_rogue = handle_test(&args_run);
+    assert_eq!(
+        code_after_rogue, 0,
+        "Stale or rogue binaries in target dir not belonging to plan must not be executed"
+    );
 }
 
 #[test]
@@ -110,12 +113,12 @@ fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let target = root.join("target");
-    let debug_dir = target.join("debug");
     let manifest = root.join("Cargo.toml");
     let src = root.join("src");
+    let tests_dir = root.join("tests");
 
-    fs::create_dir_all(&debug_dir).unwrap();
     fs::create_dir_all(&src).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
 
     fs::write(
         &manifest,
@@ -123,14 +126,11 @@ fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
     )
     .unwrap();
     fs::write(src.join("lib.rs"), "pub fn ok() {}\n").unwrap();
-
-    let failing_test = debug_dir.join("failing_test");
-    fs::write(&failing_test, "#!/bin/sh\nexit 101\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&failing_test, fs::Permissions::from_mode(0o755));
-    }
+    fs::write(
+        tests_dir.join("fail.rs"),
+        "#[test]\nfn test_failure() {\n    panic!(\"explicit failure for regression verification\");\n}\n",
+    )
+    .unwrap();
 
     let args = TestArgs {
         manifest_path: Some(manifest),
@@ -139,7 +139,7 @@ fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
         ..Default::default()
     };
 
-    // First run: must fail
+    // First run: compiles real test and executes; must fail due to panic in test
     let code_first = handle_test(&args);
     assert_ne!(code_first, 0, "First run on failing fixture must fail");
 
@@ -148,5 +148,55 @@ fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
     assert_ne!(
         code_second, 0,
         "Second consecutive run on failing fixture must also fail"
+    );
+}
+
+#[test]
+fn test_m8_test_transition_from_pass_to_fail_must_fail_on_second_run() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let target = root.join("target");
+    let manifest = root.join("Cargo.toml");
+    let src = root.join("src");
+    let tests_dir = root.join("tests");
+
+    fs::create_dir_all(&src).unwrap();
+    fs::create_dir_all(&tests_dir).unwrap();
+
+    fs::write(
+        &manifest,
+        "[package]\nname = \"dynamic-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[[test]]\nname = \"dyn_test\"\npath = \"tests/dynamic.rs\"\n",
+    )
+    .unwrap();
+    fs::write(src.join("lib.rs"), "pub fn val() -> bool { true }\n").unwrap();
+    fs::write(
+        tests_dir.join("dynamic.rs"),
+        "#[test]\nfn test_pass() {\n    assert!(true);\n}\n",
+    )
+    .unwrap();
+
+    let args = TestArgs {
+        manifest_path: Some(manifest),
+        target_dir: Some(target),
+        no_run: false,
+        ..Default::default()
+    };
+
+    // First run: passing test; must exit 0
+    let code_first = handle_test(&args);
+    assert_eq!(code_first, 0, "First run on passing fixture must succeed");
+
+    // Modify test file to panic
+    fs::write(
+        tests_dir.join("dynamic.rs"),
+        "#[test]\nfn test_pass() {\n    panic!(\"modified into failing test\");\n}\n",
+    )
+    .unwrap();
+
+    // Second run: must recompile and fail; cannot exit 0
+    let code_second = handle_test(&args);
+    assert_ne!(
+        code_second, 0,
+        "Second run after modifying test to panic must fail"
     );
 }

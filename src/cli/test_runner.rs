@@ -57,24 +57,22 @@ pub fn discover_test_binaries(
         }
     }
 
-    // 2. Discover workspace members, test targets, and declared bin targets from manifests
+    // 2. Discover declared test targets and declared CLI binary targets from manifests
     let root_manifest = opt
         .manifest_path
         .clone()
         .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
-    let mut target_to_pkg: HashMap<String, (String, PathBuf)> = HashMap::new();
+    let mut manifest_test_target_count = 0;
     let mut declared_bin_names: HashSet<String> = HashSet::new();
 
     if let Ok(root_toml) = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest) {
         let members = root_toml.discover_workspace_members(root_dir);
-        for (pkg_name, pkg_dir) in members {
+        for (_pkg_name, pkg_dir) in members {
             let member_manifest = pkg_dir.join("Cargo.toml");
             if let Ok(toml) = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
             {
                 let test_targets = toml.discover_test_targets(&pkg_dir);
-                for tt in test_targets {
-                    target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
-                }
+                manifest_test_target_count += test_targets.len();
                 for t in toml.discover_targets(&pkg_dir) {
                     if t.kind == "bin" {
                         declared_bin_names.insert(t.name);
@@ -103,69 +101,9 @@ pub fn discover_test_binaries(
         }
     }
 
-    // 4. Scan profile directory for any test binaries matching targets or containing "test"
-    if profile_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&profile_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if is_executable_binary(&p) {
-                    if test_binaries.iter().any(|(_, path, _)| path == &p) {
-                        continue;
-                    }
-                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    let clean = name.trim_end_matches(".exe");
-                    let mut matched = false;
-                    for (tname, (pname, pdir)) in &target_to_pkg {
-                        if clean == tname
-                            || clean
-                                .strip_prefix(tname)
-                                .is_some_and(|s| s.starts_with('-'))
-                        {
-                            let mut env = HashMap::new();
-                            env.insert(
-                                "CARGO_MANIFEST_DIR".to_string(),
-                                pdir.to_string_lossy().to_string(),
-                            );
-                            env.insert("CARGO_PKG_NAME".to_string(), pname.clone());
-                            test_binaries.push((name.to_string(), p.clone(), env));
-                            matched = true;
-                            break;
-                        }
-                    }
-                    if !matched && clean.contains("test") {
-                        test_binaries.push((name.to_string(), p.clone(), HashMap::new()));
-                    }
-                }
-            }
-        }
-    }
-
     test_binaries.sort_by(|a, b| a.1.cmp(&b.1));
     test_binaries.dedup_by(|a, b| a.1 == b.1);
 
-    // 5. Ensure CARGO_MANIFEST_DIR is set on every test binary using exact package mapping
-    for (_desc, bin_path, env) in &mut test_binaries {
-        if !env.contains_key("CARGO_MANIFEST_DIR") {
-            let bin_name = bin_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let clean = bin_name.trim_end_matches(".exe");
-            for (tname, (pname, pdir)) in &target_to_pkg {
-                if clean == tname
-                    || clean
-                        .strip_prefix(tname)
-                        .is_some_and(|s| s.starts_with('-'))
-                {
-                    env.insert(
-                        "CARGO_MANIFEST_DIR".to_string(),
-                        pdir.to_string_lossy().to_string(),
-                    );
-                    env.insert("CARGO_PKG_NAME".to_string(), pname.clone());
-                    break;
-                }
-            }
-        }
-    }
-
-    let manifest_test_target_count = target_to_pkg.len();
     (
         DiscoveredBinaries {
             test_binaries,
