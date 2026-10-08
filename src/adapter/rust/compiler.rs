@@ -207,10 +207,6 @@ impl<'a> RustcInvocation<'a> {
             let clean_dep = dep_crate.replace('-', "_");
             cmd.arg("--extern")
                 .arg(format!("{}={}", clean_dep, dep_artifact_path.display()));
-            if let Some(parent) = dep_artifact_path.parent() {
-                cmd.arg("-L")
-                    .arg(format!("dependency={}", parent.display()));
-            }
         }
 
         // Working directory and Cargo-compatible environment variables
