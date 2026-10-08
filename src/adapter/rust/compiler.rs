@@ -165,16 +165,27 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("--cfg").arg(format!("feature=\"{}\"", feat));
         }
 
-        // Build script directives (cfgs, link-libs)
+        // Build script directives (cfgs, check-cfgs, flags, link-libs, link-searches, link-args)
         if let Some(dir) = self.directives {
             for c in &dir.cfgs {
                 cmd.arg("--cfg").arg(c);
+            }
+            for cc in &dir.check_cfgs {
+                cmd.arg("--check-cfg").arg(cc);
+            }
+            for f in &dir.flags {
+                for part in f.split_whitespace() {
+                    cmd.arg(part);
+                }
             }
             for l in &dir.link_libs {
                 cmd.arg("-l").arg(l);
             }
             for s in &dir.link_searches {
                 cmd.arg("-L").arg(s);
+            }
+            for a in &dir.link_args {
+                cmd.arg("-C").arg(format!("link-arg={}", a));
             }
         }
 

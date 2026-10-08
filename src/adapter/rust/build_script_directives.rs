@@ -8,22 +8,27 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use crate::adapter::rust::inputs::hash_package_base_inputs;
-use crate::adapter::rust::types::PlannedCompilationUnit;
+pub use super::build_script_keys::{
+    compute_build_script_key, compute_execution_key, detect_default_target_triple,
+    get_rustc_verbose_version,
+};
 use crate::core::hash::{bytes_to_hex, Sha256};
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 /// Output captured from running a `build.rs` build script.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BuildScriptDirectives {
     pub cfgs: Vec<String>,
+    #[serde(default)]
+    pub check_cfgs: Vec<String>,
+    #[serde(default)]
+    pub flags: Vec<String>,
     pub link_libs: Vec<String>,
     pub link_searches: Vec<String>,
+    #[serde(default)]
+    pub link_args: Vec<String>,
     pub envs: HashMap<String, String>,
     pub out_dir: Option<PathBuf>,
     #[serde(default)]
@@ -42,8 +47,11 @@ impl BuildScriptDirectives {
     /// Returns true if all directive collections are empty.
     pub fn is_empty(&self) -> bool {
         self.cfgs.is_empty()
+            && self.check_cfgs.is_empty()
+            && self.flags.is_empty()
             && self.link_libs.is_empty()
             && self.link_searches.is_empty()
+            && self.link_args.is_empty()
             && self.envs.is_empty()
             && self.metadata.is_empty()
             && self.rerun_if_changed.is_empty()
@@ -107,6 +115,93 @@ impl BuildScriptDirectives {
         }
     }
 
+    /// Computes a canonical hash of all compile-affecting directives (cfgs, flags, link libs/args/searches, envs).
+    pub fn compute_compile_hash(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"directives_compile_view_v1:\n");
+
+        let mut cfgs = self.cfgs.clone();
+        cfgs.sort();
+        cfgs.dedup();
+        for c in cfgs {
+            hasher.update(b"cfg:");
+            hasher.update(c.as_bytes());
+            hasher.update(b"\n");
+        }
+
+        let mut check_cfgs = self.check_cfgs.clone();
+        check_cfgs.sort();
+        check_cfgs.dedup();
+        for cc in check_cfgs {
+            hasher.update(b"check-cfg:");
+            hasher.update(cc.as_bytes());
+            hasher.update(b"\n");
+        }
+
+        let mut flags = self.flags.clone();
+        flags.sort();
+        flags.dedup();
+        for f in flags {
+            hasher.update(b"flag:");
+            hasher.update(f.as_bytes());
+            hasher.update(b"\n");
+        }
+
+        let mut link_libs = self.link_libs.clone();
+        link_libs.sort();
+        link_libs.dedup();
+        for l in link_libs {
+            hasher.update(b"link-lib:");
+            hasher.update(l.as_bytes());
+            hasher.update(b"\n");
+        }
+
+        let mut link_args = self.link_args.clone();
+        link_args.sort();
+        link_args.dedup();
+        for a in link_args {
+            hasher.update(b"link-arg:");
+            hasher.update(a.as_bytes());
+            hasher.update(b"\n");
+        }
+
+        let mut sorted_envs: Vec<_> = self.envs.iter().collect();
+        sorted_envs.sort_by_key(|(k, _)| *k);
+        for (k, v) in sorted_envs {
+            hasher.update(b"env:");
+            hasher.update(k.as_bytes());
+            hasher.update(b"=");
+            hasher.update(v.as_bytes());
+            hasher.update(b"\n");
+        }
+
+        let mut norm_searches = Vec::new();
+        for s in &self.link_searches {
+            let path = Path::new(s);
+            let norm = if let Some(ref out_dir) = self.out_dir {
+                if path == out_dir {
+                    "<OUT_DIR>".to_string()
+                } else if let Ok(rel) = path.strip_prefix(out_dir) {
+                    format!("<OUT_DIR>/{}", rel.display())
+                } else {
+                    s.clone()
+                }
+            } else {
+                s.clone()
+            };
+            norm_searches.push(norm);
+        }
+        norm_searches.sort();
+        norm_searches.dedup();
+        for s in norm_searches {
+            hasher.update(b"link-search:");
+            hasher.update(s.as_bytes());
+            hasher.update(b"\n");
+        }
+
+        bytes_to_hex(&hasher.finalize())
+    }
+
     /// Parses cargo: build script directives from raw stdout.
     pub fn parse_stdout(stdout: &str) -> Self {
         let mut directives = Self::default();
@@ -122,11 +217,25 @@ impl BuildScriptDirectives {
 
             if let Some(rest) = directive.strip_prefix("rustc-cfg=") {
                 directives.cfgs.push(rest.to_string());
+            } else if let Some(rest) = directive.strip_prefix("rustc-check-cfg=") {
+                directives.check_cfgs.push(rest.to_string());
+            } else if let Some(rest) = directive.strip_prefix("rustc-flags=") {
+                directives.flags.push(rest.to_string());
             } else if let Some(rest) = directive.strip_prefix("rustc-link-lib=") {
                 directives.link_libs.push(rest.to_string());
             } else if let Some(rest) = directive.strip_prefix("rustc-link-search=") {
                 let val = rest.strip_prefix("native=").unwrap_or(rest);
                 directives.link_searches.push(val.to_string());
+            } else if let Some(rest) = directive
+                .strip_prefix("rustc-link-arg=")
+                .or_else(|| directive.strip_prefix("rustc-link-arg-bins="))
+                .or_else(|| directive.strip_prefix("rustc-link-arg-bin="))
+                .or_else(|| directive.strip_prefix("rustc-link-arg-tests="))
+                .or_else(|| directive.strip_prefix("rustc-link-arg-benches="))
+                .or_else(|| directive.strip_prefix("rustc-link-arg-examples="))
+                .or_else(|| directive.strip_prefix("rustc-cdylib-link-arg="))
+            {
+                directives.link_args.push(rest.to_string());
             } else if let Some(rest) = directive.strip_prefix("rustc-env=") {
                 if let Some((k, v)) = rest.split_once('=') {
                     directives.envs.insert(k.to_string(), v.to_string());
@@ -138,11 +247,7 @@ impl BuildScriptDirectives {
             } else {
                 let effective = directive.strip_prefix("metadata=").unwrap_or(directive);
                 if let Some((k, v)) = effective.split_once('=') {
-                    if !k.starts_with("rerun-")
-                        && k != "warning"
-                        && k != "rustc-check-cfg"
-                        && k != "rustc-flags"
-                    {
+                    if !k.starts_with("rerun-") && k != "warning" && !k.starts_with("rustc-") {
                         directives.metadata.insert(k.to_string(), v.to_string());
                     }
                 }
@@ -203,170 +308,10 @@ pub fn get_target_cfgs(target: &str) -> HashMap<String, String> {
     }
 }
 
-static RUSTC_VERBOSE_VERSION: OnceLock<String> = OnceLock::new();
-
-pub fn get_rustc_verbose_version() -> &'static str {
-    RUSTC_VERBOSE_VERSION.get_or_init(|| {
-        let cmd = std::process::Command::new(crate::adapter::rust::compiler::resolve_rustc())
-            .arg("-vV")
-            .output();
-        if let Ok(out) = cmd {
-            if out.status.success() {
-                return String::from_utf8_lossy(&out.stdout).trim().to_string();
-            }
-        }
-        "unknown_rustc".to_string()
-    })
-}
-
-pub fn compute_build_script_key(
-    unit: &PlannedCompilationUnit,
-    build_rs: &Path,
-    release: bool,
-    features: &[String],
-    target: &str,
-    extra_env: Option<&HashMap<String, String>>,
-    extern_crates: &[(String, PathBuf)],
-) -> Result<String> {
-    let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v4:");
-    hasher.update(unit.package_name.as_bytes());
-    hasher.update(b":");
-    hasher.update(unit.version.as_bytes());
-    hasher.update(b":");
-    hasher.update(unit.edition.as_deref().unwrap_or("2015").as_bytes());
-    hasher.update(b":");
-    let script_bytes = fs::read(build_rs).with_context(|| {
-        format!(
-            "Failed to read build script source at {}",
-            build_rs.display()
-        )
-    })?;
-    hasher.update(&script_bytes);
-    hasher.update(if release { b":release:" } else { b":dev:" });
-    hasher.update(target.as_bytes());
-    hasher.update(b":rustc:");
-    hasher.update(get_rustc_verbose_version().as_bytes());
-
-    for (crate_name, artifact_path) in extern_crates {
-        hasher.update(b":build_dep:");
-        hasher.update(crate_name.as_bytes());
-        hasher.update(b"=");
-        let digest = Sha256::digest_file(artifact_path).with_context(|| {
-            format!(
-                "Failed to hash build-dependency artifact '{}' at {}",
-                crate_name,
-                artifact_path.display()
-            )
-        })?;
-        hasher.update(digest.as_bytes());
-    }
-
-    for f in features {
-        hasher.update(b":feat:");
-        hasher.update(f.as_bytes());
-    }
-    if let Ok(c) = std::env::var("CARGO") {
-        hasher.update(b":cargo_bin:");
-        hasher.update(c.as_bytes());
-    }
-    if let Ok(ch) = std::env::var("CARGO_HOME") {
-        hasher.update(b":cargo_home:");
-        hasher.update(ch.as_bytes());
-    }
-    if let Some(env) = extra_env {
-        let mut sorted: Vec<_> = env.iter().collect();
-        sorted.sort_by_key(|(k, _)| *k);
-        for (k, v) in sorted {
-            hasher.update(b":env:");
-            hasher.update(k.as_bytes());
-            hasher.update(b"=");
-            hasher.update(v.as_bytes());
-        }
-    }
-    if unit.is_workspace {
-        let pkg_dir = unit.manifest_path.parent().with_context(|| {
-            format!(
-                "Manifest path '{}' has no parent directory",
-                unit.manifest_path.display()
-            )
-        })?;
-        let base_inputs = hash_package_base_inputs(pkg_dir, None, true).with_context(|| {
-            format!(
-                "Failed to hash workspace package inputs for '{}' at {}",
-                unit.package_name,
-                pkg_dir.display()
-            )
-        })?;
-        for (path, digest) in base_inputs {
-            hasher.update(b":ws_input:");
-            hasher.update(path.as_bytes());
-            hasher.update(b"=");
-            hasher.update(digest.as_bytes());
-        }
-    }
-    Ok(bytes_to_hex(&hasher.finalize()))
-}
-
-/// Computes an execution cache key combining the base build_key with sorted rerun-if-changed file hashes
-/// and sorted rerun-if-env-changed values.
-pub fn compute_execution_key(
-    base_key: &str,
-    rerun_if_changed_hashes: &HashMap<String, String>,
-    envs: &HashMap<String, String>,
-) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"exec_v2:");
-    hasher.update(base_key.as_bytes());
-
-    let mut sorted_files: Vec<_> = rerun_if_changed_hashes.iter().collect();
-    sorted_files.sort_by_key(|(k, _)| *k);
-    for (k, v) in sorted_files {
-        hasher.update(b":file:");
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
-    }
-
-    let mut sorted_envs: Vec<_> = envs.iter().collect();
-    sorted_envs.sort_by_key(|(k, _)| *k);
-    for (k, v) in sorted_envs {
-        hasher.update(b":env:");
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
-    }
-
-    bytes_to_hex(&hasher.finalize())
-}
-
-/// Detects the host target triple based on compile-time target attributes or TARGET env.
-pub fn detect_default_target_triple() -> String {
-    if let Ok(t) = std::env::var("TARGET") {
-        if !t.is_empty() {
-            return t;
-        }
-    }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    return "aarch64-apple-darwin".to_string();
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    return "x86_64-apple-darwin".to_string();
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    return "x86_64-unknown-linux-gnu".to_string();
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    return "aarch64-unknown-linux-gnu".to_string();
-    #[cfg(not(any(
-        all(target_os = "macos", target_arch = "aarch64"),
-        all(target_os = "macos", target_arch = "x86_64"),
-        all(target_os = "linux", target_arch = "x86_64"),
-        all(target_os = "linux", target_arch = "aarch64"),
-    )))]
-    return "host".to_string();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_parse_stdout_dedup() {
@@ -374,6 +319,26 @@ mod tests {
         let dir = BuildScriptDirectives::parse_stdout(stdout);
         assert_eq!(dir.rerun_if_changed, vec!["build.rs"]);
         assert_eq!(dir.cfgs, vec!["feat"]);
+    }
+
+    #[test]
+    fn test_compute_compile_hash_differs_on_cfg() {
+        let dir1 = BuildScriptDirectives::parse_stdout("cargo:rustc-cfg=fast\n");
+        let dir2 = BuildScriptDirectives::parse_stdout("");
+        assert_ne!(dir1.compute_compile_hash(), dir2.compute_compile_hash());
+    }
+
+    #[test]
+    fn test_compute_compile_hash_normalizes_out_dir() {
+        let mut d1 = BuildScriptDirectives::default();
+        d1.out_dir = Some(PathBuf::from("/tmp/stage_run1"));
+        d1.link_searches = vec!["/tmp/stage_run1/lib".to_string(), "/usr/lib".to_string()];
+
+        let mut d2 = BuildScriptDirectives::default();
+        d2.out_dir = Some(PathBuf::from("/tmp/stage_run2"));
+        d2.link_searches = vec!["/tmp/stage_run2/lib".to_string(), "/usr/lib".to_string()];
+
+        assert_eq!(d1.compute_compile_hash(), d2.compute_compile_hash());
     }
 
     #[test]

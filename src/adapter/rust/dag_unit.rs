@@ -112,10 +112,16 @@ pub(crate) fn execute_unit(
         staging_dir_holder = Some(staging_dir);
     }
 
+    let effective_action_key = if let Some(ref d) = current_directives {
+        format!("{}:bd:{}", action_key, d.compute_compile_hash())
+    } else {
+        action_key.to_string()
+    };
+
     // 1. Check Action Cache (read phase)
     if try_restore_from_cache_with_directives(
         unit,
-        action_key,
+        &effective_action_key,
         ctx,
         is_executable,
         current_directives.as_ref(),
@@ -127,7 +133,7 @@ pub(crate) fn execute_unit(
     }
 
     // 2. Single-flight lock to eliminate duplicate work across processes
-    let lock_path = ctx.ac.lock_path(action_key);
+    let lock_path = ctx.ac.lock_path(&effective_action_key);
     let _lock = match lock_mode {
         LockMode::TryLock => match FileLock::try_acquire_exclusive(&lock_path)? {
             Some(l) => l,
@@ -139,7 +145,7 @@ pub(crate) fn execute_unit(
     // Double-checked locking: re-check action cache in case a concurrent process just compiled it
     if try_restore_from_cache_with_directives(
         unit,
-        action_key,
+        &effective_action_key,
         ctx,
         is_executable,
         current_directives.as_ref(),
@@ -199,7 +205,10 @@ pub(crate) fn execute_unit(
     let meta_dir = ctx.cas.root().join("metadata");
     let _ = fs::create_dir_all(&meta_dir);
     if let Ok(toml_str) = toml::to_string(&directives) {
-        let _ = fs::write(meta_dir.join(format!("{}.toml", action_key)), toml_str);
+        let _ = fs::write(
+            meta_dir.join(format!("{}.toml", effective_action_key)),
+            toml_str,
+        );
     }
 
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
@@ -209,7 +218,7 @@ pub(crate) fn execute_unit(
 
     let invocation = RustcInvocation {
         unit,
-        action_key,
+        action_key: &effective_action_key,
         out_dir: &staging_dir,
         dest_binary: dest_binary.as_deref(),
         extern_crates: &extern_crates,
@@ -230,7 +239,7 @@ pub(crate) fn execute_unit(
             };
             if let Some(early_rk) = super::dag_unit_publish::resolve_unit_result_key(
                 unit,
-                action_key,
+                &effective_action_key,
                 &staging_dir,
                 ws_root.as_deref(),
             ) {
@@ -243,7 +252,7 @@ pub(crate) fn execute_unit(
                 if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
                     &unit.target_name,
                     &meta_hash,
-                    action_key,
+                    &effective_action_key,
                     "rmeta",
                 ) {
                     ctx.completed_artifacts
@@ -295,7 +304,7 @@ pub(crate) fn execute_unit(
     let action_outputs =
         super::dag_unit_publish::publish_unit_artifacts(super::dag_unit_publish::PublishArgs {
             unit,
-            action_key,
+            action_key: &effective_action_key,
             ctx,
             staging_dir: &staging_dir,
             dest_binary: dest_binary.as_deref(),

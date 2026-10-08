@@ -138,6 +138,15 @@ Build scripts are compiled and executed by Mitts and their results are cached.
   It is not an OS-level sandbox: a script that reads undeclared files or
   variables can still produce a stale hit. Declaring inputs is the script
   author's responsibility, as it is with Cargo.
+- **Upfront Execution & Dynamic Keying:** For units declaring build scripts, the
+  script runs upfront in an isolated staging directory before acquiring the action
+  lock or checking the compilation action cache. Compile-affecting directives
+  (`rustc-cfg`, `rustc-check-cfg`, `rustc-flags`, `rustc-link-lib`, `rustc-link-search`,
+  `rustc-link-arg*`, `rustc-env`) are canonicalized and hashed into the unit's dynamic
+  action key (`<base_key>:bd:<directives_hash>`). Concurrent builds of the same unit
+  both execute their build script in separate staging directories (restoring from CAS
+  on a cache hit; harmlessly executing on a cold cache) and serialize only when locking
+  the resulting directive-aware compilation key.
 
 ## 7. No-op fast path
 
