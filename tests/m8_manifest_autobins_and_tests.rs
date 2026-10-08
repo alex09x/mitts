@@ -129,3 +129,30 @@ path = "src/custom_test.rs"
     assert_eq!(test_targets.len(), 1);
     assert_eq!(test_targets[0].name, "custom-test");
 }
+
+#[test]
+fn test_m8_manifest_discover_directory_style_autobin() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let pkg_dir = temp_dir.path();
+    let src_dir = pkg_dir.join("src");
+    let bin_dir = src_dir.join("bin");
+    let tool_dir = bin_dir.join("complex_tool");
+    fs::create_dir_all(&tool_dir).unwrap();
+    fs::write(src_dir.join("lib.rs"), "pub fn lib() {}\n").unwrap();
+    fs::write(tool_dir.join("main.rs"), "fn main() {}\n").unwrap();
+
+    let toml_str = r#"
+[package]
+name = "complex-pkg"
+version = "0.1.0"
+"#;
+    let cargo_toml: CargoToml = toml::from_str(toml_str).unwrap();
+    let targets = cargo_toml.discover_targets(pkg_dir);
+
+    let bin_names: Vec<&str> = targets
+        .iter()
+        .filter(|t| t.kind == "bin")
+        .map(|t| t.name.as_str())
+        .collect();
+    assert!(bin_names.contains(&"complex_tool"));
+}

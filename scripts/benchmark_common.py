@@ -101,6 +101,21 @@ def get_dir_size_mb(path):
     return round(total / (1024.0 * 1024.0), 2)
 
 
+def get_disk_usage_mb(paths):
+    """Calculates deduplicated physical disk usage in MB across paths using du -scm."""
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    valid_paths = [str(p) for p in paths if Path(p).exists()]
+    if not valid_paths:
+        return 0.0
+    try:
+        out = subprocess.check_output(["du", "-scm"] + valid_paths, stderr=subprocess.DEVNULL, text=True)
+        total_line = out.strip().splitlines()[-1]
+        return float(total_line.split()[0])
+    except Exception:
+        return round(sum(get_dir_size_mb(p) for p in valid_paths), 1)
+
+
 def get_binary_version(cwd, project_name, extra_dir=None):
     """Validates parity by checking binary --version output."""
     candidates = [

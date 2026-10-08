@@ -21,6 +21,7 @@ from benchmark_common import (
     measure_command,
     clean_sccache,
     get_dir_size_mb,
+    get_disk_usage_mb,
     get_binary_version,
     MITTS_BIN,
     SCCACHE_BIN,
@@ -68,15 +69,21 @@ def run_s1_cold_build(project_name, repo_dir, envs, repeats=3):
             assert res["exit_code"] == 0, f"Cold build failed for {name}: {res['stderr_tail']}"
         
         median_time = round(statistics.median(times), 3)
+        disk_paths = [repo_dir / "target", envs["mitts_cas"]] if name == "mitts" else \
+                     [envs["shared_target"]] if name == "cargo_shared" else \
+                     [repo_dir / "target", envs["sccache_dir"]] if name == "sccache" else \
+                     [repo_dir / "target"]
+        disk_mb = get_disk_usage_mb(disk_paths)
         results[name] = {
             "wall_sec_median": median_time,
             "wall_sec_runs": times,
             "cpu_percent_median": round(statistics.median(cpu_pcts), 1),
             "max_rss_mb": round(max(rss_mbs), 1),
+            "disk_usage_mb": disk_mb,
             "binary_version": version_str or "OK",
             "exit_code": 0
         }
-        print(f"  -> {name.upper()}: median {median_time}s (runs: {times}) | ver: {version_str}")
+        print(f"  -> {name.upper()}: median {median_time}s (runs: {times}) | ver: {version_str} | disk: {disk_mb}MB | RAM: {results[name]['max_rss_mb']}MB")
 
     return results
 
@@ -96,16 +103,28 @@ def run_s2_fast_noop(project_name, repo_dir, envs, repeats=3):
         # Initial build to warm state
         measure_command(cmd, repo_dir, env=env)
         times = []
+        cpu_pcts = []
+        rss_mbs = []
         for _ in range(repeats):
             res = measure_command(cmd, repo_dir, env=env)
             assert res["exit_code"] == 0, f"No-op failed for {name}"
             times.append(res["wall_sec"])
+            cpu_pcts.append(res.get("cpu_percent", 0.0))
+            rss_mbs.append(res.get("max_rss_mb", 0.0))
         median_time = round(statistics.median(times), 3)
+        disk_paths = [repo_dir / "target", envs["mitts_cas"]] if name == "mitts" else \
+                     [envs["shared_target"]] if name == "cargo_shared" else \
+                     [repo_dir / "target", envs["sccache_dir"]] if name == "sccache" else \
+                     [repo_dir / "target"]
+        disk_mb = get_disk_usage_mb(disk_paths)
         results[name] = {
             "wall_sec_median": median_time,
-            "wall_sec_runs": times
+            "wall_sec_runs": times,
+            "cpu_percent_median": round(statistics.median(cpu_pcts), 1),
+            "max_rss_mb": round(statistics.median(rss_mbs), 1),
+            "disk_usage_mb": disk_mb,
         }
-        print(f"  -> {name.upper()}: median {median_time}s (runs: {times})")
+        print(f"  -> {name.upper()}: median {median_time}s (runs: {times}) | disk: {disk_mb}MB | RAM: {results[name]['max_rss_mb']}MB")
 
     return results
 
@@ -130,6 +149,8 @@ def run_s3_git_history_replay(project_name, repo_dir, envs, num_commits=10):
 
     for name, cmd, env in runners:
         step_times = []
+        step_cpus = []
+        step_rsss = []
         cumulative = 0.0
         if (repo_dir / ".mitts").exists():
             shutil.rmtree(repo_dir / ".mitts", ignore_errors=True)
@@ -143,14 +164,24 @@ def run_s3_git_history_replay(project_name, repo_dir, envs, num_commits=10):
             res = measure_command(cmd, repo_dir, env=env)
             assert res["exit_code"] == 0, f"History replay step failed at {c} for {name}"
             step_times.append(res["wall_sec"])
+            step_cpus.append(res.get("cpu_percent", 0.0))
+            step_rsss.append(res.get("max_rss_mb", 0.0))
             cumulative += res["wall_sec"]
 
+        disk_paths = [repo_dir / "target", envs["mitts_cas"]] if name == "mitts" else \
+                     [envs["shared_target"]] if name == "cargo_shared" else \
+                     [repo_dir / "target", envs["sccache_dir"]] if name == "sccache" else \
+                     [repo_dir / "target"]
+        disk_mb = get_disk_usage_mb(disk_paths)
         results[name] = {
             "cumulative_wall_sec": round(cumulative, 3),
             "step_times": step_times,
-            "average_step_sec": round(statistics.mean(step_times), 3)
+            "average_step_sec": round(statistics.mean(step_times), 3),
+            "avg_cpu_percent": round(statistics.mean(step_cpus), 1) if step_cpus else 0.0,
+            "peak_rss_mb": round(max(step_rsss), 1) if step_rsss else 0.0,
+            "disk_usage_mb": disk_mb,
         }
-        print(f"  -> {name.upper()}: Cumulative {round(cumulative, 3)}s across {len(commits)} commits (avg: {round(statistics.mean(step_times), 3)}s/commit)")
+        print(f"  -> {name.upper()}: Cumulative {round(cumulative, 3)}s across {len(commits)} commits (avg: {round(statistics.mean(step_times), 3)}s/commit, peak RAM: {results[name]['peak_rss_mb']}MB, disk: {disk_mb}MB)")
 
     subprocess.run(["git", "checkout", commits[-1]], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return results
@@ -185,13 +216,24 @@ def run_s4_branch_hopping(project_name, repo_dir, envs, commit_a, commit_b):
         res_revert = measure_command(cmd, repo_dir, env=env)
         ver_a = get_binary_version(repo_dir, project_name)
 
+        disk_paths = [repo_dir / "target", envs["mitts_cas"]] if name == "mitts" else \
+                     [envs["shared_target"]] if name == "cargo_shared" else \
+                     [repo_dir / "target", envs["sccache_dir"]] if name == "sccache" else \
+                     [repo_dir / "target"]
+        disk_mb = get_disk_usage_mb(disk_paths)
+
         results[name] = {
             "switch_to_b_sec": res_switch["wall_sec"],
             "revert_to_a_sec": res_revert["wall_sec"],
             "version_b": ver_b or "OK",
-            "version_a": ver_a or "OK"
+            "version_a": ver_a or "OK",
+            "switch_cpu_percent": res_switch.get("cpu_percent", 0.0),
+            "revert_cpu_percent": res_revert.get("cpu_percent", 0.0),
+            "switch_max_rss_mb": res_switch.get("max_rss_mb", 0.0),
+            "revert_max_rss_mb": res_revert.get("max_rss_mb", 0.0),
+            "disk_usage_mb": disk_mb,
         }
-        print(f"  -> {name.upper()}: Switch to B ({commit_b}): {res_switch['wall_sec']}s (ver: {ver_b}) | Revert to A ({commit_a}): {res_revert['wall_sec']}s (ver: {ver_a})")
+        print(f"  -> {name.upper()}: Switch to B ({commit_b}): {res_switch['wall_sec']}s (ver: {ver_b}) | Revert to A ({commit_a}): {res_revert['wall_sec']}s (ver: {ver_a}) | disk: {disk_mb}MB")
 
     return results
 
@@ -244,6 +286,33 @@ def verify_worktree_versions(worktrees, project_name):
     return correct
 
 
+def summarize_swarm_run(res, worktrees, project_name, tool_name, envs):
+    ver = verify_worktree_versions(worktrees, project_name)
+    details = res.get("details", [])
+    max_rss = max((r.get("max_rss_mb", 0.0) for _, r in details), default=0.0)
+    cpu_sum = sum((r.get("cpu_percent", 0.0) for _, r in details))
+
+    if tool_name == "mitts":
+        paths = [wt[1] / "target" for wt in worktrees] + [envs["mitts_cas"]]
+    elif tool_name == "cargo_shared":
+        paths = [envs["shared_target"]]
+    elif tool_name == "sccache":
+        paths = [wt[1] / "target" for wt in worktrees] + [envs["sccache_dir"]]
+    else:  # cargo_bare
+        paths = [wt[1] / "target" for wt in worktrees]
+
+    disk_mb = get_disk_usage_mb(paths)
+
+    return {
+        "wall_sec": res["wall_sec"],
+        "success_count": res["success_count"],
+        "verified_versions": f"{ver}/{len(worktrees)}",
+        "peak_rss_mb": round(max_rss, 1),
+        "cpu_percent_sum": round(cpu_sum, 1),
+        "disk_usage_mb": round(disk_mb, 1),
+    }
+
+
 def run_s5a_cold_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_distribution):
     print(f"\n--- [S5a] Cold Multi-Worktree Concurrency Swarm ({len(commit_distribution)} worktrees, strictly clean caches) ---")
     worktrees = prepare_swarm_worktrees(repo_dir, worktree_base_dir, commit_distribution)
@@ -263,13 +332,8 @@ def run_s5a_cold_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
     assert not envs["mitts_cas"].exists(), "mitts_cas must be purged before cold swarm"
 
     res_mitts = run_swarm_executor(lambda wt: measure_command([str(MITTS_BIN), "build"], wt[1], env=envs["mitts"]), worktrees)
-    ver_mitts = verify_worktree_versions(worktrees, project_name)
-    results["mitts"] = {
-        "wall_sec": res_mitts["wall_sec"],
-        "success_count": res_mitts["success_count"],
-        "verified_versions": f"{ver_mitts}/{len(worktrees)}"
-    }
-    print(f"  -> MITTS COLD SWARM: {res_mitts['wall_sec']}s (Pass: {res_mitts['success_count']}/{len(worktrees)}, Ver: {ver_mitts}/{len(worktrees)})")
+    results["mitts"] = summarize_swarm_run(res_mitts, worktrees, project_name, "mitts", envs)
+    print(f"  -> MITTS COLD SWARM: {results['mitts']['wall_sec']}s (Pass: {results['mitts']['success_count']}/{len(worktrees)}, Disk: {results['mitts']['disk_usage_mb']}MB, RAM: {results['mitts']['peak_rss_mb']}MB)")
 
     # 2. Cargo Bare Cold Swarm
     for _, wt_dir, _ in worktrees:
@@ -277,13 +341,8 @@ def run_s5a_cold_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
 
     res_bare = run_swarm_executor(lambda wt: measure_command(["cargo", "build", "--offline"], wt[1], env=envs["cargo_bare"]), worktrees)
-    ver_bare = verify_worktree_versions(worktrees, project_name)
-    results["cargo_bare"] = {
-        "wall_sec": res_bare["wall_sec"],
-        "success_count": res_bare["success_count"],
-        "verified_versions": f"{ver_bare}/{len(worktrees)}"
-    }
-    print(f"  -> CARGO BARE COLD SWARM: {res_bare['wall_sec']}s (Pass: {res_bare['success_count']}/{len(worktrees)}, Ver: {ver_bare}/{len(worktrees)})")
+    results["cargo_bare"] = summarize_swarm_run(res_bare, worktrees, project_name, "cargo_bare", envs)
+    print(f"  -> CARGO BARE COLD SWARM: {results['cargo_bare']['wall_sec']}s (Pass: {results['cargo_bare']['success_count']}/{len(worktrees)}, Disk: {results['cargo_bare']['disk_usage_mb']}MB, RAM: {results['cargo_bare']['peak_rss_mb']}MB)")
 
     # 3. Cargo Shared Cold Swarm
     if envs["shared_target"].exists():
@@ -294,13 +353,8 @@ def run_s5a_cold_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
 
     res_shared = run_swarm_executor(lambda wt: measure_command(["cargo", "build", "--offline"], wt[1], env=envs["cargo_shared"]), worktrees)
-    ver_shared = verify_worktree_versions(worktrees, project_name)
-    results["cargo_shared"] = {
-        "wall_sec": res_shared["wall_sec"],
-        "success_count": res_shared["success_count"],
-        "verified_versions": f"{ver_shared}/{len(worktrees)}"
-    }
-    print(f"  -> CARGO SHARED COLD SWARM: {res_shared['wall_sec']}s (Pass: {res_shared['success_count']}/{len(worktrees)}, Ver: {ver_shared}/{len(worktrees)})")
+    results["cargo_shared"] = summarize_swarm_run(res_shared, worktrees, project_name, "cargo_shared", envs)
+    print(f"  -> CARGO SHARED COLD SWARM: {results['cargo_shared']['wall_sec']}s (Pass: {results['cargo_shared']['success_count']}/{len(worktrees)}, Ver: {results['cargo_shared']['verified_versions']})")
 
     # 4. Sccache Cold Swarm
     clean_sccache(envs["sccache_dir"])
@@ -309,13 +363,8 @@ def run_s5a_cold_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
 
     res_sccache = run_swarm_executor(lambda wt: measure_command(["cargo", "build", "--offline"], wt[1], env=envs["sccache"]), worktrees)
-    ver_sccache = verify_worktree_versions(worktrees, project_name)
-    results["sccache"] = {
-        "wall_sec": res_sccache["wall_sec"],
-        "success_count": res_sccache["success_count"],
-        "verified_versions": f"{ver_sccache}/{len(worktrees)}"
-    }
-    print(f"  -> SCCACHE COLD SWARM: {res_sccache['wall_sec']}s (Pass: {res_sccache['success_count']}/{len(worktrees)}, Ver: {ver_sccache}/{len(worktrees)})")
+    results["sccache"] = summarize_swarm_run(res_sccache, worktrees, project_name, "sccache", envs)
+    print(f"  -> SCCACHE COLD SWARM: {results['sccache']['wall_sec']}s (Pass: {results['sccache']['success_count']}/{len(worktrees)}, Disk: {results['sccache']['disk_usage_mb']}MB, RAM: {results['sccache']['peak_rss_mb']}MB)")
 
     return results
 
@@ -337,13 +386,8 @@ def run_s5b_warm_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
             shutil.rmtree(wt_dir / ".mitts", ignore_errors=True)
 
     res_mitts = run_swarm_executor(lambda wt: measure_command([str(MITTS_BIN), "build"], wt[1], env=envs["mitts"]), worktrees)
-    ver_mitts = verify_worktree_versions(worktrees, project_name)
-    results["mitts"] = {
-        "wall_sec": res_mitts["wall_sec"],
-        "success_count": res_mitts["success_count"],
-        "verified_versions": f"{ver_mitts}/{len(worktrees)}"
-    }
-    print(f"  -> MITTS WARM SWARM: {res_mitts['wall_sec']}s (Pass: {res_mitts['success_count']}/{len(worktrees)}, Ver: {ver_mitts}/{len(worktrees)})")
+    results["mitts"] = summarize_swarm_run(res_mitts, worktrees, project_name, "mitts", envs)
+    print(f"  -> MITTS WARM SWARM: {results['mitts']['wall_sec']}s (Pass: {results['mitts']['success_count']}/{len(worktrees)}, Disk: {results['mitts']['disk_usage_mb']}MB, RAM: {results['mitts']['peak_rss_mb']}MB)")
 
     # 2. Warm Cargo Shared
     measure_command(["cargo", "build", "--offline"], repo_dir, env=envs["cargo_shared"])
@@ -352,13 +396,8 @@ def run_s5b_warm_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
 
     res_shared = run_swarm_executor(lambda wt: measure_command(["cargo", "build", "--offline"], wt[1], env=envs["cargo_shared"]), worktrees)
-    ver_shared = verify_worktree_versions(worktrees, project_name)
-    results["cargo_shared"] = {
-        "wall_sec": res_shared["wall_sec"],
-        "success_count": res_shared["success_count"],
-        "verified_versions": f"{ver_shared}/{len(worktrees)}"
-    }
-    print(f"  -> CARGO SHARED WARM SWARM: {res_shared['wall_sec']}s (Pass: {res_shared['success_count']}/{len(worktrees)}, Ver: {ver_shared}/{len(worktrees)})")
+    results["cargo_shared"] = summarize_swarm_run(res_shared, worktrees, project_name, "cargo_shared", envs)
+    print(f"  -> CARGO SHARED WARM SWARM: {results['cargo_shared']['wall_sec']}s (Pass: {results['cargo_shared']['success_count']}/{len(worktrees)}, Ver: {results['cargo_shared']['verified_versions']})")
 
     # 3. Warm Sccache
     measure_command(["cargo", "build", "--offline"], repo_dir, env=envs["sccache"])
@@ -367,13 +406,8 @@ def run_s5b_warm_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
 
     res_sccache = run_swarm_executor(lambda wt: measure_command(["cargo", "build", "--offline"], wt[1], env=envs["sccache"]), worktrees)
-    ver_sccache = verify_worktree_versions(worktrees, project_name)
-    results["sccache"] = {
-        "wall_sec": res_sccache["wall_sec"],
-        "success_count": res_sccache["success_count"],
-        "verified_versions": f"{ver_sccache}/{len(worktrees)}"
-    }
-    print(f"  -> SCCACHE WARM SWARM: {res_sccache['wall_sec']}s (Pass: {res_sccache['success_count']}/{len(worktrees)}, Ver: {ver_sccache}/{len(worktrees)})")
+    results["sccache"] = summarize_swarm_run(res_sccache, worktrees, project_name, "sccache", envs)
+    print(f"  -> SCCACHE WARM SWARM: {results['sccache']['wall_sec']}s (Pass: {results['sccache']['success_count']}/{len(worktrees)}, Disk: {results['sccache']['disk_usage_mb']}MB, RAM: {results['sccache']['peak_rss_mb']}MB)")
 
     # 4. Cargo Bare (No shared cache across worktrees)
     for _, wt_dir, _ in worktrees:
@@ -381,12 +415,7 @@ def run_s5b_warm_swarm(project_name, repo_dir, worktree_base_dir, envs, commit_d
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
 
     res_bare = run_swarm_executor(lambda wt: measure_command(["cargo", "build", "--offline"], wt[1], env=envs["cargo_bare"]), worktrees)
-    ver_bare = verify_worktree_versions(worktrees, project_name)
-    results["cargo_bare"] = {
-        "wall_sec": res_bare["wall_sec"],
-        "success_count": res_bare["success_count"],
-        "verified_versions": f"{ver_bare}/{len(worktrees)}"
-    }
-    print(f"  -> CARGO BARE SWARM: {res_bare['wall_sec']}s (Pass: {res_bare['success_count']}/{len(worktrees)}, Ver: {ver_bare}/{len(worktrees)})")
+    results["cargo_bare"] = summarize_swarm_run(res_bare, worktrees, project_name, "cargo_bare", envs)
+    print(f"  -> CARGO BARE SWARM: {results['cargo_bare']['wall_sec']}s (Pass: {results['cargo_bare']['success_count']}/{len(worktrees)}, Disk: {results['cargo_bare']['disk_usage_mb']}MB, RAM: {results['cargo_bare']['peak_rss_mb']}MB)")
 
     return results

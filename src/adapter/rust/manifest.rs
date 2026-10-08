@@ -261,6 +261,20 @@ impl CargoToml {
                                     required_features: None,
                                 });
                             }
+                        } else if path.is_dir() {
+                            let main_rs = path.join("main.rs");
+                            if main_rs.is_file() {
+                                if let Some(dir_name) = path.file_name().and_then(|s| s.to_str()) {
+                                    targets.push(DiscoveredTarget {
+                                        name: dir_name.to_string(),
+                                        kind: "bin".to_string(),
+                                        src_path: main_rs,
+                                        edition: edition.clone(),
+                                        crate_types: vec!["bin".to_string()],
+                                        required_features: None,
+                                    });
+                                }
+                            }
                         }
                     }
                 }
