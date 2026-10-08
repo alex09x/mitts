@@ -17,20 +17,21 @@ fn test_m8_build_script_rustc_cfg_dynamic_key_invalidation() {
     let root = tempfile::tempdir().unwrap();
     let cache_dir = tempfile::tempdir().unwrap();
 
+    fs::create_dir_all(root.path().join("crates/cfg_lib/src")).unwrap();
     fs::create_dir_all(root.path().join("crates/cfg_app/src")).unwrap();
     fs::write(
         root.path().join("Cargo.toml"),
         r#"[workspace]
-members = ["crates/cfg_app"]
+members = ["crates/cfg_lib", "crates/cfg_app"]
 resolver = "2"
 "#,
     )
     .unwrap();
 
     fs::write(
-        root.path().join("crates/cfg_app/Cargo.toml"),
+        root.path().join("crates/cfg_lib/Cargo.toml"),
         r#"[package]
-name = "cfg_app"
+name = "cfg_lib"
 version = "0.1.0"
 edition = "2021"
 "#,
@@ -38,7 +39,7 @@ edition = "2021"
     .unwrap();
 
     fs::write(
-        root.path().join("crates/cfg_app/build.rs"),
+        root.path().join("crates/cfg_lib/build.rs"),
         r#"fn main() {
     println!("cargo:rerun-if-env-changed=FAST");
     if std::env::var("FAST").is_ok() {
@@ -50,9 +51,31 @@ edition = "2021"
     .unwrap();
 
     fs::write(
+        root.path().join("crates/cfg_lib/src/lib.rs"),
+        r#"pub fn is_fast() -> bool {
+    cfg!(fast)
+}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        root.path().join("crates/cfg_app/Cargo.toml"),
+        r#"[package]
+name = "cfg_app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cfg_lib = { path = "../cfg_lib" }
+"#,
+    )
+    .unwrap();
+
+    fs::write(
         root.path().join("crates/cfg_app/src/main.rs"),
         r#"fn main() {
-    print!("{}", cfg!(fast));
+    print!("{}", cfg_lib::is_fast());
 }
 "#,
     )
