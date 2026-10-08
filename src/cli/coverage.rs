@@ -214,6 +214,32 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         }
     }
 
+    // Map test targets to their defining package directory and package name
+    let root_manifest = opt
+        .manifest_path
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
+    let root_dir = root_manifest
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
+    let mut target_to_pkg: std::collections::HashMap<String, (String, PathBuf)> =
+        std::collections::HashMap::new();
+
+    if let Ok(root_toml) = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest) {
+        let members = root_toml.discover_workspace_members(&root_dir);
+        for (pkg_name, pkg_dir) in members {
+            let member_manifest = pkg_dir.join("Cargo.toml");
+            if let Ok(toml) = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
+            {
+                let test_targets = toml.discover_test_targets(&pkg_dir);
+                for tt in test_targets {
+                    target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
+                }
+            }
+        }
+    }
+
     let profile_name = if opt.release { "release" } else { "debug" };
     let profile_dir = plan.target_directory.join(profile_name);
     if test_binaries.is_empty() && profile_dir.is_dir() {
@@ -251,14 +277,30 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     );
     let profpattern = profraw_dir.join("cov-%p-%m.profraw");
 
-    for (bin_path, env) in &test_binaries {
-        let mut cmd = Command::new(bin_path);
+    for (bin_path, env) in &mut test_binaries {
+        let bin_name = bin_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !env.contains_key("CARGO_MANIFEST_DIR") {
+            for (tname, (pname, pdir)) in &target_to_pkg {
+                if bin_name == tname || bin_name.contains(tname) {
+                    env.insert(
+                        "CARGO_MANIFEST_DIR".to_string(),
+                        pdir.to_string_lossy().to_string(),
+                    );
+                    env.insert("CARGO_PKG_NAME".to_string(), pname.clone());
+                    break;
+                }
+            }
+        }
+
+        let mut cmd = Command::new(&bin_path);
         cmd.env("LLVM_PROFILE_FILE", &profpattern);
-        for (k, v) in env {
+        for (k, v) in env.iter() {
             cmd.env(k, v);
         }
         if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
             cmd.current_dir(manifest_dir);
+        } else {
+            cmd.current_dir(&root_dir);
         }
         for (bin_name, bin_file) in &cli_binaries {
             let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
