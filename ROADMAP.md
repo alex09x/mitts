@@ -1,135 +1,142 @@
 # Mitts Build roadmap
 
-Status: planning only. This document defines work; it does not start implementation,
-queue agents, approve benchmarks, or claim that any planned capability exists.
-The first supported language is Rust. Other languages follow through adapters.
+Rust comes first. Other languages follow through adapters on the same
+language-neutral core. The protocol itself is described in
+[docs/architecture.md](docs/architecture.md).
 
-## Already done
+Legend: ✅ done · 🧪 experimental · 🚧 in progress · 📋 planned
 
-- [x] Create the private repository and register the Mitts Build workspace.
-- [x] Record the product idea, boundaries, and development rules in README/AGENTS.
+## At a glance
 
-## Execution rules
+| Milestone | Scope | State |
+| --- | --- | --- |
+| M0 | Contract, scenario, first-slice decision, license | ✅ |
+| M1 | Correct uncached Rust builds, Cargo coexistence | ✅ |
+| M2 | Content-addressed store and action cache | ✅ |
+| M3 | Parallel fetcher, `Cargo.lock` reuse and resolution | ✅ |
+| M4 | Native parallel DAG runner with direct `rustc` | ✅ |
+| M5 | Pilot, deduplication, conservative GC | ✅ |
+| M6 | Second adapter: C/C++ on the shared store | 🧪 |
+| M7 | Hardening for real projects | 🚧 |
+| M8 | Reproducible benchmark study | 🚧 |
+| M9 | Remote and team cache | 📋 |
 
-Work in milestone order. Start one bounded vertical slice at a time; record its
-allowed paths, observable acceptance, and directly affected tests before editing.
-Follow the global validation policy: no per-edit build/format/lint loop, no
-automatic broad suites, and no replay of unchanged successful checks.
+## Rules for this roadmap
 
-An unchecked item is planned, not implemented. A milestone closes only with its
-actual evidence and exact revision. A failed gate means fix, narrow the declared
-scope, or stop. A cache miss/bypass may succeed through a real uncached build;
-never fabricate a hit or conceal a failed/unsupported build as success.
+- An unchecked item is planned, not implemented. A milestone closes only with
+  its evidence and the exact revision.
+- A cache miss may succeed through a real uncached build. A hit is never
+  fabricated, and an unsupported build is never reported as success.
+- No speedup or disk-saving claim without a published, reproducible
+  measurement (see M8).
+- Work follows the development validation policy in [AGENTS.md](AGENTS.md).
 
-## M0 — Decide the first contract
+## Done
 
-Follow this order; later choices use evidence from earlier steps.
+### M0 — First contract ✅
 
-1. [x] Fill the [Rust baseline scenario](docs/scenarios/0001-rust-baseline.md): choose
-   one existing Cargo workflow, platform/toolchain, and representative small fixture (`fixtures/hello-rust`).
-2. [x] Read existing baseline evidence or obtain approval for one bounded ordinary
-   Cargo measurement. Record compilation units and storage categories: dependency
-   artifacts, own artifacts, incremental state, binaries, and debug data.
-3. [x] Complete the alternatives section of the open
-   [first-slice decision](docs/decisions/0001-first-rust-slice.md): compare Mitts with
-   reusing/contributing to Kache, Cargo, or other existing tools. Identify the concrete unmet user need.
-4. [x] Choose the initial resolver/build-plan owner and implementation stack. Name
-   owners of resolution, compilation actions, lockfile updates, and cache keys.
-   Selected Option 1 (Cargo-driven first slice): Cargo owns dependency resolution and base plan,
-   Mitts owns cache keys, artifact store, CoW restoration, and explanations.
-5. [x] Now define planned `mitts build` / `mitts explain` behavior, unsupported cases,
-   and workload-specific success criteria. Define the correctness oracle: equivalent
-   effective inputs/settings, diagnostics/exit behavior, and program behavior;
-   record permitted path/signing differences. Restored cache bytes must match their hashes.
-6. [x] Record the owner-selected licensing decision and approval of the narrow first
-   implementation scope: Rust stack, `MIT OR Apache-2.0` dual license.
+- [x] Rust baseline scenario on `fixtures/hello-rust`
+  ([scenario](docs/scenarios/0001-rust-baseline.md)).
+- [x] Alternatives compared and first slice chosen: Cargo owns resolution,
+  Mitts owns keys, the store and restoration
+  ([decision 0001](docs/decisions/0001-first-rust-slice.md)).
+- [x] Correctness oracle: equivalent inputs, diagnostics, exit status and
+  program behavior; restored bytes must match their hashes.
+- [x] License selected: `MIT OR Apache-2.0`.
 
-Gate: cleared. The owner approved the concrete scenario (`fixtures/hello-rust`),
-Cargo-driven first slice ownership, `MIT OR Apache-2.0` license, and M1 acceptance scope.
+### M1 — Correct builds without caching ✅
 
-## M1 — Build correctly without caching
+- [x] Smallest supported Rust build that preserves lockfile intent, package,
+  profile, features, diagnostics and exit status.
+- [x] Build actions modeled apart from the Rust adapter.
+- [x] Separate output location; Cargo and rust-analyzer are never disturbed.
+- [x] Unsupported cases reported as unsupported.
 
-- [x] Implement the smallest supported Rust build from the M0 contract; preserve
-  lockfile intent, selected package/profile/features, diagnostics, and exit status.
-- [x] Execute build scripts and proc macros without caching their runs when the
-  chosen workflow requires them. A deliberately smaller first fixture must not
-  be advertised as supporting the whole chosen project.
-- [x] Model build actions separately from the Rust adapter: inputs, outputs,
-  toolchain identity, and dependencies. Keep the store free of Cargo-specific
-  semantics, but defer a general plugin API until another language actually needs it.
-- [x] Make unsupported cases visible. Do not silently alter configuration or report
-  an unsupported build as successful.
-- [x] Define separate mutable output/build locations for Mitts. Verify ordinary
-  Cargo and rust-analyzer can coexist without overwriting their configuration,
-  deleting their targets, or sharing mutable build state with Mitts.
-- [x] Add focused success and failure regressions for the agreed fixture, including
-  changed source, a compile error, and an unsupported-case boundary.
-- [x] Compare with the M0 oracle and expose the effective plan. Output directories
-  or documented path mappings may differ; unexplained semantic differences may not.
+### M2 — Content-addressed store and action cache ✅
 
-Branch explicitly: with a Cargo-owned plan, M1 is a clean orchestration slice.
+- [x] Immutable store, objects published atomically and marked read-only.
+- [x] Deterministic action keys over toolchain, target, profile, flags,
+  features, sources and dependency keys.
+- [x] Integrity check on every restore; corrupt objects trigger a rebuild.
+- [x] Single-flight locking per action key; `--no-cache` bypass.
 
-Gate: cleared. The supported program has the exact same observable behavior as its ordinary Cargo
-build (`Hello from Mitts fixture: 42`, exit 0); failures preserve diagnostics and exit codes.
-No speedup claim.
+### M3 — Fetcher and lockfile ✅
 
-## M2 — Content-Addressed Store (CAS) & Action Cache (AC)
+- [x] Reuse a compatible `Cargo.lock` without re-resolution.
+- [x] Resolve against the crates.io sparse index when the lockfile is missing
+  or stale, and write a standard `Cargo.lock`
+  ([decision 0002](docs/decisions/0002-mitts-native-engine.md)).
+- [x] Parallel download into a global source store with checksum verification.
 
-- [x] Take the verified M1 Cargo-driven build plan as input, decoupling storage fundamentals from the independent resolver.
-- [x] Introduce an immutable, content-addressed local store (CAS) at `~/.cache/mitts/cas/` and versioned Action Cache (AC).
-- [x] Implement deterministic Action Key derivation:
-  `Key = SHA256(rustc_version + target_triple + flags + features + source_hashes + dep_artifact_hashes)`.
-- [x] Atomically publish artifacts into CAS (`chmod 444`, `rename` staging); guarantee corrupted/interrupted entries never appear.
-- [x] Single-flight execution: file-based locking (`flock`) on active Action Keys to eliminate duplicate compilation across concurrent workspaces/terminals.
-- [x] Initial eligible subset: pure Rust rlib and binary compile actions with verified input tracking.
-- [x] Test CAS hash integrity, action cache hit/miss semantics, concurrent locks, and cache-off mode.
+### M4 — Native DAG runner ✅
 
-Gate: cleared. Compatible action inputs reuse cached artifacts without re-execution (`cached: true`, exit 0); corrupted CAS objects are detected via SHA-256 integrity and trigger clean recompilation; concurrent builds coordinate safely on the same action key via single-flight `flock`; `--no-cache` mode bypasses cache cleanly. 40 workspace tests passing.
+- [x] Topological unit graph executed in parallel with direct `rustc` calls.
+- [x] Pipelined compilation from `.rmeta`.
+- [x] Dependencies consumed straight from the store via `--extern` / `-L`.
+- [x] Build scripts and proc macros compiled and run by Mitts.
+- [x] Reflink restoration where the filesystem supports it, full copy elsewhere.
 
-## M3 — Fast parallel fetcher & Cargo.lock resolution
+### M5 — Pilot and GC ✅
 
-- [x] Implement two-phase dependency management based on standard `Cargo.lock` (Decision 0002):
-  - Fast-path: read existing `Cargo.lock` directly without re-resolution, validating compatibility with `Cargo.toml` and workspace settings.
-  - Sync-path: when `Cargo.lock` is missing or incompatible with manifest/workspace changes, resolve dependencies using PubGrub against crates.io sparse index (evaluating feature, target, and dependency constraints; treating compilation profiles as builder inputs) and generate standard, valid `Cargo.lock`.
-- [x] Concurrent multithreaded downloader: fetch `.crate` archives in parallel directly into global sources store (`~/.cache/mitts/sources/`), verifying SHA-256 checksums from `Cargo.lock`.
-- [x] Zero local source pollution: dependencies are fetched and unpacked once globally per machine, not duplicated per workspace.
-- [x] Test lockfile generation equivalence with Cargo, missing lockfile handling, offline cache hits, and concurrent downloads.
+- [x] Pilot builds of real projects side by side with Cargo without corruption.
+- [x] Dependencies shared across worktrees through one store.
+- [x] `mitts gc` with age and size quotas that never touches active builds.
 
-Gate: cleared. `Cargo.lock` demonstrates format and resolution compatibility with ordinary Cargo; packages are fetched concurrently into the global store (`SourceStore` at `~/.cache/mitts/sources/`) without local source duplication; archive integrity is verified against `Cargo.lock` SHA-256 checksums; offline cache hits and single-flight concurrency tested. 51 workspace tests passing.
+### M6 — C/C++ adapter 🧪
 
-## M4 — Mitts-native parallel DAG runner (Zero target pollution)
+- [x] `CAdapter` with `Mitts.toml` and `cc` invocation.
+- [x] Rust and C artifacts coexist in one store and one GC.
+- [ ] Validation on real C/C++ projects before it leaves experimental status.
 
-- [x] Implement the autonomous compilation DAG runner:
-  - Construct topological dependency graph from `Cargo.lock`.
-  - Compile leaf crates in parallel across all CPU cores directly invoking `rustc`.
-  - Pipelined compilation: feed `.rmeta` outputs directly from Global Store to dependent crates via `--extern crate_name=/path/to/cas/...`.
-- [x] Zero intermediate target pollution: dependency `.rmeta` and `.rlib` live solely in Global Store; local workspace receives only the final compiled binary (`./my-app`).
-- [x] CoW reflink fallback for tools requiring local file staging (e.g. legacy IDE workflows or specific linkers).
-- [x] Handle `build.rs` and procedural macros with explicit sandboxed execution and environment tracking.
-- [x] Test multi-crate DAG parallel compilation, compiler diagnostic preservation, and clean workspace behavior.
+## In progress
 
-Gate: cleared. Full build succeeds via direct `rustc` invocations in parallel without running `cargo build`; local workspace contains only the requested output binary with zero intermediate target pollution; compiler diagnostics and exit codes are faithfully preserved; multi-crate parallel wave execution and Action Cache reuse verified. 56 workspace tests passing.
+### M7 — Hardening for real projects 🚧
 
-## M5 — Real-world pilot, benchmarks, and coexistence validation
+Done:
 
-- [x] Benchmark cold build, warm build (100% hit), and single-file incremental rebuild against standard Cargo on real-world projects.
-- [x] Measure physical disk allocation across multiple worktrees sharing dependencies (demonstrating true 1:1 deduplication).
-- [x] Validate coexistence: running ordinary `cargo build` and `mitts build` side-by-side does not corrupt either toolchain or invalidate caches.
-- [x] Conservative GC and storage quotas: LRU pruning of old CAS objects without touching active builds.
+- [x] Build script caching keyed by content hashes of `rerun-if-changed` paths
+  and values of `rerun-if-env-changed` variables.
+- [x] Variables read through `env!` / `option_env!` discovered and keyed per unit.
+- [x] Dep-info inputs (`include_str!`, nested modules) included in workspace keys.
+- [x] Cooperative scheduler: contested units are skipped and revisited instead
+  of blocking a worker.
+- [x] Machine-wide jobserver shared by all Mitts processes; inherited jobserver
+  respected.
+- [x] No-op fast path (`FastBuildLock`) with file and directory snapshots.
+- [x] `check`, `clippy`, `fmt`, `test`, `coverage` / `llvm-cov` commands.
+- [x] Outputs under `target/mitts/` with `CACHEDIR.TAG`.
 
-Gate: cleared. Physical disk deduplication (1:1 sharing in global CAS across worktrees without target bloat) and warm build speedups verified empirically; side-by-side coexistence with standard Cargo verified without artifact corruption; conservative GC with LRU quota and active-lock protection implemented and tested. 60 workspace tests passing.
+Open:
 
-## M6 — Add one other language adapter
+- [ ] Path-independent keys for workspace crates, so your own code is reused
+  across worktrees, not only dependencies.
+- [ ] Cross-compilation beyond the host target.
+- [ ] Clear diagnostics when a build script reads undeclared inputs.
+- [ ] Windows support (locks and jobserver are POSIX-only today).
 
-- [x] Select next language adapter (e.g. C/C++ or Go) building upon the language-neutral CAS and DAG engine: C adapter (`CAdapter`).
-- [x] Implement native manifest parsing (`Mitts.toml`) and toolchain invocation (`cc`) for the target language.
-- [x] Verify multi-language artifact reuse in the shared CAS core, Action Cache hit/miss lifecycle, and unified garbage collection.
+### M8 — Reproducible benchmark study 🚧
 
-Gate: cleared. C fixture (`hello-c`) builds and runs with cold and warm execution caching; Rust and C artifacts coexist, verify, and prune cleanly within the shared CAS and Action Cache core without collision or cross-pollution. 65 workspace tests passing.
+- [ ] Baselines: Cargo, Cargo with a shared target directory, Cargo with
+  sccache. Ratios are reported against the best baseline.
+- [ ] Scenarios: cold build, no-op, replay of a commit history, branch switch
+  and revert, many worktrees at once.
+- [ ] Each scenario documents its starting cache state; cold runs assert empty
+  caches. Repeated runs with median and spread, pinned toolchain, offline
+  sources, physical disk usage measured with `df`.
+- [ ] Results published with raw data and scripts before any number appears in
+  the README or on the site.
 
-## Later, not part of the first implementation
+## Planned
 
-- Remote/team distributed cache (HTTP/gRPC S3-compatible backend).
-- Remote execution engine (REAPI).
-- IDE daemon integration and language server direct indexing.
+### M9 — Remote and team cache 📋
 
+- [ ] Second store tier over S3-compatible storage or HTTP.
+- [ ] Writes only from trusted CI; developers read.
+- [ ] Immutable objects may sit behind a CDN; the action cache stays authoritative.
+- [ ] Requires path-independent keys from M7 first.
+
+### Later
+
+- Remote execution (REAPI).
+- IDE and rust-analyzer integration.
+- More language adapters once the Rust path is stable.

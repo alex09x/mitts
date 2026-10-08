@@ -66,7 +66,7 @@
         <div class="ledger-flow">
           <div><small>shared store</small><code>cas/ab/3f…</code><em>immutable</em></div>
           <span class="arrow" aria-hidden="true">→</span>
-          <div><small>workspace</small><code>.mitts/target/</code><em>isolated</em></div>
+          <div><small>workspace</small><code>target/mitts/</code><em>isolated</em></div>
         </div>
       </figure>
     </section>
@@ -109,9 +109,11 @@
       <div class="split">
         <ul class="checklist">
           <li class="yes">Rust library and binary actions with matching keys</li>
-          <li class="yes">Concurrent builds coordinate with single-flight locks</li>
-          <li class="yes">C/C++ adapter shares the same store</li>
-          <li class="no">Build scripts, proc macros, and mixed native outputs bypass the initial cache</li>
+          <li class="yes"><span>Build scripts, re-run only when a declared <code>rerun-if</code> input changes</span></li>
+          <li class="yes">Concurrent builds compile each shared unit once</li>
+          <li class="yes">Experimental C/C++ adapter on the same store</li>
+          <li class="no">Your own crates are reused only within the same checkout, for now</li>
+          <li class="no">Inputs a build script reads without declaring them</li>
         </ul>
         <p class="note">Unknown inputs are never treated as unchanged. If Mitts can't prove an action is compatible, it builds it.</p>
       </div>
@@ -128,6 +130,8 @@
       <dl class="cli">
         <div><dt>mitts build</dt><dd>Compile the package and its dependencies into the isolated Mitts target</dd></div>
         <div><dt>mitts run</dt><dd>Run a binary of the local package</dd></div>
+        <div><dt>mitts check · clippy · fmt</dt><dd>Type-check, lint and format without producing binaries</dd></div>
+        <div><dt>mitts test · coverage</dt><dd>Run tests and collect LLVM source-based coverage</dd></div>
         <div><dt>mitts explain</dt><dd>Show the build plan, compilation units, and cache eligibility</dd></div>
         <div><dt>mitts fetch</dt><dd>Fetch dependencies into the global source store</dd></div>
         <div><dt>mitts gc</dt><dd>Prune old or unreferenced objects within storage quotas</dd></div>
@@ -140,7 +144,7 @@
         <span class="num">04</span>
         <div>
           <h2 id="status-title">Where it stands.</h2>
-          <p>Milestones M0–M6 are complete and verified by the workspace test suite. The repository is still private.</p>
+          <p>Milestones M0–M6 are complete. Hardening for real projects and a reproducible benchmark study are in progress; no performance numbers are published until that study is.</p>
         </div>
       </header>
       <ol class="milestones">
@@ -150,6 +154,9 @@
         <li><b>M4</b>Native parallel DAG runner</li>
         <li><b>M5</b>Pilot, deduplication &amp; conservative GC</li>
         <li><b>M6</b>Second adapter: C/C++</li>
+        <li class="wip"><b>M7</b>Hardening for real projects</li>
+        <li class="wip"><b>M8</b>Reproducible benchmarks</li>
+        <li class="plan"><b>M9</b>Remote &amp; team cache</li>
       </ol>
     </section>
 

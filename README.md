@@ -1,56 +1,135 @@
-# Mitts Build
+<p align="center">
+  <img src="site/logo.svg" width="96" height="96" alt="Mitts Build logo">
+</p>
 
-Rust-first build and package tooling with a shared artifact cache.
+<h1 align="center">Mitts Build</h1>
 
-Project domain: [mittsbuild.com](https://mittsbuild.com).
+<p align="center">
+  <b>Build work, accounted for.</b><br>
+  A Rust-first build system with a shared, content-addressed artifact cache and explicit input tracking.
+</p>
 
-Author: [Alexander Panasenko](https://prod.codes/about/).
+<p align="center">
+  <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
+  <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
+  <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
+</p>
 
-## Idea
+---
 
-Build compatible inputs once and reuse the results across projects, worktrees,
-developers, and CI. Reduce unnecessary compilation and duplicate artifact storage
-without sacrificing build correctness.
+Mitts reads your existing `Cargo.toml` and `Cargo.lock`, plans the compilation
+itself, and invokes `rustc` directly. Every compile action gets a key derived
+from all of its inputs. The output is stored once in a machine-wide immutable
+store and restored into each workspace that needs it, across projects,
+worktrees and branches.
 
-Start with **Rust**, then extend the same build/cache core through adapters for
-other languages. Future language support is a direction, not a shipped feature.
+If an input cannot be accounted for, the action is rebuilt, not guessed.
 
-## Initial direction
+## Why
 
-- Read existing `Cargo.toml` and `Cargo.lock`; do not require a new package manifest.
-- Respect Cargo features, profiles, workspace rules, and configuration semantics.
-  Reading the same TOML is not, by itself, proof of compatibility.
-- Keep package/dependency declarations separate from Mitts operational settings
-  such as cache location, storage limits, and remote cache policy.
-- Design a shared immutable artifact store with complete build-input identities.
-  Keep mutable incremental state isolated between workspaces and concurrent builds.
-- Prefer copy-on-write restoration where supported. Measure physical disk usage,
-  not just apparent file sizes; copying artifacts alone is not deduplication.
-- Keep the core language-neutral: adapters describe inputs, outputs, toolchains,
-  and build actions. Rust-specific behavior belongs in the Rust adapter.
+- **Rebuild only what changed.** Switching branches, reverting a commit or
+  opening another worktree reuses every unit whose inputs match.
+- **Store each artifact once.** Dependencies compiled for one project are
+  reused by the next one with the same inputs.
+- **Stay compatible with Cargo.** No new manifest, no second lockfile. A project
+  built with Mitts still builds with `cargo build` in CI.
+- **Correctness first.** A cache hit requires a complete, tracked set of
+  inputs. Unknown inputs are treated as changed.
 
-## Boundaries
+Performance numbers are published only with a reproducible methodology. The
+benchmark study is in progress; until it is published, Mitts makes no
+speedup or disk-saving claims.
 
-Correctness comes before cache hits. Unknown or untracked inputs must not produce
-a speculative cache hit. Build scripts, procedural macros, native libraries,
-environment values, and compiler settings need explicit treatment.
+## How it works
 
-Mitts is not a new Rust compiler. Do not promise Go-like cold-build times or any
-speedup without measurements. Preserve normal build behavior for unsupported
-cases or report an explicit unsupported case; never silently claim success.
+```
+Cargo.toml + Cargo.lock
+        │
+        ▼
+ resolve ─── reuse Cargo.lock, or resolve against the crates.io sparse index
+        │
+        ▼
+ fetch ───── download .crate archives in parallel into the global source store
+        │
+        ▼
+ plan ────── compilation units: lib / bin / build script / proc macro / test
+        │
+        ▼
+ key ─────── SHA-256 over toolchain, target, profile, flags, features,
+        │    source contents, dependency keys and tracked environment
+        ▼
+ execute ─── parallel DAG of direct rustc calls
+             hit  → restore from the store (reflink or copy)
+             miss → compile, verify, publish atomically to the store
+```
+
+The full protocol — key derivation, locking, build scripts, the no-op fast
+path, storage layout and garbage collection — is described in
+[docs/architecture.md](docs/architecture.md).
+
+## Usage
+
+Mitts is not published yet. Build it from source:
+
+```sh
+cargo install --path .
+```
+
+Then run it inside any Cargo workspace:
+
+```sh
+mitts build              # compile into target/mitts/
+mitts build --release
+mitts run                # build and run a binary
+mitts check | clippy | fmt | test | coverage
+mitts explain            # show the plan, units and cache eligibility
+mitts fetch              # prefetch dependencies into the source store
+mitts gc                 # prune the shared store within quotas
+mitts clean              # remove workspace artifacts
+```
+
+Mitts writes only to `target/mitts/` in the workspace and to its shared cache
+(`$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` or `~/.cache/mitts`). Ordinary
+Cargo and rust-analyzer keep working side by side.
 
 ## Status
- 
-Milestones M0 through M6 completed and verified across 65 passing workspace tests:
-- M0: Contract & architecture approved
-- M1: Uncached build correctness & Cargo capture
-- M2: Content-Addressed Store (CAS) & Action Cache (AC) with single-flight locking
-- M3: Fast parallel fetcher & Cargo.lock resolution
-- M4: Mitts-native parallel DAG runner (zero target pollution, direct `rustc`)
-- M5: Real-world pilot, benchmarks, 1:1 disk deduplication & conservative GC
-- M6: Second language adapter (C/C++) with multi-language CAS reuse
 
-Dual-licensed under MIT OR Apache-2.0. This repository is private.
+| Area | State |
+| --- | --- |
+| Cargo.toml / Cargo.lock reading, sparse-index resolution | done |
+| Parallel fetcher and global source store | done |
+| Native DAG runner, pipelined `rustc`, jobserver | done |
+| Content-addressed store and action cache | done |
+| Build script execution and caching | done |
+| No-op fast path (`FastBuildLock`) | done |
+| `check`, `clippy`, `fmt`, `test`, `coverage` | done |
+| Conservative GC with quotas | done |
+| C/C++ adapter on the same store | experimental |
+| Path-independent keys for workspace crates | in progress |
+| Reproducible benchmark study | in progress |
+| Remote / team cache | planned |
+| Windows | not supported |
 
-Roadmap: [ROADMAP.md](ROADMAP.md). Agent rules: [AGENTS.md](AGENTS.md).
+Details and the full milestone history: [ROADMAP.md](ROADMAP.md).
 
+## Design rules
+
+- Keep build and cache orchestration language-neutral. Language semantics live
+  in adapters; Rust is the first one.
+- Shared artifacts are immutable and verified before use. Mutable state stays
+  in each workspace. No hardlinks to writable files, no timestamp tricks.
+- Cleanup never touches artifacts of an active build.
+
+Contributor and agent rules: [AGENTS.md](AGENTS.md).
+Architecture decisions: [docs/decisions](docs/decisions).
+
+## Author
+
+[Alexander Panasenko](https://prod.codes/about/) · alex@prod.codes ·
+[mittsbuild.com](https://mittsbuild.com)
+
+## License
+
+Dual-licensed under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option.
