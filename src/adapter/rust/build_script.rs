@@ -142,7 +142,7 @@ pub fn execute_build_script(
         )
     };
 
-    let mut compile_cmd = Command::new("rustc");
+    let mut compile_cmd = Command::new(super::compiler::resolve_rustc());
     compile_cmd.current_dir(staging_dir);
     if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
         compile_cmd.env("RUSTUP_TOOLCHAIN", tc);

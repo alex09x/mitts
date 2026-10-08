@@ -27,6 +27,27 @@ pub struct RustcOutput {
     pub metadata_output: Option<PathBuf>,
 }
 
+pub fn resolve_rustc() -> PathBuf {
+    if let Ok(p) = std::env::var("RUSTC") {
+        return PathBuf::from(p);
+    }
+    if let Ok(paths) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let p = dir.join("rustc");
+            if p.is_file() {
+                return p;
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home).join(".cargo").join("bin").join("rustc");
+        if p.is_file() {
+            return p;
+        }
+    }
+    PathBuf::from("rustc")
+}
+
 pub fn resolve_clippy_driver() -> PathBuf {
     if let Ok(p) = std::env::var("CLIPPY_DRIVER") {
         return PathBuf::from(p);
@@ -75,7 +96,7 @@ impl<'a> RustcInvocation<'a> {
         let compiler_bin = if self.mode == BuildMode::Clippy && self.unit.is_workspace {
             resolve_clippy_driver()
         } else {
-            PathBuf::from("rustc")
+            resolve_rustc()
         };
 
         let mut cmd = Command::new(&compiler_bin);
@@ -219,30 +240,19 @@ impl<'a> RustcInvocation<'a> {
             }
         }
 
-        let (major, minor, patch, pre) = if let Ok(sem) = semver::Version::parse(&self.unit.version)
-        {
-            (
-                sem.major.to_string(),
-                sem.minor.to_string(),
-                sem.patch.to_string(),
-                sem.pre.as_str().to_string(),
-            )
+        let (major, minor, patch, pre) = if let Ok(s) = semver::Version::parse(&self.unit.version) {
+            (s.major.to_string(), s.minor.to_string(), s.patch.to_string(), s.pre.as_str().to_string())
         } else {
-            let mut ver_parts = self.unit.version.split('.');
-            let maj = ver_parts.next().unwrap_or("0");
-            let min = ver_parts.next().unwrap_or("0");
-            let pat_with_pre = ver_parts.next().unwrap_or("0");
-            let (pat, p) = pat_with_pre.split_once('-').unwrap_or((pat_with_pre, ""));
-            (
-                maj.to_string(),
-                min.to_string(),
-                pat.to_string(),
-                p.to_string(),
-            )
+            let mut v = self.unit.version.split('.');
+            let (maj, min) = (v.next().unwrap_or("0"), v.next().unwrap_or("0"));
+            let p_pre = v.next().unwrap_or("0");
+            let (pat, p) = p_pre.split_once('-').unwrap_or((p_pre, ""));
+            (maj.to_string(), min.to_string(), pat.to_string(), p.to_string())
         };
 
         // Cargo-compatible environment variables and working directory
         let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
+        fs::create_dir_all(self.out_dir)?;
         cmd.current_dir(self.out_dir);
         if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
             cmd.env("RUSTUP_TOOLCHAIN", tc);
