@@ -31,7 +31,10 @@ pub fn package_has_build_script(manifest_path: &Path) -> bool {
         match pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()) {
             Some(super::manifest::TomlBuild::Disabled(false)) => false,
             Some(super::manifest::TomlBuild::Path(ref rel_p)) => pkg_dir.join(rel_p).is_file(),
-            _ => pkg_dir.join("build.rs").is_file() || pkg_dir.join("build").join("build.rs").is_file(),
+            _ => {
+                pkg_dir.join("build.rs").is_file()
+                    || pkg_dir.join("build").join("build.rs").is_file()
+            }
         }
     } else {
         pkg_dir.join("build.rs").is_file() || pkg_dir.join("build").join("build.rs").is_file()

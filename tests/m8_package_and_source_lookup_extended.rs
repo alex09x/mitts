@@ -81,8 +81,12 @@ fn test_m8_package_selection_default_members_and_incompatible() {
 
     let opt = RustBuildOptions::default();
     let selected = select_transitive_packages(&lockfile, &manifests, &root_toml, p, &opt).unwrap();
-    assert!(selected.iter().any(|(pkg, is_ws)| pkg.name == "member_a" && *is_ws));
-    assert!(selected.iter().any(|(pkg, is_ws)| pkg.name == "dep_normal" && !*is_ws));
+    assert!(selected
+        .iter()
+        .any(|(pkg, is_ws)| pkg.name == "member_a" && *is_ws));
+    assert!(selected
+        .iter()
+        .any(|(pkg, is_ws)| pkg.name == "dep_normal" && !*is_ws));
 
     // Test helper parse_dep_spec
     let (n1, v1) = parse_dep_spec("serde 1.0.190");

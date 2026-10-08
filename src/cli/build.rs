@@ -35,54 +35,50 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
     }
 }
 
-pub fn create_progress_callback(
-    progress: Option<indicatif::ProgressBar>,
-) -> BuildProgressCallback {
+pub fn create_progress_callback(progress: Option<indicatif::ProgressBar>) -> BuildProgressCallback {
     let progress_clone = progress;
-    BuildProgressCallback(std::sync::Arc::new(
-        move |event| match event {
-            BuildProgressEvent::InitTotal { total, cached } => {
-                if let Some(ref pb) = progress_clone {
-                    Ui::set_build_progress_total(pb, total, cached);
-                    pb.set_message("Compiling...".to_string());
-                } else {
-                    println!(
-                        "[mitts::dag] Initialized DAG: {} units ({} pre-cached)",
-                        total, cached
-                    );
-                }
+    BuildProgressCallback(std::sync::Arc::new(move |event| match event {
+        BuildProgressEvent::InitTotal { total, cached } => {
+            if let Some(ref pb) = progress_clone {
+                Ui::set_build_progress_total(pb, total, cached);
+                pb.set_message("Compiling...".to_string());
+            } else {
+                println!(
+                    "[mitts::dag] Initialized DAG: {} units ({} pre-cached)",
+                    total, cached
+                );
             }
-            BuildProgressEvent::Compiling(crate_name) => {
-                if let Some(ref pb) = progress_clone {
-                    pb.set_message(format!("• {}", crate_name));
-                } else {
-                    println!("[mitts::compile] • {}", crate_name);
-                }
+        }
+        BuildProgressEvent::Compiling(crate_name) => {
+            if let Some(ref pb) = progress_clone {
+                pb.set_message(format!("• {}", crate_name));
+            } else {
+                println!("[mitts::compile] • {}", crate_name);
             }
-            BuildProgressEvent::UnitFinished => {
-                if let Some(ref pb) = progress_clone {
-                    if pb.position() >= pb.length().unwrap_or(0) {
-                        pb.set_length(pb.position() + 1);
-                    }
-                    pb.inc(1);
+        }
+        BuildProgressEvent::UnitFinished => {
+            if let Some(ref pb) = progress_clone {
+                if pb.position() >= pb.length().unwrap_or(0) {
+                    pb.set_length(pb.position() + 1);
                 }
+                pb.inc(1);
             }
-            BuildProgressEvent::CompilerMessage(rendered) => {
-                if let Some(ref pb) = progress_clone {
-                    pb.println(rendered);
-                } else {
-                    println!("{}", rendered);
-                }
+        }
+        BuildProgressEvent::CompilerMessage(rendered) => {
+            if let Some(ref pb) = progress_clone {
+                pb.println(rendered);
+            } else {
+                println!("{}", rendered);
             }
-            BuildProgressEvent::Diagnostic(line) => {
-                if let Some(ref pb) = progress_clone {
-                    pb.println(line);
-                } else {
-                    println!("{}", line);
-                }
+        }
+        BuildProgressEvent::Diagnostic(line) => {
+            if let Some(ref pb) = progress_clone {
+                pb.println(line);
+            } else {
+                println!("{}", line);
             }
-        },
-    ))
+        }
+    }))
 }
 
 pub fn render_build_result(
@@ -204,7 +200,10 @@ mod tests {
     fn test_progress_callback_all_events() {
         // 1. None (verbose/text mode)
         let cb_none = create_progress_callback(None);
-        cb_none.0(BuildProgressEvent::InitTotal { total: 5, cached: 2 });
+        cb_none.0(BuildProgressEvent::InitTotal {
+            total: 5,
+            cached: 2,
+        });
         cb_none.0(BuildProgressEvent::Compiling("my_crate".to_string()));
         cb_none.0(BuildProgressEvent::UnitFinished);
         cb_none.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
@@ -213,7 +212,10 @@ mod tests {
         // 2. Some (progress bar mode)
         let pb = Ui::create_build_progress("dev");
         let cb_some = create_progress_callback(Some(pb.clone()));
-        cb_some.0(BuildProgressEvent::InitTotal { total: 5, cached: 2 });
+        cb_some.0(BuildProgressEvent::InitTotal {
+            total: 5,
+            cached: 2,
+        });
         cb_some.0(BuildProgressEvent::Compiling("my_crate".to_string()));
         cb_some.0(BuildProgressEvent::UnitFinished);
         cb_some.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
@@ -255,7 +257,10 @@ mod tests {
             stderr: String::new(),
             cached: true,
         };
-        assert_eq!(render_build_result(&plan_fast, &res_fast, "dev", now, false), 0);
+        assert_eq!(
+            render_build_result(&plan_fast, &res_fast, "dev", now, false),
+            0
+        );
 
         // 2. Cached non-fast-lock
         let res_cached = ActionResult {
@@ -266,7 +271,10 @@ mod tests {
             stderr: String::new(),
             cached: true,
         };
-        assert_eq!(render_build_result(&plan_fast, &res_cached, "dev", now, false), 0);
+        assert_eq!(
+            render_build_result(&plan_fast, &res_cached, "dev", now, false),
+            0
+        );
 
         // 3. actions <= 3 executed
         let res_exec = ActionResult {
@@ -277,7 +285,10 @@ mod tests {
             stderr: String::new(),
             cached: false,
         };
-        assert_eq!(render_build_result(&plan_fast, &res_exec, "dev", now, false), 0);
+        assert_eq!(
+            render_build_result(&plan_fast, &res_exec, "dev", now, false),
+            0
+        );
 
         // 4. actions > 3 executed with root bin
         let plan_many = BuildPlan {
@@ -289,7 +300,10 @@ mod tests {
             ],
             target_directory: PathBuf::from("/target"),
         };
-        assert_eq!(render_build_result(&plan_many, &res_exec, "dev", now, false), 0);
+        assert_eq!(
+            render_build_result(&plan_many, &res_exec, "dev", now, false),
+            0
+        );
 
         // 5. actions > 3 without root bin
         let plan_libs = BuildPlan {
@@ -301,7 +315,10 @@ mod tests {
             ],
             target_directory: PathBuf::from("/target"),
         };
-        assert_eq!(render_build_result(&plan_libs, &res_exec, "dev", now, false), 0);
+        assert_eq!(
+            render_build_result(&plan_libs, &res_exec, "dev", now, false),
+            0
+        );
 
         // 6. failure
         let res_fail = ActionResult {
@@ -312,6 +329,9 @@ mod tests {
             stderr: "error: test failure\n".to_string(),
             cached: false,
         };
-        assert_eq!(render_build_result(&plan_fast, &res_fail, "dev", now, true), 101);
+        assert_eq!(
+            render_build_result(&plan_fast, &res_fail, "dev", now, true),
+            101
+        );
     }
 }

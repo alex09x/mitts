@@ -82,19 +82,35 @@ fn test_m8_compute_unit_flags_comprehensive_env_macros() {
     let flags = compute_unit_flags(&unit_bin, &pkg_dir, &[], BuildMode::Build);
     assert!(flags.iter().any(|f| f.contains("CARGO_MANIFEST_DIR=")));
     assert!(flags.iter().any(|f| f.contains("MODE=Build")));
-    assert!(flags.iter().any(|f| f.contains("CARGO_PKG_NAME=mitts-test-app")));
-    assert!(flags.iter().any(|f| f.contains("CARGO_BIN_NAME=mitts_test_app")));
-    assert!(flags.iter().any(|f| f.contains("ENV_MACRO:CARGO_PKG_VERSION_MAJOR=1")));
-    assert!(flags.iter().any(|f| f.contains("ENV_MACRO:CARGO_PKG_VERSION_MINOR=2")));
-    assert!(flags.iter().any(|f| f.contains("ENV_MACRO:CARGO_PKG_VERSION_PATCH=3")));
-    assert!(flags.iter().any(|f| f.contains("ENV_MACRO:MITTS_TEST_DEFINED_VAR=active_val")));
-    assert!(flags.iter().any(|f| f.contains("ENV_MACRO:MITTS_TEST_UNSET_VAR=<unset>")));
+    assert!(flags
+        .iter()
+        .any(|f| f.contains("CARGO_PKG_NAME=mitts-test-app")));
+    assert!(flags
+        .iter()
+        .any(|f| f.contains("CARGO_BIN_NAME=mitts_test_app")));
+    assert!(flags
+        .iter()
+        .any(|f| f.contains("ENV_MACRO:CARGO_PKG_VERSION_MAJOR=1")));
+    assert!(flags
+        .iter()
+        .any(|f| f.contains("ENV_MACRO:CARGO_PKG_VERSION_MINOR=2")));
+    assert!(flags
+        .iter()
+        .any(|f| f.contains("ENV_MACRO:CARGO_PKG_VERSION_PATCH=3")));
+    assert!(flags
+        .iter()
+        .any(|f| f.contains("ENV_MACRO:MITTS_TEST_DEFINED_VAR=active_val")));
+    assert!(flags
+        .iter()
+        .any(|f| f.contains("ENV_MACRO:MITTS_TEST_UNSET_VAR=<unset>")));
 
     // Test non-bin unit CARGO_BIN_NAME=<unset>
     let mut unit_lib = unit_bin.clone();
     unit_lib.kind = "lib".to_string();
     let flags_lib = compute_unit_flags(&unit_lib, &pkg_dir, &[], BuildMode::Build);
-    assert!(flags_lib.iter().any(|f| f.contains("ENV_MACRO:CARGO_BIN_NAME=<unset>")));
+    assert!(flags_lib
+        .iter()
+        .any(|f| f.contains("ENV_MACRO:CARGO_BIN_NAME=<unset>")));
 }
 
 #[test]

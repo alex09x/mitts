@@ -158,7 +158,9 @@ fn test_m8_cas_default_paths_and_store_file_overwrite() {
     assert!(cas.verify_object(&hash).unwrap());
 
     // named_artifact_path with non-existent hash returns error
-    assert!(cas.named_artifact_path("foo", "nonexistent_hash", "rlib").is_err());
+    assert!(cas
+        .named_artifact_path("foo", "nonexistent_hash", "rlib")
+        .is_err());
 }
 
 #[test]

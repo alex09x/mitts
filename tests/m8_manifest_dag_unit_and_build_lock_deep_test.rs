@@ -9,7 +9,9 @@
  */
 
 use mitts::adapter::rust::manifest::CargoToml;
-use mitts::core::build_lock::{FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs};
+use mitts::core::build_lock::{
+    FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs,
+};
 use mitts::core::source_store::SourceStore;
 use std::fs;
 use std::sync::Mutex;
@@ -28,7 +30,11 @@ fn test_m8_build_lock_missing_lock_and_manifest() {
     fs::create_dir_all(&src_dir).unwrap();
     let lib_rs = src_dir.join("lib.rs");
 
-    fs::write(&manifest, "[package]\nname = \"fresh_test\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        &manifest,
+        "[package]\nname = \"fresh_test\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(&lock_file, "# lockfile\n").unwrap();
     fs::write(&lib_rs, "pub fn f() {}\n").unwrap();
 
@@ -99,9 +105,16 @@ name = "integration_test"
 "#;
     let toml: CargoToml = toml::from_str(toml_str).unwrap();
     let targets = toml.discover_targets(root);
-    assert!(targets.iter().any(|t| t.name == "autobin_exec" && t.src_path.ends_with("src/main.rs")));
+    assert!(targets
+        .iter()
+        .any(|t| t.name == "autobin_exec" && t.src_path.ends_with("src/main.rs")));
     let test_targets = toml.discover_test_targets(root);
-    assert!(test_targets.iter().any(|t| t.name == "integration_test" && t.src_path.ends_with("tests/integration_test.rs")));
+    assert!(
+        test_targets
+            .iter()
+            .any(|t| t.name == "integration_test"
+                && t.src_path.ends_with("tests/integration_test.rs"))
+    );
 
     // 2. Exact workspace member path without glob
     let ws_toml_str = r#"
@@ -135,14 +148,18 @@ fn test_m8_source_store_registry_empty_index_and_overwrite() {
     fs::create_dir_all(&reg_src).unwrap();
     let discovered_src = SourceStore::discover_cargo_registry_src();
     assert!(discovered_src.is_some());
-    assert!(discovered_src.unwrap().ends_with("index.crates.io-1949cf8c6b5b557f"));
+    assert!(discovered_src
+        .unwrap()
+        .ends_with("index.crates.io-1949cf8c6b5b557f"));
 
     // 2. ~/.cargo/registry/cache exists but is empty -> discover_cargo_registry_cache creates default dir
     let reg_cache = home.join(".cargo").join("registry").join("cache");
     fs::create_dir_all(&reg_cache).unwrap();
     let discovered_cache = SourceStore::discover_cargo_registry_cache();
     assert!(discovered_cache.is_some());
-    assert!(discovered_cache.unwrap().ends_with("index.crates.io-1949cf8c6b5b557f"));
+    assert!(discovered_cache
+        .unwrap()
+        .ends_with("index.crates.io-1949cf8c6b5b557f"));
 
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);

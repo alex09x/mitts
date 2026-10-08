@@ -25,7 +25,10 @@ fn test_m8_binary_cli_execution() {
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
 
     // 1. --help
-    let status = Command::new(bin_path).arg("--help").status().expect("run --help");
+    let status = Command::new(bin_path)
+        .arg("--help")
+        .status()
+        .expect("run --help");
     assert!(status.success(), "mitts --help should succeed");
 
     // 2. explain

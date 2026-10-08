@@ -41,7 +41,8 @@ fn test_m8_sparse_index_dep_default_and_empty_cache() {
     assert!(res.is_err());
 
     // 3. In online mode, 404 response for nonexistent crate
-    let res_online = client.fetch_crate_versions("crate_that_absolutely_does_not_exist_xyz_9999", false);
+    let res_online =
+        client.fetch_crate_versions("crate_that_absolutely_does_not_exist_xyz_9999", false);
     assert!(res_online.is_err());
 }
 
@@ -56,19 +57,28 @@ fn test_m8_fetcher_no_cargo_cache_and_recheck_lock() {
         name: "test_pkg_nonexistent_xyz_12345".to_string(),
         version: "1.0.0".to_string(),
         source: Some("registry+https://github.com/rust-lang/crates.io-index".to_string()),
-        checksum: Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string()),
+        checksum: Some(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        ),
         dependencies: Vec::new(),
     };
 
     // 1. Offline fetch fails because not in cache or src
-    let opt_offline = FetchOptions { offline: true, ..Default::default() };
+    let opt_offline = FetchOptions {
+        offline: true,
+        ..Default::default()
+    };
     let res_offline = fetcher.fetch_package(&pkg, &opt_offline);
     assert!(res_offline.is_err());
 
     // 2. Populate source store directly, then fetch again (exercises re-check inside lock)
     let pkg_dir = store.package_dir("test_pkg_nonexistent_xyz_12345", "1.0.0");
     fs::create_dir_all(&pkg_dir).unwrap();
-    fs::write(pkg_dir.join("Cargo.toml"), "[package]\nname = \"test_pkg_nonexistent_xyz_12345\"\nversion = \"1.0.0\"\n").unwrap();
+    fs::write(
+        pkg_dir.join("Cargo.toml"),
+        "[package]\nname = \"test_pkg_nonexistent_xyz_12345\"\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
 
     let res_cached = fetcher.fetch_package(&pkg, &opt_offline);
     assert!(res_cached.is_ok());
@@ -104,7 +114,9 @@ fn test_m8_inputs_home_configs_tmp_files_and_mitts_sources() {
     std::env::set_var("CARGO_HOME", &fake_cargo_home);
 
     let inputs = hash_package_base_inputs(&pkg_dir, None, true).unwrap();
-    assert!(inputs.iter().any(|(k, _)| k.contains("CARGO_HOME/config.toml")));
+    assert!(inputs
+        .iter()
+        .any(|(k, _)| k.contains("CARGO_HOME/config.toml")));
     assert!(inputs.iter().any(|(k, _)| k.contains("CARGO_HOME/config")));
     assert!(inputs.iter().any(|(k, _)| k == "src/lib.rs"));
     assert!(!inputs.iter().any(|(k, _)| k.ends_with(".tmp")));

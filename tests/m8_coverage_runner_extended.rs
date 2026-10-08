@@ -96,14 +96,17 @@ fn test_m8_coverage_html_open_and_release_mode() {
         cache_dir: Some(cache_dir),
         output_dir: Some(report_dir.clone()),
         html: true,
-        open: true, // exercises open report branch
+        open: true,    // exercises open report branch
         release: true, // exercises release profile branch
         filter: Some("test_sq".to_string()),
         test_args: vec!["--quiet".to_string()],
         ..Default::default()
     };
     let code = handle_coverage(&args);
-    assert_eq!(code, 0, "HTML coverage with open in release mode should succeed");
+    assert_eq!(
+        code, 0,
+        "HTML coverage with open in release mode should succeed"
+    );
     assert!(report_dir.join("index.html").is_file());
 }
 

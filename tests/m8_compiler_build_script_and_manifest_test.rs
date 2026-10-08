@@ -42,7 +42,10 @@ cargo:custom_key=custom_value
     );
 
     let dep_vars = directives.dep_env_vars();
-    assert_eq!(dep_vars.get("DEP_MYLINKS_CUSTOM_KEY"), Some(&"custom_value".to_string()));
+    assert_eq!(
+        dep_vars.get("DEP_MYLINKS_CUSTOM_KEY"),
+        Some(&"custom_value".to_string())
+    );
 
     // Test without links
     directives.links = None;
@@ -74,8 +77,12 @@ path = "tests/integration_one.rs"
     let toml: CargoToml = toml::from_str(manifest_content).unwrap();
 
     let targets = toml.discover_test_targets(root);
-    assert!(targets.iter().any(|t| t.name == "full_targets_pkg_unit_test"));
-    assert!(targets.iter().any(|t| t.name == "full_targets_pkg_bin_test"));
+    assert!(targets
+        .iter()
+        .any(|t| t.name == "full_targets_pkg_unit_test"));
+    assert!(targets
+        .iter()
+        .any(|t| t.name == "full_targets_pkg_bin_test"));
     assert!(targets.iter().any(|t| t.name == "custom_test"));
 }
 

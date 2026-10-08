@@ -115,7 +115,10 @@ fn test_m8_inputs_cargo_home_and_missing_manifest() {
     fs::create_dir_all(&empty_dir).unwrap();
     let err_missing = hash_package_base_inputs(&empty_dir, None, false);
     assert!(err_missing.is_err());
-    assert!(err_missing.unwrap_err().to_string().contains("Cargo.toml not found"));
+    assert!(err_missing
+        .unwrap_err()
+        .to_string()
+        .contains("Cargo.toml not found"));
 
     // 2. Package with CARGO_HOME configs and bare .cargo/config
     let pkg_dir = temp.path().join("pkg");
@@ -146,7 +149,9 @@ edition = "2021"
 
     let inputs = hash_package_base_inputs(&pkg_dir, None, false).unwrap();
     assert!(inputs.iter().any(|(k, _)| k.contains(".cargo/config")));
-    assert!(inputs.iter().any(|(k, _)| k.contains("CARGO_HOME/config.toml")));
+    assert!(inputs
+        .iter()
+        .any(|(k, _)| k.contains("CARGO_HOME/config.toml")));
     assert!(inputs.iter().any(|(k, _)| k.contains("CARGO_HOME/config")));
 
     std::env::remove_var("CARGO_HOME");

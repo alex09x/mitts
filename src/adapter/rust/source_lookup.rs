@@ -12,11 +12,7 @@ use std::path::{Path, PathBuf};
 
 /// Searches standard ~/.cargo/registry/src, ~/.cache/mitts/sources, and ~/.cargo/git/checkouts
 /// for unpacked crate source directory matching name, version, and optional lockfile source.
-pub fn find_crate_source_dir(
-    name: &str,
-    version: &str,
-    source: Option<&str>,
-) -> Option<PathBuf> {
+pub fn find_crate_source_dir(name: &str, version: &str, source: Option<&str>) -> Option<PathBuf> {
     let is_git = source.map(|s| s.starts_with("git")).unwrap_or(false);
     let expected_hash = source.and_then(|s| s.split('#').nth(1));
 

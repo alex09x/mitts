@@ -63,12 +63,20 @@ normal_dep = "0.4"
     fs::write(tests_dir.join("spec.rs"), "#[test] fn s() {}\n").unwrap();
 
     let targets = toml.discover_targets(tmp.path());
-    assert!(targets.iter().any(|t| t.name == "custom_lib" && t.kind == "lib"));
-    assert!(targets.iter().any(|t| t.name == "bin_one" && t.kind == "bin"));
+    assert!(targets
+        .iter()
+        .any(|t| t.name == "custom_lib" && t.kind == "lib"));
+    assert!(targets
+        .iter()
+        .any(|t| t.name == "bin_one" && t.kind == "bin"));
 
     let test_targets = toml.discover_test_targets(tmp.path());
-    assert!(test_targets.iter().any(|t| t.name == "integration_spec" && t.kind == "test"));
-    assert!(test_targets.iter().any(|t| t.name == "alias_pkg_unit_test" && t.kind == "test"));
+    assert!(test_targets
+        .iter()
+        .any(|t| t.name == "integration_spec" && t.kind == "test"));
+    assert!(test_targets
+        .iter()
+        .any(|t| t.name == "alias_pkg_unit_test" && t.kind == "test"));
 }
 
 #[test]
@@ -83,7 +91,11 @@ fn test_m8_dag_cache_restores_bin_and_rlib_non_native() {
         "[package]\nname = \"cache-restore-pkg\"\nversion = \"0.1.0\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[[bin]]\nname = \"restore_bin\"\npath = \"src/main.rs\"\n",
     )
     .unwrap();
-    fs::write(src.join("lib.rs"), "pub fn msg() -> &'static str { \"restored\" }\n").unwrap();
+    fs::write(
+        src.join("lib.rs"),
+        "pub fn msg() -> &'static str { \"restored\" }\n",
+    )
+    .unwrap();
     fs::write(
         src.join("main.rs"),
         "fn main() { println!(\"{}\", cache_restore_pkg::msg()); }\n",
@@ -124,6 +136,9 @@ fn test_m8_dag_cache_restores_bin_and_rlib_non_native() {
 
     // Check that target/debug/restore_bin was restored
     let bin_path = target_dir.join("debug").join("restore_bin");
-    assert!(bin_path.is_file(), "Binary must be restored from CAS into target/debug");
+    assert!(
+        bin_path.is_file(),
+        "Binary must be restored from CAS into target/debug"
+    );
     assert!(!plan2.actions.is_empty());
 }

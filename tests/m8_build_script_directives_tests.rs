@@ -49,14 +49,8 @@ non-cargo output line that should be completely ignored
     let mut dir_with_links = dir;
     dir_with_links.links = Some("foo".to_string());
     let dep_vars = dir_with_links.dep_env_vars();
-    assert_eq!(
-        dep_vars.get("DEP_FOO_CUSTOM_PROP").unwrap(),
-        "prop_value"
-    );
-    assert_eq!(
-        dep_vars.get("DEP_FOO_ROOT_DIR").unwrap(),
-        "/opt/assets"
-    );
+    assert_eq!(dep_vars.get("DEP_FOO_CUSTOM_PROP").unwrap(), "prop_value");
+    assert_eq!(dep_vars.get("DEP_FOO_ROOT_DIR").unwrap(), "/opt/assets");
 }
 
 #[test]

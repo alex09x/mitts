@@ -128,7 +128,10 @@ fn test_m8_source_store_error_handling_and_registry_discovery() {
     // 1. Checksum mismatch error
     let bad_cksum_err = store.unpack_archive("foo", "0.1.0", b"test", "wrong_cksum");
     assert!(bad_cksum_err.is_err());
-    assert!(bad_cksum_err.unwrap_err().to_string().contains("Checksum mismatch"));
+    assert!(bad_cksum_err
+        .unwrap_err()
+        .to_string()
+        .contains("Checksum mismatch"));
 
     // 2. Unpacking invalid bytes fails
     let bad_bytes = b"not a valid tar.gz archive";

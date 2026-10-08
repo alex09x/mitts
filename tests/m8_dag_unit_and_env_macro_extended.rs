@@ -33,19 +33,31 @@ fn test_m8_env_macro_raw_strings_and_untracked_dynamics() {
 
     // 2. Non-string token inside env! (e.g. constant or identifier) -> UntrackedDynamic
     let src_const = "fn f() { let x = env!(SOME_CONST_VAR); }";
-    assert_eq!(scan_env_macros(src_const), EnvMacroDiscovery::UntrackedDynamic);
+    assert_eq!(
+        scan_env_macros(src_const),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
 
     // 3. Unclosed raw string -> UntrackedDynamic
     let src_unclosed_raw = "fn f() { let x = env!(r###\"UNCLOSED_RAW\"##); }";
-    assert_eq!(scan_env_macros(src_unclosed_raw), EnvMacroDiscovery::UntrackedDynamic);
+    assert_eq!(
+        scan_env_macros(src_unclosed_raw),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
 
     // 4. Invalid escape sequence in normal string -> UntrackedDynamic
     let src_bad_escape = r#"fn f() { let x = env!("BAD_\xZZ_ESC"); }"#;
-    assert_eq!(scan_env_macros(src_bad_escape), EnvMacroDiscovery::UntrackedDynamic);
+    assert_eq!(
+        scan_env_macros(src_bad_escape),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
 
     // 5. Unclosed string literal -> UntrackedDynamic
     let src_unclosed_str = "fn f() { let x = env!(\"UNCLOSED_STR); }";
-    assert_eq!(scan_env_macros(src_unclosed_str), EnvMacroDiscovery::UntrackedDynamic);
+    assert_eq!(
+        scan_env_macros(src_unclosed_str),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
 }
 
 #[test]
@@ -77,7 +89,10 @@ fn test_m8_discover_package_env_macros_walk_and_skip() {
     fs::write(git_dir.join("g.rs"), "env!(DYNAMIC_GIT);\n").unwrap();
 
     let (disc, vars) = discover_package_env_macros(p);
-    assert_eq!(disc, EnvMacroDiscovery::Tracked(vec!["TRACKED_NESTED_VAR".to_string()]));
+    assert_eq!(
+        disc,
+        EnvMacroDiscovery::Tracked(vec!["TRACKED_NESTED_VAR".to_string()])
+    );
     assert_eq!(vars, vec!["TRACKED_NESTED_VAR".to_string()]);
 
     // Now introduce an untracked dynamic file inside src
@@ -118,7 +133,13 @@ fn test_m8_dag_unit_build_script_failure_propagation() {
         ..Default::default()
     };
     let (_plan, res) = RustAdapter::build(&opt).unwrap();
-    assert!(!res.success, "Broken build.rs must result in failed ActionResult");
+    assert!(
+        !res.success,
+        "Broken build.rs must result in failed ActionResult"
+    );
     assert_eq!(res.exit_code, 1);
-    assert!(res.stderr.contains("Failed to compile build.rs") || res.stderr.contains("rustc failed for unit"));
+    assert!(
+        res.stderr.contains("Failed to compile build.rs")
+            || res.stderr.contains("rustc failed for unit")
+    );
 }

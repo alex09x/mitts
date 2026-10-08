@@ -219,7 +219,10 @@ pub fn hash_package_base_inputs(
                 stack.push(path);
             } else if path.is_file() {
                 // Ignore transient editor swap and temporary files, and Cargo.lock (already hashed in Step 3)
-                if name_str.ends_with(".tmp") || name_str.ends_with(".swp") || name_str == "Cargo.lock" {
+                if name_str.ends_with(".tmp")
+                    || name_str.ends_with(".swp")
+                    || name_str == "Cargo.lock"
+                {
                     continue;
                 }
                 let hash = Sha256::digest_file(&path)

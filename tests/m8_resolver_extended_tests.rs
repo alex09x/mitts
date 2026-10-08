@@ -150,9 +150,20 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     let lock = resolver.resolve_dependencies(&root_deps, true).unwrap();
     assert_eq!(lock.packages.len(), 2);
 
-    let pkg_main = lock.packages.iter().find(|p| p.name == "dep_with_sub").unwrap();
-    assert_eq!(pkg_main.version, "1.1.0", "Must pick non-yanked 1.1.0 instead of yanked 1.2.0");
-    assert_eq!(pkg_main.dependencies, vec!["sub_dep"], "Must exclude dev and optional deps");
+    let pkg_main = lock
+        .packages
+        .iter()
+        .find(|p| p.name == "dep_with_sub")
+        .unwrap();
+    assert_eq!(
+        pkg_main.version, "1.1.0",
+        "Must pick non-yanked 1.1.0 instead of yanked 1.2.0"
+    );
+    assert_eq!(
+        pkg_main.dependencies,
+        vec!["sub_dep"],
+        "Must exclude dev and optional deps"
+    );
 
     let pkg_sub = lock.packages.iter().find(|p| p.name == "sub_dep").unwrap();
     assert_eq!(pkg_sub.version, "0.1.5");

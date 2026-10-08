@@ -176,7 +176,11 @@ fn test_m8_handle_build_lifecycle_and_diagnostics() {
     assert_eq!(code2, 0);
 
     // 3. Compiler error diagnostics rendering
-    fs::write(&main_rs, "fn main() { compile_error!(\"synthetic test error\"); }\n").unwrap();
+    fs::write(
+        &main_rs,
+        "fn main() { compile_error!(\"synthetic test error\"); }\n",
+    )
+    .unwrap();
     let code_fail = handle_build(&args);
     assert_ne!(code_fail, 0);
 

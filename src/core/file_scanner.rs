@@ -33,7 +33,10 @@ pub(crate) fn collect_project_files(
 ) -> Result<()> {
     if let Ok(meta) = fs::metadata(current_dir) {
         let (s, n) = mtime_parts(&meta);
-        let rel = current_dir.strip_prefix(root_dir).unwrap_or(current_dir).to_path_buf();
+        let rel = current_dir
+            .strip_prefix(root_dir)
+            .unwrap_or(current_dir)
+            .to_path_buf();
         directories.push(FileSnapshot {
             relative_path: rel,
             mtime_secs: s,

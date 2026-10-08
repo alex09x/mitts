@@ -100,7 +100,10 @@ fn test_m8_sparse_index_client_deep_branches() {
     // 1. Empty crate name
     let err_empty = client.fetch_crate_versions("", false);
     assert!(err_empty.is_err());
-    assert!(err_empty.unwrap_err().to_string().contains("Empty crate name"));
+    assert!(err_empty
+        .unwrap_err()
+        .to_string()
+        .contains("Empty crate name"));
 
     // 2. Offline crate not found in cache
     let err_offline = client.fetch_crate_versions("nonexistent_foo", true);

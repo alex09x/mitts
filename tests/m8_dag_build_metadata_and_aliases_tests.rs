@@ -86,6 +86,10 @@ pub fn dep_b() {
     };
 
     let (plan, res) = RustAdapter::build(&opt).unwrap();
-    assert!(res.success, "Build should succeed with metadata propagation and aliases: {}", res.stderr);
+    assert!(
+        res.success,
+        "Build should succeed with metadata propagation and aliases: {}",
+        res.stderr
+    );
     assert!(plan.actions.len() >= 2);
 }

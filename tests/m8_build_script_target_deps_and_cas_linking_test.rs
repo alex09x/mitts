@@ -30,10 +30,21 @@ cargo:another_key=hello_world
     let directives = BuildScriptDirectives::parse_stdout(stdout);
     assert!(directives.cfgs.contains(&"feature_a".to_string()));
     assert!(directives.link_libs.contains(&"sqlite3".to_string()));
-    assert!(directives.link_searches.contains(&"/usr/local/lib".to_string()));
-    assert_eq!(directives.envs.get("MY_CUSTOM_VAR"), Some(&"123".to_string()));
-    assert_eq!(directives.metadata.get("custom_meta"), Some(&"some_value".to_string()));
-    assert_eq!(directives.metadata.get("another_key"), Some(&"hello_world".to_string()));
+    assert!(directives
+        .link_searches
+        .contains(&"/usr/local/lib".to_string()));
+    assert_eq!(
+        directives.envs.get("MY_CUSTOM_VAR"),
+        Some(&"123".to_string())
+    );
+    assert_eq!(
+        directives.metadata.get("custom_meta"),
+        Some(&"some_value".to_string())
+    );
+    assert_eq!(
+        directives.metadata.get("another_key"),
+        Some(&"hello_world".to_string())
+    );
 }
 
 #[test]
@@ -81,8 +92,16 @@ fn main() {
     .unwrap();
 
     // Dummy rlib in cas_artifacts for build_helper and unix_helper
-    fs::write(cas_artifacts.join("libbuild_helper-12345678.rlib"), b"mock rlib").unwrap();
-    fs::write(cas_artifacts.join("libunix_helper-87654321.rlib"), b"mock rlib").unwrap();
+    fs::write(
+        cas_artifacts.join("libbuild_helper-12345678.rlib"),
+        b"mock rlib",
+    )
+    .unwrap();
+    fs::write(
+        cas_artifacts.join("libunix_helper-87654321.rlib"),
+        b"mock rlib",
+    )
+    .unwrap();
 
     let unit = PlannedCompilationUnit {
         package_id: "my_crate@0.1.0".to_string(),
@@ -113,7 +132,10 @@ fn main() {
     .unwrap();
 
     assert!(directives.cfgs.contains(&"has_built".to_string()));
-    assert_eq!(directives.metadata.get("custom_flag"), Some(&"true".to_string()));
+    assert_eq!(
+        directives.metadata.get("custom_flag"),
+        Some(&"true".to_string())
+    );
 }
 
 #[test]

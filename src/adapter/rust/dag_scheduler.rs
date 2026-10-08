@@ -127,7 +127,10 @@ impl WaveWorkQueue {
     pub fn pop_work(&self) -> Option<(String, LockMode)> {
         let mut state = self.state_lock();
         loop {
-            if state.has_failed || state.fatal_error.is_some() || state.completed_count >= state.total_count {
+            if state.has_failed
+                || state.fatal_error.is_some()
+                || state.completed_count >= state.total_count
+            {
                 return None;
             }
 

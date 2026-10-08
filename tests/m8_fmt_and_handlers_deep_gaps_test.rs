@@ -39,11 +39,7 @@ path = "src/lib.rs"
         "pub mod nested;\n\npub fn hello() -> &'static str {\n    \"world\"\n}\n",
     )
     .unwrap();
-    fs::write(
-        root.join("src/nested/mod.rs"),
-        "pub mod deep;\n",
-    )
-    .unwrap();
+    fs::write(root.join("src/nested/mod.rs"), "pub mod deep;\n").unwrap();
     fs::write(
         root.join("src/nested/deep/mod.rs"),
         "pub fn deep_fn() -> i32 {\n    100\n}\n",
@@ -62,7 +58,9 @@ path = "src/lib.rs"
 
     // 2. Run fmt with custom RUSTFMT env var pointing to rustfmt
     let rustfmt_path = std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).map(|p| p.join("rustfmt")).find(|p| p.is_file())
+        std::env::split_paths(&paths)
+            .map(|p| p.join("rustfmt"))
+            .find(|p| p.is_file())
     });
     if let Some(rustfmt_path) = rustfmt_path {
         std::env::set_var("RUSTFMT", rustfmt_path);

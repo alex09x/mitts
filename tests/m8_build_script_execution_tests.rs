@@ -42,7 +42,8 @@ fn test_m8_build_script_compile_error() {
     fs::write(
         pkg_dir.join("Cargo.toml"),
         "[package]\nname = \"test-bs\"\nversion = \"0.1.0\"\n",
-    ).unwrap();
+    )
+    .unwrap();
     // Invalid Rust syntax in build.rs
     fs::write(pkg_dir.join("build.rs"), "fn main() { syntax error !!! }\n").unwrap();
 
@@ -64,12 +65,14 @@ fn test_m8_build_script_runtime_error() {
     fs::write(
         pkg_dir.join("Cargo.toml"),
         "[package]\nname = \"test-bs\"\nversion = \"0.1.0\"\n",
-    ).unwrap();
+    )
+    .unwrap();
     // Build script that compiles but panics at runtime
     fs::write(
         pkg_dir.join("build.rs"),
         "fn main() { panic!(\"intentional build script runtime failure\"); }\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     let unit = make_unit_for_build_script(&pkg_dir);
     let res = execute_build_script(&unit, &staging_dir, false, &[], None, &[], None);
@@ -89,7 +92,8 @@ fn test_m8_build_script_success_with_links_and_extra_env() {
     fs::write(
         pkg_dir.join("Cargo.toml"),
         "[package]\nname = \"test-bs\"\nversion = \"0.1.0\"\nlinks = \"my_sys_c\"\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         pkg_dir.join("build.rs"),
@@ -100,7 +104,8 @@ fn main() {
     println!("cargo:include_dir=/opt/my_sys_c/include");
 }
 "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut extra = HashMap::new();
     extra.insert("CUSTOM_INJECTED_VAR".to_string(), "val123".to_string());
@@ -114,12 +119,16 @@ fn main() {
         None,
         &[],
         Some(&extra),
-    ).expect("execute build script");
+    )
+    .expect("execute build script");
 
     assert_eq!(directives.links, Some("my_sys_c".to_string()));
     assert_eq!(directives.cfgs, vec!["has_foo"]);
     assert_eq!(directives.link_libs, vec!["static=my_sys_c"]);
-    assert_eq!(directives.metadata.get("include_dir").unwrap(), "/opt/my_sys_c/include");
+    assert_eq!(
+        directives.metadata.get("include_dir").unwrap(),
+        "/opt/my_sys_c/include"
+    );
     assert!(directives.out_dir.is_some());
 
     let dep_vars = directives.dep_env_vars();

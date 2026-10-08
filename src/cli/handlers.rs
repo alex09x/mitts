@@ -222,7 +222,12 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         }
     };
     let project_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
-    let mitts_dir = project_dir.join(".mitts");
+    let mitts_dir = if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
+        std::path::PathBuf::from(cargo_td).join("mitts")
+    } else {
+        project_dir.join("target").join("mitts")
+    };
+    let legacy_mitts_dir = project_dir.join(".mitts");
 
     Ui::header("clean");
 
@@ -243,7 +248,7 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         let check_lock = FastBuildLock::lock_path(project_dir, "check");
         let clippy_lock = FastBuildLock::lock_path(project_dir, "clippy");
         let test_lock = FastBuildLock::lock_path(project_dir, "test");
-        let legacy_lock = project_dir.join(".mitts").join("build.lock");
+        let legacy_lock = legacy_mitts_dir.join("build.lock");
         for lock_file in [
             &dev_lock,
             &rel_lock,
@@ -262,22 +267,30 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     if log_file.exists() {
         let _ = std::fs::remove_file(&log_file);
     }
+    let legacy_log = legacy_mitts_dir.join("build.log");
+    if legacy_log.exists() {
+        let _ = std::fs::remove_file(&legacy_log);
+    }
 
     // 2. Remove target directory
-    let target_dir = mitts_dir.join("target");
     if args.release {
-        let rel_dir = target_dir.join("release");
+        let rel_dir = mitts_dir.join("release");
         if rel_dir.exists() {
             let _ = std::fs::remove_dir_all(&rel_dir);
             Ui::stage_item(
                 true,
                 &Ui::badge_cached(),
-                "Removed target/release directory",
+                "Removed target/mitts/release directory",
             );
         }
-    } else if target_dir.exists() {
-        let _ = std::fs::remove_dir_all(&target_dir);
-        Ui::stage_item(true, &Ui::badge_cached(), "Removed target directory");
+    } else {
+        if mitts_dir.exists() {
+            let _ = std::fs::remove_dir_all(&mitts_dir);
+            Ui::stage_item(true, &Ui::badge_cached(), "Removed target/mitts directory");
+        }
+        if legacy_mitts_dir.exists() {
+            let _ = std::fs::remove_dir_all(&legacy_mitts_dir);
+        }
     }
 
     // 3. Clean global cache if requested

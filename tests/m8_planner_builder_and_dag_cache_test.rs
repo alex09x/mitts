@@ -166,7 +166,10 @@ edition = "2021"
 
     let lib_restored = try_restore_from_cache(&lib_unit, lib_key, &ctx_hit, false).unwrap();
     assert!(lib_restored);
-    assert!(completed_artifacts.lock().unwrap().contains_key(&lib_unit.unit_id()));
+    assert!(completed_artifacts
+        .lock()
+        .unwrap()
+        .contains_key(&lib_unit.unit_id()));
 }
 
 #[test]

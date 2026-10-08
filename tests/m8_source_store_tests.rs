@@ -54,10 +54,7 @@ fn test_m8_source_store_paths_and_env() {
     let custom_cache = temp_dir.path().join("custom_mitts_cache");
     std::env::set_var("MITTS_CACHE_DIR", custom_cache.display().to_string());
     let default_store = SourceStore::default_store().expect("default store with env");
-    assert_eq!(
-        default_store.root(),
-        custom_cache.join("sources")
-    );
+    assert_eq!(default_store.root(), custom_cache.join("sources"));
     std::env::remove_var("MITTS_CACHE_DIR");
 }
 

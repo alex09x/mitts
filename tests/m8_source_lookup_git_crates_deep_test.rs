@@ -86,7 +86,11 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
         .join("index.crates.io-6f17d22bba15001f")
         .join("serde_json-1.0.100");
     fs::create_dir_all(&reg_dir).unwrap();
-    fs::write(reg_dir.join("Cargo.toml"), "[package]\nname = \"serde_json\"\n").unwrap();
+    fs::write(
+        reg_dir.join("Cargo.toml"),
+        "[package]\nname = \"serde_json\"\n",
+    )
+    .unwrap();
 
     let found_reg = find_crate_source_dir(
         "serde_json",
@@ -102,7 +106,11 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
         .join("sources")
         .join("tokio-1.30.0");
     fs::create_dir_all(&mitts_dir).unwrap();
-    fs::write(mitts_dir.join("Cargo.toml"), "[package]\nname = \"tokio\"\n").unwrap();
+    fs::write(
+        mitts_dir.join("Cargo.toml"),
+        "[package]\nname = \"tokio\"\n",
+    )
+    .unwrap();
 
     let found_mitts = find_crate_source_dir("tokio", "1.30.0", None);
     assert_eq!(found_mitts, Some(mitts_dir));
@@ -112,7 +120,11 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     fs::create_dir_all(&empty_home).unwrap();
     std::env::set_var("HOME", &empty_home);
 
-    let res = find_crate_source_dir("any_crate", "1.0.0", Some("git+https://github.com/test/repo"));
+    let res = find_crate_source_dir(
+        "any_crate",
+        "1.0.0",
+        Some("git+https://github.com/test/repo"),
+    );
     assert!(res.is_none());
 
     let res_none = find_crate_source_dir("any_crate", "1.0.0", None);

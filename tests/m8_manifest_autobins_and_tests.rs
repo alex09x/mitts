@@ -61,29 +61,38 @@ fn test_m8_manifest_build_script_nested_and_disabled() {
     // 1. Default build.rs
     fs::write(pkg_dir.join("build.rs"), "fn main() {}\n").unwrap();
 
-    let toml_default: CargoToml = toml::from_str(r#"
+    let toml_default: CargoToml = toml::from_str(
+        r#"
 [package]
 name = "standard-build"
 version = "0.1.0"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     assert!(toml_default.has_build_script(pkg_dir));
 
     // 2. Explicitly disabled build = false
-    let toml_disabled: CargoToml = toml::from_str(r#"
+    let toml_disabled: CargoToml = toml::from_str(
+        r#"
 [package]
 name = "disabled-build"
 version = "0.1.0"
 build = false
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     assert!(!toml_disabled.has_build_script(pkg_dir));
 
     // 3. Custom path build = "custom.rs"
-    let toml_custom: CargoToml = toml::from_str(r#"
+    let toml_custom: CargoToml = toml::from_str(
+        r#"
 [package]
 name = "custom-build"
 version = "0.1.0"
 build = "custom.rs"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     fs::write(pkg_dir.join("custom.rs"), "fn main() {}\n").unwrap();
     assert!(toml_custom.has_build_script(pkg_dir));
 }

@@ -29,7 +29,7 @@ pub use build_logger::BuildLogger;
 pub use cas::ContentAddressedStore;
 pub use gc::{CacheGc, GcOptions, GcReport};
 pub use hash::Sha256;
-pub use jobserver::{JobserverPool, JobToken};
+pub use jobserver::{JobToken, JobserverPool};
 pub use lock::FileLock;
 pub use reflink::reflink_or_copy;
 pub use source_store::SourceStore;

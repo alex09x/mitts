@@ -63,7 +63,10 @@ int main() {
     // 2nd build: restore from Action Cache and CAS
     let (plan2, res2) = CAdapter::build(&opt).unwrap();
     assert!(res2.success);
-    assert!(res2.cached, "2nd build should be restored from CAS/AC cache");
+    assert!(
+        res2.cached,
+        "2nd build should be restored from CAS/AC cache"
+    );
     assert_eq!(plan2.actions.len(), 1);
 
     // 2. Parse errors
@@ -109,7 +112,11 @@ edition = "2021"
         },
         trailing_args: Vec::new(),
     };
-    assert_eq!(handle_run(&run_args), 1, "run should fail on library without binary");
+    assert_eq!(
+        handle_run(&run_args),
+        1,
+        "run should fail on library without binary"
+    );
 
     // 2. Compilation error -> handle_run returns non-zero exit code
     let failing_manifest = root.join("Cargo_fail.toml");
@@ -127,7 +134,11 @@ path = "src/fail.rs"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src").join("fail.rs"), "fn main() { syntax error here }\n").unwrap();
+    fs::write(
+        root.join("src").join("fail.rs"),
+        "fn main() { syntax error here }\n",
+    )
+    .unwrap();
 
     let fail_run_args = RunArgs {
         build_args: mitts::cli::BuildArgs {

@@ -175,7 +175,11 @@ path = "tests/integ.rs"
     fs::create_dir_all(pkg_dir.join("subpkg")).unwrap();
 
     fs::write(pkg_dir.join("src").join("lib.rs"), "pub fn lib() {}").unwrap();
-    fs::write(pkg_dir.join("src").join("bin").join("cli.rs"), "fn main() {}").unwrap();
+    fs::write(
+        pkg_dir.join("src").join("bin").join("cli.rs"),
+        "fn main() {}",
+    )
+    .unwrap();
     fs::write(pkg_dir.join("tests").join("integ.rs"), "fn main() {}").unwrap();
 
     fs::write(
@@ -193,12 +197,18 @@ path = "tests/integ.rs"
 
     // 1. Discover targets
     let targets = manifest.discover_targets(pkg_dir);
-    assert!(targets.iter().any(|t| t.name == "custom_lib" && t.kind == "proc-macro"));
-    assert!(targets.iter().any(|t| t.name == "my-cli" && t.kind == "bin"));
+    assert!(targets
+        .iter()
+        .any(|t| t.name == "custom_lib" && t.kind == "proc-macro"));
+    assert!(targets
+        .iter()
+        .any(|t| t.name == "my-cli" && t.kind == "bin"));
 
     // 2. Discover test targets
     let test_targets = manifest.discover_test_targets(pkg_dir);
-    assert!(test_targets.iter().any(|t| t.name == "workspace_root_unit_test"));
+    assert!(test_targets
+        .iter()
+        .any(|t| t.name == "workspace_root_unit_test"));
     assert!(test_targets.iter().any(|t| t.name == "integ_test"));
 
     // 3. Discover workspace members
@@ -208,4 +218,3 @@ path = "tests/integ.rs"
     assert!(member_names.contains(&"subpkg"));
     assert!(member_names.contains(&"workspace-root"));
 }
-

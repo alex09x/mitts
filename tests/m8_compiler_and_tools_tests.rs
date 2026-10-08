@@ -17,7 +17,11 @@ use std::fs;
 fn test_m8_rust_adapter_resolve_manifest_and_target_dir() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let manifest_file = temp_dir.path().join("Cargo.toml");
-    fs::write(&manifest_file, "[package]\nname = \"dummy\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        &manifest_file,
+        "[package]\nname = \"dummy\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
 
     // 1. Explicit manifest path that exists
     let opt = RustBuildOptions {
@@ -45,10 +49,7 @@ fn test_m8_rust_adapter_resolve_manifest_and_target_dir() {
 
     // 4. Resolve target dir default (.mitts/target)
     let res_default = RustAdapter::resolve_target_dir(&manifest_file, &opt).unwrap();
-    assert_eq!(
-        res_default,
-        temp_dir.path().join(".mitts").join("target")
-    );
+    assert_eq!(res_default, temp_dir.path().join(".mitts").join("target"));
 }
 
 #[test]

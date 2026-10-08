@@ -47,7 +47,7 @@ impl SourceStore {
         let base_dir = if let Ok(home) = std::env::var("HOME") {
             PathBuf::from(home).join(".cache").join("mitts")
         } else {
-            PathBuf::from(".mitts").join("cache")
+            PathBuf::from("target").join("mitts").join("cache")
         };
 
         Self::new(base_dir.join("sources"))

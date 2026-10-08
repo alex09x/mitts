@@ -80,7 +80,11 @@ fn test_m8_coverage_threshold_and_report_parsing() {
         "[package]\nname = \"cov-thresh\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(src.join("lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b }").unwrap();
+    fs::write(
+        src.join("lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }",
+    )
+    .unwrap();
 
     // Create a mock test binary in target/debug/cov_thresh_test
     let mock_bin = target.join("debug").join("cov_thresh_test");

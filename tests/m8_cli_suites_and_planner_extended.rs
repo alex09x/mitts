@@ -145,15 +145,24 @@ name = "cdylib_crate"
 crate-type = ["cdylib"]
 "#;
     fs::write(&manifest, toml_str).unwrap();
-    fs::write(src.join("lib.rs"), "#[no_mangle] pub extern \"C\" fn cdylib_f() {}\n").unwrap();
+    fs::write(
+        src.join("lib.rs"),
+        "#[no_mangle] pub extern \"C\" fn cdylib_f() {}\n",
+    )
+    .unwrap();
 
     let opt = RustBuildOptions {
         manifest_path: Some(manifest),
-        extra_args: vec!["--target".to_string(), "x86_64-unknown-linux-gnu".to_string()],
+        extra_args: vec![
+            "--target".to_string(),
+            "x86_64-unknown-linux-gnu".to_string(),
+        ],
         ..Default::default()
     };
     let explanation = RustAdapter::explain_plan(&opt).unwrap();
     assert_eq!(explanation.units.len(), 1);
     assert_eq!(explanation.units[0].kind, "cdylib");
-    assert!(explanation.units[0].cache_eligibility.contains("native/dynamic library"));
+    assert!(explanation.units[0]
+        .cache_eligibility
+        .contains("native/dynamic library"));
 }

@@ -34,13 +34,17 @@ fn test_m8_sparse_index_client_paths_and_offline_cache() {
     // 3. Offline cache miss
     let offline_err = client.fetch_crate_versions("missing-crate", true);
     assert!(offline_err.is_err());
-    assert!(offline_err.unwrap_err().to_string().contains("--offline requested"));
+    assert!(offline_err
+        .unwrap_err()
+        .to_string()
+        .contains("--offline requested"));
 
     // 4. Offline cache hit
     let rel_path = SparseIndexClient::relative_path("cached-crate");
     let full_path = cache_dir.join(&rel_path);
     fs::create_dir_all(full_path.parent().unwrap()).unwrap();
-    let sample_entry = r#"{"name":"cached-crate","vers":"1.0.0","deps":[],"cksum":"deadbeef","yanked":false}"#;
+    let sample_entry =
+        r#"{"name":"cached-crate","vers":"1.0.0","deps":[],"cksum":"deadbeef","yanked":false}"#;
     fs::write(&full_path, format!("{}\n", sample_entry)).unwrap();
 
     let entries = client.fetch_crate_versions("cached-crate", true).unwrap();
@@ -74,9 +78,15 @@ unix_lib = "0.3"
     assert_eq!(root_ver, "0.4.2");
 
     let deps = extract_dependencies_with_reqs(manifest_str);
-    assert!(deps.iter().any(|d| d.name == "simple_dep" && d.req == "1.0"));
-    assert!(deps.iter().any(|d| d.name == "detailed_dep" && d.req == "2.1"));
-    assert!(deps.iter().any(|d| d.name == "build_tool" && d.req == "0.5"));
+    assert!(deps
+        .iter()
+        .any(|d| d.name == "simple_dep" && d.req == "1.0"));
+    assert!(deps
+        .iter()
+        .any(|d| d.name == "detailed_dep" && d.req == "2.1"));
+    assert!(deps
+        .iter()
+        .any(|d| d.name == "build_tool" && d.req == "0.5"));
     assert!(deps.iter().any(|d| d.name == "unix_lib" && d.req == "0.3"));
 }
 
@@ -114,6 +124,12 @@ sub-crate = { path = "sub" }
 
     let lock = resolver.resolve_manifest(&root_toml, true).unwrap();
     assert_eq!(lock.version, 3);
-    assert!(lock.packages.iter().any(|p| p.name == "sub-crate" && p.version == "0.2.0"));
-    assert!(lock.packages.iter().any(|p| p.name == "root-crate" && p.version == "0.1.0"));
+    assert!(lock
+        .packages
+        .iter()
+        .any(|p| p.name == "sub-crate" && p.version == "0.2.0"));
+    assert!(lock
+        .packages
+        .iter()
+        .any(|p| p.name == "root-crate" && p.version == "0.1.0"));
 }

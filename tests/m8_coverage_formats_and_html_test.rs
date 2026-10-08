@@ -141,7 +141,11 @@ test = false
 "#,
     )
     .unwrap();
-    fs::write(no_test_root.join("src/lib.rs"), "pub fn value() -> i32 { 42 }").unwrap();
+    fs::write(
+        no_test_root.join("src/lib.rs"),
+        "pub fn value() -> i32 { 42 }",
+    )
+    .unwrap();
 
     let args_empty = CoverageArgs {
         manifest_path: Some(no_test_root.join("Cargo.toml")),

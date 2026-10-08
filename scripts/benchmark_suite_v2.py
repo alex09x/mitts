@@ -9,6 +9,10 @@ import time
 from pathlib import Path
 
 # Paths
+CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
+if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
+
 CANDIDATE_MITTS = [
     Path("/home/user/mitts/target/release/mitts"),
     Path("/home/user/mitts/target/release/mitts")
@@ -19,6 +23,13 @@ PROJECTS_DIR = Path("/home/user/mitts-benchmarks/projects")
 BENCH_ROOT = Path("/home/user/mitts-benchmarks")
 
 def measure_command(cmd, cwd, env=None):
+    if env is None:
+        env = os.environ.copy()
+    else:
+        env = env.copy()
+    if CARGO_BIN_DIR not in env.get("PATH", ""):
+        env["PATH"] = f"{CARGO_BIN_DIR}:{env.get('PATH', '')}"
+
     start = time.perf_counter()
     p = subprocess.Popen(
         cmd,
@@ -353,7 +364,8 @@ def main():
         ("serde", PROJECTS_DIR / "serde", BENCH_ROOT / "worktrees_stress"),
         ("tokio", PROJECTS_DIR / "tokio", BENCH_ROOT / "tokio_swarm_30"),
         ("ripgrep", PROJECTS_DIR / "ripgrep", BENCH_ROOT / "ripgrep_swarm_30"),
-        ("clap", PROJECTS_DIR / "clap", BENCH_ROOT / "clap_swarm_30")
+        ("clap", PROJECTS_DIR / "clap", BENCH_ROOT / "clap_swarm_30"),
+        ("ring", PROJECTS_DIR / "ring", BENCH_ROOT / "ring_swarm_30")
     ]
     
     if len(sys.argv) > 1:
@@ -372,7 +384,7 @@ def main():
     if "metadata" not in full_report:
         full_report["metadata"] = {
             "timestamp": int(time.time()),
-            "host": "booster (64 cores, 128 GB RAM, ZFS)",
+            "host": "benchmark host (AMD Ryzen 9 9950X Zen 5, 32 threads, 192 GB DDR5 RAM, Ubuntu 24.04)",
             "mitts_version": "0.1.0-release",
             "worktrees_count": 30,
             "engines": ["cargo", "cargo_sccache", "mitts"]

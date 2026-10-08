@@ -29,7 +29,11 @@ fn test_m8_build_lock_stale_branches() {
     let bin_out = p.join("target").join("dev").join("mybin");
     fs::create_dir_all(bin_out.parent().unwrap()).unwrap();
 
-    fs::write(&manifest_path, "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        &manifest_path,
+        "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(&lock_path, "# Cargo.lock\n").unwrap();
     fs::write(&lib_src, "pub fn f() {}\n").unwrap();
     fs::write(&bin_out, "binary content\n").unwrap();
@@ -62,7 +66,13 @@ fn test_m8_build_lock_stale_branches() {
         all_features: false,
         toolchain_version: "1.80.0",
     });
-    assert!(matches!(fresh, FreshnessResult::Fresh { action_count: 3, .. }));
+    assert!(matches!(
+        fresh,
+        FreshnessResult::Fresh {
+            action_count: 3,
+            ..
+        }
+    ));
 
     // 2. Missing lock for release profile
     let no_lock = FastBuildLock::check_freshness(&FreshnessCheckArgs {
@@ -101,7 +111,9 @@ fn test_m8_build_lock_stale_branches() {
         all_features: false,
         toolchain_version: "1.80.0",
     });
-    assert!(matches!(stale_pkg, FreshnessResult::Stale(r) if r.contains("Target package mismatch")));
+    assert!(
+        matches!(stale_pkg, FreshnessResult::Stale(r) if r.contains("Target package mismatch"))
+    );
 
     // 4. Feature configuration changed (features, no_default_features, all_features)
     let stale_feat = FastBuildLock::check_freshness(&FreshnessCheckArgs {
@@ -113,7 +125,9 @@ fn test_m8_build_lock_stale_branches() {
         all_features: false,
         toolchain_version: "1.80.0",
     });
-    assert!(matches!(stale_feat, FreshnessResult::Stale(r) if r.contains("Feature configuration changed")));
+    assert!(
+        matches!(stale_feat, FreshnessResult::Stale(r) if r.contains("Feature configuration changed"))
+    );
 
     let stale_no_default = FastBuildLock::check_freshness(&FreshnessCheckArgs {
         project_dir: p,
@@ -124,7 +138,9 @@ fn test_m8_build_lock_stale_branches() {
         all_features: false,
         toolchain_version: "1.80.0",
     });
-    assert!(matches!(stale_no_default, FreshnessResult::Stale(r) if r.contains("Feature configuration changed")));
+    assert!(
+        matches!(stale_no_default, FreshnessResult::Stale(r) if r.contains("Feature configuration changed"))
+    );
 
     let stale_all_feat = FastBuildLock::check_freshness(&FreshnessCheckArgs {
         project_dir: p,
@@ -135,7 +151,9 @@ fn test_m8_build_lock_stale_branches() {
         all_features: true,
         toolchain_version: "1.80.0",
     });
-    assert!(matches!(stale_all_feat, FreshnessResult::Stale(r) if r.contains("Feature configuration changed")));
+    assert!(
+        matches!(stale_all_feat, FreshnessResult::Stale(r) if r.contains("Feature configuration changed"))
+    );
 
     // 5. Toolchain version changed
     let stale_tc = FastBuildLock::check_freshness(&FreshnessCheckArgs {
@@ -147,7 +165,9 @@ fn test_m8_build_lock_stale_branches() {
         all_features: false,
         toolchain_version: "1.81.0",
     });
-    assert!(matches!(stale_tc, FreshnessResult::Stale(r) if r.contains("Toolchain version changed")));
+    assert!(
+        matches!(stale_tc, FreshnessResult::Stale(r) if r.contains("Toolchain version changed"))
+    );
 }
 
 #[test]
@@ -162,7 +182,11 @@ fn test_m8_build_lock_file_mutation_and_lock_errors() {
     let bin_out = p.join("target").join("dev").join("mybin");
     fs::create_dir_all(bin_out.parent().unwrap()).unwrap();
 
-    fs::write(&manifest_path, "[package]\nname = \"pkg2\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        &manifest_path,
+        "[package]\nname = \"pkg2\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(&lib_src, "pub fn g() {}\n").unwrap();
     fs::write(&bin_out, "out\n").unwrap();
 
@@ -205,7 +229,9 @@ fn test_m8_build_lock_file_mutation_and_lock_errors() {
         all_features: false,
         toolchain_version: "1.80.0",
     });
-    assert!(matches!(stale_out_del, FreshnessResult::Stale(r) if r.contains("Output artifact missing")));
+    assert!(
+        matches!(stale_out_del, FreshnessResult::Stale(r) if r.contains("Output artifact missing"))
+    );
 
     // 3. Delete source file
     fs::remove_file(&lib_src).unwrap();

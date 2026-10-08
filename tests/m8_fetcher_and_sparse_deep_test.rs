@@ -33,7 +33,9 @@ fn test_m8_fetcher_local_cache_discovery_and_offline() {
         checksum: None,
         dependencies: Vec::new(),
     };
-    let res = fetcher.fetch_package(&local_pkg, &FetchOptions::default()).unwrap();
+    let res = fetcher
+        .fetch_package(&local_pkg, &FetchOptions::default())
+        .unwrap();
     assert!(res.is_none());
 
     // 2. Offline fetch when missing -> returns Err
@@ -41,7 +43,9 @@ fn test_m8_fetcher_local_cache_discovery_and_offline() {
         name: "unreal-package-missing".to_string(),
         version: "1.2.3".to_string(),
         source: Some("registry+https://github.com/rust-lang/crates.io-index".to_string()),
-        checksum: Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string()),
+        checksum: Some(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        ),
         dependencies: Vec::new(),
     };
     let offline_res = fetcher.fetch_package(
@@ -83,13 +87,25 @@ edition = "2021"
     };
 
     let found_src = fetcher
-        .fetch_package(&fake_pkg, &FetchOptions { offline: true, ..Default::default() })
+        .fetch_package(
+            &fake_pkg,
+            &FetchOptions {
+                offline: true,
+                ..Default::default()
+            },
+        )
         .unwrap();
     assert!(found_src.is_some());
 
     // Re-fetch should hit already_cached check
     let cached_hit = fetcher
-        .fetch_package(&fake_pkg, &FetchOptions { offline: true, ..Default::default() })
+        .fetch_package(
+            &fake_pkg,
+            &FetchOptions {
+                offline: true,
+                ..Default::default()
+            },
+        )
         .unwrap();
     assert_eq!(found_src, cached_hit);
 
@@ -99,7 +115,13 @@ edition = "2021"
         packages: vec![local_pkg, fake_pkg],
     };
     let fetch_all_res = fetcher
-        .fetch_all(&lock, &FetchOptions { offline: true, ..Default::default() })
+        .fetch_all(
+            &lock,
+            &FetchOptions {
+                offline: true,
+                ..Default::default()
+            },
+        )
         .unwrap();
     assert_eq!(fetch_all_res.total_packages, 1);
     assert_eq!(fetch_all_res.already_cached, 1);

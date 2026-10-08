@@ -92,11 +92,16 @@ version = "0.1.0"
     let plan = RustAdapter::explain_plan(&opt).unwrap();
     assert_eq!(plan.units.len(), 2);
     let app_unit = plan.units.iter().find(|u| u.package_name == "app").unwrap();
-    assert!(app_unit.dependencies.iter().any(|d| d.contains("helper_lib")));
+    assert!(app_unit
+        .dependencies
+        .iter()
+        .any(|d| d.contains("helper_lib")));
 
     // 2. Toolchain mtime caching with valid RUSTC binary path
     let rustc_path = std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).map(|p| p.join("rustc")).find(|p| p.is_file())
+        std::env::split_paths(&paths)
+            .map(|p| p.join("rustc"))
+            .find(|p| p.is_file())
     });
     if let Some(rustc_path) = rustc_path {
         std::env::set_var("RUSTC", &rustc_path);
@@ -144,7 +149,10 @@ fn test_m8_cas_verify_and_ac_env_paths() {
 
     let custom_xdg = root.join("custom_xdg");
     std::env::set_var("XDG_CACHE_HOME", &custom_xdg);
-    assert_eq!(ActionCache::default_path(), custom_xdg.join("mitts").join("ac"));
+    assert_eq!(
+        ActionCache::default_path(),
+        custom_xdg.join("mitts").join("ac")
+    );
     std::env::remove_var("XDG_CACHE_HOME");
 }
 

@@ -177,7 +177,10 @@ cargo:rerun-if-changed=build.rs
         parsed.envs.get("TARGET_PLATFORM"),
         Some(&"x86_64".to_string())
     );
-    assert_eq!(parsed.metadata.get("custom_meta"), Some(&"val_meta".to_string()));
+    assert_eq!(
+        parsed.metadata.get("custom_meta"),
+        Some(&"val_meta".to_string())
+    );
     assert_eq!(parsed.metadata.get("key_two"), Some(&"val_two".to_string()));
     assert!(!parsed.metadata.contains_key("warning"));
     assert!(!parsed.metadata.contains_key("rerun-if-changed"));

@@ -24,7 +24,10 @@ fn test_m8_sparse_index_relative_path_and_offline_missing() {
     assert_eq!(SparseIndexClient::relative_path("ab"), "2/ab");
     assert_eq!(SparseIndexClient::relative_path("abc"), "3/a/abc");
     assert_eq!(SparseIndexClient::relative_path("abcd"), "ab/cd/abcd");
-    assert_eq!(SparseIndexClient::relative_path("my-crate-name"), "my/-c/my-crate-name");
+    assert_eq!(
+        SparseIndexClient::relative_path("my-crate-name"),
+        "my/-c/my-crate-name"
+    );
     assert_eq!(SparseIndexClient::relative_path(""), "");
 
     // 2. SparseIndexClient fetch in offline mode when cache is absent -> Err

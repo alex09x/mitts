@@ -82,50 +82,48 @@ pub fn create_test_progress_callback(
     progress: Option<indicatif::ProgressBar>,
 ) -> BuildProgressCallback {
     let progress_clone = progress;
-    BuildProgressCallback(std::sync::Arc::new(
-        move |event| match event {
-            BuildProgressEvent::InitTotal { total, cached } => {
-                if let Some(ref pb) = progress_clone {
-                    Ui::set_build_progress_total(pb, total, cached);
-                    pb.set_message("Compiling tests...".to_string());
-                } else {
-                    println!(
-                        "[mitts::dag] Initialized DAG: {} units ({} pre-cached)",
-                        total, cached
-                    );
-                }
+    BuildProgressCallback(std::sync::Arc::new(move |event| match event {
+        BuildProgressEvent::InitTotal { total, cached } => {
+            if let Some(ref pb) = progress_clone {
+                Ui::set_build_progress_total(pb, total, cached);
+                pb.set_message("Compiling tests...".to_string());
+            } else {
+                println!(
+                    "[mitts::dag] Initialized DAG: {} units ({} pre-cached)",
+                    total, cached
+                );
             }
-            BuildProgressEvent::Compiling(crate_name) => {
-                if let Some(ref pb) = progress_clone {
-                    pb.set_message(format!("• {}", crate_name));
-                } else {
-                    println!("[mitts::test] • {}", crate_name);
-                }
+        }
+        BuildProgressEvent::Compiling(crate_name) => {
+            if let Some(ref pb) = progress_clone {
+                pb.set_message(format!("• {}", crate_name));
+            } else {
+                println!("[mitts::test] • {}", crate_name);
             }
-            BuildProgressEvent::UnitFinished => {
-                if let Some(ref pb) = progress_clone {
-                    if pb.position() >= pb.length().unwrap_or(0) {
-                        pb.set_length(pb.position() + 1);
-                    }
-                    pb.inc(1);
+        }
+        BuildProgressEvent::UnitFinished => {
+            if let Some(ref pb) = progress_clone {
+                if pb.position() >= pb.length().unwrap_or(0) {
+                    pb.set_length(pb.position() + 1);
                 }
+                pb.inc(1);
             }
-            BuildProgressEvent::CompilerMessage(rendered) => {
-                if let Some(ref pb) = progress_clone {
-                    pb.println(rendered);
-                } else {
-                    println!("{}", rendered);
-                }
+        }
+        BuildProgressEvent::CompilerMessage(rendered) => {
+            if let Some(ref pb) = progress_clone {
+                pb.println(rendered);
+            } else {
+                println!("{}", rendered);
             }
-            BuildProgressEvent::Diagnostic(line) => {
-                if let Some(ref pb) = progress_clone {
-                    pb.println(line);
-                } else {
-                    println!("{}", line);
-                }
+        }
+        BuildProgressEvent::Diagnostic(line) => {
+            if let Some(ref pb) = progress_clone {
+                pb.println(line);
+            } else {
+                println!("{}", line);
             }
-        },
-    ))
+        }
+    }))
 }
 
 pub fn handle_test(args: &TestArgs) -> i32 {
@@ -309,7 +307,10 @@ mod tests {
     #[test]
     fn test_test_progress_callback_all_events() {
         let cb_none = create_test_progress_callback(None);
-        cb_none.0(BuildProgressEvent::InitTotal { total: 3, cached: 1 });
+        cb_none.0(BuildProgressEvent::InitTotal {
+            total: 3,
+            cached: 1,
+        });
         cb_none.0(BuildProgressEvent::Compiling("test_crate".to_string()));
         cb_none.0(BuildProgressEvent::UnitFinished);
         cb_none.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
@@ -317,7 +318,10 @@ mod tests {
 
         let pb = Ui::create_build_progress("dev");
         let cb_some = create_test_progress_callback(Some(pb.clone()));
-        cb_some.0(BuildProgressEvent::InitTotal { total: 3, cached: 1 });
+        cb_some.0(BuildProgressEvent::InitTotal {
+            total: 3,
+            cached: 1,
+        });
         cb_some.0(BuildProgressEvent::Compiling("test_crate".to_string()));
         cb_some.0(BuildProgressEvent::UnitFinished);
         cb_some.0(BuildProgressEvent::CompilerMessage("msg".to_string()));

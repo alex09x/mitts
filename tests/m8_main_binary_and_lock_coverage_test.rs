@@ -18,11 +18,15 @@ fn test_m8_main_binary_dispatch_and_subcommands() {
 
     // 1. Help outputs for all subcommands (exercises main.rs Cli matching)
     let subcommands = [
-        "build", "check", "clippy", "fmt", "test", "coverage", "llvm-cov",
-        "run", "explain", "fetch", "gc", "clean",
+        "build", "check", "clippy", "fmt", "test", "coverage", "llvm-cov", "run", "explain",
+        "fetch", "gc", "clean",
     ];
     for sub in subcommands {
-        let status = Command::new(bin_path).arg(sub).arg("--help").status().unwrap();
+        let status = Command::new(bin_path)
+            .arg(sub)
+            .arg("--help")
+            .status()
+            .unwrap();
         assert!(status.success());
     }
 

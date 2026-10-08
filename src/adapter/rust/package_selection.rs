@@ -59,7 +59,8 @@ pub fn select_transitive_packages<'a>(
                 };
                 for (name, (dir, ws_toml)) in workspace_manifests {
                     if dir == &member_dir || (member_pat == "." && dir == project_dir) {
-                        let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
+                        let ws_version =
+                            ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                         if let Some(pkgs) = packages_by_name.get(name) {
                             if let Some(ver) = ws_version {
                                 if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
@@ -266,11 +267,7 @@ pub fn has_active_dependency(
 
 /// Checks if `dep_name` is declared in `[dependencies]`, `[build-dependencies]`,
 /// or `[target.*.dependencies]` (or `[dev-dependencies]` if `is_test` is true).
-pub fn is_declared_dependency(
-    pkg_toml: &CargoToml,
-    dep_name: &str,
-    is_test: bool,
-) -> bool {
+pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: bool) -> bool {
     let clean = dep_name.replace('-', "_");
     let check_dep = |alias: &str, d: &TomlDependency| -> bool {
         let real_name = match d {
@@ -352,4 +349,3 @@ pub fn prune_unreachable_units(
 
     units.retain(|u| reachable.contains(&u.unit_id()));
 }
-

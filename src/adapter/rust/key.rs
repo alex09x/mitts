@@ -114,49 +114,68 @@ pub fn compute_unit_flags(
                 "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
             }
         } else if var == "CARGO_PKG_DESCRIPTION" {
-            let desc = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                pkg_toml.package.and_then(|p| p.description).unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let desc =
+                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                    pkg_toml
+                        .package
+                        .and_then(|p| p.description)
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
             format!("ENV_MACRO:CARGO_PKG_DESCRIPTION={}", desc)
         } else if var == "CARGO_PKG_AUTHORS" {
-            let auth = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                pkg_toml.package.and_then(|p| p.authors).map(|a| a.join(":")).unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let auth =
+                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                    pkg_toml
+                        .package
+                        .and_then(|p| p.authors)
+                        .map(|a| a.join(":"))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
             format!("ENV_MACRO:CARGO_PKG_AUTHORS={}", auth)
         } else if var == "CARGO_PKG_HOMEPAGE" {
-            let hp = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                pkg_toml.package.and_then(|p| p.homepage).unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let hp =
+                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                    pkg_toml
+                        .package
+                        .and_then(|p| p.homepage)
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
             format!("ENV_MACRO:CARGO_PKG_HOMEPAGE={}", hp)
         } else if var == "CARGO_PKG_REPOSITORY" {
-            let repo = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                pkg_toml.package.and_then(|p| p.repository).unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let repo =
+                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                    pkg_toml
+                        .package
+                        .and_then(|p| p.repository)
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
             format!("ENV_MACRO:CARGO_PKG_REPOSITORY={}", repo)
         } else if var == "CARGO_PKG_LICENSE" {
-            let lic = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                pkg_toml.package.and_then(|p| p.license).unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let lic =
+                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                    pkg_toml.package.and_then(|p| p.license).unwrap_or_default()
+                } else {
+                    String::new()
+                };
             format!("ENV_MACRO:CARGO_PKG_LICENSE={}", lic)
         } else if var == "CARGO" {
             let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
             format!("ENV_MACRO:CARGO={}", cargo_bin)
         } else if var == "CARGO_PKG_README" {
-            let rm = if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                pkg_toml.package.and_then(|p| p.readme).unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let rm =
+                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
+                    pkg_toml.package.and_then(|p| p.readme).unwrap_or_default()
+                } else {
+                    String::new()
+                };
             format!("ENV_MACRO:CARGO_PKG_README={}", rm)
         } else {
             match std::env::var(var) {

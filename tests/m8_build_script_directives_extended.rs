@@ -41,10 +41,7 @@ cargo:custom_meta=custom_val
 
     dir.links = Some("native-lib".to_string());
     let env_vars = dir.dep_env_vars();
-    assert_eq!(
-        env_vars.get("DEP_NATIVE_LIB_LIB_KEY").unwrap(),
-        "lib_val"
-    );
+    assert_eq!(env_vars.get("DEP_NATIVE_LIB_LIB_KEY").unwrap(), "lib_val");
     assert_eq!(
         env_vars.get("DEP_NATIVE_LIB_CUSTOM_META").unwrap(),
         "custom_val"
@@ -104,7 +101,8 @@ fn test_m8_build_script_custom_path_and_disabled() {
     unit_custom.package_name = "custom-build".to_string();
     unit_custom.manifest_path = toml_custom;
 
-    let res2 = execute_build_script(&unit_custom, &staging_dir, false, &[], None, &[], None).unwrap();
+    let res2 =
+        execute_build_script(&unit_custom, &staging_dir, false, &[], None, &[], None).unwrap();
     assert_eq!(res2.cfgs, vec!["custom_active"]);
     assert!(res2.out_dir.is_some());
 }

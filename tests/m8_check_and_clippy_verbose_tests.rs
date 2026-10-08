@@ -37,7 +37,11 @@ fn test_m8_check_verbose_and_error_paths() {
     assert_eq!(handle_check(&args_verbose), 0);
 
     // 2. Failing check with compilation error
-    fs::write(src_dir.join("lib.rs"), "compile_error!(\"check failed\");\n").unwrap();
+    fs::write(
+        src_dir.join("lib.rs"),
+        "compile_error!(\"check failed\");\n",
+    )
+    .unwrap();
     let args_fail = CheckArgs {
         manifest_path: Some(cargo_toml),
         target_dir: Some(tmp.path().join("target_fail")),

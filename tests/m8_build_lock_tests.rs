@@ -8,7 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use mitts::core::build_lock::{FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs};
+use mitts::core::build_lock::{
+    FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -172,7 +174,10 @@ fn test_m8_build_lock_files_and_record_state() {
 
     // Should be Fresh
     match FastBuildLock::check_freshness(&check_args) {
-        FreshnessResult::Fresh { action_count, root_binary } => {
+        FreshnessResult::Fresh {
+            action_count,
+            root_binary,
+        } => {
             assert_eq!(action_count, 1);
             assert_eq!(root_binary, Some(PathBuf::from("target/dev/foo")));
         }
@@ -190,14 +195,18 @@ fn test_m8_build_lock_files_and_record_state() {
     fs::write(&src_file, "fn main() {}\n").unwrap();
     fs::write(&out_file, "").unwrap();
     match FastBuildLock::check_freshness(&check_args) {
-        FreshnessResult::Stale(msg) => assert!(msg.contains("Output artifact truncated") || msg.contains("Source modified")),
+        FreshnessResult::Stale(msg) => {
+            assert!(msg.contains("Output artifact truncated") || msg.contains("Source modified"))
+        }
         _ => panic!("Expected output truncated or modified"),
     }
 
     // Output missing
     fs::remove_file(&out_file).unwrap();
     match FastBuildLock::check_freshness(&check_args) {
-        FreshnessResult::Stale(msg) => assert!(msg.contains("Output artifact missing") || msg.contains("Source modified")),
+        FreshnessResult::Stale(msg) => {
+            assert!(msg.contains("Output artifact missing") || msg.contains("Source modified"))
+        }
         _ => panic!("Expected output missing"),
     }
 }

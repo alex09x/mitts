@@ -104,7 +104,8 @@ links = "native_zlib"
         created_at_secs: 100,
         outputs: vec![CachedOutput {
             relative_path: PathBuf::from("liblinks_crate.rlib"),
-            cas_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            cas_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+                .to_string(),
             file_size: 100,
             executable: false,
         }],
@@ -208,7 +209,10 @@ links = "native_zlib"
     let restored_with_meta = try_restore_from_cache(&unit, action_key, &ctx2, false).unwrap();
     assert!(restored_with_meta);
     assert!(*progress_called.lock().unwrap());
-    assert!(dep_build_metadata.lock().unwrap().contains_key("links-crate"));
+    assert!(dep_build_metadata
+        .lock()
+        .unwrap()
+        .contains_key("links-crate"));
 }
 
 #[test]

@@ -19,7 +19,10 @@ fn test_m8_coverage_missing_manifest_error() {
         ..Default::default()
     };
     let code = handle_coverage(&args);
-    assert_ne!(code, 0, "Missing manifest must fail with non-zero exit code");
+    assert_ne!(
+        code, 0,
+        "Missing manifest must fail with non-zero exit code"
+    );
 }
 
 #[test]
@@ -29,8 +32,16 @@ fn test_m8_coverage_no_test_binaries() {
     let src_dir = temp_dir.path().join("src");
     fs::create_dir_all(&src_dir).unwrap();
 
-    fs::write(&manifest, "[package]\nname = \"no-tests\"\nversion = \"0.1.0\"\n").unwrap();
-    fs::write(src_dir.join("lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
+    fs::write(
+        &manifest,
+        "[package]\nname = \"no-tests\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        src_dir.join("lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
 
     let target_dir = temp_dir.path().join("target");
     let cache_dir = temp_dir.path().join("cache");
@@ -57,11 +68,16 @@ fn test_m8_coverage_test_failure_path() {
     let src_dir = temp_dir.path().join("src");
     fs::create_dir_all(&src_dir).unwrap();
 
-    fs::write(&manifest, "[package]\nname = \"failing-test-pkg\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        &manifest,
+        "[package]\nname = \"failing-test-pkg\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(
         src_dir.join("main.rs"),
         "fn main() {}\n#[test]\nfn test_fail() { panic!(\"intentional test failure\"); }\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     let target_dir = temp_dir.path().join("target");
     let cache_dir = temp_dir.path().join("cache");
@@ -75,7 +91,10 @@ fn test_m8_coverage_test_failure_path() {
         ..Default::default()
     };
     let code = handle_coverage(&args);
-    assert_ne!(code, 0, "Failing test must cause coverage command to exit non-zero");
+    assert_ne!(
+        code, 0,
+        "Failing test must cause coverage command to exit non-zero"
+    );
 }
 
 #[test]
@@ -140,4 +159,3 @@ fn test_m8_coverage_report_formats_and_thresholds() {
     };
     assert_eq!(handle_coverage(&json_args), 0);
 }
-

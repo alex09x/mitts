@@ -68,7 +68,10 @@ extra_feat = ["dep:bar"]
         ..Default::default()
     };
     let feats_no_def = resolve_package_features(&pkgs, &opt_no_def);
-    assert!(feats_no_def.get("my-crate@0.1.0").map(|f| f.is_empty()).unwrap_or(true));
+    assert!(feats_no_def
+        .get("my-crate@0.1.0")
+        .map(|f| f.is_empty())
+        .unwrap_or(true));
 }
 
 #[test]
@@ -83,7 +86,11 @@ fn test_m8_source_lookup_cache_and_nested_git() {
         .join("sources")
         .join("cached-pkg-1.0.0");
     fs::create_dir_all(&mitts_src).unwrap();
-    fs::write(mitts_src.join("Cargo.toml"), "[package]\nname = \"cached-pkg\"\nversion = \"1.0.0\"\n").unwrap();
+    fs::write(
+        mitts_src.join("Cargo.toml"),
+        "[package]\nname = \"cached-pkg\"\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
 
     // 2. git repo with crates/nested
     let git_nested = temp_home
@@ -96,7 +103,11 @@ fn test_m8_source_lookup_cache_and_nested_git() {
         .join("crates")
         .join("nested-crate");
     fs::create_dir_all(&git_nested).unwrap();
-    fs::write(git_nested.join("Cargo.toml"), "[package]\nname = \"nested-crate\"\nversion = \"0.2.0\"\n").unwrap();
+    fs::write(
+        git_nested.join("Cargo.toml"),
+        "[package]\nname = \"nested-crate\"\nversion = \"0.2.0\"\n",
+    )
+    .unwrap();
 
     let orig_home = std::env::var("HOME").ok();
     std::env::set_var("HOME", temp_home.path());
@@ -104,7 +115,11 @@ fn test_m8_source_lookup_cache_and_nested_git() {
     let found_cached = find_crate_source_dir("cached-pkg", "1.0.0", None);
     assert_eq!(found_cached, Some(mitts_src));
 
-    let found_nested = find_crate_source_dir("nested-crate", "0.2.0", Some("git+https://github.com/test/mono#11223344"));
+    let found_nested = find_crate_source_dir(
+        "nested-crate",
+        "0.2.0",
+        Some("git+https://github.com/test/mono#11223344"),
+    );
     assert_eq!(found_nested, Some(git_nested));
 
     if let Some(h) = orig_home {
@@ -156,7 +171,11 @@ fn test_m8_compiler_invocation_execution() {
     };
 
     let res = inv.execute().expect("execute rustc");
-    assert!(res.success, "Compilation of simple lib must succeed: {}", res.stderr);
+    assert!(
+        res.success,
+        "Compilation of simple lib must succeed: {}",
+        res.stderr
+    );
     assert_eq!(res.exit_code, 0);
     assert!(res.primary_output.is_some());
 }

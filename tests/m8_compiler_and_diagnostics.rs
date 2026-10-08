@@ -63,9 +63,14 @@ cargo:rerun-if-env-changed=TARGET
     assert_eq!(directives.envs.get("VAR").map(|s| s.as_str()), Some("123"));
 
     directives.links = Some("z".to_string());
-    directives.metadata.insert("include".to_string(), "/usr/include".to_string());
+    directives
+        .metadata
+        .insert("include".to_string(), "/usr/include".to_string());
     let dep_vars = directives.dep_env_vars();
-    assert_eq!(dep_vars.get("DEP_Z_INCLUDE").map(|s| s.as_str()), Some("/usr/include"));
+    assert_eq!(
+        dep_vars.get("DEP_Z_INCLUDE").map(|s| s.as_str()),
+        Some("/usr/include")
+    );
 }
 
 #[test]

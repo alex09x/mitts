@@ -21,18 +21,10 @@ fn test_m8_inputs_ancestors_and_nested_configs() {
     fs::create_dir_all(&pkg_dir).unwrap();
 
     let root_toml = ws_root.join("Cargo.toml");
-    fs::write(
-        &root_toml,
-        "[workspace]\nmembers = [\"crates/my-pkg\"]\n",
-    )
-    .unwrap();
+    fs::write(&root_toml, "[workspace]\nmembers = [\"crates/my-pkg\"]\n").unwrap();
 
     let intermediate_toml = intermediate.join("Cargo.toml");
-    fs::write(
-        &intermediate_toml,
-        "[workspace]\n",
-    )
-    .unwrap();
+    fs::write(&intermediate_toml, "[workspace]\n").unwrap();
 
     let pkg_toml = pkg_dir.join("Cargo.toml");
     fs::write(
@@ -62,7 +54,9 @@ fn test_m8_inputs_ancestors_and_nested_configs() {
     assert!(inputs.iter().any(|(k, _)| k == "Cargo.lock"));
     assert!(inputs.iter().any(|(k, _)| k == ".cargo/config.toml"));
     assert!(inputs.iter().any(|(k, _)| k == ".cargo/config"));
-    assert!(inputs.iter().any(|(k, _)| k.contains("ancestor:") && k.contains("config")));
+    assert!(inputs
+        .iter()
+        .any(|(k, _)| k.contains("ancestor:") && k.contains("config")));
 }
 
 #[test]
@@ -160,7 +154,8 @@ fn test_m8_inputs_dep_info_out_of_package() {
     .unwrap();
 
     let base_inputs = vec![("Cargo.toml".to_string(), "hash_toml".to_string())];
-    let appended = append_unit_dep_info_inputs(base_inputs, &pkg_dir, &target_dir, "my_lib").unwrap();
+    let appended =
+        append_unit_dep_info_inputs(base_inputs, &pkg_dir, &target_dir, "my_lib").unwrap();
 
     assert!(appended.iter().any(|(k, _)| k.contains("shared_module.rs")));
 }

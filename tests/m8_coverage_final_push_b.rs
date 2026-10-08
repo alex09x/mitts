@@ -129,7 +129,10 @@ edition = "2021"
 
     let lock = resolver.resolve_manifest(&manifest, true).unwrap();
     assert!(lock.packages.iter().any(|p| p.name == "local-pkg"));
-    assert!(lock.packages.iter().any(|p| p.name == "detailed-remote-dep"));
+    assert!(lock
+        .packages
+        .iter()
+        .any(|p| p.name == "detailed-remote-dep"));
 }
 
 #[test]

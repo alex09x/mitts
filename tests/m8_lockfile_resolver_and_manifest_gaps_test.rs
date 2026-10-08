@@ -178,7 +178,9 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
         features: HashMap::new(),
     }];
     let err = select_best_version(&all_yanked, "^2.0").unwrap_err();
-    assert!(err.to_string().contains("No compatible non-yanked version found"));
+    assert!(err
+        .to_string()
+        .contains("No compatible non-yanked version found"));
 
     // Extract root package
     let toml = "[package]\nname = \"extracted-root\"\nversion = \"0.9.1\"\n";
@@ -193,16 +195,12 @@ fn test_m8_manifest_build_script_and_workspace_patterns() {
     let root = temp.path();
 
     // 1. Build script variations
-    let toml_disabled_false = CargoToml::parse(
-        "[package]\nname = \"t1\"\nversion = \"0.1.0\"\nbuild = false\n",
-    )
-    .unwrap();
+    let toml_disabled_false =
+        CargoToml::parse("[package]\nname = \"t1\"\nversion = \"0.1.0\"\nbuild = false\n").unwrap();
     assert!(!toml_disabled_false.has_build_script(root));
 
-    let toml_disabled_true = CargoToml::parse(
-        "[package]\nname = \"t2\"\nversion = \"0.1.0\"\nbuild = true\n",
-    )
-    .unwrap();
+    let toml_disabled_true =
+        CargoToml::parse("[package]\nname = \"t2\"\nversion = \"0.1.0\"\nbuild = true\n").unwrap();
     assert!(!toml_disabled_true.has_build_script(root));
     fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
     assert!(toml_disabled_true.has_build_script(root));
@@ -232,7 +230,9 @@ name = "worker"
     )
     .unwrap();
     let discovered = toml_bins.discover_targets(root);
-    assert!(discovered.iter().any(|t| t.name == "worker" && t.kind == "bin"));
+    assert!(discovered
+        .iter()
+        .any(|t| t.name == "worker" && t.kind == "bin"));
 
     // 3. Workspace members glob "crates/*" and pattern "."
     let ws_toml = CargoToml::parse(

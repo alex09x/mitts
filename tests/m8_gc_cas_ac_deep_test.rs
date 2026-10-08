@@ -87,7 +87,9 @@ fn test_m8_cas_duplicate_store_and_named_artifact() {
     assert_eq!(s1, s2);
 
     // 2. named_artifact_path with hyphens and long disambiguator
-    let path = cas.named_artifact_path("my-crate-name", &h1, "rlib").unwrap();
+    let path = cas
+        .named_artifact_path("my-crate-name", &h1, "rlib")
+        .unwrap();
     assert!(path.is_file());
     let fname = path.file_name().unwrap().to_string_lossy();
     assert!(fname.starts_with("libmy_crate_name-"));
@@ -178,13 +180,21 @@ fn test_m8_gc_build_scripts_atomic_unpublish_and_last_used() {
         .unwrap();
 
     // active_exec_dir must be preserved because its .last_used was refreshed
-    assert!(active_exec_dir.exists(), "active build script entry should be preserved by .last_used");
+    assert!(
+        active_exec_dir.exists(),
+        "active build script entry should be preserved by .last_used"
+    );
     assert!(active_exec_dir.join("meta.toml").exists());
 
     // old_exec_dir must be pruned because its .last_used is older than 50ms
-    assert!(!old_exec_dir.exists(), "stale build script entry should be pruned");
+    assert!(
+        !old_exec_dir.exists(),
+        "stale build script entry should be pruned"
+    );
 
     // leftover .gc.* directory must be cleaned up
-    assert!(!leftover_gc_dir.exists(), "leftover .gc.* directory should be cleaned up");
+    assert!(
+        !leftover_gc_dir.exists(),
+        "leftover .gc.* directory should be cleaned up"
+    );
 }
-

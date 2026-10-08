@@ -20,11 +20,14 @@ pub use super::build_lock_types::*;
 impl FastBuildLock {
     pub const LOCK_FILE_NAME: &'static str = "build.lock";
 
-    /// Returns the canonical path to the fast build lockfile inside the project's .mitts directory for the given profile.
+    /// Returns the canonical path to the fast build lockfile inside target/mitts for the given profile.
     pub fn lock_path(project_dir: &Path, profile: &str) -> PathBuf {
-        project_dir
-            .join(".mitts")
-            .join(format!("build-{}.lock", profile))
+        let mitts_dir = if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
+            PathBuf::from(cargo_td).join("mitts")
+        } else {
+            project_dir.join("target").join("mitts")
+        };
+        mitts_dir.join(format!("build-{}.lock", profile))
     }
 
     /// Evaluates whether the workspace is 100% up-to-date in microsecond/sub-millisecond time
@@ -167,10 +170,11 @@ impl FastBuildLock {
         }
     }
 
-    /// Records the current state of workspace manifests, Cargo.lock, source files, and outputs into .mitts/build.lock.
+    /// Records the current state of workspace manifests, Cargo.lock, source files, and outputs into target/mitts/build-{profile}.lock.
     pub fn record_state(args: &RecordStateArgs<'_>) -> Result<()> {
-        let lock_dir = args.project_dir.join(".mitts");
-        fs::create_dir_all(&lock_dir)?;
+        let lock_path = Self::lock_path(args.project_dir, args.profile);
+        let lock_dir = lock_path.parent().unwrap_or(args.project_dir);
+        fs::create_dir_all(lock_dir)?;
 
         let cargo_lock_snap = {
             let lock_path = args.project_dir.join("Cargo.lock");
@@ -258,4 +262,3 @@ impl FastBuildLock {
 #[cfg(test)]
 #[path = "build_lock_tests.rs"]
 mod tests;
-

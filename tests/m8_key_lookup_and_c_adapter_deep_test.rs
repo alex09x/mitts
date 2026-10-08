@@ -11,7 +11,9 @@
 use mitts::adapter::c::{CAdapter, CBuildOptions};
 use mitts::adapter::rust::key::derive_unit_action_keys;
 use mitts::adapter::rust::source_lookup::find_crate_source_dir;
-use mitts::adapter::rust::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions};
+use mitts::adapter::rust::types::{
+    EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions,
+};
 use mitts::core::action::ToolchainInfo;
 use std::fs;
 

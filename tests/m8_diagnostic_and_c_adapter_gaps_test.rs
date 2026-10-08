@@ -119,11 +119,7 @@ fn test_m8_inputs_ancestors_nested_crates_and_dep_info_dedup() {
 
     // Workspace root manifest
     let ws_manifest = root.join("Cargo.toml");
-    fs::write(
-        &ws_manifest,
-        "[workspace]\nmembers = [\"nested/subpkg\"]\n",
-    )
-    .unwrap();
+    fs::write(&ws_manifest, "[workspace]\nmembers = [\"nested/subpkg\"]\n").unwrap();
 
     // Intermediate ancestor directory
     let nested_dir = root.join("nested");
@@ -178,11 +174,16 @@ fn test_m8_inputs_ancestors_nested_crates_and_dep_info_dedup() {
     let dep_info_file = target_dir.join("subpkg.d");
     fs::write(
         &dep_info_file,
-        format!("{}: {}\n", target_dir.join("subpkg").display(), main_rs.display()),
+        format!(
+            "{}: {}\n",
+            target_dir.join("subpkg").display(),
+            main_rs.display()
+        ),
     )
     .unwrap();
 
-    let updated = append_unit_dep_info_inputs(inputs.clone(), &subpkg_dir, &target_dir, "subpkg").unwrap();
+    let updated =
+        append_unit_dep_info_inputs(inputs.clone(), &subpkg_dir, &target_dir, "subpkg").unwrap();
     // main.rs should not be duplicated
     let main_count = updated.iter().filter(|(k, _)| k == "src/main.rs").count();
     assert_eq!(main_count, 1);

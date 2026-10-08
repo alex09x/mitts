@@ -115,7 +115,10 @@ fn main() {
     let err = execute_build_script(&unit, &target_dir, false, &[], None, &[], None);
     assert!(err.is_err());
     let err_str = err.unwrap_err().to_string();
-    assert!(err_str.contains("build.rs failed for 'bs_fail'") && err_str.contains("custom build script fatal error"));
+    assert!(
+        err_str.contains("build.rs failed for 'bs_fail'")
+            && err_str.contains("custom build script fatal error")
+    );
 }
 
 #[test]

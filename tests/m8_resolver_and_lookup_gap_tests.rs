@@ -45,8 +45,14 @@ my-path-dep = { path = "subpath_dep" }
     let resolver = NativeResolver::with_client(client);
 
     let lock = resolver.resolve_manifest(&manifest, true).unwrap();
-    assert!(lock.packages.iter().any(|p| p.name == "my-path-dep" && p.version == "0.2.1"));
-    assert!(lock.packages.iter().any(|p| p.name == "root-res-pkg" && p.version == "1.0.0"));
+    assert!(lock
+        .packages
+        .iter()
+        .any(|p| p.name == "my-path-dep" && p.version == "0.2.1"));
+    assert!(lock
+        .packages
+        .iter()
+        .any(|p| p.name == "root-res-pkg" && p.version == "1.0.0"));
 
     // Unparseable TOML fallback path
     let unparseable = temp_dir.path().join("Broken.toml");

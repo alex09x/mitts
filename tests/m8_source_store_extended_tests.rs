@@ -26,7 +26,11 @@ fn test_m8_source_store_has_source_and_missing() {
     // Directory exists, but Cargo.toml does not
     assert!(!store.has_source("nonexistent", "1.0.0"));
 
-    fs::write(pkg_dir.join("Cargo.toml"), "[package]\nname = \"nonexistent\"\nversion = \"1.0.0\"").unwrap();
+    fs::write(
+        pkg_dir.join("Cargo.toml"),
+        "[package]\nname = \"nonexistent\"\nversion = \"1.0.0\"",
+    )
+    .unwrap();
     assert!(store.has_source("nonexistent", "1.0.0"));
 }
 
@@ -49,7 +53,8 @@ fn test_m8_source_store_corrupted_archive_and_missing_cargo_toml() {
         header.set_size(data.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        tar.append_data(&mut header, "broken-0.2.0/README.md", &data[..]).unwrap();
+        tar.append_data(&mut header, "broken-0.2.0/README.md", &data[..])
+            .unwrap();
         tar.finish().unwrap();
     }
     let archive_bytes = enc.finish().unwrap();
@@ -73,20 +78,24 @@ fn test_m8_source_store_flat_archive_and_copy_dir_recursive() {
         header.set_size(cargo_toml.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        tar.append_data(&mut header, "Cargo.toml", &cargo_toml[..]).unwrap();
+        tar.append_data(&mut header, "Cargo.toml", &cargo_toml[..])
+            .unwrap();
 
         let src_code = b"pub fn flat() {}\n";
         let mut header2 = tar::Header::new_gnu();
         header2.set_size(src_code.len() as u64);
         header2.set_mode(0o644);
         header2.set_cksum();
-        tar.append_data(&mut header2, "src/lib.rs", &src_code[..]).unwrap();
+        tar.append_data(&mut header2, "src/lib.rs", &src_code[..])
+            .unwrap();
 
         tar.finish().unwrap();
     }
     let archive_bytes = enc.finish().unwrap();
 
-    let res = store.unpack_archive("flat-pkg", "0.3.0", &archive_bytes, "").unwrap();
+    let res = store
+        .unpack_archive("flat-pkg", "0.3.0", &archive_bytes, "")
+        .unwrap();
     assert!(res.is_dir());
     assert!(res.join("Cargo.toml").is_file());
     assert!(res.join("src").join("lib.rs").is_file());

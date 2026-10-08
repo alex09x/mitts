@@ -129,7 +129,10 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
 
     let profile = if args.release { "release" } else { "dev" };
     Ui::header(&format!("coverage [{}]", profile));
-    Ui::stage_start("📊", "Compiling and instrumenting test targets for LLVM coverage");
+    Ui::stage_start(
+        "📊",
+        "Compiling and instrumenting test targets for LLVM coverage",
+    );
 
     let opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
@@ -158,7 +161,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     };
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, &opt)
-        .unwrap_or_else(|_| project_dir.join(".mitts").join("target"));
+        .unwrap_or_else(|_| project_dir.join("target").join("mitts"));
     let profdata_dir = target_dir.join("coverage");
     let profraw_dir = profdata_dir.join("profraw");
     let _ = fs::remove_dir_all(&profraw_dir);
@@ -173,7 +176,10 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     };
 
     if !result.success {
-        eprintln!("mitts coverage error: compilation failed:\n{}", result.stderr);
+        eprintln!(
+            "mitts coverage error: compilation failed:\n{}",
+            result.stderr
+        );
         return result.exit_code;
     }
 
@@ -219,7 +225,13 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         return 0;
     }
 
-    Ui::stage_start("🧪", &format!("Running {} test binaries with profile collection", test_binaries.len()));
+    Ui::stage_start(
+        "🧪",
+        &format!(
+            "Running {} test binaries with profile collection",
+            test_binaries.len()
+        ),
+    );
     let profpattern = profraw_dir.join("cov-%p-%m.profraw");
 
     for bin_path in &test_binaries {
@@ -234,7 +246,10 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         let status = match cmd.status() {
             Ok(s) => s,
             Err(err) => {
-                eprintln!("mitts coverage error: failed executing {:?}: {}", bin_path, err);
+                eprintln!(
+                    "mitts coverage error: failed executing {:?}: {}",
+                    bin_path, err
+                );
                 return 1;
             }
         };
@@ -266,7 +281,9 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     }
 
     merge_cmd.arg("-o").arg(&merged_profdata);
-    let merge_status = merge_cmd.status().map_err(|e| anyhow::anyhow!("merge failed: {}", e));
+    let merge_status = merge_cmd
+        .status()
+        .map_err(|e| anyhow::anyhow!("merge failed: {}", e));
     if merge_status.is_err() || !merge_status.unwrap().success() {
         eprintln!("mitts coverage error: failed to merge raw profiles with llvm-profdata");
         return 1;
@@ -274,7 +291,10 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
 
     // Generate coverage report via llvm-cov
     let mut cov_cmd = Command::new(&llvm_cov);
-    let out_dir = args.output_dir.clone().unwrap_or_else(|| profdata_dir.join("report"));
+    let out_dir = args
+        .output_dir
+        .clone()
+        .unwrap_or_else(|| profdata_dir.join("report"));
 
     if args.html {
         let _ = fs::create_dir_all(&out_dir);
@@ -343,7 +363,8 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         if let Ok(check_out) = check_cmd.output() {
             if check_out.status.success() {
                 if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&check_out.stdout) {
-                    let pct = v.get("data")
+                    let pct = v
+                        .get("data")
                         .and_then(|d| d.get(0))
                         .and_then(|d0| d0.get("totals"))
                         .and_then(|tot| tot.get("lines"))
@@ -351,10 +372,16 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
                         .and_then(|p| p.as_f64())
                         .unwrap_or(0.0);
                     if pct < threshold {
-                        eprintln!("mitts coverage error: line coverage {:.2}% is below threshold {:.2}%", pct, threshold);
+                        eprintln!(
+                            "mitts coverage error: line coverage {:.2}% is below threshold {:.2}%",
+                            pct, threshold
+                        );
                         return 1;
                     }
-                    println!("mitts coverage: line coverage {:.2}% meets threshold {:.2}%", pct, threshold);
+                    println!(
+                        "mitts coverage: line coverage {:.2}% meets threshold {:.2}%",
+                        pct, threshold
+                    );
                 }
             }
         }
@@ -362,7 +389,11 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
 
     let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
     if args.html {
-        Ui::stage_item(true, &Ui::badge_cached(), &format!("HTML report saved to {}", out_dir.display()));
+        Ui::stage_item(
+            true,
+            &Ui::badge_cached(),
+            &format!("HTML report saved to {}", out_dir.display()),
+        );
         if args.open {
             let index = out_dir.join("index.html");
             let _ = Command::new("open").arg(&index).status();

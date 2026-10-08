@@ -19,9 +19,17 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
 
     // 1. Source store fallback: unit.src_path does not exist on disk,
     // but $MITTS_CACHE_DIR/sources/<pkg>-<ver>/src/lib.rs exists!
-    let store_sources = root.join("cache").join("sources").join("cached-dep-0.2.0").join("src");
+    let store_sources = root
+        .join("cache")
+        .join("sources")
+        .join("cached-dep-0.2.0")
+        .join("src");
     fs::create_dir_all(&store_sources).unwrap();
-    fs::write(store_sources.join("lib.rs"), "pub fn cached_val() -> u32 { 42 }\n").unwrap();
+    fs::write(
+        store_sources.join("lib.rs"),
+        "pub fn cached_val() -> u32 { 42 }\n",
+    )
+    .unwrap();
 
     std::env::set_var("MITTS_CACHE_DIR", root.join("cache").display().to_string());
 
@@ -59,7 +67,11 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
     };
 
     let res = invocation.execute();
-    assert!(res.is_ok(), "compiler should discover source in cache: {:?}", res.err());
+    assert!(
+        res.is_ok(),
+        "compiler should discover source in cache: {:?}",
+        res.err()
+    );
     let out = res.unwrap();
     assert!(out.success);
 

@@ -21,10 +21,15 @@ fn test_m8_c_adapter_compilation_error_and_invalid_manifest() {
     fs::write(
         &manifest_path,
         "[package]\nname = \"err-c\"\nversion = \"0.1.0\"\n\n[bin]\nsrc = \"bad.c\"\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     // C source file with syntax errors
-    fs::write(pkg_dir.join("bad.c"), "int main() { this is an invalid syntax error; }\n").unwrap();
+    fs::write(
+        pkg_dir.join("bad.c"),
+        "int main() { this is an invalid syntax error; }\n",
+    )
+    .unwrap();
 
     let opt = CBuildOptions {
         manifest_path: Some(manifest_path.clone()),
@@ -60,12 +65,14 @@ fn test_m8_c_adapter_release_and_no_cache_modes() {
     fs::write(
         &manifest_path,
         "[package]\nname = \"opt-c\"\nversion = \"1.0.0\"\n\n[bin]\nsrc = \"main.c\"\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         pkg_dir.join("main.c"),
         "#include <stdio.h>\nint main() { printf(\"Optimized\\n\"); return 0; }\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     // 1. Release mode with extra flags
     let opt_release = CBuildOptions {

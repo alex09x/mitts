@@ -34,7 +34,11 @@ path = "tests/sample.rs"
     )
     .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src").join("lib.rs"), "pub fn compute_sum(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
+    fs::write(
+        root.join("src").join("lib.rs"),
+        "pub fn compute_sum(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
     fs::create_dir_all(root.join("tests")).unwrap();
     fs::write(
         root.join("tests").join("sample.rs"),
@@ -121,7 +125,11 @@ fn test_m8_inputs_home_cargo_config_without_cargo_home() {
 
     let pkg_dir = root.join("my_pkg");
     fs::create_dir_all(&pkg_dir).unwrap();
-    fs::write(pkg_dir.join("Cargo.toml"), "[package]\nname=\"my-pkg\"\nversion=\"0.1.0\"\n").unwrap();
+    fs::write(
+        pkg_dir.join("Cargo.toml"),
+        "[package]\nname=\"my-pkg\"\nversion=\"0.1.0\"\n",
+    )
+    .unwrap();
 
     // Temporarily unset CARGO_HOME and set HOME
     let prev_cargo_home = std::env::var_os("CARGO_HOME");

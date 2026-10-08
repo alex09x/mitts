@@ -77,7 +77,11 @@ fn test_m8_inputs_dir_and_file_filters() {
     // Nested crate with its own Cargo.toml must also be ignored
     let nested = pkg_dir.join("nested_crate");
     fs::create_dir_all(&nested).unwrap();
-    fs::write(nested.join("Cargo.toml"), "[package]\nname = \"nested\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        nested.join("Cargo.toml"),
+        "[package]\nname = \"nested\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(nested.join("lib.rs"), "pub fn nested() {}").unwrap();
 
     // Assets in test_data or assets directory MUST be included (P2 cache correctness)

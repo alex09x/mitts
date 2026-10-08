@@ -78,7 +78,9 @@ fn test_m8_build_logger_lifecycle_and_file_output() {
     assert_eq!(logger.phases().len(), 3);
 
     // Write log to file
-    logger.write_trace("dev", 0, "success").expect("write build log to file");
+    logger
+        .write_trace("dev", 0, "success")
+        .expect("write build log to file");
     assert!(log_file.is_file());
 
     let content = fs::read_to_string(&log_file).unwrap();

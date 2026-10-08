@@ -29,7 +29,11 @@ fn test_m8_c_adapter_manifest_resolution_and_default_dirs() {
         "[package]\nname = \"my_c_lib\"\nversion = \"0.1.0\"\n\n[bin]\nsrc = \"src/main.c\"\n",
     )
     .unwrap();
-    fs::write(proj_dir.join("src/main.c"), "int main(void) { return 0; }\n").unwrap();
+    fs::write(
+        proj_dir.join("src/main.c"),
+        "int main(void) { return 0; }\n",
+    )
+    .unwrap();
 
     let opt_dir = CBuildOptions {
         manifest_path: Some(proj_dir.clone()),

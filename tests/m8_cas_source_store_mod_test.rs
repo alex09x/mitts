@@ -110,7 +110,11 @@ fn test_m8_source_store_has_source_and_locks() {
     // Pre-create package
     let pkg_dir = store.package_dir("existing-pkg", "1.0.0");
     fs::create_dir_all(&pkg_dir).unwrap();
-    fs::write(pkg_dir.join("Cargo.toml"), "[package]\nname=\"existing-pkg\"\n").unwrap();
+    fs::write(
+        pkg_dir.join("Cargo.toml"),
+        "[package]\nname=\"existing-pkg\"\n",
+    )
+    .unwrap();
 
     assert!(store.has_source("existing-pkg", "1.0.0"));
     assert!(!store.has_source("nonexistent-pkg", "1.0.0"));

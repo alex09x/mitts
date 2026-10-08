@@ -68,8 +68,8 @@ fn test_cooperative_trylock_and_file_lock_deferral() {
                 match lock_mode {
                     LockMode::TryLock => {
                         // Attempt non-blocking lock; since Thread 1 holds it, must fail
-                        let lock_opt = FileLock::try_acquire_exclusive(&lock_path_clone)
-                            .expect("try lock");
+                        let lock_opt =
+                            FileLock::try_acquire_exclusive(&lock_path_clone).expect("try lock");
                         if lock_opt.is_none() {
                             // Defer the unit cooperatively
                             q_clone.mark_contested(unit_id);
@@ -208,7 +208,10 @@ fn test_worker_panic_clean_abort_without_deadlock() {
                         } else {
                             "unknown panic".to_string()
                         };
-                        q.mark_failed(format!("Worker thread panicked on unit {}: {}", unit_id, msg));
+                        q.mark_failed(format!(
+                            "Worker thread panicked on unit {}: {}",
+                            unit_id, msg
+                        ));
                         break;
                     }
                 }
@@ -229,4 +232,3 @@ fn test_worker_panic_clean_abort_without_deadlock() {
     // All work should now return None
     assert!(queue.pop_work().is_none());
 }
-

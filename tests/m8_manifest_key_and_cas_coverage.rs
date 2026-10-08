@@ -98,7 +98,10 @@ fn test_m8_cas_error_paths_and_corrupted_restoration() {
 
     let err = cas.restore_object(&real_hash, &dest, false);
     assert!(err.is_err(), "Expected corruption error");
-    assert!(!obj_path.exists(), "Corrupted object should be removed from store");
+    assert!(
+        !obj_path.exists(),
+        "Corrupted object should be removed from store"
+    );
 
     // 4. named_artifact_path on missing object -> Err
     let bad_named = cas.named_artifact_path("mycrate", missing_hash, "rlib");
@@ -106,7 +109,9 @@ fn test_m8_cas_error_paths_and_corrupted_restoration() {
 
     // 5. named_artifact_path on valid object -> Ok
     let (valid_hash, _) = cas.store_bytes(b"rlib content").unwrap();
-    let named_path = cas.named_artifact_path("mycrate", &valid_hash, "rlib").unwrap();
+    let named_path = cas
+        .named_artifact_path("mycrate", &valid_hash, "rlib")
+        .unwrap();
     assert!(named_path.exists());
     assert_eq!(fs::read(&named_path).unwrap(), b"rlib content");
 }

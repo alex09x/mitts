@@ -70,11 +70,16 @@ fn test_m8_cas_store_and_restore_bytes() {
 
     // Restore to destination
     let dest_file = temp_dir.path().join("restored.bin");
-    cas.restore_object(&hash, &dest_file, true).expect("restore object");
+    cas.restore_object(&hash, &dest_file, true)
+        .expect("restore object");
     assert_eq!(fs::read(&dest_file).unwrap(), payload);
 
     // Restore non-existent object
-    let missing_res = cas.restore_object("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", &dest_file, false);
+    let missing_res = cas.restore_object(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        &dest_file,
+        false,
+    );
     assert!(missing_res.is_err());
 }
 

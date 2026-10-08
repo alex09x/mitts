@@ -21,33 +21,60 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 fn test_m8_env_macro_parser_deep_edge_cases() {
     // 1. Nested block comments and unclosed comments
     let src_nested = "/* outer /* inner */ outer again */ fn foo() {}";
-    assert_eq!(scan_env_macros(src_nested), EnvMacroDiscovery::Tracked(vec![]));
+    assert_eq!(
+        scan_env_macros(src_nested),
+        EnvMacroDiscovery::Tracked(vec![])
+    );
 
     let src_unclosed_line = "fn foo() {}\n// unclosed line comment without trailing newline";
-    assert_eq!(scan_env_macros(src_unclosed_line), EnvMacroDiscovery::Tracked(vec![]));
+    assert_eq!(
+        scan_env_macros(src_unclosed_line),
+        EnvMacroDiscovery::Tracked(vec![])
+    );
 
     let src_unclosed_block = "fn foo() {} /* unclosed block comment";
-    assert_eq!(scan_env_macros(src_unclosed_block), EnvMacroDiscovery::Tracked(vec![]));
+    assert_eq!(
+        scan_env_macros(src_unclosed_block),
+        EnvMacroDiscovery::Tracked(vec![])
+    );
 
     // 2. Unclosed string literals and raw string literals in normal source
     let src_unclosed_raw = "fn foo() {} r#\"unclosed raw string";
-    assert_eq!(scan_env_macros(src_unclosed_raw), EnvMacroDiscovery::Tracked(vec![]));
+    assert_eq!(
+        scan_env_macros(src_unclosed_raw),
+        EnvMacroDiscovery::Tracked(vec![])
+    );
 
     let src_unclosed_str = "fn foo() {} \"unclosed normal string";
-    assert_eq!(scan_env_macros(src_unclosed_str), EnvMacroDiscovery::Tracked(vec![]));
+    assert_eq!(
+        scan_env_macros(src_unclosed_str),
+        EnvMacroDiscovery::Tracked(vec![])
+    );
 
     let src_bytes_and_chars = "fn foo() { let _ = b'x'; let _ = 'y'; }";
-    assert_eq!(scan_env_macros(src_bytes_and_chars), EnvMacroDiscovery::Tracked(vec![]));
+    assert_eq!(
+        scan_env_macros(src_bytes_and_chars),
+        EnvMacroDiscovery::Tracked(vec![])
+    );
 
     // 3. env! macro dynamic / untracked arguments
     let src_env_raw_invalid = "fn foo() { env!(r#INVALID); }";
-    assert_eq!(scan_env_macros(src_env_raw_invalid), EnvMacroDiscovery::UntrackedDynamic);
+    assert_eq!(
+        scan_env_macros(src_env_raw_invalid),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
 
     let src_env_raw_unclosed = "fn foo() { env!(r#\"unclosed); }";
-    assert_eq!(scan_env_macros(src_env_raw_unclosed), EnvMacroDiscovery::UntrackedDynamic);
+    assert_eq!(
+        scan_env_macros(src_env_raw_unclosed),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
 
     let src_env_non_str = "fn foo() { env!(12345); }";
-    assert_eq!(scan_env_macros(src_env_non_str), EnvMacroDiscovery::UntrackedDynamic);
+    assert_eq!(
+        scan_env_macros(src_env_non_str),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
 
     let src_env_unclosed_parens = "fn foo() { env!(\"MY_VAR\"";
     assert_eq!(
@@ -72,9 +99,17 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
     std::env::set_var("HOME", home);
 
     // 1. Package in ~/.cache/mitts/sources/<name>-<version>
-    let mitts_pkg = home.join(".cache").join("mitts").join("sources").join("mitts_pkg-0.2.0");
+    let mitts_pkg = home
+        .join(".cache")
+        .join("mitts")
+        .join("sources")
+        .join("mitts_pkg-0.2.0");
     fs::create_dir_all(&mitts_pkg).unwrap();
-    fs::write(mitts_pkg.join("Cargo.toml"), "[package]\nname = \"mitts_pkg\"\n").unwrap();
+    fs::write(
+        mitts_pkg.join("Cargo.toml"),
+        "[package]\nname = \"mitts_pkg\"\n",
+    )
+    .unwrap();
 
     let found_mitts = find_crate_source_dir("mitts_pkg", "0.2.0", None);
     assert_eq!(found_mitts, Some(mitts_pkg));

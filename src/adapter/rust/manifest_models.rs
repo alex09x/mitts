@@ -1,4 +1,3 @@
-
 fn deserialize_maybe_bool_or_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -52,7 +51,6 @@ pub struct TomlTargetSpec {
     pub build_dependencies: HashMap<String, TomlDependency>,
 }
 
-
 fn deserialize_maybe_inherited_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -75,8 +73,9 @@ where
     }
 }
 
-
-fn deserialize_maybe_inherited_vec_string<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+fn deserialize_maybe_inherited_vec_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

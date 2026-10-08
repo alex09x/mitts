@@ -26,7 +26,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
-    let log_path = project_dir.join(".mitts").join("build.log");
+    let log_path = target_dir.join("build.log");
     let mut logger = BuildLogger::new(Some(log_path));
 
     let profile = match opt.mode {

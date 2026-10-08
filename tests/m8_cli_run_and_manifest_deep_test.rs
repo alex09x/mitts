@@ -27,7 +27,11 @@ fn test_m8_run_no_binary_target_and_build_failure() {
         "[package]\nname = \"lib_only\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(root.join("lib_pkg/src/lib.rs"), "pub fn val() -> i32 { 1 }\n").unwrap();
+    fs::write(
+        root.join("lib_pkg/src/lib.rs"),
+        "pub fn val() -> i32 { 1 }\n",
+    )
+    .unwrap();
 
     let args_lib = RunArgs {
         build_args: BuildArgs {
@@ -80,6 +84,12 @@ linux_build_tool = { package = "real_build_tool", version = "0.2" }
 "#;
     let toml: CargoToml = toml::from_str(toml_str).unwrap();
     let aliases = toml.dependency_aliases();
-    assert_eq!(aliases.alias_to_real.get("linux_dep"), Some(&"real_linux_dep".to_string()));
-    assert_eq!(aliases.alias_to_real.get("linux_build_tool"), Some(&"real_build_tool".to_string()));
+    assert_eq!(
+        aliases.alias_to_real.get("linux_dep"),
+        Some(&"real_linux_dep".to_string())
+    );
+    assert_eq!(
+        aliases.alias_to_real.get("linux_build_tool"),
+        Some(&"real_build_tool".to_string())
+    );
 }

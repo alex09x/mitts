@@ -81,16 +81,12 @@ fn main() {
     fs::create_dir_all(&staging).unwrap();
 
     let externs = vec![("helper".to_string(), helper_rlib)];
-    let res = execute_build_script(
-        &unit,
-        &staging,
-        false,
-        &[],
-        None,
-        &externs,
-        None,
+    let res = execute_build_script(&unit, &staging, false, &[], None, &externs, None);
+    assert!(
+        res.is_ok(),
+        "build script with extern should succeed: {:?}",
+        res.err()
     );
-    assert!(res.is_ok(), "build script with extern should succeed: {:?}", res.err());
     let directives = res.unwrap();
     assert!(directives.cfgs.contains(&"has_helper".to_string()));
 }
@@ -137,5 +133,9 @@ pub fn dynamic_env() -> &'static str {
     let explanation = RustAdapter::explain_plan(&opt).unwrap();
     assert_eq!(explanation.units.len(), 1);
     let u = &explanation.units[0];
-    assert!(u.cache_eligibility.contains("Uncached"), "should mark uncached: {}", u.cache_eligibility);
+    assert!(
+        u.cache_eligibility.contains("Uncached"),
+        "should mark uncached: {}",
+        u.cache_eligibility
+    );
 }

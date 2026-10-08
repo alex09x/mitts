@@ -46,7 +46,9 @@ crate-type = ["cdylib", "rlib"]
 
     let plan = RustAdapter::explain_plan(&opt).unwrap();
     assert_eq!(plan.units.len(), 1);
-    assert!(plan.units[0].cache_eligibility.contains("native/dynamic library"));
+    assert!(plan.units[0]
+        .cache_eligibility
+        .contains("native/dynamic library"));
 
     // 2. Test mode planning discovers test targets
     let test_dir = root_dir.join("tests");
@@ -100,7 +102,9 @@ fn main() {
 
     let plan = RustAdapter::explain_plan(&opt).unwrap();
     assert_eq!(plan.units.len(), 1);
-    assert!(plan.units[0].cache_eligibility.contains("untracked dynamic env!"));
+    assert!(plan.units[0]
+        .cache_eligibility
+        .contains("untracked dynamic env!"));
 }
 
 #[test]

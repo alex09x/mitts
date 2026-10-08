@@ -168,16 +168,41 @@ impl RustAdapter {
         }
     }
 
-    /// Resolves the dedicated isolated Mitts target directory for the workspace.
+    /// Resolves the dedicated isolated Mitts target directory for the workspace (target/mitts).
     pub fn resolve_target_dir(manifest_path: &Path, opt: &RustBuildOptions) -> Result<PathBuf> {
-        if let Some(ref td) = opt.target_dir {
-            Ok(td.clone())
+        let target_dir = if let Some(ref td) = opt.target_dir {
+            td.clone()
+        } else if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
+            PathBuf::from(cargo_td).join("mitts")
         } else {
             let project_dir = manifest_path
                 .parent()
                 .context("Manifest path has no parent directory")?;
-            Ok(project_dir.join(".mitts").join("target"))
+            project_dir.join("target").join("mitts")
+        };
+
+        // Ensure target directory has CACHEDIR.TAG and .gitignore so IDEs/tools treat it as build cache
+        if let Some(parent) = target_dir.parent() {
+            let _ = Self::ensure_target_dir_tags(parent);
         }
+
+        Ok(target_dir)
+    }
+
+    /// Ensures standard CACHEDIR.TAG and .gitignore exist in the target directory.
+    fn ensure_target_dir_tags(target_dir: &Path) -> std::io::Result<()> {
+        let tag_file = target_dir.join("CACHEDIR.TAG");
+        if !tag_file.exists() {
+            let _ = std::fs::create_dir_all(target_dir);
+            let content = "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by Mitts.\n# For information about cache directory tags, see:\n#\thttp://www.brynosaurus.com/cachedir/\n";
+            let _ = std::fs::write(&tag_file, content);
+        }
+        let gitignore = target_dir.join(".gitignore");
+        if !gitignore.exists() {
+            let _ = std::fs::create_dir_all(target_dir);
+            let _ = std::fs::write(&gitignore, "*\n");
+        }
+        Ok(())
     }
 
     /// Derives the effective build plan and compilation units from Cargo metadata.

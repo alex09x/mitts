@@ -105,7 +105,11 @@ fn test_m8_c_adapter_toolchain_and_build_errors() {
     )
     .unwrap();
 
-    fs::write(c_dir.join("src").join("main.c"), "int main() { syntax error; }").unwrap();
+    fs::write(
+        c_dir.join("src").join("main.c"),
+        "int main() { syntax error; }",
+    )
+    .unwrap();
 
     let opt_fail = CBuildOptions {
         manifest_path: Some(c_toml.clone()),
@@ -117,7 +121,11 @@ fn test_m8_c_adapter_toolchain_and_build_errors() {
     assert!(res.is_err());
 
     // 4. Successful C build
-    fs::write(c_dir.join("src").join("main.c"), "int main(void) { return 0; }\n").unwrap();
+    fs::write(
+        c_dir.join("src").join("main.c"),
+        "int main(void) { return 0; }\n",
+    )
+    .unwrap();
     let opt_ok = CBuildOptions {
         manifest_path: Some(c_toml),
         target_dir: Some(tmp.path().join("target")),

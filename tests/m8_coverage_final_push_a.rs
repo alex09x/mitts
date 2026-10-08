@@ -35,7 +35,11 @@ edition = "2021"
     )
     .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src").join("lib.rs"), "pub fn ok() -> bool { true }\n").unwrap();
+    fs::write(
+        root.join("src").join("lib.rs"),
+        "pub fn ok() -> bool { true }\n",
+    )
+    .unwrap();
 
     // 1. handle_fetch with cache_dir: None (exercises SourceStore::default_store())
     let fetch_args = FetchArgs {
@@ -117,10 +121,16 @@ path = "tests/test.rs"
         total: 5,
         cached: 2,
     });
-    cb.0(mitts::adapter::BuildProgressEvent::Compiling("crate_a".into()));
+    cb.0(mitts::adapter::BuildProgressEvent::Compiling(
+        "crate_a".into(),
+    ));
     cb.0(mitts::adapter::BuildProgressEvent::UnitFinished);
-    cb.0(mitts::adapter::BuildProgressEvent::CompilerMessage("warning: sample".into()));
-    cb.0(mitts::adapter::BuildProgressEvent::Diagnostic("sample diagnostic".into()));
+    cb.0(mitts::adapter::BuildProgressEvent::CompilerMessage(
+        "warning: sample".into(),
+    ));
+    cb.0(mitts::adapter::BuildProgressEvent::Diagnostic(
+        "sample diagnostic".into(),
+    ));
 }
 
 #[test]
@@ -143,7 +153,11 @@ path = "tests/dummy.rs"
     )
     .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src").join("lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
+    fs::write(
+        root.join("src").join("lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
     fs::create_dir_all(root.join("tests")).unwrap();
     fs::write(
         root.join("tests").join("dummy.rs"),

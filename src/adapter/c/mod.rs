@@ -159,7 +159,7 @@ impl CAdapter {
 
         let target_dir = match opt.target_dir {
             Some(ref td) => td.clone(),
-            None => manifest_dir.join(".mitts").join("target"),
+            None => manifest_dir.join("target").join("mitts"),
         };
         let profile_dir = target_dir.join(if opt.release { "release" } else { "debug" });
         fs::create_dir_all(&profile_dir)?;

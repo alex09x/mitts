@@ -212,32 +212,102 @@ fn test_m8_cli_warm_and_verbose_runs() {
 fn test_m8_cli_error_paths() {
     let bad_path = Some(PathBuf::from("/non/existent/Cargo.toml"));
 
-    assert_eq!(handle_build(&BuildArgs { manifest_path: bad_path.clone(), ..Default::default() }), 1);
-    assert_eq!(handle_check(&CheckArgs { manifest_path: bad_path.clone(), ..Default::default() }), 1);
-    assert_eq!(handle_clippy(&ClippyArgs { manifest_path: bad_path.clone(), ..Default::default() }), 1);
-    assert_eq!(handle_test(&TestArgs { manifest_path: bad_path.clone(), ..Default::default() }), 1);
-    assert_eq!(handle_run(&RunArgs { build_args: BuildArgs { manifest_path: bad_path.clone(), ..Default::default() }, trailing_args: vec![] }), 1);
-    assert_eq!(handle_explain(&ExplainArgs { manifest_path: bad_path.clone(), ..Default::default() }), 1);
-    assert_eq!(handle_fetch(&FetchArgs { manifest_path: bad_path.clone(), ..Default::default() }), 1);
-    assert_eq!(handle_clean(&CleanArgs { manifest_path: bad_path.clone(), ..Default::default() }), 1);
+    assert_eq!(
+        handle_build(&BuildArgs {
+            manifest_path: bad_path.clone(),
+            ..Default::default()
+        }),
+        1
+    );
+    assert_eq!(
+        handle_check(&CheckArgs {
+            manifest_path: bad_path.clone(),
+            ..Default::default()
+        }),
+        1
+    );
+    assert_eq!(
+        handle_clippy(&ClippyArgs {
+            manifest_path: bad_path.clone(),
+            ..Default::default()
+        }),
+        1
+    );
+    assert_eq!(
+        handle_test(&TestArgs {
+            manifest_path: bad_path.clone(),
+            ..Default::default()
+        }),
+        1
+    );
+    assert_eq!(
+        handle_run(&RunArgs {
+            build_args: BuildArgs {
+                manifest_path: bad_path.clone(),
+                ..Default::default()
+            },
+            trailing_args: vec![]
+        }),
+        1
+    );
+    assert_eq!(
+        handle_explain(&ExplainArgs {
+            manifest_path: bad_path.clone(),
+            ..Default::default()
+        }),
+        1
+    );
+    assert_eq!(
+        handle_fetch(&FetchArgs {
+            manifest_path: bad_path.clone(),
+            ..Default::default()
+        }),
+        1
+    );
+    assert_eq!(
+        handle_clean(&CleanArgs {
+            manifest_path: bad_path.clone(),
+            ..Default::default()
+        }),
+        1
+    );
 
     // Broken crate compilation diagnostics
     let broken = tempfile::tempdir().expect("tempdir");
     let broken_manifest = broken.path().join("Cargo.toml");
     std::fs::create_dir_all(broken.path().join("src")).unwrap();
-    std::fs::write(&broken_manifest, "[package]\nname = \"broken\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
-    std::fs::write(broken.path().join("src").join("main.rs"), "fn main() { broken!syntax }").unwrap();
+    std::fs::write(
+        &broken_manifest,
+        "[package]\nname = \"broken\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        broken.path().join("src").join("main.rs"),
+        "fn main() { broken!syntax }",
+    )
+    .unwrap();
 
-    let broken_b = BuildArgs { manifest_path: Some(broken_manifest.clone()), ..Default::default() };
+    let broken_b = BuildArgs {
+        manifest_path: Some(broken_manifest.clone()),
+        ..Default::default()
+    };
     assert_ne!(handle_build(&broken_b), 0);
 
-    let broken_c = CheckArgs { manifest_path: Some(broken_manifest.clone()), ..Default::default() };
+    let broken_c = CheckArgs {
+        manifest_path: Some(broken_manifest.clone()),
+        ..Default::default()
+    };
     assert_ne!(handle_check(&broken_c), 0);
 
-    let broken_clip = ClippyArgs { manifest_path: Some(broken_manifest.clone()), ..Default::default() };
+    let broken_clip = ClippyArgs {
+        manifest_path: Some(broken_manifest.clone()),
+        ..Default::default()
+    };
     assert_ne!(handle_clippy(&broken_clip), 0);
 
-    let broken_t = TestArgs { manifest_path: Some(broken_manifest.clone()), ..Default::default() };
+    let broken_t = TestArgs {
+        manifest_path: Some(broken_manifest.clone()),
+        ..Default::default()
+    };
     assert_ne!(handle_test(&broken_t), 0);
 }
-

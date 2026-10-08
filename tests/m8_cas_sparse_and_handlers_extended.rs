@@ -56,12 +56,18 @@ fn test_m8_sparse_index_client_errors_and_env() {
     // 1. Empty crate name
     let err_empty = client.fetch_crate_versions("", false);
     assert!(err_empty.is_err());
-    assert!(err_empty.unwrap_err().to_string().contains("Empty crate name"));
+    assert!(err_empty
+        .unwrap_err()
+        .to_string()
+        .contains("Empty crate name"));
 
     // 2. Offline request for missing crate
     let err_offline = client.fetch_crate_versions("nonexistent_offline_crate", true);
     assert!(err_offline.is_err());
-    assert!(err_offline.unwrap_err().to_string().contains("--offline requested"));
+    assert!(err_offline
+        .unwrap_err()
+        .to_string()
+        .contains("--offline requested"));
 
     // 3. Client initialization respecting MITTS_CACHE_DIR
     std::env::set_var("MITTS_CACHE_DIR", tmp.path().join("cache_env"));

@@ -67,7 +67,10 @@ fn test_m8_fetcher_local_and_offline_paths() {
     };
     let res3 = fetcher.fetch_package(&missing_pkg, &opt);
     assert!(res3.is_err());
-    assert!(res3.unwrap_err().to_string().contains("offline mode was requested"));
+    assert!(res3
+        .unwrap_err()
+        .to_string()
+        .contains("offline mode was requested"));
 }
 
 static HOME_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -77,8 +80,16 @@ fn test_m8_fetcher_cargo_registry_src_and_cache_fallbacks() {
     let _lock = HOME_MUTEX.lock().unwrap();
     let tmp = TempDir::new().unwrap();
     let fake_home = tmp.path().join("home");
-    let reg_src = fake_home.join(".cargo").join("registry").join("src").join("index-1234");
-    let reg_cache = fake_home.join(".cargo").join("registry").join("cache").join("index-1234");
+    let reg_src = fake_home
+        .join(".cargo")
+        .join("registry")
+        .join("src")
+        .join("index-1234");
+    let reg_cache = fake_home
+        .join(".cargo")
+        .join("registry")
+        .join("cache")
+        .join("index-1234");
     fs::create_dir_all(&reg_src).unwrap();
     fs::create_dir_all(&reg_cache).unwrap();
 

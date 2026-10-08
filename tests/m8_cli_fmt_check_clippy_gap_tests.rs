@@ -113,7 +113,11 @@ fn test_m8_check_and_clippy_verbose_and_compilation_errors() {
     assert_eq!(handle_clippy(&clippy_args), 0);
 
     // 3. Invalid syntax -> check and clippy fail with non-zero exit codes
-    fs::write(src_dir.join("lib.rs"), "pub fn broken() { let x: i32 = \"str\"; }").unwrap();
+    fs::write(
+        src_dir.join("lib.rs"),
+        "pub fn broken() { let x: i32 = \"str\"; }",
+    )
+    .unwrap();
     assert_ne!(handle_check(&check_args), 0);
     assert_ne!(handle_clippy(&clippy_args), 0);
 }

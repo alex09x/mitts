@@ -189,4 +189,3 @@ mod tests {
         assert!(!HAS_ORIGINAL.load(Ordering::SeqCst));
     }
 }
-

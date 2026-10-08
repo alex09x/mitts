@@ -72,7 +72,9 @@ impl CargoToml {
                                 if let Ok(parent_toml) = Self::parse(&content) {
                                     if let Some(ref ws) = parent_toml.workspace {
                                         if let Some(ref ws_pkg) = ws.package {
-                                            if let Some(toml::Value::String(ref ed)) = ws_pkg.get("edition") {
+                                            if let Some(toml::Value::String(ref ed)) =
+                                                ws_pkg.get("edition")
+                                            {
                                                 pkg.edition = Some(ed.clone());
                                                 break;
                                             }

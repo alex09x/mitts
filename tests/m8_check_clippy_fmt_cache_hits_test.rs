@@ -107,7 +107,11 @@ edition = "2021"
 
     // 1. Unformatted file with check: true -> should return error code
     let unformatted_file = root.join("src").join("lib.rs");
-    fs::write(&unformatted_file, "pub   fn   bad_fmt(   ) {   let x=1;   }\n").unwrap();
+    fs::write(
+        &unformatted_file,
+        "pub   fn   bad_fmt(   ) {   let x=1;   }\n",
+    )
+    .unwrap();
 
     std::env::set_var("RUSTFMT", "rustfmt");
     let fmt_check_args = FmtArgs {

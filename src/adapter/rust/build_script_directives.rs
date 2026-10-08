@@ -369,8 +369,10 @@ mod tests {
     #[test]
     fn test_is_fresh_with_missing_file() {
         let mut dir = BuildScriptDirectives::default();
-        dir.rerun_if_changed.push("nonexistent_header.h".to_string());
-        dir.rerun_if_changed_hashes.insert("nonexistent_header.h".to_string(), "<missing>".to_string());
+        dir.rerun_if_changed
+            .push("nonexistent_header.h".to_string());
+        dir.rerun_if_changed_hashes
+            .insert("nonexistent_header.h".to_string(), "<missing>".to_string());
         let temp = tempfile::tempdir().unwrap();
         assert!(dir.is_fresh(temp.path()));
 
@@ -379,5 +381,3 @@ mod tests {
         assert!(!dir.is_fresh(temp.path()));
     }
 }
-
-

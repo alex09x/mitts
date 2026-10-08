@@ -48,8 +48,16 @@ fn test_m8_coverage_lcov_json_threshold_and_errors() {
     let bad_manifest = bad_temp.path().join("Cargo.toml");
     let bad_src = bad_temp.path().join("src");
     fs::create_dir_all(&bad_src).unwrap();
-    fs::write(&bad_manifest, "[package]\nname = \"bad\"\nversion = \"0.1.0\"\n").unwrap();
-    fs::write(bad_src.join("main.rs"), "fn main() { compilation_error!() }").unwrap();
+    fs::write(
+        &bad_manifest,
+        "[package]\nname = \"bad\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        bad_src.join("main.rs"),
+        "fn main() { compilation_error!() }",
+    )
+    .unwrap();
     let bad_args = CoverageArgs {
         manifest_path: Some(bad_manifest),
         ..Default::default()
@@ -121,7 +129,11 @@ fn test_m8_run_lib_crate_compilation_error_and_release() {
     assert_eq!(handle_run(&run_args), 1);
 
     // 2. Compilation error -> returns non-zero exit code
-    fs::write(src_dir.join("lib.rs"), "pub fn broken() { not_valid_rust!() }").unwrap();
+    fs::write(
+        src_dir.join("lib.rs"),
+        "pub fn broken() { not_valid_rust!() }",
+    )
+    .unwrap();
     let broken_run_args = RunArgs {
         build_args: BuildArgs {
             manifest_path: Some(manifest),

@@ -26,11 +26,7 @@ fn test_m8_inputs_cargo_home_and_ancestors() {
     fs::create_dir_all(&src_dir).unwrap();
 
     let ws_manifest = ws_dir.join("Cargo.toml");
-    fs::write(
-        &ws_manifest,
-        "[workspace]\nmembers = [\"crates/*\"]\n",
-    )
-    .unwrap();
+    fs::write(&ws_manifest, "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
 
     let ws_cargo_dir = ws_dir.join(".cargo");
     fs::create_dir_all(&ws_cargo_dir).unwrap();

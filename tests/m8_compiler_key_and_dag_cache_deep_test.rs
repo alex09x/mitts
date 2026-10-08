@@ -97,7 +97,9 @@ fn test_m8_key_triples_and_parallel_chunks() {
     // 7. compute_unit_flags with env vars
     std::env::set_var("CUSTOM_SET_VAR", "present_value");
     let flags = compute_unit_flags(&unit, &pkg_dir, &[], BuildMode::Build);
-    assert!(flags.iter().any(|f| f == "ENV_MACRO:CUSTOM_SET_VAR=present_value"));
+    assert!(flags
+        .iter()
+        .any(|f| f == "ENV_MACRO:CUSTOM_SET_VAR=present_value"));
     assert!(flags.iter().any(|f| f == "ENV_MACRO:UNSET_VAR_XYZ=<unset>"));
     std::env::remove_var("CUSTOM_SET_VAR");
 }
@@ -243,5 +245,9 @@ fn test_m8_dag_cache_progress_and_non_native() {
     assert!(msgs[0].contains("warning: test compiler warning"));
 
     // Verify non-native rlib was placed in target_dir/debug/deps
-    assert!(target_dir.join("debug").join("deps").join("libmock.rlib").is_file());
+    assert!(target_dir
+        .join("debug")
+        .join("deps")
+        .join("libmock.rlib")
+        .is_file());
 }

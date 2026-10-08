@@ -8,7 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use mitts::adapter::rust::inputs::{append_unit_dep_info_inputs, hash_package_base_inputs, hash_unit_inputs};
+use mitts::adapter::rust::inputs::{
+    append_unit_dep_info_inputs, hash_package_base_inputs, hash_unit_inputs,
+};
 use mitts::adapter::rust::key::{resolve_effective_target_triple, resolve_unit_pkg_dir};
 use mitts::adapter::rust::types::{PlannedCompilationUnit, RustBuildOptions};
 use mitts::core::action::ToolchainInfo;
@@ -26,7 +28,11 @@ fn test_m8_inputs_immutable_registry_and_missing_cargo_toml() {
 
     // 2. Immutable fast-path with .cargo-ok
     fs::write(pkg_dir.join(".cargo-ok"), "ok").unwrap();
-    fs::write(pkg_dir.join("Cargo.toml"), "[package]\nname=\"my-crate\"\nversion=\"1.0.0\"\n").unwrap();
+    fs::write(
+        pkg_dir.join("Cargo.toml"),
+        "[package]\nname=\"my-crate\"\nversion=\"1.0.0\"\n",
+    )
+    .unwrap();
     let inputs = hash_package_base_inputs(&pkg_dir, None, false).expect("hash immutable pkg");
     assert_eq!(inputs.len(), 2);
     assert_eq!(inputs[0].0, "Cargo.toml");
@@ -52,7 +58,11 @@ fn test_m8_inputs_workspace_manifests_and_configs() {
     let crate_dir = root.join("crates").join("lib-a");
     let crate_src = crate_dir.join("src");
     fs::create_dir_all(&crate_src).unwrap();
-    fs::write(crate_dir.join("Cargo.toml"), "[package]\nname=\"lib-a\"\nversion=\"0.1.0\"\n").unwrap();
+    fs::write(
+        crate_dir.join("Cargo.toml"),
+        "[package]\nname=\"lib-a\"\nversion=\"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(crate_src.join("lib.rs"), "pub fn a() {}\n").unwrap();
 
     // Directory that should be ignored by broad scan
@@ -75,8 +85,14 @@ fn test_m8_inputs_workspace_manifests_and_configs() {
     assert!(keys.contains(&"workspace:.cargo/config.toml"));
     assert!(keys.contains(&"workspace:.cargo/config"));
     assert!(keys.contains(&"src/lib.rs"));
-    assert!(keys.contains(&"test_data/dump.bin"), "Asset files in test_data/ must be included for cache correctness");
-    assert!(!keys.contains(&"target/artifact.bin"), "target/ directory must be skipped");
+    assert!(
+        keys.contains(&"test_data/dump.bin"),
+        "Asset files in test_data/ must be included for cache correctness"
+    );
+    assert!(
+        !keys.contains(&"target/artifact.bin"),
+        "target/ directory must be skipped"
+    );
 }
 
 #[test]
@@ -88,7 +104,11 @@ fn test_m8_inputs_dep_info_supplement() {
     fs::create_dir_all(&pkg_dir).unwrap();
     fs::create_dir_all(&debug_dir).unwrap();
 
-    fs::write(pkg_dir.join("Cargo.toml"), "[package]\nname=\"pkg\"\nversion=\"0.1.0\"\n").unwrap();
+    fs::write(
+        pkg_dir.join("Cargo.toml"),
+        "[package]\nname=\"pkg\"\nversion=\"0.1.0\"\n",
+    )
+    .unwrap();
     let lib_rs = pkg_dir.join("lib.rs");
     fs::write(&lib_rs, "fn main() {}\n").unwrap();
 
@@ -100,12 +120,9 @@ fn test_m8_inputs_dep_info_supplement() {
     let dep_info = debug_dir.join("pkg.d");
     fs::write(
         &dep_info,
-        format!(
-            "pkg.rlib: {} {}\n",
-            lib_rs.display(),
-            asset_file.display()
-        ),
-    ).unwrap();
+        format!("pkg.rlib: {} {}\n", lib_rs.display(), asset_file.display()),
+    )
+    .unwrap();
 
     let base_inputs = vec![("lib.rs".to_string(), "hash_lib".to_string())];
     let supplemented = append_unit_dep_info_inputs(base_inputs, &pkg_dir, &target_dir, "pkg")
@@ -118,8 +135,8 @@ fn test_m8_inputs_dep_info_supplement() {
     assert!(keys.iter().any(|k| k.contains("data.bin")));
 
     // Test hash_unit_inputs convenience wrapper
-    let unit_inputs = hash_unit_inputs(&pkg_dir, None, &target_dir, "pkg", false)
-        .expect("hash unit inputs");
+    let unit_inputs =
+        hash_unit_inputs(&pkg_dir, None, &target_dir, "pkg", false).expect("hash unit inputs");
     assert!(!unit_inputs.is_empty());
 }
 
@@ -138,7 +155,10 @@ fn test_m8_key_target_triple_and_pkg_dir() {
 
     // 2. CLI --target flag with separate value
     let opt_cli_flag = RustBuildOptions {
-        extra_args: vec!["--target".to_string(), "aarch64-unknown-linux-gnu".to_string()],
+        extra_args: vec![
+            "--target".to_string(),
+            "aarch64-unknown-linux-gnu".to_string(),
+        ],
         ..RustBuildOptions::default()
     };
     let t2 = resolve_effective_target_triple(&opt_cli_flag, &toolchain);
