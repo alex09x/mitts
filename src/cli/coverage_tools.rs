@@ -20,8 +20,15 @@ pub fn resolve_llvm_tool(tool_name: &str) -> Option<PathBuf> {
     };
     if !env_var.is_empty() {
         if let Ok(val) = std::env::var(env_var) {
+            if val == "missing" || val == "disabled" || val == "none" {
+                return None;
+            }
             if !val.is_empty() {
-                return Some(PathBuf::from(val));
+                let p = PathBuf::from(val);
+                if p.is_file() {
+                    return Some(p);
+                }
+                return None;
             }
         }
     }

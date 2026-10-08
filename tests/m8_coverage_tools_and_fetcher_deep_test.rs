@@ -77,9 +77,23 @@ fn test_m8_coverage_tool_resolution_and_missing_errors() {
     // 1. resolve_llvm_tool for a nonexistent tool returns None
     assert!(resolve_llvm_tool("nonexistent_llvm_tool_xyz").is_none());
 
+    let temp = TempDir::new().unwrap();
+    let dummy_toml = temp.path().join("Cargo.toml");
+    fs::write(
+        &dummy_toml,
+        "[package]\nname = \"dummy_cov_missing\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::create_dir_all(temp.path().join("src")).unwrap();
+    fs::write(temp.path().join("src/lib.rs"), "pub fn ok() {}").unwrap();
+
+    let args = CoverageArgs {
+        manifest_path: Some(dummy_toml),
+        ..Default::default()
+    };
+
     // 2. handle_coverage when llvm-profdata is missing
     std::env::set_var("MITTS_LLVM_PROFDATA", "missing");
-    let args = CoverageArgs::default();
     let code = handle_coverage(&args);
     assert_eq!(code, 1);
     std::env::remove_var("MITTS_LLVM_PROFDATA");
