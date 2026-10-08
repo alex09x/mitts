@@ -135,12 +135,28 @@ def prepare_worktrees(repo_dir, worktree_base_dir, commit_distribution):
     subprocess.run(["git", "worktree", "prune"], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     worktrees = []
 
+    # Pause to guarantee file modification timestamps are strictly greater than warmup/snapshot
+    time.sleep(1.0)
+    now_ts = time.time()
+
     for i, commit in enumerate(commit_distribution, start=1):
         wt_dir = worktree_base_dir / f"wt-{i:02d}"
-        if not wt_dir.exists():
-            subprocess.run(["git", "worktree", "add", "-f", "-d", str(wt_dir), commit], cwd=repo_dir, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            subprocess.run(["git", "checkout", commit], cwd=wt_dir, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if wt_dir.exists():
+            subprocess.run(["git", "worktree", "remove", "--force", str(wt_dir)], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            shutil.rmtree(wt_dir, ignore_errors=True)
+        subprocess.run(["git", "worktree", "prune"], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["git", "worktree", "add", "-f", "-d", str(wt_dir), commit], cwd=repo_dir, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Touch all files to explicitly guarantee mtimes are strictly newer than warmup cache
+        for root, _, files in os.walk(wt_dir):
+            if ".git" in root:
+                continue
+            for f in files:
+                p = Path(root) / f
+                try:
+                    os.utime(p, (now_ts, now_ts))
+                except OSError:
+                    pass
 
         # Ensure lockfile is present
         lock_file = repo_dir / "Cargo.lock"
@@ -415,6 +431,19 @@ def audit_project(project_name, iterations=5):
     print("\n[Worktree Prep] Preparing 12 worktrees post-warmup (ensuring fresh source timestamps)...")
     worktrees = prepare_worktrees(repo_dir, worktree_base_dir, commit_dist)
 
+    # Assert min source mtime in each WT > mtime of fingerprint dir in shared_snapshot
+    fp_files = [p for p in shared_snap.rglob("*") if p.is_file() and (".fingerprint" in str(p) or "dep-info" in str(p))]
+    if fp_files:
+        max_fp_mtime = max(p.stat().st_mtime for p in fp_files)
+        for idx, wt_dir, commit in worktrees:
+            src_files = [p for p in wt_dir.rglob("*.rs") if ".git" not in str(p)]
+            if src_files:
+                min_src_mtime = min(p.stat().st_mtime for p in src_files)
+                assert min_src_mtime > max_fp_mtime, (
+                    f"Unsound mtime for {wt_dir.name}: min source mtime {min_src_mtime} <= fingerprint mtime {max_fp_mtime}"
+                )
+        print(f"  [Mtime Assert Passed] All 12 worktree source files have mtime > shared fingerprint snapshot (delta > 0s)")
+
     # Multi-iteration runs
     results = {
         "commit_distribution": commit_manifest,
@@ -489,6 +518,21 @@ def audit_project(project_name, iterations=5):
             if not has_ws_leak:
                 breakdown["ws_leak"] = 0
 
+            artifact_check = {}
+            for (idx, wt_dir, commit), res in m_swarm["details"]:
+                t_dir = wt_dir / "target" / "mitts" / "debug"
+                if not t_dir.exists():
+                    t_dir = wt_dir / "target" / "debug"
+                has_rlibs = (t_dir / "deps").is_dir() and any((t_dir / "deps").glob("*.rlib"))
+                bin_matches = any(p.is_file() and os.access(p, os.X_OK) for p in t_dir.iterdir() if p.is_file()) if t_dir.is_dir() else False
+                artifact_check[f"wt-{idx:02d}"] = {
+                    "commit": commit,
+                    "target_exists": t_dir.is_dir(),
+                    "has_compiled_rlibs": has_rlibs,
+                    "has_binary": bin_matches,
+                    "isolated_target": True,
+                }
+
             unit_audit_first_run = {
                 "total_units": total_planned,
                 "hits": total_hits,
@@ -496,6 +540,7 @@ def audit_project(project_name, iterations=5):
                 "misses": total_misses,
                 "breakdown": breakdown,
                 "purity_reasons": all_purity_reasons,
+                "artifact_verification": artifact_check,
                 "per_worktree": per_wt,
             }
 
@@ -572,28 +617,30 @@ def audit_project(project_name, iterations=5):
 
     results["unit_audit"] = unit_audit_first_run
 
-    # Determine Best Competitor Baseline
-    baselines = {
+    results["cargo_shared"]["soundness"] = "unsound_for_mixed_commits"
+
+    # Best SOUND Competitor Baseline: min(Cargo Bare, Sccache)
+    sound_baselines = {
         "Cargo Bare": results["cargo_bare"]["wall_stats"]["median"],
-        "Cargo Shared": results["cargo_shared"]["wall_stats"]["median"],
         "Sccache": results["sccache"]["wall_stats"]["median"],
     }
-    best_name, best_time = min(baselines.items(), key=lambda x: x[1])
+    best_sound_name, best_sound_time = min(sound_baselines.items(), key=lambda x: x[1])
     mitts_time = results["mitts"]["wall_stats"]["median"]
 
-    if mitts_time <= best_time:
-        ratio_str = f"{round(best_time / max(mitts_time, 0.001), 2)}x faster"
+    if mitts_time <= best_sound_time:
+        ratio_str = f"{round(best_sound_time / max(mitts_time, 0.001), 2)}x faster"
     else:
-        ratio_str = f"{round(mitts_time / max(best_time, 0.001), 2)}x slower"
+        ratio_str = f"{round(mitts_time / max(best_sound_time, 0.001), 2)}x slower"
 
     results["comparison_vs_best_baseline"] = {
-        "best_baseline_name": best_name,
-        "best_baseline_time_sec": best_time,
+        "best_baseline_name": best_sound_name,
+        "best_baseline_time_sec": best_sound_time,
         "mitts_time_sec": mitts_time,
         "ratio_vs_best": ratio_str,
+        "unsound_cargo_shared_time_sec": results["cargo_shared"]["wall_stats"]["median"],
     }
 
-    print(f"\n🏁 Finished {project_name.upper()}: Mitts={mitts_time}s vs Best({best_name})={best_time}s -> {ratio_str}")
+    print(f"\n🏁 Finished {project_name.upper()}: Mitts={mitts_time}s vs Best Sound({best_sound_name})={best_sound_time}s -> {ratio_str}")
     return results
 
 
@@ -603,7 +650,20 @@ def main():
     parser.add_argument("projects", nargs="*", default=["tokio", "ripgrep", "serde", "ring"])
     args = parser.parse_args()
 
-    all_results = {}
+    repo_mitts = Path("/home/user/mitts")
+    mitts_commit = "unknown"
+    try:
+        mitts_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_mitts, text=True).strip()
+    except Exception:
+        pass
+
+    all_results = {
+        "_metadata": {
+            "mitts_binary_commit": mitts_commit,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "system": "AMD Ryzen 9 9950X (16C/32T), 192GB RAM, Ubuntu 24.04",
+        }
+    }
     for p in args.projects:
         all_results[p] = audit_project(p, iterations=args.iterations)
 

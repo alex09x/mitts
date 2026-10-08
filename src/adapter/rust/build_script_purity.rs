@@ -33,6 +33,7 @@ pub fn assess_build_script_purity(
     ws_root: Option<&Path>,
     staging_out_dir: &Path,
     target_dir: Option<&Path>,
+    cas_root: Option<&Path>,
     directives: &BuildScriptDirectives,
 ) -> Result<BuildScriptPurity> {
     let mut forbidden_needles: Vec<Vec<u8>> = Vec::new();
@@ -58,6 +59,13 @@ pub fn assess_build_script_purity(
 
     let mut home_needle_opt: Option<Vec<u8>> = None;
     let mut allowed_home_prefixes: Vec<Vec<u8>> = Vec::new();
+
+    if let Some(cas) = cas_root {
+        let cas_bytes = cas.to_string_lossy().as_bytes().to_vec();
+        if !cas_bytes.is_empty() {
+            allowed_home_prefixes.push(cas_bytes);
+        }
+    }
 
     if let Ok(home) = std::env::var("HOME") {
         if home.len() >= 3 {
@@ -172,6 +180,7 @@ pub fn assess_build_script_purity(
                 .out_dir
                 .as_deref()
                 .is_some_and(|d| p == d || p.starts_with(d))
+            || cas_root.is_some_and(|cas| p.starts_with(cas.join("build_scripts")))
             || (p.ends_with("out") && p.to_string_lossy().contains("build_scripts"));
         if is_out_dir {
             continue;

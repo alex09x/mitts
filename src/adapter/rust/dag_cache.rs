@@ -92,6 +92,7 @@ pub fn try_restore_from_cache_with_directives(
                         ws_root.as_deref(),
                         out,
                         Some(ctx.target_dir),
+                        Some(ctx.cas.root()),
                         d,
                     ) {
                         if purity.is_pure {

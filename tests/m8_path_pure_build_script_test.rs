@@ -15,6 +15,8 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
+static SERIAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn create_pure_build_script_workspace(root: &Path) {
     fs::create_dir_all(root.join("pure_lib/src")).unwrap();
 
@@ -71,6 +73,7 @@ pub fn lib_file() -> &'static str {
 
 #[test]
 fn test_m8_path_pure_build_script_cache_hit_across_clones() {
+    let _serial_lock = SERIAL_TEST_LOCK.lock().unwrap();
     // Test A: Pure build.rs achieves 100% cache hit across distinct clones
     let cache_dir = TempDir::new().unwrap();
     let clone1 = TempDir::new().unwrap();
@@ -155,6 +158,7 @@ fn test_m8_path_pure_build_script_cache_hit_across_clones() {
 
 #[test]
 fn test_m8_impure_build_script_safe_fallback_no_cross_worktree_hit() {
+    let _serial_lock = SERIAL_TEST_LOCK.lock().unwrap();
     // Test B: Impure build script (leaking absolute path into directive) does NOT hit across clones
     let cache_dir = TempDir::new().unwrap();
     let clone1 = TempDir::new().unwrap();
@@ -232,6 +236,7 @@ fn main() {
 
 #[test]
 fn test_m8_dependent_crate_on_pure_build_script_crate_hits_across_clones() {
+    let _serial_lock = SERIAL_TEST_LOCK.lock().unwrap();
     // Test C: Dependent crate depending on pure build.rs crate achieves 100% cache hit in clone 2
     let cache_dir = TempDir::new().unwrap();
     let clone1 = TempDir::new().unwrap();
@@ -314,6 +319,7 @@ pure_lib = { path = "../pure_lib" }
 
 #[test]
 fn test_m8_cc_native_build_script_cache_hit_across_clones() {
+    let _serial_lock = SERIAL_TEST_LOCK.lock().unwrap();
     // Test D: cc / native C style build.rs emitting rustc-link-search=native=$OUT_DIR and
     // rustc-link-lib=static=foo under custom HOME achieves 100% hit across distinct clones
     let temp_home = TempDir::new().unwrap();
@@ -374,7 +380,17 @@ fn main() {
     setup(clone1.path());
     setup(clone2.path());
 
+    struct HomeGuard(Option<String>);
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            if let Some(ref h) = self.0 {
+                std::env::set_var("HOME", h);
+            }
+        }
+    }
+
     let prev_home = std::env::var("HOME").ok();
+    let _home_guard = HomeGuard(prev_home);
     std::env::set_var("HOME", temp_home.path());
 
     let opt1 = RustBuildOptions {
@@ -405,9 +421,6 @@ fn main() {
     assert!(!res1.cached);
 
     let (_, res2) = RustAdapter::build(&opt2).expect("build clone2");
-    if let Some(ref h) = prev_home {
-        std::env::set_var("HOME", h);
-    }
     assert!(res2.success);
     assert!(
         res2.cached,
@@ -417,6 +430,7 @@ fn main() {
 
 #[test]
 fn test_m8_external_dependency_shared_across_workspaces() {
+    let _serial_lock = SERIAL_TEST_LOCK.lock().unwrap();
     // Test E: External dependency outside workspace roots is shared across two distinct workspaces
     let temp_root = TempDir::new().unwrap();
     let cache_dir = temp_root.path().join("cache");
@@ -528,6 +542,7 @@ external_dep = {{ path = "{}" }}
 
 #[test]
 fn test_m8_impure_build_script_hits_in_same_workspace() {
+    let _serial_lock = SERIAL_TEST_LOCK.lock().unwrap();
     // Test F: Impure build script hits cache on second run in the SAME workspace
     let cache_dir = TempDir::new().unwrap();
     let ws = TempDir::new().unwrap();

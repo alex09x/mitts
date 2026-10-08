@@ -119,13 +119,15 @@ pub(crate) fn execute_unit(
             ctx.target_dir.parent().map(|p| p.to_path_buf())
         };
         let out_dir_to_scan = d.out_dir.as_deref().unwrap_or(s_dir);
-        if let Ok(purity) = super::build_script_purity::assess_build_script_purity(
+        let res = super::build_script_purity::assess_build_script_purity(
             pkg_dir,
             ws_root.as_deref(),
             out_dir_to_scan,
             Some(ctx.target_dir),
+            Some(ctx.cas.root()),
             d,
-        ) {
+        );
+        if let Ok(purity) = res {
             build_purity_opt = Some(purity);
         }
     }
@@ -148,9 +150,8 @@ pub(crate) fn execute_unit(
                     crate::core::hash::Sha256::digest(ws_root.to_string_lossy().as_bytes());
                 let reason = purity.reason.as_deref().unwrap_or("unknown");
                 eprintln!(
-                    "[mitts::purity] Unit '{}' marked impure: {}",
-                    unit.unit_id(),
-                    reason
+                    "[mitts::purity] Unit '{}' marked impure: {reason}",
+                    unit.unit_id()
                 );
                 format!("{action_key}:bd:{bd}:ws:{ws_hash}")
             }
