@@ -330,13 +330,17 @@ mod tests {
 
     #[test]
     fn test_compute_compile_hash_normalizes_out_dir() {
-        let mut d1 = BuildScriptDirectives::default();
-        d1.out_dir = Some(PathBuf::from("/tmp/stage_run1"));
-        d1.link_searches = vec!["/tmp/stage_run1/lib".to_string(), "/usr/lib".to_string()];
+        let d1 = BuildScriptDirectives {
+            out_dir: Some(PathBuf::from("/tmp/stage_run1")),
+            link_searches: vec!["/tmp/stage_run1/lib".to_string(), "/usr/lib".to_string()],
+            ..Default::default()
+        };
 
-        let mut d2 = BuildScriptDirectives::default();
-        d2.out_dir = Some(PathBuf::from("/tmp/stage_run2"));
-        d2.link_searches = vec!["/tmp/stage_run2/lib".to_string(), "/usr/lib".to_string()];
+        let d2 = BuildScriptDirectives {
+            out_dir: Some(PathBuf::from("/tmp/stage_run2")),
+            link_searches: vec!["/tmp/stage_run2/lib".to_string(), "/usr/lib".to_string()],
+            ..Default::default()
+        };
 
         assert_eq!(d1.compute_compile_hash(), d2.compute_compile_hash());
     }

@@ -247,6 +247,7 @@ fn test_m8_fail_closed_unhashable_tracked_input() {
         &unit,
         staging_dir.path(),
         Some(ws_dir.path()),
+        None,
     );
     assert!(
         res.is_err(),

@@ -81,9 +81,26 @@ pub fn try_restore_from_cache_with_directives(
                 // Fail-closed: unit with build.rs cannot be restored from manifest without current run directives
                 return Ok(false);
             }
-            let unit_env = super::unit_env::compute_unit_rustc_env(unit, current_directives, None);
+            let mut unit_env = super::unit_env::compute_unit_rustc_env(unit, current_directives, None);
+            let out_dir = current_directives.and_then(|d| d.out_dir.as_deref());
+            if has_build {
+                if let (Some(d), Some(out)) = (current_directives, out_dir) {
+                    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+                    if let Ok(purity) = super::build_script_purity::assess_build_script_purity(
+                        pkg_dir,
+                        ws_root.as_deref(),
+                        out,
+                        Some(ctx.target_dir),
+                        d,
+                    ) {
+                        if purity.is_pure {
+                            unit_env.insert("OUT_DIR".to_string(), purity.out_dir_hash);
+                        }
+                    }
+                }
+            }
             if let Some(matched_res_key) =
-                manifest.find_matching_entry(ws_root.as_deref(), Some(&unit_env))
+                manifest.find_matching_entry(ws_root.as_deref(), Some(&unit_env), out_dir)
             {
                 candidate_keys.push(matched_res_key.clone());
                 if let Some(ref h) = current_ws_hash {

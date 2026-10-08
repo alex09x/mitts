@@ -116,9 +116,13 @@ pub fn compute_unit_flags_with_ws(
         let rel_opt = pkg_dir.strip_prefix(&root).ok();
 
         match rel_opt {
-            Some(rel) if !reads_manifest_dir && !has_build_script && !has_impure_proc_macro => {
+            Some(rel) if !reads_manifest_dir && !has_impure_proc_macro => {
                 u_flags.push("REMAP_PATH_PREFIX=relative".to_string());
                 u_flags.push(format!("MANIFEST_DIR_REL={}", rel.display()));
+                if has_build_script {
+                    let clean_crate = unit.target_name.replace('-', "_");
+                    u_flags.push(format!("REMAP_OUT_DIR=/mitts/out/{}", clean_crate));
+                }
             }
             _ => {
                 u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));

@@ -139,6 +139,19 @@ impl<'a> RustcInvocation<'a> {
 
         if !self.unit.is_workspace {
             cmd.arg("--cap-lints").arg("allow");
+            if let Some(dir) = self.directives {
+                if let Some(ref d_out) = dir.out_dir {
+                    let clean_crate = self.unit.target_name.replace('-', "_");
+                    let stable_out = format!("/mitts/out/{}/", clean_crate);
+                    let d_str = d_out.to_string_lossy();
+                    let d_prefix = if d_str.ends_with('/') {
+                        d_str.to_string()
+                    } else {
+                        format!("{}/", d_str)
+                    };
+                    cmd.arg(format!("--remap-path-prefix={}={}", d_prefix, stable_out));
+                }
+            }
         } else {
             let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
             let ws_root = find_workspace_root(&self.unit.manifest_path);
@@ -149,6 +162,8 @@ impl<'a> RustcInvocation<'a> {
                 } else {
                     format!("{}/", ws_str)
                 };
+                let clean_crate = self.unit.target_name.replace('-', "_");
+                let stable_out = format!("/mitts/out/{}/", clean_crate);
                 let out_str = self.out_dir.to_string_lossy();
                 let out_prefix = if out_str.ends_with('/') {
                     out_str.to_string()
@@ -156,7 +171,20 @@ impl<'a> RustcInvocation<'a> {
                     format!("{}/", out_str)
                 };
                 cmd.arg(format!("--remap-path-prefix={}=", ws_prefix));
-                cmd.arg(format!("--remap-path-prefix={}=", out_prefix));
+                cmd.arg(format!("--remap-path-prefix={}={}", out_prefix, stable_out));
+                if let Some(dir) = self.directives {
+                    if let Some(ref d_out) = dir.out_dir {
+                        let d_str = d_out.to_string_lossy();
+                        let d_prefix = if d_str.ends_with('/') {
+                            d_str.to_string()
+                        } else {
+                            format!("{}/", d_str)
+                        };
+                        if d_prefix != out_prefix {
+                            cmd.arg(format!("--remap-path-prefix={}={}", d_prefix, stable_out));
+                        }
+                    }
+                }
             }
         }
 

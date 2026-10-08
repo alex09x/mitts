@@ -221,6 +221,9 @@ pub fn hash_package_base_inputs(
                 // Ignore transient editor swap and temporary files, and Cargo.lock (already hashed in Step 3)
                 if name_str.ends_with(".tmp")
                     || name_str.ends_with(".swp")
+                    || name_str.ends_with(".profraw")
+                    || name_str.ends_with(".profdata")
+                    || name_str == ".git"
                     || name_str == "Cargo.lock"
                 {
                     continue;

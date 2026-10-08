@@ -22,14 +22,18 @@ Outputs:
 
 import argparse
 import concurrent.futures
+import functools
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
+
+print = functools.partial(print, flush=True)
 
 BENCH_ROOT = Path("/home/user/mitts-benchmarks")
 PROJECTS_DIR = BENCH_ROOT / "projects"
@@ -51,17 +55,21 @@ def measure_cmd(cmd, cwd, env=None):
         env["PATH"] = f"{CARGO_BIN_DIR}:{env.get('PATH', '')}"
 
     start = time.perf_counter()
-    p = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-    _, status, ru = os.wait4(p.pid, 0)
-    stdout, stderr = p.communicate()
-    elapsed = time.perf_counter() - start
+    with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
+        p = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=stdout_f,
+            stderr=stderr_f,
+        )
+        _, status, ru = os.wait4(p.pid, 0)
+        elapsed = time.perf_counter() - start
+
+        stdout_f.seek(0)
+        stderr_f.seek(0)
+        stdout = stdout_f.read().decode("utf-8", errors="replace")
+        stderr = stderr_f.read().decode("utf-8", errors="replace")
 
     exit_code = os.waitstatus_to_exitcode(status) if hasattr(os, "waitstatus_to_exitcode") else (status >> 8)
     utime = ru.ru_utime
@@ -282,6 +290,31 @@ def analyze_mitts_output(stdout, wt_commit, head_commit, repo_dir, crates_with_b
     }
 
 
+def get_dir_fingerprint(p):
+    total_size = 0
+    file_count = 0
+    for root, _, files in os.walk(p):
+        for f in files:
+            fp = os.path.join(root, f)
+            if not os.path.islink(fp):
+                try:
+                    total_size += os.path.getsize(fp)
+                    file_count += 1
+                except OSError:
+                    pass
+    return file_count, total_size
+
+
+def restore_and_verify(src_snap, dst_dir):
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["rsync", "-a", "--delete", f"{src_snap}/", f"{dst_dir}/"], check=True)
+    snap_fc, snap_sz = get_dir_fingerprint(src_snap)
+    dst_fc, dst_sz = get_dir_fingerprint(dst_dir)
+    assert snap_fc == dst_fc and snap_sz == dst_sz, (
+        f"Snapshot restore mismatch for {dst_dir}: {dst_fc} files vs {snap_fc}, {dst_sz} bytes vs {snap_sz}"
+    )
+
+
 def audit_project(project_name, iterations=5):
     print("=" * 80)
     print(f"🚀 AUDITING S5a (12 FRESH WORKTREES, {iterations} RUNS): {project_name.upper()}")
@@ -355,6 +388,25 @@ def audit_project(project_name, iterations=5):
     shutil.rmtree(repo_dir / "target", ignore_errors=True)
     measure_cmd(["cargo", "build", "--offline"], repo_dir, env=env_sccache)
 
+    # Take persistent snapshots of the HEAD-warmed caches
+    cas_snap = BENCH_ROOT / f"cas_audit_{project_name}.snap"
+    shared_snap = SHARED_TARGET_ROOT / f"audit_{project_name}.snap"
+    sccache_snap = BENCH_ROOT / f"sccache_audit_{project_name}.snap"
+
+    print("Taking verified snapshots of caches after HEAD warmup...")
+    shutil.rmtree(cas_snap, ignore_errors=True)
+    subprocess.run(["rsync", "-a", f"{cas_dir}/", f"{cas_snap}/"], check=True)
+
+    shutil.rmtree(shared_snap, ignore_errors=True)
+    subprocess.run(["rsync", "-a", f"{shared_target}/", f"{shared_snap}/"], check=True)
+
+    try:
+        subprocess.run([str(SCCACHE_BIN), "--stop-server"], env=env_sccache, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    shutil.rmtree(sccache_snap, ignore_errors=True)
+    subprocess.run(["rsync", "-a", f"{sccache_dir}/", f"{sccache_snap}/"], check=True)
+
     # Multi-iteration runs
     results = {
         "commit_distribution": commit_manifest,
@@ -370,7 +422,8 @@ def audit_project(project_name, iterations=5):
     for it in range(1, iterations + 1):
         print(f"\n--- [Iteration {it}/{iterations}] ---")
 
-        # 1. Mitts
+        # 1. Mitts (Restore CAS snapshot + clean worktrees)
+        restore_and_verify(cas_snap, cas_dir)
         for _, wt_dir, _ in worktrees:
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
             shutil.rmtree(wt_dir / ".mitts", ignore_errors=True)
@@ -451,7 +504,8 @@ def audit_project(project_name, iterations=5):
         })
         print(f"  Cargo Bare Run {it}: {cb_swarm['wall_sec']}s (Disk: {cb_disk} MB, RAM: {cb_rss} MB)")
 
-        # 3. Cargo Shared
+        # 3. Cargo Shared (Restore shared target snapshot + clean worktrees)
+        restore_and_verify(shared_snap, shared_target)
         for _, wt_dir, _ in worktrees:
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
         cs_swarm = run_parallel_swarm(
@@ -468,7 +522,17 @@ def audit_project(project_name, iterations=5):
         })
         print(f"  Cargo Shared Run {it}: {cs_swarm['wall_sec']}s (Disk: {cs_disk} MB, RAM: {cs_rss} MB)")
 
-        # 4. Sccache
+        # 4. Sccache (Stop server + restore sccache dir snapshot + start server + zero stats)
+        try:
+            subprocess.run([str(SCCACHE_BIN), "--stop-server"], env=env_sccache, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        restore_and_verify(sccache_snap, sccache_dir)
+        try:
+            subprocess.run([str(SCCACHE_BIN), "--start-server"], env=env_sccache, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run([str(SCCACHE_BIN), "--zero-stats"], env=env_sccache, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         for _, wt_dir, _ in worktrees:
             shutil.rmtree(wt_dir / "target", ignore_errors=True)
         scc_swarm = run_parallel_swarm(

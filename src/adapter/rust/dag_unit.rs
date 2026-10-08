@@ -112,8 +112,52 @@ pub(crate) fn execute_unit(
         staging_dir_holder = Some(staging_dir);
     }
 
+    let mut build_purity_opt = None;
+    if let (Some(d), Some(s_dir)) =
+        (current_directives.as_ref(), staging_dir_holder.as_ref())
+    {
+        let pkg_dir = unit
+            .manifest_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let ws_root = if unit.is_workspace {
+            Some(super::compiler::find_workspace_root(&unit.manifest_path))
+        } else {
+            ctx.target_dir.parent().map(|p| p.to_path_buf())
+        };
+        let out_dir_to_scan = d.out_dir.as_deref().unwrap_or(s_dir);
+        if let Ok(purity) = super::build_script_purity::assess_build_script_purity(
+            pkg_dir,
+            ws_root.as_deref(),
+            out_dir_to_scan,
+            Some(ctx.target_dir),
+            d,
+        ) {
+            build_purity_opt = Some(purity);
+        }
+    }
+
     let effective_action_key = if let Some(ref d) = current_directives {
-        format!("{}:bd:{}", action_key, d.compute_compile_hash())
+        let bd = d.compute_compile_hash();
+        if let Some(ref purity) = build_purity_opt {
+            if purity.is_pure {
+                format!("{action_key}:bd:{bd}:out:{}", purity.out_dir_hash)
+            } else {
+                let ws_root = if unit.is_workspace {
+                    super::compiler::find_workspace_root(&unit.manifest_path)
+                } else {
+                    ctx.target_dir.parent().unwrap_or(ctx.target_dir).to_path_buf()
+                };
+                let ws_hash =
+                    crate::core::hash::Sha256::digest(ws_root.to_string_lossy().as_bytes());
+                format!(
+                    "{action_key}:bd:{bd}:impure:{}:ws:{ws_hash}",
+                    purity.out_dir_hash
+                )
+            }
+        } else {
+            format!("{action_key}:bd:{bd}")
+        }
     } else {
         action_key.to_string()
     };
@@ -242,6 +286,7 @@ pub(crate) fn execute_unit(
                 &effective_action_key,
                 &staging_dir,
                 ws_root.as_deref(),
+                build_purity_opt.as_ref(),
             ) {
                 if let Some(rk_map) = ctx.resolved_keys {
                     rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
@@ -309,6 +354,7 @@ pub(crate) fn execute_unit(
             staging_dir: &staging_dir,
             dest_binary: dest_binary.as_deref(),
             output: &output,
+            out_dir_purity: build_purity_opt.as_ref(),
         })?;
 
     // Clean up staging directory immediately to guarantee zero workspace target pollution

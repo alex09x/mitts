@@ -11,6 +11,7 @@
 pub mod build_script;
 pub mod build_script_directives;
 pub mod build_script_keys;
+pub mod build_script_purity;
 pub mod builder;
 pub mod compiler;
 pub mod compiler_resolve;

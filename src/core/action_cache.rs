@@ -114,12 +114,14 @@ impl ActionCache {
 
     /// Returns the path to the lock file for a specific action key.
     pub fn lock_path(&self, action_key: &str) -> PathBuf {
-        self.locks_dir.join(format!("{}.lock", action_key))
+        let name = safe_key_file_name(action_key);
+        self.locks_dir.join(format!("{}.lock", name))
     }
 
     /// Returns the entry file path for a given action key.
     pub fn entry_path(&self, action_key: &str) -> PathBuf {
-        self.root.join(format!("{}.json", action_key))
+        let name = safe_key_file_name(action_key);
+        self.root.join(format!("{}.json", name))
     }
 
     /// Retrieves an entry from the Action Cache if present.
@@ -144,12 +146,14 @@ impl ActionCache {
 
     /// Returns the path to the manifest file for a given base action key.
     pub fn manifest_path(&self, base_key: &str) -> PathBuf {
-        self.manifest_dir().join(format!("{}.json", base_key))
+        let name = safe_key_file_name(base_key);
+        self.manifest_dir().join(format!("{}.json", name))
     }
 
     /// Returns the path to the lock file for updating an action manifest.
     pub fn manifest_lock_path(&self, base_key: &str) -> PathBuf {
-        self.locks_dir.join(format!("{}.manifest.lock", base_key))
+        let name = safe_key_file_name(base_key);
+        self.locks_dir.join(format!("{}.manifest.lock", name))
     }
 
     /// Retrieves an ActionManifest for a given base key if present.
@@ -275,5 +279,13 @@ impl ActionCache {
         }
 
         Sha256::digest(payload.as_bytes())
+    }
+}
+
+pub(crate) fn safe_key_file_name(key: &str) -> String {
+    if key.len() > 64 {
+        Sha256::digest(key.as_bytes())
+    } else {
+        key.to_string()
     }
 }

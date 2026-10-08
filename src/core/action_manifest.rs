@@ -81,6 +81,7 @@ impl ActionManifest {
         &self,
         ws_root: Option<&Path>,
         effective_env: Option<&HashMap<String, String>>,
+        out_dir: Option<&Path>,
     ) -> Option<String> {
         for entry in &self.entries {
             let mut matches = true;
@@ -111,6 +112,12 @@ impl ActionManifest {
                 let file_path = if let Some(rel) = path_str.strip_prefix("ws:") {
                     if let Some(root) = ws_root {
                         root.join(rel)
+                    } else {
+                        PathBuf::from(rel)
+                    }
+                } else if let Some(rel) = path_str.strip_prefix("out:") {
+                    if let Some(out) = out_dir {
+                        out.join(rel)
                     } else {
                         PathBuf::from(rel)
                     }

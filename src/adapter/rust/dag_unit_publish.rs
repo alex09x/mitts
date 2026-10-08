@@ -24,6 +24,7 @@ pub(crate) struct PublishArgs<'a> {
     pub staging_dir: &'a Path,
     pub dest_binary: Option<&'a Path>,
     pub output: &'a RustcOutput,
+    pub out_dir_purity: Option<&'a super::build_script_purity::BuildScriptPurity>,
 }
 
 pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBuf>> {
@@ -158,7 +159,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     }
 
     // 5. Parse dep-info (.d) in staging_dir for extra inputs outside package_dir (P0, P1, P2)
-    let extra_inputs_res = extract_unit_extra_inputs(unit, args.staging_dir, ws_root.as_deref());
+    let extra_inputs_res =
+        extract_unit_extra_inputs(unit, args.staging_dir, ws_root.as_deref(), args.out_dir_purity);
     let (extra_inputs, can_publish_cache) = match extra_inputs_res {
         Ok(extra) => (extra, true),
         Err(err) => {
@@ -240,6 +242,7 @@ pub fn extract_unit_extra_inputs(
     unit: &PlannedCompilationUnit,
     staging_dir: &Path,
     ws_root: Option<&Path>,
+    out_dir_purity: Option<&super::build_script_purity::BuildScriptPurity>,
 ) -> Result<Vec<(String, String)>> {
     let mut extra_inputs = Vec::new();
     if unit.is_workspace {
@@ -247,6 +250,7 @@ pub fn extract_unit_extra_inputs(
             let cleaned_root = clean_path(root);
             let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
             let cleaned_pkg = clean_path(pkg_dir);
+            let cleaned_staging = clean_path(staging_dir);
             if let Ok(entries) = fs::read_dir(staging_dir) {
                 for entry in entries.flatten() {
                     let p = entry.path();
@@ -258,7 +262,9 @@ pub fn extract_unit_extra_inputs(
                                 continue;
                             }
                             let norm_path =
-                                if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
+                                if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_staging) {
+                                    format!("out:{}", rel.display())
+                                } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
                                     format!("ws:{}", rel.display())
                                 } else {
                                     cleaned_file.to_string_lossy().to_string()
@@ -268,9 +274,27 @@ pub fn extract_unit_extra_inputs(
                         }
                         for (var, val_opt) in parsed.env_deps {
                             let norm_path = format!("env:{}", var);
-                            let hash = match val_opt {
-                                Some(v) => Sha256::digest(v.as_bytes()),
-                                None => Sha256::digest(b"__UNSET__"),
+                            let hash = if var == "OUT_DIR" {
+                                if let Some(purity) = out_dir_purity {
+                                    if purity.is_pure {
+                                        Sha256::digest(purity.out_dir_hash.as_bytes())
+                                    } else {
+                                        match val_opt {
+                                            Some(v) => Sha256::digest(v.as_bytes()),
+                                            None => Sha256::digest(b"__UNSET__"),
+                                        }
+                                    }
+                                } else {
+                                    match val_opt {
+                                        Some(v) => Sha256::digest(v.as_bytes()),
+                                        None => Sha256::digest(b"__UNSET__"),
+                                    }
+                                }
+                            } else {
+                                match val_opt {
+                                    Some(v) => Sha256::digest(v.as_bytes()),
+                                    None => Sha256::digest(b"__UNSET__"),
+                                }
                             };
                             extra_inputs.push((norm_path, hash));
                         }
@@ -304,8 +328,9 @@ pub(crate) fn resolve_unit_result_key(
     base_key: &str,
     staging_dir: &Path,
     ws_root: Option<&Path>,
+    out_dir_purity: Option<&super::build_script_purity::BuildScriptPurity>,
 ) -> Option<String> {
-    match extract_unit_extra_inputs(unit, staging_dir, ws_root) {
+    match extract_unit_extra_inputs(unit, staging_dir, ws_root, out_dir_purity) {
         Ok(extra) => Some(compute_composite_result_key(base_key, &extra)),
         Err(_) => None,
     }

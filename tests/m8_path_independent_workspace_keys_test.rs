@@ -287,9 +287,9 @@ edition = "2021"
     let keys2 = derive_unit_action_keys(&opt2, &expl2).expect("keys 2");
 
     let unit_id = expl1.units[0].unit_id();
-    assert_ne!(
+    assert_eq!(
         keys1[&unit_id], keys2[&unit_id],
-        "Crates with build.rs must conservatively remain per-worktree with distinct action keys"
+        "Crates with pure build.rs have deterministic path-independent action keys"
     );
 }
 
