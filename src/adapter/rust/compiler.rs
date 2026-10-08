@@ -101,11 +101,7 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
             cmd.arg("--out-dir").arg(self.out_dir);
         } else if (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy)
-            && (self.unit.is_workspace
-                || self
-                    .extern_crates
-                    .iter()
-                    .any(|(_, p)| p.extension().and_then(|e| e.to_str()) == Some("rmeta")))
+            && self.unit.is_workspace
         {
             if is_bin {
                 cmd.arg("--crate-type").arg("bin");
