@@ -135,8 +135,8 @@ fn parse_diagnostics(stderr: &str) -> Vec<(CompilerDiagnostic, Option<String>, O
                     code: Some(format!("rustc::{}", code)),
                     src,
                     span,
-                    label: label.or(Some(msg)),
-                    help,
+                    label: label.or(Some(msg.clone())),
+                    help: help.or_else(|| if span.is_none() { Some(msg) } else { None }),
                 };
                 results.push((diag, cmd.clone(), cwd.clone()));
             }

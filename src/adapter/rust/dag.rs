@@ -55,6 +55,37 @@ impl CompilationDag {
             );
         }
 
+        // Linking targets (bin, test, cdylib, example, bench, dylib, proc-macro) link against machine code
+        // (.rlib) of all transitive dependencies. Expand their DAG dependencies transitively so they
+        // only start execution after all transitive libraries have finished producing .rlib.
+        let linking_ids: Vec<String> = nodes
+            .iter()
+            .filter(|(_, node)| {
+                matches!(
+                    node.unit.kind.as_str(),
+                    "bin" | "test" | "example" | "bench" | "cdylib" | "dylib" | "proc-macro"
+                )
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in linking_ids {
+            let mut transitive = HashSet::new();
+            let mut stack = nodes[&id].dependencies.clone();
+            while let Some(curr) = stack.pop() {
+                if transitive.insert(curr.clone()) {
+                    if let Some(dep_node) = nodes.get(&curr) {
+                        stack.extend(dep_node.dependencies.clone());
+                    }
+                }
+            }
+            if let Some(node) = nodes.get_mut(&id) {
+                let mut all_deps: Vec<String> = transitive.into_iter().collect();
+                all_deps.sort();
+                node.dependencies = all_deps;
+            }
+        }
+
         // Populate reverse dependents edges
         let node_keys: Vec<String> = nodes.keys().cloned().collect();
         for id in &node_keys {

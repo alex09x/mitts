@@ -144,11 +144,7 @@ pub fn resolve_package_features(
                                 if requested.entry(id.clone()).or_default().insert(sub.clone()) {
                                     changed = true;
                                 }
-                                let is_optional_dep = ctx
-                                    .toml
-                                    .dependencies
-                                    .get(sub)
-                                    .or_else(|| ctx.toml.build_dependencies.get(sub))
+                                let is_optional_dep = find_manifest_dependency(ctx.toml, sub)
                                     .is_some_and(|d| match d {
                                         TomlDependency::Detailed(dt) => dt.optional == Some(true),
                                         _ => false,
@@ -183,26 +179,7 @@ pub fn resolve_package_features(
 
         let mut list: Vec<String> = Vec::new();
         for f in feats {
-            let dep_opt = ctx
-                .toml
-                .dependencies
-                .get(&f)
-                .or_else(|| ctx.toml.build_dependencies.get(&f))
-                .or_else(|| {
-                    ctx.toml
-                        .target
-                        .iter()
-                        .filter(|(spec, _)| {
-                            !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(
-                                spec,
-                            )
-                        })
-                        .find_map(|(_, t)| {
-                            t.dependencies
-                                .get(&f)
-                                .or_else(|| t.build_dependencies.get(&f))
-                        })
-                });
+            let dep_opt = find_manifest_dependency(ctx.toml, &f);
             let is_explicit_feature = ctx.toml.features.contains_key(&f);
             let is_inactive_optional = if is_explicit_feature {
                 false
@@ -230,6 +207,35 @@ pub fn resolve_package_features(
     result
 }
 
+fn find_manifest_dependency<'a>(toml: &'a CargoToml, name: &str) -> Option<&'a TomlDependency> {
+    if let Some(d) = toml.dependencies.get(name) {
+        return Some(d);
+    }
+    if let Some(d) = toml.build_dependencies.get(name) {
+        return Some(d);
+    }
+    let norm = name.replace('-', "_");
+    for (spec, target_spec) in &toml.target {
+        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
+            if let Some(d) = target_spec
+                .dependencies
+                .get(name)
+                .or_else(|| target_spec.dependencies.get(&norm))
+            {
+                return Some(d);
+            }
+            if let Some(d) = target_spec
+                .build_dependencies
+                .get(name)
+                .or_else(|| target_spec.build_dependencies.get(&norm))
+            {
+                return Some(d);
+            }
+        }
+    }
+    None
+}
+
 fn activate_dep_target(
     ctx: &PackageFeatureContext,
     packages: &[PackageFeatureContext],
@@ -249,11 +255,8 @@ fn activate_dep_target(
     });
     let req_ver = dep_spec.and_then(|s| parse_dep_spec(s).1);
     if let Some(target_id) = resolve_dep_id(packages, real, req_ver) {
-        let (feats, default_feats) = ctx
-            .toml
-            .dependencies
-            .get(dep_name)
-            .or_else(|| ctx.toml.build_dependencies.get(dep_name))
+        let (feats, default_feats) = find_manifest_dependency(ctx.toml, dep_name)
+            .or_else(|| find_manifest_dependency(ctx.toml, real))
             .map(|d| match d {
                 TomlDependency::Simple(_) => (Vec::new(), true),
                 TomlDependency::Detailed(dt) => (
