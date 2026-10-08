@@ -61,6 +61,11 @@ pub fn assess_build_script_purity(
     let mut allowed_home_prefixes: Vec<Vec<u8>> = Vec::new();
 
     if let Some(cas) = cas_root {
+        let cache_root = cas.parent().unwrap_or(cas);
+        let root_bytes = cache_root.to_string_lossy().as_bytes().to_vec();
+        if !root_bytes.is_empty() {
+            allowed_home_prefixes.push(root_bytes);
+        }
         let cas_bytes = cas.to_string_lossy().as_bytes().to_vec();
         if !cas_bytes.is_empty() {
             allowed_home_prefixes.push(cas_bytes);

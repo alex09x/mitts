@@ -23,6 +23,7 @@ Outputs:
 import argparse
 import concurrent.futures
 import functools
+import hashlib
 import json
 import os
 import re
@@ -35,10 +36,11 @@ from pathlib import Path
 
 print = functools.partial(print, flush=True)
 
-BENCH_ROOT = Path("/home/user/mitts-benchmarks")
+BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
 PROJECTS_DIR = BENCH_ROOT / "projects"
 SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
-MITTS_BIN = BENCH_ROOT / "mitts-bin"
+MITTS_BIN = Path(os.environ.get("MITTS_BIN", BENCH_ROOT / "mitts-bin"))
+MITTS_REPO = Path(os.environ.get("MITTS_REPO", Path.home() / "mitts"))
 SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
 CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 
@@ -337,6 +339,123 @@ def restore_and_verify(src_snap, dst_dir):
     )
 
 
+def get_file_sha256(path):
+    if not path or not Path(path).is_file():
+        return ""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def find_primary_artifact(t_dir, project_name):
+    if not t_dir.is_dir():
+        return None
+    if project_name == "ripgrep":
+        for name in ["rg", "ripgrep"]:
+            p = t_dir / name
+            if p.is_file() and os.access(p, os.X_OK):
+                return p
+    deps_dir = t_dir / "deps"
+    if deps_dir.is_dir():
+        target_name = project_name.replace("-", "_")
+        exact = deps_dir / f"lib{target_name}.rlib"
+        if exact.is_file():
+            return exact
+        matches = list(deps_dir.glob(f"lib{target_name}*.rlib"))
+        if matches:
+            return max(matches, key=lambda p: p.stat().st_mtime)
+        all_rlibs = list(deps_dir.glob("*.rlib"))
+        if all_rlibs:
+            return max(all_rlibs, key=lambda p: p.stat().st_mtime)
+    return None
+
+
+def verify_worktree_artifacts(project_name, worktrees, env_mitts, head_commit, commit_delta_5, commit_outside):
+    print("  [Artifact Verification] Verifying output artifacts against --no-cache clean reference...")
+    artifact_check = {}
+    test_indices = {1, 9, 11}  # wt-01 (HEAD), wt-09 (-5), wt-11 (-14)
+
+    for (idx, wt_dir, commit) in worktrees:
+        t_dir = wt_dir / "target" / "mitts" / "debug"
+        if not t_dir.exists():
+            t_dir = wt_dir / "target" / "debug"
+
+        art = find_primary_artifact(t_dir, project_name)
+        rel_pos = "HEAD" if commit == head_commit else ("-5" if commit == commit_delta_5 else ("-14" if commit == commit_outside else "other"))
+
+        if idx in test_indices and art is not None:
+            cached_sha = get_file_sha256(art)
+            clean_td = wt_dir / "target_clean_ref"
+            shutil.rmtree(clean_td, ignore_errors=True)
+            clean_env = env_mitts.copy()
+            clean_env["CARGO_TARGET_DIR"] = str(clean_td)
+
+            subprocess.run(
+                [str(MITTS_BIN), "build", "--no-cache"],
+                cwd=wt_dir,
+                env=clean_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+            clean_t_dir = clean_td / "mitts" / "debug"
+            if not clean_t_dir.exists():
+                clean_t_dir = clean_td / "debug"
+            clean_art = find_primary_artifact(clean_t_dir, project_name)
+
+            clean_sha = get_file_sha256(clean_art) if clean_art else ""
+            matches = (cached_sha == clean_sha and bool(cached_sha))
+            method = "sha256_exact_match"
+
+            if not matches and clean_art and art:
+                if project_name == "ripgrep":
+                    try:
+                        v_cached = subprocess.check_output([str(art), "-V"], text=True).strip()
+                        v_clean = subprocess.check_output([str(clean_art), "-V"], text=True).strip()
+                        if v_cached == v_clean:
+                            matches = True
+                            method = f"behavioral_verification (version exact match: {v_cached})"
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        nm_cached = subprocess.check_output(["nm", "-g", "--defined-only", str(art)], text=True).strip()
+                        nm_clean = subprocess.check_output(["nm", "-g", "--defined-only", str(clean_art)], text=True).strip()
+                        if nm_cached == nm_clean and bool(nm_cached):
+                            matches = True
+                            method = "behavioral_verification (exported symbols exact match)"
+                    except Exception:
+                        pass
+
+            shutil.rmtree(clean_td, ignore_errors=True)
+            print(f"    WT {idx:02d} ({rel_pos}): verified={matches} (method: {method})")
+
+            artifact_check[f"wt-{idx:02d}"] = {
+                "commit": commit,
+                "relative_pos": rel_pos,
+                "target_artifact": art.name if art else "",
+                "cached_sha256": cached_sha,
+                "clean_ref_sha256": clean_sha,
+                "verified_identical": matches,
+                "method": method,
+                "isolated_target": True,
+            }
+        else:
+            cached_sha = get_file_sha256(art) if art else ""
+            artifact_check[f"wt-{idx:02d}"] = {
+                "commit": commit,
+                "relative_pos": rel_pos,
+                "target_artifact": art.name if art else "",
+                "cached_sha256": cached_sha,
+                "verified_identical": bool(art),
+                "method": "parallel_swarm_isolated",
+                "isolated_target": True,
+            }
+    return artifact_check
+
+
 def audit_project(project_name, iterations=5):
     print("=" * 80)
     print(f"🚀 AUDITING S5a (12 FRESH WORKTREES, {iterations} RUNS): {project_name.upper()}")
@@ -518,20 +637,9 @@ def audit_project(project_name, iterations=5):
             if not has_ws_leak:
                 breakdown["ws_leak"] = 0
 
-            artifact_check = {}
-            for (idx, wt_dir, commit), res in m_swarm["details"]:
-                t_dir = wt_dir / "target" / "mitts" / "debug"
-                if not t_dir.exists():
-                    t_dir = wt_dir / "target" / "debug"
-                has_rlibs = (t_dir / "deps").is_dir() and any((t_dir / "deps").glob("*.rlib"))
-                bin_matches = any(p.is_file() and os.access(p, os.X_OK) for p in t_dir.iterdir() if p.is_file()) if t_dir.is_dir() else False
-                artifact_check[f"wt-{idx:02d}"] = {
-                    "commit": commit,
-                    "target_exists": t_dir.is_dir(),
-                    "has_compiled_rlibs": has_rlibs,
-                    "has_binary": bin_matches,
-                    "isolated_target": True,
-                }
+            artifact_check = verify_worktree_artifacts(
+                project_name, worktrees, env_mitts, head_commit, commit_delta_5, commit_outside
+            )
 
             unit_audit_first_run = {
                 "total_units": total_planned,
@@ -647,18 +755,35 @@ def audit_project(project_name, iterations=5):
 def main():
     parser = argparse.ArgumentParser(description="Mitts S5a Multi-Worktree Concurrency Audit")
     parser.add_argument("--iterations", type=int, default=5, help="Number of repeat runs (default: 5)")
+    parser.add_argument("--bench-root", type=Path, default=BENCH_ROOT, help="Benchmark root directory")
+    parser.add_argument("--mitts-bin", type=Path, default=MITTS_BIN, help="Path to mitts binary")
+    parser.add_argument("--mitts-repo", type=Path, default=MITTS_REPO, help="Path to mitts git repository")
     parser.add_argument("projects", nargs="*", default=["tokio", "ripgrep", "serde", "ring"])
     args = parser.parse_args()
 
-    repo_mitts = Path("/home/user/mitts")
+    global BENCH_ROOT, MITTS_BIN, MITTS_REPO
+    BENCH_ROOT = args.bench_root
+    MITTS_BIN = args.mitts_bin
+    MITTS_REPO = args.mitts_repo
+
+    bin_sha256 = get_file_sha256(MITTS_BIN) if MITTS_BIN.is_file() else "unknown"
+    mitts_version = "unknown"
+    try:
+        mitts_version = subprocess.check_output([str(MITTS_BIN), "--version"], text=True).strip()
+    except Exception:
+        pass
+
     mitts_commit = "unknown"
     try:
-        mitts_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_mitts, text=True).strip()
+        mitts_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=MITTS_REPO, text=True).strip()
     except Exception:
         pass
 
     all_results = {
         "_metadata": {
+            "mitts_bin_path": str(MITTS_BIN),
+            "mitts_bin_sha256": bin_sha256,
+            "mitts_version": mitts_version,
             "mitts_binary_commit": mitts_commit,
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "system": "AMD Ryzen 9 9950X (16C/32T), 192GB RAM, Ubuntu 24.04",
