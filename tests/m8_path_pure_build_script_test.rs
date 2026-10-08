@@ -115,10 +115,22 @@ fn test_m8_path_pure_build_script_cache_hit_across_clones() {
     // 2. Clone 1 builds and populates CAS
     let (_, res1) = RustAdapter::build(&opt1).expect("build clone1");
     if !res1.success {
-        panic!("build clone1 failed:\nstderr:\n{}\nstdout:\n{}", res1.stderr, res1.stdout);
+        panic!(
+            "build clone1 failed:\nstderr:\n{}\nstdout:\n{}",
+            res1.stderr, res1.stdout
+        );
     }
     assert!(res1.success);
     assert!(!res1.cached);
+
+    // 2b. Clone 1 rebuilds with target directory cleared: restores build.rs from CAS
+    let _ = fs::remove_dir_all(clone1.path().join("target"));
+    let (_, res1b) = RustAdapter::build(&opt1).expect("build clone1 second run");
+    assert!(res1b.success);
+    assert!(
+        res1b.cached,
+        "Clone 1 second run must hit cache with CAS-restored build.rs"
+    );
 
     // 3. Clone 2 build must hit cache (0 rustc calls)
     let (_, res2) = RustAdapter::build(&opt2).expect("build clone2");
@@ -298,4 +310,291 @@ pure_lib = { path = "../pure_lib" }
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout, "hello from pure_lib generated code");
+}
+
+#[test]
+fn test_m8_cc_native_build_script_cache_hit_across_clones() {
+    // Test D: cc / native C style build.rs emitting rustc-link-search=native=$OUT_DIR and
+    // rustc-link-lib=static=foo under custom HOME achieves 100% hit across distinct clones
+    let temp_home = TempDir::new().unwrap();
+    let cache_dir = temp_home.path().join(".cache/mitts");
+    let clone1 = TempDir::new().unwrap();
+    let clone2 = TempDir::new().unwrap();
+
+    let setup = |root: &Path| {
+        fs::create_dir_all(root.join("c_lib/src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            r#"[workspace]
+members = ["c_lib"]
+resolver = "2"
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("c_lib/Cargo.toml"),
+            r#"[package]
+name = "c_lib"
+version = "0.1.0"
+edition = "2021"
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("c_lib/build.rs"),
+            r##"use std::env;
+use std::fs;
+use std::path::Path;
+
+fn main() {
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let lib_path = Path::new(&out_dir).join("libfoo.a");
+    // Write valid ar archive header for static library
+    fs::write(&lib_path, b"!<arch>\n").unwrap();
+    println!("cargo:rustc-link-search=native={}", out_dir);
+    println!("cargo:rustc-link-lib=static=foo");
+    println!("cargo:rerun-if-changed=build.rs");
+}
+"##,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("c_lib/src/lib.rs"),
+            r#"pub fn dummy() -> i32 {
+    42
+}
+"#,
+        )
+        .unwrap();
+    };
+
+    setup(clone1.path());
+    setup(clone2.path());
+
+    let prev_home = std::env::var("HOME").ok();
+    std::env::set_var("HOME", temp_home.path());
+
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(clone1.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.clone()),
+        target_dir: Some(clone1.path().join("target")),
+        ..Default::default()
+    };
+
+    let opt2 = RustBuildOptions {
+        manifest_path: Some(clone2.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.clone()),
+        target_dir: Some(clone2.path().join("target")),
+        ..Default::default()
+    };
+
+    let expl1 = RustAdapter::explain_plan(&opt1).expect("explain clone1");
+    let expl2 = RustAdapter::explain_plan(&opt2).expect("explain clone2");
+    let keys1 = derive_unit_action_keys(&opt1, &expl1).expect("keys clone1");
+    let keys2 = derive_unit_action_keys(&opt2, &expl2).expect("keys clone2");
+    assert_eq!(
+        keys1, keys2,
+        "Action keys for cc-native crate must be identical across clones"
+    );
+
+    let (_, res1) = RustAdapter::build(&opt1).expect("build clone1");
+    assert!(res1.success);
+    assert!(!res1.cached);
+
+    let (_, res2) = RustAdapter::build(&opt2).expect("build clone2");
+    if let Some(ref h) = prev_home {
+        std::env::set_var("HOME", h);
+    }
+    assert!(res2.success);
+    assert!(
+        res2.cached,
+        "Clone 2 build must hit cache for cc-style build script crate with native link-search"
+    );
+}
+
+#[test]
+fn test_m8_external_dependency_shared_across_workspaces() {
+    // Test E: External dependency outside workspace roots is shared across two distinct workspaces
+    let temp_root = TempDir::new().unwrap();
+    let cache_dir = temp_root.path().join("cache");
+    let ext_dir = temp_root.path().join("external_dep");
+    let ws1 = temp_root.path().join("ws1");
+    let ws2 = temp_root.path().join("ws2");
+
+    fs::create_dir_all(ext_dir.join("src")).unwrap();
+    fs::write(
+        ext_dir.join("Cargo.toml"),
+        r#"[package]
+name = "external_dep"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        ext_dir.join("build.rs"),
+        r##"use std::env;
+use std::fs;
+use std::path::Path;
+
+fn main() {
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let lib_path = Path::new(&out_dir).join("libbar.a");
+    fs::write(&lib_path, b"!<arch>\n").unwrap();
+    println!("cargo:rustc-link-search=native={}", out_dir);
+    println!("cargo:rustc-link-lib=static=bar");
+    println!("cargo:rerun-if-changed=build.rs");
+}
+"##,
+    )
+    .unwrap();
+    fs::write(
+        ext_dir.join("src/lib.rs"),
+        r#"pub fn ext_func() -> &'static str {
+    "hello from external"
+}
+"#,
+    )
+    .unwrap();
+
+    let setup_ws = |ws_dir: &Path| {
+        fs::create_dir_all(ws_dir.join("app/src")).unwrap();
+        fs::write(
+            ws_dir.join("Cargo.toml"),
+            r#"[workspace]
+members = ["app"]
+resolver = "2"
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            ws_dir.join("app/Cargo.toml"),
+            format!(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+external_dep = {{ path = "{}" }}
+"#,
+                ext_dir.display()
+            ),
+        )
+        .unwrap();
+
+        fs::write(
+            ws_dir.join("app/src/main.rs"),
+            r#"fn main() {
+    println!("{}", external_dep::ext_func());
+}
+"#,
+        )
+        .unwrap();
+    };
+
+    setup_ws(&ws1);
+    setup_ws(&ws2);
+
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(ws1.join("Cargo.toml")),
+        cache_dir: Some(cache_dir.clone()),
+        target_dir: Some(ws1.join("target")),
+        ..Default::default()
+    };
+
+    let opt2 = RustBuildOptions {
+        manifest_path: Some(ws2.join("Cargo.toml")),
+        cache_dir: Some(cache_dir.clone()),
+        target_dir: Some(ws2.join("target")),
+        ..Default::default()
+    };
+
+    let (_, res1) = RustAdapter::build(&opt1).expect("build ws1");
+    assert!(res1.success);
+    assert!(!res1.cached);
+
+    let (_, res2) = RustAdapter::build(&opt2).expect("build ws2");
+    assert!(res2.success);
+    assert!(
+        res2.cached,
+        "External dependency must be reusable across workspaces"
+    );
+}
+
+#[test]
+fn test_m8_impure_build_script_hits_in_same_workspace() {
+    // Test F: Impure build script hits cache on second run in the SAME workspace
+    let cache_dir = TempDir::new().unwrap();
+    let ws = TempDir::new().unwrap();
+
+    fs::create_dir_all(ws.path().join("impure_crate/src")).unwrap();
+    fs::write(
+        ws.path().join("Cargo.toml"),
+        r#"[workspace]
+members = ["impure_crate"]
+resolver = "2"
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        ws.path().join("impure_crate/Cargo.toml"),
+        r#"[package]
+name = "impure_crate"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        ws.path().join("impure_crate/build.rs"),
+        r##"use std::env;
+
+fn main() {
+    let cwd = env::current_dir().unwrap();
+    // Leaks workspace path into rustc-cfg, making it impure
+    println!("cargo:rustc-cfg=leaked_path=\"{}\"", cwd.display());
+    println!("cargo:rerun-if-changed=build.rs");
+}
+"##,
+    )
+    .unwrap();
+
+    fs::write(
+        ws.path().join("impure_crate/src/lib.rs"),
+        r#"pub fn check() -> bool {
+    true
+}
+"#,
+    )
+    .unwrap();
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(ws.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        target_dir: Some(ws.path().join("target")),
+        ..Default::default()
+    };
+
+    // 1. First run compiles cold
+    let (_, res1) = RustAdapter::build(&opt).expect("build run 1");
+    assert!(res1.success);
+    assert!(!res1.cached);
+
+    // 2. Clear local target directory
+    let _ = fs::remove_dir_all(ws.path().join("target"));
+
+    // 3. Second run in the same workspace MUST hit cache
+    let (_, res2) = RustAdapter::build(&opt).expect("build run 2");
+    assert!(res2.success);
+    assert!(
+        res2.cached,
+        "Impure build script must hit cache on second run in the same workspace"
+    );
 }

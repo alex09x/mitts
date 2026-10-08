@@ -232,6 +232,7 @@ def analyze_mitts_output(stdout, wt_commit, head_commit, repo_dir, crates_with_b
     lines = stdout.splitlines()
     total_planned = 0
     compiled_units = []
+    purity_reasons = {}
 
     for l in lines:
         if "[mitts::plan] Planned" in l or "[mitts::dag] Initialized DAG:" in l:
@@ -242,6 +243,10 @@ def analyze_mitts_output(stdout, wt_commit, head_commit, repo_dir, crates_with_b
             unit_str = l.split("•", 1)[1].strip()
             pkg_name = unit_str.split()[0]
             compiled_units.append(pkg_name)
+        elif "[mitts::purity] Unit" in l:
+            m = re.search(r"\[mitts::purity\] Unit '([^']+)' marked impure:\s*(.*)", l)
+            if m:
+                purity_reasons[m.group(1)] = m.group(2)
 
     hit_count = max(0, total_planned - len(compiled_units))
 
@@ -287,6 +292,7 @@ def analyze_mitts_output(stdout, wt_commit, head_commit, repo_dir, crates_with_b
         "misses": len(compiled_units),
         "compiled_units": compiled_units,
         "miss_breakdown": misses,
+        "purity_reasons": purity_reasons,
     }
 
 
@@ -353,8 +359,6 @@ def audit_project(project_name, iterations=5):
         for idx, c in enumerate(commit_dist)
     ]
 
-    worktrees = prepare_worktrees(repo_dir, worktree_base_dir, commit_dist)
-
     # Environments
     env_mitts = os.environ.copy()
     env_mitts["MITTS_CACHE_DIR"] = str(cas_dir)
@@ -407,6 +411,10 @@ def audit_project(project_name, iterations=5):
     shutil.rmtree(sccache_snap, ignore_errors=True)
     subprocess.run(["rsync", "-a", f"{sccache_dir}/", f"{sccache_snap}/"], check=True)
 
+    # Prepare worktrees AFTER warmup so worktree source timestamps are newer than warmup fingerprints
+    print("\n[Worktree Prep] Preparing 12 worktrees post-warmup (ensuring fresh source timestamps)...")
+    worktrees = prepare_worktrees(repo_dir, worktree_base_dir, commit_dist)
+
     # Multi-iteration runs
     results = {
         "commit_distribution": commit_manifest,
@@ -455,11 +463,14 @@ def audit_project(project_name, iterations=5):
                 "out_dir": 0,
             }
             per_wt = []
+            all_purity_reasons = {}
             for (idx, wt_dir, commit), res in m_swarm["details"]:
-                ana = analyze_mitts_output(res["stdout"], commit, head_commit, repo_dir, crates_with_build)
+                output_str = res["stdout"] + "\n" + res["stderr"]
+                ana = analyze_mitts_output(output_str, commit, head_commit, repo_dir, crates_with_build)
                 total_planned += ana["total_planned"]
                 total_hits += ana["hits"]
                 total_misses += ana["misses"]
+                all_purity_reasons.update(ana.get("purity_reasons", {}))
                 for k, v in ana["miss_breakdown"].items():
                     breakdown[k] += v
                 per_wt.append({
@@ -484,6 +495,7 @@ def audit_project(project_name, iterations=5):
                 "hit_pct": round((total_hits / max(total_planned, 1)) * 100.0, 1),
                 "misses": total_misses,
                 "breakdown": breakdown,
+                "purity_reasons": all_purity_reasons,
                 "per_worktree": per_wt,
             }
 

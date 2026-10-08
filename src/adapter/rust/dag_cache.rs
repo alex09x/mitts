@@ -81,7 +81,8 @@ pub fn try_restore_from_cache_with_directives(
                 // Fail-closed: unit with build.rs cannot be restored from manifest without current run directives
                 return Ok(false);
             }
-            let mut unit_env = super::unit_env::compute_unit_rustc_env(unit, current_directives, None);
+            let mut unit_env =
+                super::unit_env::compute_unit_rustc_env(unit, current_directives, None);
             let out_dir = current_directives.and_then(|d| d.out_dir.as_deref());
             if has_build {
                 if let (Some(d), Some(out)) = (current_directives, out_dir) {

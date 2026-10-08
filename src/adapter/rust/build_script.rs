@@ -106,9 +106,14 @@ pub fn execute_build_script(
                                 if restore_ok {
                                     // Touch .last_used marker so GC knows this entry was accessed
                                     let _ = fs::write(entry_dir.join(".last_used"), b"");
-                                    directives.out_dir = Some(out_dir);
+                                    directives.out_dir = Some(out_dir.clone());
                                     directives.links =
                                         pkg_toml.package.as_ref().and_then(|p| p.links.clone());
+                                    for search in &mut directives.link_searches {
+                                        if *search == cached_out_dir.to_string_lossy() {
+                                            *search = out_dir.to_string_lossy().to_string();
+                                        }
+                                    }
                                     return Ok(directives);
                                 }
                             }

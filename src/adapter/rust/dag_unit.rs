@@ -52,10 +52,10 @@ pub(crate) fn execute_unit(
             .join(format!("stage_{}_{}_{}", clean_crate, pid, clean_tid));
         fs::create_dir_all(&staging_dir)?;
 
-        let extern_crates = {
-            let completed = ctx.completed_artifacts.lock().unwrap();
-            super::dag_unit_externs::resolve_extern_crates(unit, &completed)
-        };
+        let extern_crates = super::dag_unit_externs::resolve_extern_crates(
+            unit,
+            &ctx.completed_artifacts.lock().unwrap(),
+        );
         let artifacts_dir = ctx.cas.root().join("artifacts");
         let mut build_dep_env = HashMap::new();
         {
@@ -63,14 +63,9 @@ pub(crate) fn execute_unit(
             for dep_id in &unit.dependencies {
                 let dep_pkg = dep_id.split("::").next().unwrap_or(dep_id);
                 let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
-                if let Some(vars) = all_meta.get(dep_id) {
-                    for (k, v) in vars {
-                        build_dep_env.insert(k.clone(), v.clone());
-                    }
-                }
-                if let Some(vars) = all_meta.get(pkg_name_only) {
-                    for (k, v) in vars {
-                        build_dep_env.insert(k.clone(), v.clone());
+                for key in [dep_id.as_str(), pkg_name_only] {
+                    if let Some(vars) = all_meta.get(key) {
+                        build_dep_env.extend(vars.clone());
                     }
                 }
             }
@@ -113,9 +108,7 @@ pub(crate) fn execute_unit(
     }
 
     let mut build_purity_opt = None;
-    if let (Some(d), Some(s_dir)) =
-        (current_directives.as_ref(), staging_dir_holder.as_ref())
-    {
+    if let (Some(d), Some(s_dir)) = (current_directives.as_ref(), staging_dir_holder.as_ref()) {
         let pkg_dir = unit
             .manifest_path
             .parent()
@@ -143,17 +136,23 @@ pub(crate) fn execute_unit(
             if purity.is_pure {
                 format!("{action_key}:bd:{bd}:out:{}", purity.out_dir_hash)
             } else {
-                let ws_root = if unit.is_workspace {
-                    super::compiler::find_workspace_root(&unit.manifest_path)
-                } else {
-                    ctx.target_dir.parent().unwrap_or(ctx.target_dir).to_path_buf()
+                let ws_root = match unit.is_workspace {
+                    true => super::compiler::find_workspace_root(&unit.manifest_path),
+                    false => ctx
+                        .target_dir
+                        .parent()
+                        .unwrap_or(ctx.target_dir)
+                        .to_path_buf(),
                 };
                 let ws_hash =
                     crate::core::hash::Sha256::digest(ws_root.to_string_lossy().as_bytes());
-                format!(
-                    "{action_key}:bd:{bd}:impure:{}:ws:{ws_hash}",
-                    purity.out_dir_hash
-                )
+                let reason = purity.reason.as_deref().unwrap_or("unknown");
+                eprintln!(
+                    "[mitts::purity] Unit '{}' marked impure: {}",
+                    unit.unit_id(),
+                    reason
+                );
+                format!("{action_key}:bd:{bd}:ws:{ws_hash}")
             }
         } else {
             format!("{action_key}:bd:{bd}")
@@ -240,10 +239,10 @@ pub(crate) fn execute_unit(
     };
 
     // Gather dependencies' CAS artifact paths for --extern, resolving any Cargo package rename aliases
-    let extern_crates = {
-        let completed = ctx.completed_artifacts.lock().unwrap();
-        super::dag_unit_externs::resolve_extern_crates(unit, &completed)
-    };
+    let extern_crates = super::dag_unit_externs::resolve_extern_crates(
+        unit,
+        &ctx.completed_artifacts.lock().unwrap(),
+    );
 
     let directives = current_directives.unwrap_or_default();
     let meta_dir = ctx.cas.root().join("metadata");
@@ -281,12 +280,14 @@ pub(crate) fn execute_unit(
             } else {
                 None
             };
+            let out_dir_opt = directives.out_dir.as_deref();
             if let Some(early_rk) = super::dag_unit_publish::resolve_unit_result_key(
                 unit,
                 &effective_action_key,
                 &staging_dir,
                 ws_root.as_deref(),
                 build_purity_opt.as_ref(),
+                out_dir_opt,
             ) {
                 if let Some(rk_map) = ctx.resolved_keys {
                     rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
@@ -355,6 +356,7 @@ pub(crate) fn execute_unit(
             dest_binary: dest_binary.as_deref(),
             output: &output,
             out_dir_purity: build_purity_opt.as_ref(),
+            out_dir: directives.out_dir.as_deref(),
         })?;
 
     // Clean up staging directory immediately to guarantee zero workspace target pollution
@@ -373,15 +375,16 @@ pub(crate) fn execute_unit(
         outputs: action_outputs,
         args: Vec::new(),
         env: {
-            let mut env = HashMap::new();
+            let mut env = HashMap::from([
+                ("CARGO_PKG_NAME".to_string(), unit.package_name.clone()),
+                ("CARGO_PKG_VERSION".to_string(), unit.version.clone()),
+            ]);
             if let Some(parent) = unit.manifest_path.parent() {
                 env.insert(
                     "CARGO_MANIFEST_DIR".to_string(),
                     parent.to_string_lossy().to_string(),
                 );
             }
-            env.insert("CARGO_PKG_NAME".to_string(), unit.package_name.clone());
-            env.insert("CARGO_PKG_VERSION".to_string(), unit.version.clone());
             env
         },
         dependencies: unit.dependencies.clone(),

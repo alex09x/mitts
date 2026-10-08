@@ -25,6 +25,7 @@ pub(crate) struct PublishArgs<'a> {
     pub dest_binary: Option<&'a Path>,
     pub output: &'a RustcOutput,
     pub out_dir_purity: Option<&'a super::build_script_purity::BuildScriptPurity>,
+    pub out_dir: Option<&'a Path>,
 }
 
 pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBuf>> {
@@ -159,8 +160,13 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     }
 
     // 5. Parse dep-info (.d) in staging_dir for extra inputs outside package_dir (P0, P1, P2)
-    let extra_inputs_res =
-        extract_unit_extra_inputs(unit, args.staging_dir, ws_root.as_deref(), args.out_dir_purity);
+    let extra_inputs_res = extract_unit_extra_inputs(
+        unit,
+        args.staging_dir,
+        ws_root.as_deref(),
+        args.out_dir_purity,
+        args.out_dir,
+    );
     let (extra_inputs, can_publish_cache) = match extra_inputs_res {
         Ok(extra) => (extra, true),
         Err(err) => {
@@ -243,6 +249,7 @@ pub fn extract_unit_extra_inputs(
     staging_dir: &Path,
     ws_root: Option<&Path>,
     out_dir_purity: Option<&super::build_script_purity::BuildScriptPurity>,
+    out_dir: Option<&Path>,
 ) -> Result<Vec<(String, String)>> {
     let mut extra_inputs = Vec::new();
     if unit.is_workspace {
@@ -251,6 +258,9 @@ pub fn extract_unit_extra_inputs(
             let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
             let cleaned_pkg = clean_path(pkg_dir);
             let cleaned_staging = clean_path(staging_dir);
+            let staging_out = clean_path(&staging_dir.join("out"));
+            let explicit_out = out_dir.map(clean_path);
+
             if let Ok(entries) = fs::read_dir(staging_dir) {
                 for entry in entries.flatten() {
                     let p = entry.path();
@@ -261,14 +271,28 @@ pub fn extract_unit_extra_inputs(
                             if cleaned_file.starts_with(&cleaned_pkg) {
                                 continue;
                             }
-                            let norm_path =
-                                if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_staging) {
+                            let norm_path = if let Some(ref d_out) = explicit_out {
+                                if let Ok(rel) = cleaned_file.strip_prefix(d_out) {
+                                    format!("out:{}", rel.display())
+                                } else if let Ok(rel) = cleaned_file.strip_prefix(&staging_out) {
+                                    format!("out:{}", rel.display())
+                                } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_staging)
+                                {
                                     format!("out:{}", rel.display())
                                 } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
                                     format!("ws:{}", rel.display())
                                 } else {
                                     cleaned_file.to_string_lossy().to_string()
-                                };
+                                }
+                            } else if let Ok(rel) = cleaned_file.strip_prefix(&staging_out) {
+                                format!("out:{}", rel.display())
+                            } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_staging) {
+                                format!("out:{}", rel.display())
+                            } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
+                                format!("ws:{}", rel.display())
+                            } else {
+                                cleaned_file.to_string_lossy().to_string()
+                            };
                             let hash = Sha256::digest_file(&file_path)?;
                             extra_inputs.push((norm_path, hash));
                         }
@@ -329,8 +353,9 @@ pub(crate) fn resolve_unit_result_key(
     staging_dir: &Path,
     ws_root: Option<&Path>,
     out_dir_purity: Option<&super::build_script_purity::BuildScriptPurity>,
+    out_dir: Option<&Path>,
 ) -> Option<String> {
-    match extract_unit_extra_inputs(unit, staging_dir, ws_root, out_dir_purity) {
+    match extract_unit_extra_inputs(unit, staging_dir, ws_root, out_dir_purity, out_dir) {
         Ok(extra) => Some(compute_composite_result_key(base_key, &extra)),
         Err(_) => None,
     }

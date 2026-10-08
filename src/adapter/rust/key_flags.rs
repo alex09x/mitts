@@ -129,6 +129,12 @@ pub fn compute_unit_flags_with_ws(
             }
         }
         u_flags.push(format!("MODE={:?}", mode));
+    } else {
+        let has_build_script = super::pipelining::package_has_build_script(&unit.manifest_path);
+        if has_build_script {
+            let clean_crate = unit.target_name.replace('-', "_");
+            u_flags.push(format!("REMAP_OUT_DIR=/mitts/out/{}", clean_crate));
+        }
     }
     u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
     u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
