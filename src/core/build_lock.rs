@@ -126,6 +126,24 @@ impl FastBuildLock {
             }
         }
 
+        // Check directories for added/removed files
+        for dir_snap in &lock.directories {
+            let full_p = args.project_dir.join(&dir_snap.relative_path);
+            let Ok(meta) = fs::metadata(&full_p) else {
+                return FreshnessResult::Stale(format!(
+                    "Directory missing: {}",
+                    dir_snap.relative_path.display()
+                ));
+            };
+            let (m_secs, m_nanos) = mtime_parts(&meta);
+            if (m_secs, m_nanos) != (dir_snap.mtime_secs, dir_snap.mtime_nanos) {
+                return FreshnessResult::Stale(format!(
+                    "Directory modified (file added/removed): {}",
+                    dir_snap.relative_path.display()
+                ));
+            }
+        }
+
         // Check outputs
         for out_snap in &lock.outputs {
             let full_p = args.project_dir.join(&out_snap.relative_path);
@@ -173,12 +191,14 @@ impl FastBuildLock {
 
         let mut manifests = Vec::new();
         let mut sources = Vec::new();
+        let mut directories = Vec::new();
 
         collect_project_files(
             args.project_dir,
             args.project_dir,
             &mut manifests,
             &mut sources,
+            &mut directories,
         )?;
 
         let mut output_snaps = Vec::new();
@@ -218,6 +238,7 @@ impl FastBuildLock {
             cargo_lock: cargo_lock_snap,
             manifests,
             sources,
+            directories,
             outputs: output_snaps,
         };
 
@@ -235,144 +256,6 @@ impl FastBuildLock {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "build_lock_tests.rs"]
+mod tests;
 
-    #[test]
-    fn test_fast_build_lock_roundtrip() {
-        let temp = tempfile::tempdir().unwrap();
-        let pdir = temp.path();
-
-        let cargo_toml = pdir.join("Cargo.toml");
-        fs::write(
-            &cargo_toml,
-            "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        let src_dir = pdir.join("src");
-        fs::create_dir_all(&src_dir).unwrap();
-        let main_rs = src_dir.join("main.rs");
-        fs::write(&main_rs, "fn main() {}\n").unwrap();
-
-        let bin = pdir.join("target").join("debug").join("foo");
-        fs::create_dir_all(bin.parent().unwrap()).unwrap();
-        fs::write(&bin, "binary-content").unwrap();
-
-        let outputs = vec![bin.clone()];
-        FastBuildLock::record_state(&RecordStateArgs {
-            project_dir: pdir,
-            profile: "dev",
-            package: &None,
-            features: &[],
-            no_default_features: false,
-            all_features: false,
-            toolchain_version: "rustc 1.85.0",
-            action_count: 1,
-            root_binary: Some(bin.clone()),
-            outputs: &outputs,
-        })
-        .unwrap();
-
-        let res = FastBuildLock::check_freshness(&FreshnessCheckArgs {
-            project_dir: pdir,
-            profile: "dev",
-            package: &None,
-            features: &[],
-            no_default_features: false,
-            all_features: false,
-            toolchain_version: "rustc 1.85.0",
-        });
-        match res {
-            FreshnessResult::Fresh {
-                action_count,
-                root_binary,
-            } => {
-                assert_eq!(action_count, 1);
-                assert_eq!(root_binary, Some(bin));
-            }
-            FreshnessResult::Stale(r) => panic!("Expected fresh lock, got: {}", r),
-        }
-
-        // Modifying source file triggers stale
-        fs::write(&main_rs, "fn main() { println!(); }\n").unwrap();
-        let res2 = FastBuildLock::check_freshness(&FreshnessCheckArgs {
-            project_dir: pdir,
-            profile: "dev",
-            package: &None,
-            features: &[],
-            no_default_features: false,
-            all_features: false,
-            toolchain_version: "rustc 1.85.0",
-        });
-        assert!(matches!(res2, FreshnessResult::Stale(_)));
-    }
-
-    #[test]
-    fn test_fast_build_lock_multi_profile() {
-        let temp = tempfile::tempdir().unwrap();
-        let pdir = temp.path();
-        let cargo_toml = pdir.join("Cargo.toml");
-        fs::write(
-            &cargo_toml,
-            "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        let src_dir = pdir.join("src");
-        fs::create_dir_all(&src_dir).unwrap();
-        fs::write(src_dir.join("main.rs"), "fn main() {}\n").unwrap();
-
-        let bin_dev = pdir.join("target/debug/foo");
-        let bin_rel = pdir.join("target/release/foo");
-        fs::create_dir_all(bin_dev.parent().unwrap()).unwrap();
-        fs::create_dir_all(bin_rel.parent().unwrap()).unwrap();
-        fs::write(&bin_dev, "dev-bin").unwrap();
-        fs::write(&bin_rel, "rel-bin").unwrap();
-
-        let make_args = |profile: &'static str| FreshnessCheckArgs {
-            project_dir: pdir,
-            profile,
-            package: &None,
-            features: &[],
-            no_default_features: false,
-            all_features: false,
-            toolchain_version: "rustc 1.85.0",
-        };
-
-        FastBuildLock::record_state(&RecordStateArgs {
-            project_dir: pdir,
-            profile: "dev",
-            package: &None,
-            features: &[],
-            no_default_features: false,
-            all_features: false,
-            toolchain_version: "rustc 1.85.0",
-            action_count: 1,
-            root_binary: Some(bin_dev.clone()),
-            outputs: &[bin_dev],
-        })
-        .unwrap();
-
-        FastBuildLock::record_state(&RecordStateArgs {
-            project_dir: pdir,
-            profile: "release",
-            package: &None,
-            features: &[],
-            no_default_features: false,
-            all_features: false,
-            toolchain_version: "rustc 1.85.0",
-            action_count: 1,
-            root_binary: Some(bin_rel.clone()),
-            outputs: &[bin_rel],
-        })
-        .unwrap();
-
-        assert!(matches!(
-            FastBuildLock::check_freshness(&make_args("dev")),
-            FreshnessResult::Fresh { .. }
-        ));
-        assert!(matches!(
-            FastBuildLock::check_freshness(&make_args("release")),
-            FreshnessResult::Fresh { .. }
-        ));
-    }
-}

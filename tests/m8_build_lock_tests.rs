@@ -65,6 +65,7 @@ fn test_m8_build_lock_profile_package_feature_toolchain_mismatch() {
         cargo_lock: None,
         manifests: vec![],
         sources: vec![],
+        directories: vec![],
         outputs: vec![],
         action_count: 5,
         root_binary: Some(PathBuf::from("target/dev/app")),

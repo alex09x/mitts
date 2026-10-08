@@ -35,6 +35,8 @@ pub struct FastBuildLock {
     pub cargo_lock: Option<FileSnapshot>,
     pub manifests: Vec<FileSnapshot>,
     pub sources: Vec<FileSnapshot>,
+    #[serde(default)]
+    pub directories: Vec<FileSnapshot>,
     pub outputs: Vec<FileSnapshot>,
 }
 

@@ -29,7 +29,20 @@ pub(crate) fn collect_project_files(
     current_dir: &Path,
     manifests: &mut Vec<FileSnapshot>,
     sources: &mut Vec<FileSnapshot>,
+    directories: &mut Vec<FileSnapshot>,
 ) -> Result<()> {
+    if let Ok(meta) = fs::metadata(current_dir) {
+        let (s, n) = mtime_parts(&meta);
+        let rel = current_dir.strip_prefix(root_dir).unwrap_or(current_dir).to_path_buf();
+        directories.push(FileSnapshot {
+            relative_path: rel,
+            mtime_secs: s,
+            mtime_nanos: n,
+            size: meta.len(),
+            sha256: None,
+        });
+    }
+
     let Ok(entries) = fs::read_dir(current_dir) else {
         return Ok(());
     };
@@ -48,7 +61,7 @@ pub(crate) fn collect_project_files(
         };
 
         if meta.is_dir() {
-            collect_project_files(root_dir, &path, manifests, sources)?;
+            collect_project_files(root_dir, &path, manifests, sources, directories)?;
         } else if meta.is_file() {
             if fname_str == "Cargo.toml" {
                 let (s, n) = mtime_parts(&meta);
