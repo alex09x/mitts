@@ -10,6 +10,7 @@
 
 pub mod action;
 pub mod action_cache;
+pub mod action_manifest;
 pub mod build_lock;
 pub mod build_lock_types;
 pub mod build_logger;
@@ -24,6 +25,7 @@ pub mod source_store;
 
 pub use action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 pub use action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
+pub use action_manifest::{ActionManifest, ActionManifestEntry};
 pub use build_lock::{FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs};
 pub use build_logger::BuildLogger;
 pub use cas::ContentAddressedStore;

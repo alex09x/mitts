@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::inputs::{append_unit_dep_info_inputs_with_ws, hash_package_base_inputs};
+use super::inputs::hash_package_base_inputs;
 use super::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions};
 use crate::core::action_cache::ActionCache;
 use anyhow::Result;
@@ -133,17 +133,7 @@ pub fn derive_unit_action_keys(
         } else {
             None
         };
-        let inputs = if unit.is_workspace {
-            append_unit_dep_info_inputs_with_ws(
-                base_inputs,
-                &pkg_dir,
-                &explanation.target_directory,
-                &unit.target_name,
-                ws_root.as_deref(),
-            )?
-        } else {
-            base_inputs
-        };
+        let inputs = base_inputs;
         let u_flags = compute_unit_flags_with_ws(
             unit,
             &pkg_dir,

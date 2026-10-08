@@ -19,6 +19,7 @@ pub mod dag_runner;
 pub mod dag_scheduler;
 pub mod dag_unit;
 pub mod dag_unit_externs;
+pub mod dag_unit_publish;
 pub mod dep_info;
 pub mod env_macro;
 pub mod features;

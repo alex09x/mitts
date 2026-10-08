@@ -14,12 +14,10 @@ use super::dag_cache::{try_restore_from_cache, ExecutionContext};
 use super::dag_scheduler::{LockMode, UnitExecutionStatus};
 use super::types::{BuildProgressEvent, PlannedCompilationUnit};
 use crate::core::action::{Action, ActionKind};
-use crate::core::action_cache::{ActionCacheEntry, CachedOutput};
 use crate::core::lock::FileLock;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::thread;
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
@@ -195,7 +193,10 @@ pub(crate) fn execute_unit(
     };
 
     if !output.stdout.is_empty() {
-        ctx.compiler_messages.lock().unwrap().push(output.stdout);
+        ctx.compiler_messages
+            .lock()
+            .unwrap()
+            .push(output.stdout.clone());
     }
     if !output.stderr.is_empty() {
         ctx.compiler_messages
@@ -225,139 +226,18 @@ pub(crate) fn execute_unit(
         );
     }
 
-    let mut cached_outputs = Vec::new();
-    let mut action_outputs = Vec::new();
-
-    if let Some(ref bin_path) = dest_binary {
-        let (hash, size) = ctx.cas.store_file(bin_path)?;
-        let rel_path = PathBuf::from(format!("{}/{}", profile_name, unit.target_name));
-        cached_outputs.push(CachedOutput {
-            relative_path: rel_path,
-            cas_hash: hash,
-            file_size: size,
-            executable: true,
-        });
-        let alt_path = profile_dir.join(&clean_crate);
-        if alt_path != *bin_path {
-            let _ = crate::core::reflink_or_copy(bin_path, &alt_path, true);
-        }
-        action_outputs.push(bin_path.clone());
-    } else {
-        // Publish primary rlib/dylib or rmeta to CAS
-        if let Some(lib_path) = output
-            .primary_output
-            .as_ref()
-            .or(output.metadata_output.as_ref())
-        {
-            let (hash, size) = ctx.cas.store_file(lib_path)?;
-            let ext = lib_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("rlib");
-            let named = ctx.cas.named_artifact_path_with_disambiguator(
-                &unit.target_name,
-                &hash,
-                action_key,
-                ext,
-            )?;
-
-            cached_outputs.push(CachedOutput {
-                relative_path: PathBuf::from(format!("lib{}.{}", clean_crate, ext)),
-                cas_hash: hash.clone(),
-                file_size: size,
-                executable: false,
-            });
-            ctx.completed_artifacts
-                .lock()
-                .unwrap()
-                .insert(unit.unit_id(), named.clone());
-            action_outputs.push(named);
-
-            if !ctx.opt.native {
-                let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                let _ = fs::create_dir_all(&deps_dir);
-                let dep_copy = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                let _ = crate::core::reflink_or_copy(lib_path, &dep_copy, false);
-            }
-        }
-
-        // Publish rmeta if pipelined
-        if let Some(ref rmeta_path) = output.metadata_output {
-            let (meta_hash, meta_size) = ctx.cas.store_file(rmeta_path)?;
-            let _ = ctx.cas.named_artifact_path_with_disambiguator(
-                &unit.target_name,
-                &meta_hash,
-                action_key,
-                "rmeta",
-            );
-            cached_outputs.push(CachedOutput {
-                relative_path: PathBuf::from(format!("lib{}.rmeta", clean_crate)),
-                cas_hash: meta_hash,
-                file_size: meta_size,
-                executable: false,
-            });
-        }
-    }
+    let action_outputs =
+        super::dag_unit_publish::publish_unit_artifacts(super::dag_unit_publish::PublishArgs {
+            unit,
+            action_key,
+            ctx,
+            staging_dir: &staging_dir,
+            dest_binary: dest_binary.as_deref(),
+            output: &output,
+        })?;
 
     // Clean up staging directory immediately to guarantee zero workspace target pollution
     let _ = fs::remove_dir_all(&staging_dir);
-
-    // Safeguard: detect any embedded absolute workspace paths in output binaries/libraries
-    let mut contains_ws_root_path = false;
-    if unit.is_workspace {
-        let ws_root = super::compiler::find_workspace_root(&unit.manifest_path);
-        let ws_needle = ws_root.to_string_lossy().as_bytes().to_vec();
-        if !ws_needle.is_empty() {
-            let scan_file = |p: &Path| -> bool {
-                fs::read(p)
-                    .map(|b| {
-                        b.windows(ws_needle.len())
-                            .any(|w| w == ws_needle.as_slice())
-                    })
-                    .unwrap_or(false)
-            };
-            if let Some(ref bp) = dest_binary {
-                if scan_file(bp) {
-                    contains_ws_root_path = true;
-                }
-            }
-            if let Some(ref lp) = output.primary_output {
-                if scan_file(lp) {
-                    contains_ws_root_path = true;
-                }
-            }
-            if let Some(ref mp) = output.metadata_output {
-                if scan_file(mp) {
-                    contains_ws_root_path = true;
-                }
-            }
-        }
-    }
-
-    // Record in Action Cache
-    if ctx.is_cache_enabled && !cached_outputs.is_empty() {
-        let effective_action_key = if contains_ws_root_path {
-            let ws_root = super::compiler::find_workspace_root(&unit.manifest_path);
-            let ws_hash = crate::core::hash::Sha256::digest(ws_root.to_string_lossy().as_bytes());
-            format!("{}:ws_leak:{}", action_key, ws_hash)
-        } else {
-            action_key.to_string()
-        };
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let entry = ActionCacheEntry {
-            action_key: effective_action_key,
-            action_id: unit.unit_id(),
-            created_at_secs: now_secs,
-            outputs: cached_outputs,
-            stdout: String::new(),
-            stderr: output.stderr,
-            exit_code: 0,
-        };
-        let _ = ctx.ac.put(&entry);
-    }
 
     ctx.recorded_actions.lock().unwrap().push(Action {
         id: unit.unit_id(),

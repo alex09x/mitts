@@ -44,8 +44,9 @@ pub fn find_dep_info_files(target_dir: &Path, target_name: &str) -> Vec<PathBuf>
     d_files
 }
 
-/// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths.
-pub fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
+/// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths,
+/// resolving relative paths against root (e.g. workspace root) if provided.
+pub fn parse_dep_info_with_root(d_path: &Path, root: Option<&Path>) -> Result<Vec<PathBuf>> {
     let content = fs::read_to_string(d_path)
         .with_context(|| format!("Failed to read dep-info file {:?}", d_path))?;
     let mut files = Vec::new();
@@ -60,11 +61,25 @@ pub fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
             let token = token.trim_end_matches('\\');
             if !token.is_empty() {
                 let p = PathBuf::from(token);
-                if p.is_file() {
-                    files.push(p);
+                let resolved = if p.is_relative() {
+                    if let Some(r) = root {
+                        r.join(&p)
+                    } else {
+                        p.clone()
+                    }
+                } else {
+                    p.clone()
+                };
+                if resolved.is_file() {
+                    files.push(resolved);
                 }
             }
         }
     }
     Ok(files)
+}
+
+/// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths.
+pub fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
+    parse_dep_info_with_root(d_path, None)
 }

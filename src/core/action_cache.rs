@@ -63,6 +63,8 @@ impl ActionCache {
         let tmp_dir = root.join("tmp");
         let locks_dir = root.parent().unwrap_or(&root).join("locks");
 
+        let manifests_dir = root.join("manifests");
+
         fs::create_dir_all(&root)
             .with_context(|| format!("Failed to create Action Cache directory: {:?}", root))?;
         fs::create_dir_all(&tmp_dir).with_context(|| {
@@ -70,6 +72,9 @@ impl ActionCache {
         })?;
         fs::create_dir_all(&locks_dir)
             .with_context(|| format!("Failed to create locks directory: {:?}", locks_dir))?;
+        fs::create_dir_all(&manifests_dir).with_context(|| {
+            format!("Failed to create manifests directory: {:?}", manifests_dir)
+        })?;
 
         Ok(Self {
             root,
@@ -130,6 +135,50 @@ impl ActionCache {
             .with_context(|| format!("Failed to parse AC entry from {:?}", path))?;
 
         Ok(Some(entry))
+    }
+
+    /// Returns the directory for action manifests.
+    pub fn manifest_dir(&self) -> PathBuf {
+        self.root.join("manifests")
+    }
+
+    /// Returns the path to the manifest file for a given base action key.
+    pub fn manifest_path(&self, base_key: &str) -> PathBuf {
+        self.manifest_dir().join(format!("{}.json", base_key))
+    }
+
+    /// Returns the path to the lock file for updating an action manifest.
+    pub fn manifest_lock_path(&self, base_key: &str) -> PathBuf {
+        self.locks_dir.join(format!("{}.manifest.lock", base_key))
+    }
+
+    /// Retrieves an ActionManifest for a given base key if present.
+    pub fn get_manifest(
+        &self,
+        base_key: &str,
+    ) -> Result<Option<super::action_manifest::ActionManifest>> {
+        super::action_manifest::ActionManifest::from_file(&self.manifest_path(base_key))
+    }
+
+    /// Records or updates an entry in the ActionManifest for a base key.
+    pub fn record_manifest_entry(
+        &self,
+        base_key: &str,
+        extra_inputs: Vec<(String, String)>,
+        result_key: &str,
+    ) -> Result<()> {
+        let lock_path = self.manifest_lock_path(base_key);
+        let _lock = crate::core::lock::FileLock::acquire_exclusive(&lock_path)?;
+
+        let mut manifest = self.get_manifest(base_key)?.unwrap_or_else(|| {
+            super::action_manifest::ActionManifest {
+                base_key: base_key.to_string(),
+                entries: Vec::new(),
+            }
+        });
+
+        manifest.record_entry(extra_inputs, result_key.to_string());
+        manifest.save_atomic(&self.manifest_path(base_key), &self.tmp_dir)
     }
 
     /// Atomically publishes an entry into the Action Cache.
