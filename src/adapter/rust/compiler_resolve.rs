@@ -32,16 +32,25 @@ pub fn resolve_rustc() -> PathBuf {
             if let Ok(p) = std::env::var("RUSTC") {
                 return PathBuf::from(p);
             }
-            if let Ok(output) = std::process::Command::new("rustup")
-                .arg("which")
-                .arg("rustc")
-                .output()
-            {
-                if output.status.success() {
-                    if let Ok(s) = String::from_utf8(output.stdout) {
-                        let p = PathBuf::from(s.trim());
-                        if p.is_file() {
-                            return p;
+            let home_cargo_rustup = std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/rustup"));
+            let candidates = ["rustup".into()]
+                .into_iter()
+                .chain(home_cargo_rustup)
+                .collect::<Vec<PathBuf>>();
+            for rustup in candidates {
+                if let Ok(output) = std::process::Command::new(&rustup)
+                    .arg("which")
+                    .arg("rustc")
+                    .output()
+                {
+                    if output.status.success() {
+                        if let Ok(s) = String::from_utf8(output.stdout) {
+                            let p = PathBuf::from(s.trim());
+                            if p.is_file() {
+                                return p;
+                            }
                         }
                     }
                 }
@@ -69,16 +78,25 @@ pub fn resolve_clippy_driver() -> PathBuf {
             if let Ok(p) = std::env::var("CLIPPY_DRIVER") {
                 return PathBuf::from(p);
             }
-            if let Ok(output) = std::process::Command::new("rustup")
-                .arg("which")
-                .arg("clippy-driver")
-                .output()
-            {
-                if output.status.success() {
-                    if let Ok(s) = String::from_utf8(output.stdout) {
-                        let p = PathBuf::from(s.trim());
-                        if p.is_file() {
-                            return p;
+            let home_cargo_rustup = std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/rustup"));
+            let candidates = ["rustup".into()]
+                .into_iter()
+                .chain(home_cargo_rustup)
+                .collect::<Vec<PathBuf>>();
+            for rustup in candidates {
+                if let Ok(output) = std::process::Command::new(&rustup)
+                    .arg("which")
+                    .arg("clippy-driver")
+                    .output()
+                {
+                    if output.status.success() {
+                        if let Ok(s) = String::from_utf8(output.stdout) {
+                            let p = PathBuf::from(s.trim());
+                            if p.is_file() {
+                                return p;
+                            }
                         }
                     }
                 }

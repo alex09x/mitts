@@ -327,7 +327,10 @@ pub(crate) fn execute_unit(
             .push(output.stderr.clone());
         if !output.success {
             if let Some(ref cb) = ctx.opt.progress {
-                cb.0(BuildProgressEvent::CompilerMessage(output.stderr.clone()));
+                cb.0(BuildProgressEvent::CompilerMessage(format!(
+                    "Command: {}\n{}",
+                    output.command_line, output.stderr
+                )));
             }
         }
     }
@@ -375,19 +378,14 @@ pub(crate) fn execute_unit(
         inputs: Vec::new(),
         outputs: action_outputs,
         args: Vec::new(),
-        env: {
-            let mut env = HashMap::from([
-                ("CARGO_PKG_NAME".to_string(), unit.package_name.clone()),
-                ("CARGO_PKG_VERSION".to_string(), unit.version.clone()),
-            ]);
-            if let Some(parent) = unit.manifest_path.parent() {
-                env.insert(
-                    "CARGO_MANIFEST_DIR".to_string(),
-                    parent.to_string_lossy().to_string(),
-                );
-            }
-            env
-        },
+        env: unit.manifest_path.parent().map(|p| HashMap::from([
+            ("CARGO_PKG_NAME".to_string(), unit.package_name.clone()),
+            ("CARGO_PKG_VERSION".to_string(), unit.version.clone()),
+            ("CARGO_MANIFEST_DIR".to_string(), p.to_string_lossy().to_string()),
+        ])).unwrap_or_else(|| HashMap::from([
+            ("CARGO_PKG_NAME".to_string(), unit.package_name.clone()),
+            ("CARGO_PKG_VERSION".to_string(), unit.version.clone()),
+        ])),
         dependencies: unit.dependencies.clone(),
     });
 
