@@ -235,6 +235,16 @@ impl<'a> RustcInvocation<'a> {
         for (k, v) in &unit_env {
             cmd.env(k, v);
         }
+        cmd.env("RUSTC", &compiler_bin);
+        if let Some(toolchain_name) = compiler_bin
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.file_name())
+        {
+            if compiler_bin.to_string_lossy().contains(".rustup/toolchains") {
+                cmd.env("RUSTUP_TOOLCHAIN", toolchain_name);
+            }
+        }
 
         for arg in self.extra_compiler_args {
             cmd.arg(arg);

@@ -23,35 +23,73 @@ pub struct RustcOutput {
     pub metadata_output: Option<PathBuf>,
 }
 
+static RESOLVED_RUSTC: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static RESOLVED_CLIPPY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
 pub fn resolve_rustc() -> PathBuf {
-    if let Ok(p) = std::env::var("RUSTC") {
-        return PathBuf::from(p);
-    }
-    if let Ok(paths) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            let p = dir.join("rustc");
-            if p.is_file() {
-                return p;
+    RESOLVED_RUSTC
+        .get_or_init(|| {
+            if let Ok(p) = std::env::var("RUSTC") {
+                return PathBuf::from(p);
             }
-        }
-    }
-    std::env::var("HOME")
-        .ok()
-        .map(|h| PathBuf::from(h).join(".cargo/bin/rustc"))
-        .filter(|p| p.is_file())
-        .unwrap_or_else(|| PathBuf::from("rustc"))
+            if let Ok(output) = std::process::Command::new("rustup")
+                .arg("which")
+                .arg("rustc")
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        let p = PathBuf::from(s.trim());
+                        if p.is_file() {
+                            return p;
+                        }
+                    }
+                }
+            }
+            if let Ok(paths) = std::env::var("PATH") {
+                for dir in std::env::split_paths(&paths) {
+                    let p = dir.join("rustc");
+                    if p.is_file() {
+                        return p;
+                    }
+                }
+            }
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/rustc"))
+                .filter(|p| p.is_file())
+                .unwrap_or_else(|| PathBuf::from("rustc"))
+        })
+        .clone()
 }
 
 pub fn resolve_clippy_driver() -> PathBuf {
-    std::env::var("CLIPPY_DRIVER")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
+    RESOLVED_CLIPPY
+        .get_or_init(|| {
+            if let Ok(p) = std::env::var("CLIPPY_DRIVER") {
+                return PathBuf::from(p);
+            }
+            if let Ok(output) = std::process::Command::new("rustup")
+                .arg("which")
+                .arg("clippy-driver")
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        let p = PathBuf::from(s.trim());
+                        if p.is_file() {
+                            return p;
+                        }
+                    }
+                }
+            }
             std::env::var("HOME")
                 .ok()
                 .map(|h| PathBuf::from(h).join(".cargo/bin/clippy-driver"))
                 .filter(|p| p.is_file())
                 .unwrap_or_else(|| PathBuf::from("clippy-driver"))
         })
+        .clone()
 }
 
 /// Discovers the root directory of a Cargo workspace by searching upwards for Cargo.toml with [workspace] or Cargo.lock.
