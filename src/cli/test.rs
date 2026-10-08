@@ -265,10 +265,16 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         .manifest_path
         .clone()
         .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
-    let root_dir = root_manifest
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .to_path_buf();
+    let root_dir = {
+        let p = root_manifest
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        if p.as_os_str().is_empty() {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        } else {
+            std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+        }
+    };
     let mut target_to_pkg: std::collections::HashMap<String, (String, PathBuf)> =
         std::collections::HashMap::new();
 
@@ -347,18 +353,37 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             }
         }
 
-        let mut cmd = Command::new(&bin_path);
+        let abs_bin = if bin_path.is_absolute() {
+            bin_path.clone()
+        } else {
+            root_dir.join(&*bin_path)
+        };
+        let mut cmd = Command::new(&abs_bin);
         for (k, v) in env.iter() {
             cmd.env(k, v);
         }
-        if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
-            cmd.current_dir(manifest_dir);
+        let work_dir = if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
+            if !manifest_dir.is_empty() && manifest_dir != "." {
+                if std::path::Path::new(manifest_dir).is_absolute() {
+                    PathBuf::from(manifest_dir)
+                } else {
+                    root_dir.join(manifest_dir)
+                }
+            } else {
+                root_dir.clone()
+            }
         } else {
-            cmd.current_dir(&root_dir);
-        }
+            root_dir.clone()
+        };
+        cmd.current_dir(&work_dir);
         for (bin_name, bin_file) in &cli_binaries {
             let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
-            cmd.env(env_var, bin_file);
+            let abs_cli = if bin_file.is_absolute() {
+                bin_file.clone()
+            } else {
+                root_dir.join(bin_file)
+            };
+            cmd.env(env_var, abs_cli);
         }
         if let Some(ref filter) = args.filter {
             cmd.arg(filter);

@@ -246,12 +246,16 @@ pub fn execute_build_script(
         );
     }
 
-    let rustc_bin = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    let rustc_bin = super::compiler::resolve_rustc();
     let num_jobs = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
         .to_string();
     let mut run_cmd = Command::new(&bin_path);
+    if let Some(bin_dir) = rustc_bin.parent() {
+        let cur_path = std::env::var("PATH").unwrap_or_default();
+        run_cmd.env("PATH", format!("{}:{}", bin_dir.display(), cur_path));
+    }
     run_cmd
         .current_dir(pkg_dir)
         .env("CARGO_MANIFEST_DIR", pkg_dir)

@@ -137,6 +137,7 @@ impl<'a> RustcInvocation<'a> {
         if is_test {
             cmd.arg("--test");
             cmd.arg("--emit=dep-info,link");
+            cmd.arg("--extern").arg("proc_macro");
             if let Some(dest) = self.dest_binary {
                 if let Some(parent) = dest.parent() {
                     fs::create_dir_all(parent)?;
