@@ -163,17 +163,10 @@ impl<'a> RustcInvocation<'a> {
         // Features
         for feat in self.features {
             cmd.arg("--cfg").arg(format!("feature=\"{}\"", feat));
-            cmd.env(
-                format!("CARGO_FEATURE_{}", feat.to_uppercase().replace('-', "_")),
-                "1",
-            );
         }
 
-        // Build script directives (cfgs, link-libs, OUT_DIR, etc.)
+        // Build script directives (cfgs, link-libs)
         if let Some(dir) = self.directives {
-            if let Some(ref out) = dir.out_dir {
-                cmd.env("OUT_DIR", out);
-            }
             for c in &dir.cfgs {
                 cmd.arg("--cfg").arg(c);
             }
@@ -182,9 +175,6 @@ impl<'a> RustcInvocation<'a> {
             }
             for s in &dir.link_searches {
                 cmd.arg("-L").arg(s);
-            }
-            for (k, v) in &dir.envs {
-                cmd.env(k, v);
             }
         }
 
@@ -199,45 +189,17 @@ impl<'a> RustcInvocation<'a> {
             }
         }
 
-        let (major, minor, patch, pre) = parse_version_parts(&self.unit.version);
-
-        // Cargo-compatible environment variables and working directory
-        let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
+        // Working directory and Cargo-compatible environment variables
         fs::create_dir_all(self.out_dir)?;
         cmd.current_dir(self.out_dir);
-        if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
-            cmd.env("RUSTUP_TOOLCHAIN", tc);
-        }
-        if let Some(auth) = self.jobserver_auth {
-            cmd.env("CARGO_MAKEFLAGS", format!("--jobserver-auth={}", auth));
-            cmd.env("MAKEFLAGS", format!("--jobserver-auth={}", auth));
-        }
-        cmd.env("CARGO_MANIFEST_DIR", pkg_dir);
-        let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-        cmd.env("CARGO", &cargo_bin);
-        cmd.env("CARGO_PKG_NAME", &self.unit.package_name);
-        cmd.env("CARGO_PKG_VERSION", &self.unit.version);
-        cmd.env("CARGO_PKG_VERSION_MAJOR", &major);
-        cmd.env("CARGO_PKG_VERSION_MINOR", &minor);
-        cmd.env("CARGO_PKG_VERSION_PATCH", &patch);
-        cmd.env("CARGO_PKG_VERSION_PRE", &pre);
-        cmd.env("CARGO_CRATE_NAME", &self.unit.target_name);
-        if is_bin {
-            cmd.env("CARGO_BIN_NAME", &self.unit.target_name);
-        }
 
-        if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&self.unit.manifest_path) {
-            if let Some(ref p) = pkg_toml.package {
-                let pkg_d = p.description.as_deref().unwrap_or("");
-                let pkg_r = p.repository.as_deref().unwrap_or("");
-                let authors = p.authors.as_deref().unwrap_or(&[]).join(":");
-                cmd.env("CARGO_PKG_DESCRIPTION", pkg_d);
-                cmd.env("CARGO_PKG_HOMEPAGE", p.homepage.as_deref().unwrap_or(""));
-                cmd.env("CARGO_PKG_REPOSITORY", pkg_r);
-                cmd.env("CARGO_PKG_LICENSE", p.license.as_deref().unwrap_or(""));
-                cmd.env("CARGO_PKG_README", p.readme.as_deref().unwrap_or(""));
-                cmd.env("CARGO_PKG_AUTHORS", authors);
-            }
+        let unit_env = super::unit_env::compute_unit_rustc_env(
+            self.unit,
+            self.directives,
+            self.jobserver_auth,
+        );
+        for (k, v) in &unit_env {
+            cmd.env(k, v);
         }
 
         for arg in self.extra_compiler_args {

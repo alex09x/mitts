@@ -65,7 +65,23 @@ pub fn try_restore_from_cache(
     let mut candidate_keys = Vec::new();
     if unit.is_workspace {
         if let Ok(Some(manifest)) = ctx.ac.get_manifest(action_key) {
-            if let Some(matched_res_key) = manifest.find_matching_entry(ws_root.as_deref()) {
+            let meta_path = ctx
+                .cas
+                .root()
+                .join("metadata")
+                .join(format!("{}.toml", action_key));
+            let cached_directives = if meta_path.is_file() {
+                fs::read_to_string(&meta_path)
+                    .ok()
+                    .and_then(|s| toml::from_str::<BuildScriptDirectives>(&s).ok())
+            } else {
+                None
+            };
+            let unit_env =
+                super::unit_env::compute_unit_rustc_env(unit, cached_directives.as_ref(), None);
+            if let Some(matched_res_key) =
+                manifest.find_matching_entry(ws_root.as_deref(), Some(&unit_env))
+            {
                 candidate_keys.push(matched_res_key.clone());
                 if let Some(ref h) = current_ws_hash {
                     candidate_keys.push(format!("{}:ws_leak:{}", matched_res_key, h));

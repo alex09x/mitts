@@ -41,6 +41,7 @@ pub mod sparse_index;
 pub mod target_filter;
 pub mod types;
 pub mod unescape;
+pub mod unit_env;
 
 pub use build_script::execute_build_script;
 pub use build_script_directives::BuildScriptDirectives;

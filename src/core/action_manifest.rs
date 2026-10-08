@@ -11,6 +11,7 @@
 use crate::core::hash::Sha256;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -76,14 +77,29 @@ impl ActionManifest {
 
     /// Finds a matching result key for the current worktree state.
     /// Returns Some(result_key) if an entry matches, or None.
-    pub fn find_matching_entry(&self, ws_root: Option<&Path>) -> Option<String> {
+    pub fn find_matching_entry(
+        &self,
+        ws_root: Option<&Path>,
+        effective_env: Option<&HashMap<String, String>>,
+    ) -> Option<String> {
         for entry in &self.entries {
             let mut matches = true;
             for (path_str, expected_hash) in &entry.extra_inputs {
                 if let Some(var_name) = path_str.strip_prefix("env:") {
-                    let actual_hash = match std::env::var(var_name) {
-                        Ok(v) => Sha256::digest(v.as_bytes()),
-                        Err(_) => Sha256::digest(b"__UNSET__"),
+                    let actual_hash = if let Some(env) = effective_env {
+                        if let Some(val) = env.get(var_name) {
+                            Sha256::digest(val.as_bytes())
+                        } else {
+                            match std::env::var(var_name) {
+                                Ok(v) => Sha256::digest(v.as_bytes()),
+                                Err(_) => Sha256::digest(b"__UNSET__"),
+                            }
+                        }
+                    } else {
+                        match std::env::var(var_name) {
+                            Ok(v) => Sha256::digest(v.as_bytes()),
+                            Err(_) => Sha256::digest(b"__UNSET__"),
+                        }
                     };
                     if actual_hash != *expected_hash {
                         matches = false;
