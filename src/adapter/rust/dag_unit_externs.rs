@@ -65,7 +65,7 @@ pub fn resolve_extern_crates(
             let is_linking_kind = matches!(
                 unit.kind.as_str(),
                 "bin" | "test" | "proc-macro" | "dylib" | "cdylib" | "example" | "bench"
-            );
+            ) || super::pipelining::package_has_build_script(&unit.manifest_path);
             let chosen_artifact = if !is_linking_kind {
                 let rmeta = artifact_path.with_extension("rmeta");
                 if rmeta.is_file() {

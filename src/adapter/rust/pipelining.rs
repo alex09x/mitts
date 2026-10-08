@@ -24,6 +24,20 @@ pub enum DepRequirement {
     FullArtifact,
 }
 
+/// Returns true if the package described by manifest_path has a configured build script that exists.
+pub fn package_has_build_script(manifest_path: &Path) -> bool {
+    let pkg_dir = manifest_path.parent().unwrap_or(Path::new("."));
+    if let Ok(pkg_toml) = CargoToml::from_file(manifest_path) {
+        match pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()) {
+            Some(super::manifest::TomlBuild::Disabled(false)) => false,
+            Some(super::manifest::TomlBuild::Path(ref rel_p)) => pkg_dir.join(rel_p).is_file(),
+            _ => pkg_dir.join("build.rs").is_file() || pkg_dir.join("build").join("build.rs").is_file(),
+        }
+    } else {
+        pkg_dir.join("build.rs").is_file() || pkg_dir.join("build").join("build.rs").is_file()
+    }
+}
+
 /// Classifies whether a consumer unit requires only metadata or the full artifact from a dependency.
 pub fn classify_dep_requirement(
     consumer: &PlannedCompilationUnit,
@@ -42,22 +56,20 @@ pub fn classify_dep_requirement(
         return DepRequirement::FullArtifact;
     }
     // If consumer package has a build script, build dependencies must be FullArtifact (.rlib)
-    if let Some(parent) = consumer.manifest_path.parent() {
-        if parent.join("build.rs").is_file() || parent.join("build").join("build.rs").is_file() {
-            if let Ok(toml) = CargoToml::from_file(&consumer.manifest_path) {
-                let dep_pkg = dependency.package_name.replace('-', "_");
-                let is_build_dep = toml
-                    .build_dependencies
-                    .keys()
-                    .any(|k| k.replace('-', "_") == dep_pkg)
-                    || toml.target.values().any(|t| {
-                        t.build_dependencies
-                            .keys()
-                            .any(|k| k.replace('-', "_") == dep_pkg)
-                    });
-                if is_build_dep {
-                    return DepRequirement::FullArtifact;
-                }
+    if package_has_build_script(&consumer.manifest_path) {
+        if let Ok(toml) = CargoToml::from_file(&consumer.manifest_path) {
+            let dep_pkg = dependency.package_name.replace('-', "_");
+            let is_build_dep = toml
+                .build_dependencies
+                .keys()
+                .any(|k| k.replace('-', "_") == dep_pkg)
+                || toml.target.values().any(|t| {
+                    t.build_dependencies
+                        .keys()
+                        .any(|k| k.replace('-', "_") == dep_pkg)
+                });
+            if is_build_dep {
+                return DepRequirement::FullArtifact;
             }
         }
     }
