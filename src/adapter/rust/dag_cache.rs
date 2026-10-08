@@ -225,6 +225,16 @@ pub fn try_restore_from_cache_with_directives(
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("rlib");
+                let profile_name = if ctx.opt.release { "release" } else { "debug" };
+                let deps_dir = ctx.target_dir.join(profile_name).join("deps");
+                let _ = fs::create_dir_all(&deps_dir);
+                let target_dep_dest = deps_dir.join(&out.relative_path);
+                if !target_dep_dest.is_file() {
+                    let _ = ctx
+                        .cas
+                        .restore_object(&out.cas_hash, &target_dep_dest, false);
+                }
+
                 if ext == "rlib" || ext == "dylib" || ext == "so" {
                     let named = ctx.cas.named_artifact_path_with_disambiguator(
                         &unit.target_name,
@@ -232,18 +242,6 @@ pub fn try_restore_from_cache_with_directives(
                         action_key,
                         ext,
                     )?;
-                    if !ctx.opt.native {
-                        let profile_name = if ctx.opt.release { "release" } else { "debug" };
-                        let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                        let _ = fs::create_dir_all(&deps_dir);
-                        let target_dep_dest = deps_dir.join(&out.relative_path);
-                        if !target_dep_dest.is_file() {
-                            let _ = ctx
-                                .cas
-                                .restore_object(&out.cas_hash, &target_dep_dest, false);
-                        }
-                    }
-
                     ctx.completed_artifacts
                         .lock()
                         .unwrap()

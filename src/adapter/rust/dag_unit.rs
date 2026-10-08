@@ -282,33 +282,23 @@ pub(crate) fn execute_unit(
             } else {
                 None
             };
-            let out_dir_opt = directives.out_dir.as_deref();
-            if let Some(early_rk) = super::dag_unit_publish::resolve_unit_result_key(
-                unit,
-                &effective_action_key,
-                &staging_dir,
-                ws_root.as_deref(),
-                build_purity_opt.as_ref(),
-                out_dir_opt,
-            ) {
-                if let Some(rk_map) = ctx.resolved_keys {
-                    rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
-                }
+            let early_rk = super::dag_unit_publish::resolve_unit_result_key(
+                unit, &effective_action_key, &staging_dir, ws_root.as_deref(),
+                build_purity_opt.as_ref(), directives.out_dir.as_deref(),
+            );
+            if let (Some(rk), Some(rk_map)) = (early_rk, ctx.resolved_keys) {
+                rk_map.lock().unwrap().insert(unit.unit_id(), rk);
             }
 
             if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {
                 if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
-                    &unit.target_name,
-                    &meta_hash,
-                    &effective_action_key,
-                    "rmeta",
+                    &unit.target_name, &meta_hash, &effective_action_key, "rmeta",
                 ) {
-                    ctx.completed_artifacts
-                        .lock()
-                        .unwrap()
-                        .insert(unit.unit_id(), named.clone());
+                    ctx.completed_artifacts.lock().unwrap().insert(unit.unit_id(), named.clone());
                     cb(&unit.unit_id(), &named);
                 }
+                let dep_copy = deps_dir.join(format!("lib{}.rmeta", clean_crate));
+                let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
             }
         })?
     } else {
