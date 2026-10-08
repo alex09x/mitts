@@ -753,6 +753,7 @@ def audit_project(project_name, iterations=5):
 
 
 def main():
+    global BENCH_ROOT, MITTS_BIN, MITTS_REPO
     parser = argparse.ArgumentParser(description="Mitts S5a Multi-Worktree Concurrency Audit")
     parser.add_argument("--iterations", type=int, default=5, help="Number of repeat runs (default: 5)")
     parser.add_argument("--bench-root", type=Path, default=BENCH_ROOT, help="Benchmark root directory")
@@ -761,7 +762,6 @@ def main():
     parser.add_argument("projects", nargs="*", default=["tokio", "ripgrep", "serde", "ring"])
     args = parser.parse_args()
 
-    global BENCH_ROOT, MITTS_BIN, MITTS_REPO
     BENCH_ROOT = args.bench_root
     MITTS_BIN = args.mitts_bin
     MITTS_REPO = args.mitts_repo
