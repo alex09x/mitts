@@ -49,6 +49,7 @@ fn test_m8_build_lock_missing_lock_and_manifest() {
         action_count: 1,
         root_binary: None,
         outputs: &[],
+        stderr: None,
     };
 
     // record_state writes .mitts/build-dev.lock automatically

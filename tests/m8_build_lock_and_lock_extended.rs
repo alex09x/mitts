@@ -53,6 +53,7 @@ fn test_m8_build_lock_stale_branches() {
         action_count: 3,
         root_binary: Some(bin_out.clone()),
         outputs: &outputs,
+        stderr: None,
     })
     .unwrap();
 
@@ -202,6 +203,7 @@ fn test_m8_build_lock_file_mutation_and_lock_errors() {
         action_count: 1,
         root_binary: None,
         outputs: &outputs,
+        stderr: None,
     })
     .unwrap();
 

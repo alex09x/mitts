@@ -119,6 +119,7 @@ fn test_m8_build_lock_sha_mtime_tolerance() {
         action_count: 1,
         root_binary: Some(out_file.clone()),
         outputs: &outputs,
+        stderr: None,
     };
 
     FastBuildLock::record_state(&rec_args).unwrap();

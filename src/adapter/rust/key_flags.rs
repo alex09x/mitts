@@ -11,6 +11,25 @@
 use super::types::{BuildMode, PlannedCompilationUnit, RustBuildOptions};
 use crate::core::action::ToolchainInfo;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+static CLIPPY_VERSION: OnceLock<String> = OnceLock::new();
+
+pub fn get_clippy_driver_version() -> &'static str {
+    CLIPPY_VERSION.get_or_init(|| {
+        if let Ok(val) = std::env::var("CLIPPY_DRIVER_VERSION") {
+            return val;
+        }
+        let driver = super::compiler_resolve::resolve_clippy_driver();
+        std::process::Command::new(driver)
+            .arg("-V")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "clippy-unknown".to_string())
+    })
+}
 
 /// Relative prefix constant used for path-independent compilation action keys.
 pub const MITTS_REMAP_PREFIX: &str = "";
@@ -129,6 +148,9 @@ pub fn compute_unit_flags_with_ws(
             }
         }
         u_flags.push(format!("MODE={:?}", mode));
+        if mode == BuildMode::Clippy {
+            u_flags.push(format!("CLIPPY_VERSION={}", get_clippy_driver_version()));
+        }
     } else {
         let has_build_script = super::pipelining::package_has_build_script(&unit.manifest_path);
         if has_build_script {

@@ -69,6 +69,7 @@ fn test_m8_build_lock_profile_package_feature_toolchain_mismatch() {
         sources: vec![],
         directories: vec![],
         outputs: vec![],
+        stderr: None,
         action_count: 5,
         root_binary: Some(PathBuf::from("target/dev/app")),
     };
@@ -158,6 +159,7 @@ fn test_m8_build_lock_files_and_record_state() {
         action_count: 1,
         root_binary: Some(PathBuf::from("target/dev/foo")),
         outputs: std::slice::from_ref(&out_file),
+        stderr: None,
     };
 
     FastBuildLock::record_state(&rec_args).expect("record state");
@@ -177,6 +179,7 @@ fn test_m8_build_lock_files_and_record_state() {
         FreshnessResult::Fresh {
             action_count,
             root_binary,
+            ..
         } => {
             assert_eq!(action_count, 1);
             assert_eq!(root_binary, Some(PathBuf::from("target/dev/foo")));
@@ -208,5 +211,54 @@ fn test_m8_build_lock_files_and_record_state() {
             assert!(msg.contains("Output artifact missing") || msg.contains("Source modified"))
         }
         _ => panic!("Expected output missing"),
+    }
+}
+
+#[test]
+fn test_fast_build_lock_warning_replay() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let p = temp_dir.path();
+    let src_dir = p.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let src_file = src_dir.join("main.rs");
+    fs::write(&src_file, "fn main() {}\n").unwrap();
+
+    let target_dir = p.join("target").join("check");
+    fs::create_dir_all(&target_dir).unwrap();
+    let out_file = target_dir.join("libfoo.rmeta");
+    fs::write(&out_file, "rmeta data").unwrap();
+
+    let warning_msg = "warning: unused variable: `test_unused`\n --> src/main.rs:1:5";
+    let rec_args = RecordStateArgs {
+        project_dir: p,
+        profile: "check",
+        package: &None,
+        features: &[],
+        no_default_features: false,
+        all_features: false,
+        toolchain_version: "rustc 1.80.0",
+        action_count: 1,
+        root_binary: None,
+        outputs: std::slice::from_ref(&out_file),
+        stderr: Some(warning_msg),
+    };
+
+    FastBuildLock::record_state(&rec_args).expect("record state");
+
+    let check_args = FreshnessCheckArgs {
+        project_dir: p,
+        profile: "check",
+        package: &None,
+        features: &[],
+        no_default_features: false,
+        all_features: false,
+        toolchain_version: "rustc 1.80.0",
+    };
+
+    match FastBuildLock::check_freshness(&check_args) {
+        FreshnessResult::Fresh { stderr, .. } => {
+            assert_eq!(stderr.as_deref(), Some(warning_msg));
+        }
+        FreshnessResult::Stale(e) => panic!("Expected fresh with replayed stderr, got: {}", e),
     }
 }

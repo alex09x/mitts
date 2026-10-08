@@ -167,6 +167,7 @@ impl FastBuildLock {
         FreshnessResult::Fresh {
             action_count: lock.action_count,
             root_binary: lock.root_binary,
+            stderr: lock.stderr,
         }
     }
 
@@ -244,6 +245,7 @@ impl FastBuildLock {
             sources,
             directories,
             outputs: output_snaps,
+            stderr: args.stderr.map(|s| s.to_string()),
         };
 
         let bytes = serde_json::to_vec_pretty(&lock)?;

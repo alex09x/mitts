@@ -128,14 +128,14 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
                 if let Some(ref pb) = progress_clone {
                     pb.println(rendered);
                 } else {
-                    println!("{}", rendered);
+                    eprintln!("{}", rendered);
                 }
             }
             BuildProgressEvent::Diagnostic(line) => {
                 if let Some(ref pb) = progress_clone {
                     pb.println(line);
                 } else {
-                    println!("{}", line);
+                    eprintln!("{}", line);
                 }
             }
         },

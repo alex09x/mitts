@@ -42,6 +42,7 @@ fn test_fast_build_lock_roundtrip() {
         action_count: 1,
         root_binary: Some(bin.clone()),
         outputs: &outputs,
+        stderr: None,
     })
     .unwrap();
 
@@ -58,6 +59,7 @@ fn test_fast_build_lock_roundtrip() {
         FreshnessResult::Fresh {
             action_count,
             root_binary,
+            ..
         } => {
             assert_eq!(action_count, 1);
             assert_eq!(root_binary, Some(bin));
@@ -111,6 +113,7 @@ fn test_fast_build_lock_added_file() {
         action_count: 1,
         root_binary: Some(bin.clone()),
         outputs: &outputs,
+        stderr: None,
     })
     .unwrap();
 
@@ -184,6 +187,7 @@ fn test_fast_build_lock_multi_profile() {
         action_count: 1,
         root_binary: Some(bin_dev.clone()),
         outputs: &[bin_dev],
+        stderr: None,
     })
     .unwrap();
 
@@ -198,6 +202,7 @@ fn test_fast_build_lock_multi_profile() {
         action_count: 1,
         root_binary: Some(bin_rel.clone()),
         outputs: &[bin_rel],
+        stderr: None,
     })
     .unwrap();
 

@@ -130,6 +130,17 @@ pub fn hash_package_base_inputs(
             }
             lock_candidate = dir.parent();
         }
+
+        if let Some(root) = ws_root {
+            for clippy_name in &["clippy.toml", ".clippy.toml"] {
+                let cp = root.join(clippy_name);
+                if cp.is_file() {
+                    let hash = Sha256::digest_file(&cp)
+                        .with_context(|| format!("Failed to hash {:?}", cp))?;
+                    inputs.push((format!("workspace:{}", clippy_name), hash));
+                }
+            }
+        }
     }
 
     // 3. Applicable .cargo/config.toml or .cargo/config in package dir or ancestor dirs

@@ -132,6 +132,7 @@ pub fn derive_unit_action_key_context(
                 None
             } else if k.starts_with("CARGO_")
                 || k.starts_with("RUST_")
+                || k.starts_with("CLIPPY_")
                 || k == "RUSTFLAGS"
                 || k == "RUSTC_WRAPPER"
                 || k == "RUSTC_WORKSPACE_WRAPPER"

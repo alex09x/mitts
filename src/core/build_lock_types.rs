@@ -38,6 +38,8 @@ pub struct FastBuildLock {
     #[serde(default)]
     pub directories: Vec<FileSnapshot>,
     pub outputs: Vec<FileSnapshot>,
+    #[serde(default)]
+    pub stderr: Option<String>,
 }
 
 #[derive(Debug)]
@@ -45,6 +47,7 @@ pub enum FreshnessResult {
     Fresh {
         action_count: usize,
         root_binary: Option<PathBuf>,
+        stderr: Option<String>,
     },
     Stale(String),
 }
@@ -72,4 +75,5 @@ pub struct RecordStateArgs<'a> {
     pub action_count: usize,
     pub root_binary: Option<PathBuf>,
     pub outputs: &'a [PathBuf],
+    pub stderr: Option<&'a str>,
 }

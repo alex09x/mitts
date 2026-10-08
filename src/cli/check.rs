@@ -128,14 +128,14 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
                 if let Some(ref pb) = progress_clone {
                     pb.println(rendered);
                 } else {
-                    println!("{}", rendered);
+                    eprintln!("{}", rendered);
                 }
             }
             BuildProgressEvent::Diagnostic(line) => {
                 if let Some(ref pb) = progress_clone {
                     pb.println(line);
                 } else {
-                    println!("{}", line);
+                    eprintln!("{}", line);
                 }
             }
         },
@@ -154,6 +154,9 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
                 Ui::stage_start("🔎", &format!("Checked target [{}]", profile));
                 if result.cached {
                     if result.action_id == "fast-lock-hit" {
+                        if !result.stderr.is_empty() {
+                            eprintln!("{}", result.stderr);
+                        }
                         Ui::stage_item(
                             true,
                             &Ui::badge_ac_hit(),

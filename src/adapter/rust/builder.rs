@@ -96,6 +96,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
             FreshnessResult::Fresh {
                 action_count,
                 root_binary,
+                stderr,
             } => {
                 let dur = lock_start.elapsed();
                 logger.record_phase(
@@ -128,7 +129,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                     exit_code: 0,
                     success: true,
                     stdout: String::new(),
-                    stderr: String::new(),
+                    stderr: stderr.unwrap_or_default(),
                     cached: true,
                 };
                 return Ok((plan, result));
@@ -227,6 +228,11 @@ fn record_state_and_trace(
             action_count: plan.actions.len(),
             root_binary,
             outputs: &outputs,
+            stderr: if result.stderr.is_empty() {
+                None
+            } else {
+                Some(&result.stderr)
+            },
         });
     }
     let outcome = if result.success {
