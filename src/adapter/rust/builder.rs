@@ -72,7 +72,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     })?;
 
     // Fast build lock pre-flight check: if zero project files changed, return in microsecond time
-    if !opt.no_cache {
+    if !opt.no_cache && opt.cache_dir.is_none() {
         let lock_start = std::time::Instant::now();
         let freshness = FastBuildLock::check_freshness(&FreshnessCheckArgs {
             project_dir,
@@ -189,7 +189,7 @@ fn record_state_and_trace(
     result: &ActionResult,
     logger: &mut BuildLogger,
 ) {
-    if result.success {
+    if result.success && opt.cache_dir.is_none() {
         let mut outputs = Vec::new();
         let mut root_binary = None;
         for action in &plan.actions {
