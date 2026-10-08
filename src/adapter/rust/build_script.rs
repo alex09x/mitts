@@ -129,10 +129,14 @@ pub fn execute_build_script(
     let (major, minor, patch, pre) = super::compiler_resolve::parse_version_parts(&unit.version);
 
     let mut compile_cmd = Command::new(super::compiler::resolve_rustc());
-    compile_cmd.current_dir(staging_dir);
+    compile_cmd.current_dir(pkg_dir);
     if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
         compile_cmd.env("RUSTUP_TOOLCHAIN", tc);
     }
+    let s_str = staging_dir.to_string_lossy();
+    let s_clean = s_str.trim_end_matches('/');
+    compile_cmd.arg(format!("--remap-path-prefix={}/=/mitts/build_rs/", s_clean));
+    compile_cmd.arg(format!("--remap-path-prefix={}=/mitts/build_rs", s_clean));
     compile_cmd
         .arg("--crate-name")
         .arg("build_script_build")
@@ -163,12 +167,9 @@ pub fn execute_build_script(
         let ws_root = super::compiler::find_workspace_root(pkg_dir);
         if pkg_dir.starts_with(&ws_root) {
             let ws_str = ws_root.to_string_lossy();
-            let ws_prefix = if ws_str.ends_with('/') {
-                ws_str.to_string()
-            } else {
-                format!("{}/", ws_str)
-            };
-            compile_cmd.arg(format!("--remap-path-prefix={}=", ws_prefix));
+            let ws_clean = ws_str.trim_end_matches('/');
+            compile_cmd.arg(format!("--remap-path-prefix={}/=", ws_clean));
+            compile_cmd.arg(format!("--remap-path-prefix={}=", ws_clean));
         }
     }
 
