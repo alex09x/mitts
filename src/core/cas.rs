@@ -100,7 +100,10 @@ impl ContentAddressedStore {
 
         let dest_path = self.object_path(&hash);
         if dest_path.is_file() {
-            if self.verify_object(&hash).unwrap_or(false) {
+            let matches_size = fs::metadata(&dest_path)
+                .map(|m| m.len() == file_size)
+                .unwrap_or(false);
+            if matches_size {
                 return Ok((hash, file_size));
             } else {
                 let _ = fs::remove_file(&dest_path);

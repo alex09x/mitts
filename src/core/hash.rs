@@ -105,16 +105,17 @@ impl Sha256 {
                 return;
             } else {
                 self.buffer[self.buffer_len..64].copy_from_slice(&data[..to_fill]);
-                self.process_block(&self.buffer.clone());
+                Self::process_block(&mut self.state, &self.buffer);
                 self.buffer_len = 0;
                 data = &data[to_fill..];
             }
         }
 
         while data.len() >= 64 {
-            let mut block = [0u8; 64];
-            block.copy_from_slice(&data[..64]);
-            self.process_block(&block);
+            let block: &[u8; 64] = data[..64]
+                .try_into()
+                .expect("slice has guaranteed 64-byte length");
+            Self::process_block(&mut self.state, block);
             data = &data[64..];
         }
 
@@ -124,7 +125,7 @@ impl Sha256 {
         }
     }
 
-    fn process_block(&mut self, block: &[u8; 64]) {
+    fn process_block(state: &mut [u32; 8], block: &[u8; 64]) {
         let mut w = [0u32; 64];
         for (i, item) in w.iter_mut().take(16).enumerate() {
             let offset = i * 4;
@@ -145,14 +146,14 @@ impl Sha256 {
                 .wrapping_add(s1);
         }
 
-        let mut a = self.state[0];
-        let mut b = self.state[1];
-        let mut c = self.state[2];
-        let mut d = self.state[3];
-        let mut e = self.state[4];
-        let mut f = self.state[5];
-        let mut g = self.state[6];
-        let mut h = self.state[7];
+        let mut a = state[0];
+        let mut b = state[1];
+        let mut c = state[2];
+        let mut d = state[3];
+        let mut e = state[4];
+        let mut f = state[5];
+        let mut g = state[6];
+        let mut h = state[7];
 
         for i in 0..64 {
             let t1 = h
@@ -171,14 +172,14 @@ impl Sha256 {
             a = t1.wrapping_add(t2);
         }
 
-        self.state[0] = self.state[0].wrapping_add(a);
-        self.state[1] = self.state[1].wrapping_add(b);
-        self.state[2] = self.state[2].wrapping_add(c);
-        self.state[3] = self.state[3].wrapping_add(d);
-        self.state[4] = self.state[4].wrapping_add(e);
-        self.state[5] = self.state[5].wrapping_add(f);
-        self.state[6] = self.state[6].wrapping_add(g);
-        self.state[7] = self.state[7].wrapping_add(h);
+        state[0] = state[0].wrapping_add(a);
+        state[1] = state[1].wrapping_add(b);
+        state[2] = state[2].wrapping_add(c);
+        state[3] = state[3].wrapping_add(d);
+        state[4] = state[4].wrapping_add(e);
+        state[5] = state[5].wrapping_add(f);
+        state[6] = state[6].wrapping_add(g);
+        state[7] = state[7].wrapping_add(h);
     }
 
     /// Finalizes the hash calculation and returns 32 raw bytes.
@@ -193,7 +194,7 @@ impl Sha256 {
             for i in self.buffer_len..64 {
                 self.buffer[i] = 0;
             }
-            self.process_block(&self.buffer.clone());
+            Self::process_block(&mut self.state, &self.buffer);
             self.buffer = [0u8; 64];
             self.buffer_len = 0;
         }
@@ -204,7 +205,7 @@ impl Sha256 {
 
         let bit_len_bytes = total_bits.to_be_bytes();
         self.buffer[56..64].copy_from_slice(&bit_len_bytes);
-        self.process_block(&self.buffer.clone());
+        Self::process_block(&mut self.state, &self.buffer);
 
         let mut output = [0u8; 32];
         for (i, word) in self.state.iter().enumerate() {
@@ -302,13 +303,16 @@ impl Write for Sha256 {
     }
 }
 
-/// Converts binary bytes to a lowercase hexadecimal string.
+/// Converts binary bytes to a lowercase hexadecimal string without allocations in the loop.
 pub fn bytes_to_hex(bytes: &[u8]) -> String {
-    let mut hex = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        hex.push_str(&format!("{:02x}", b));
+    const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = Vec::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX_CHARS[(b >> 4) as usize]);
+        out.push(HEX_CHARS[(b & 0x0f) as usize]);
     }
-    hex
+    // Safety: HEX_CHARS consists exclusively of valid ASCII/UTF-8 bytes
+    unsafe { String::from_utf8_unchecked(out) }
 }
 
 #[cfg(test)]
