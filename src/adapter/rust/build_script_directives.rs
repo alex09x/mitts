@@ -266,6 +266,14 @@ pub fn compute_build_script_key(
         hasher.update(b":feat:");
         hasher.update(f.as_bytes());
     }
+    if let Ok(c) = std::env::var("CARGO") {
+        hasher.update(b":cargo_bin:");
+        hasher.update(c.as_bytes());
+    }
+    if let Ok(ch) = std::env::var("CARGO_HOME") {
+        hasher.update(b":cargo_home:");
+        hasher.update(ch.as_bytes());
+    }
     if let Some(env) = extra_env {
         let mut sorted: Vec<_> = env.iter().collect();
         sorted.sort_by_key(|(k, _)| *k);

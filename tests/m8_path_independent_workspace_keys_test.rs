@@ -153,8 +153,9 @@ fn test_m8_workspace_path_independent_keys_and_cas_reuse() {
         "Output must contain library message"
     );
     assert!(
-        stdout.contains("/mitts/ws/my_bin/src/main.rs"),
-        "file!() must reflect stable remapped prefix"
+        stdout.contains("my_bin/src/main.rs"),
+        "file!() must reflect relative project path (Cargo parity), got: {}",
+        stdout
     );
 
     // 5. Binary bytes in clone 2 must contain NO occurrences of clone 1 path
@@ -349,8 +350,8 @@ edition = "2021"
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("/mitts/ws/src/main.rs"),
-        "Panic location must point to remapped stable prefix (/mitts/ws/src/main.rs), got: {}",
+        stderr.contains("src/main.rs:1:13") || stderr.contains("src/main.rs"),
+        "Panic location must point to relative path (Cargo parity), got: {}",
         stderr
     );
     assert!(

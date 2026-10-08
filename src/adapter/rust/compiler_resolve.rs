@@ -1,0 +1,100 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// Results from invoking `rustc` or `clippy-driver`.
+#[derive(Debug, Clone)]
+pub struct RustcOutput {
+    pub success: bool,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub command_line: String,
+    pub primary_output: Option<PathBuf>,
+    pub metadata_output: Option<PathBuf>,
+}
+
+pub fn resolve_rustc() -> PathBuf {
+    if let Ok(p) = std::env::var("RUSTC") {
+        return PathBuf::from(p);
+    }
+    if let Ok(paths) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let p = dir.join("rustc");
+            if p.is_file() {
+                return p;
+            }
+        }
+    }
+    std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".cargo/bin/rustc"))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("rustc"))
+}
+
+pub fn resolve_clippy_driver() -> PathBuf {
+    std::env::var("CLIPPY_DRIVER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/clippy-driver"))
+                .filter(|p| p.is_file())
+                .unwrap_or_else(|| PathBuf::from("clippy-driver"))
+        })
+}
+
+/// Discovers the root directory of a Cargo workspace by searching upwards for Cargo.toml with [workspace] or Cargo.lock.
+pub fn find_workspace_root(manifest_path: &Path) -> PathBuf {
+    let start = if manifest_path.is_file() {
+        manifest_path.parent().unwrap_or(Path::new("."))
+    } else {
+        manifest_path
+    };
+    for anc in start.ancestors() {
+        let toml = anc.join("Cargo.toml");
+        if toml.is_file()
+            && (fs::read_to_string(&toml)
+                .map(|c| c.contains("[workspace]"))
+                .unwrap_or(false)
+                || anc.join("Cargo.lock").is_file())
+        {
+            return anc.to_path_buf();
+        }
+    }
+    start.to_path_buf()
+}
+
+/// Parses version string into (major, minor, patch, pre) strings for Cargo environment variables.
+pub fn parse_version_parts(version: &str) -> (String, String, String, String) {
+    if let Ok(sem) = semver::Version::parse(version) {
+        (
+            sem.major.to_string(),
+            sem.minor.to_string(),
+            sem.patch.to_string(),
+            sem.pre.as_str().to_string(),
+        )
+    } else {
+        let mut ver_parts = version.split('.');
+        let maj = ver_parts.next().unwrap_or("0");
+        let min = ver_parts.next().unwrap_or("0");
+        let pat_with_pre = ver_parts.next().unwrap_or("0");
+        let (pat, p) = pat_with_pre.split_once('-').unwrap_or((pat_with_pre, ""));
+        (
+            maj.to_string(),
+            min.to_string(),
+            pat.to_string(),
+            p.to_string(),
+        )
+    }
+}

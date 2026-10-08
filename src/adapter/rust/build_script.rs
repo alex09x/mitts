@@ -121,26 +121,7 @@ pub fn execute_build_script(
 
     // 2. Cache miss: compile and execute build.rs
     let bin_path = staging_dir.join("build_script_build");
-    let (major, minor, patch, pre) = if let Ok(sem) = semver::Version::parse(&unit.version) {
-        (
-            sem.major.to_string(),
-            sem.minor.to_string(),
-            sem.patch.to_string(),
-            sem.pre.as_str().to_string(),
-        )
-    } else {
-        let mut ver_parts = unit.version.split('.');
-        let maj = ver_parts.next().unwrap_or("0");
-        let min = ver_parts.next().unwrap_or("0");
-        let pat_with_pre = ver_parts.next().unwrap_or("0");
-        let (pat, p) = pat_with_pre.split_once('-').unwrap_or((pat_with_pre, ""));
-        (
-            maj.to_string(),
-            min.to_string(),
-            pat.to_string(),
-            p.to_string(),
-        )
-    };
+    let (major, minor, patch, pre) = super::compiler_resolve::parse_version_parts(&unit.version);
 
     let mut compile_cmd = Command::new(super::compiler::resolve_rustc());
     compile_cmd.current_dir(staging_dir);
@@ -175,11 +156,15 @@ pub fn execute_build_script(
 
     if unit.is_workspace {
         let ws_root = super::compiler::find_workspace_root(pkg_dir);
-        compile_cmd.arg(format!(
-            "--remap-path-prefix={}={}",
-            ws_root.display(),
-            super::key::MITTS_REMAP_PREFIX
-        ));
+        if pkg_dir.starts_with(&ws_root) {
+            let ws_str = ws_root.to_string_lossy();
+            let ws_prefix = if ws_str.ends_with('/') {
+                ws_str.to_string()
+            } else {
+                format!("{}/", ws_str)
+            };
+            compile_cmd.arg(format!("--remap-path-prefix={}=", ws_prefix));
+        }
     }
 
     if let Some(ref links) = pkg_toml.package.as_ref().and_then(|p| p.links.as_ref()) {

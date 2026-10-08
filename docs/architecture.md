@@ -57,13 +57,24 @@ deps:      <sorted (dependency unit, dependency action key) pairs>
 - **Dependencies.** A unit's key includes its dependencies' keys, not their
   output bytes. A change anywhere below a unit changes its key.
 
-Workspace crates compile with `--remap-path-prefix=<workspace_root>=/mitts/ws` to
-stabilize debuginfo, `file!()`, and panic locations across worktrees. Units that do not read
-`CARGO_MANIFEST_DIR` at compile time and do not have a custom `build.rs` receive
-path-independent action keys with `REMAP_PATH_PREFIX=/mitts/ws` and `MANIFEST_DIR_REL=<rel>`,
-enabling 100% cache hits across independent checkouts, clones, and agent worktrees.
-Crates that read `CARGO_MANIFEST_DIR` via `env!` / `option_env!` or define `build.rs`
-conservatively retain the local absolute path in their action key.
+Workspace crates compile with `--remap-path-prefix=<workspace_root>/=` to
+stabilize compiler diagnostics, `file!()`, panic locations, and debuginfo to relative
+paths (e.g. `src/main.rs`), maintaining full Cargo parity and terminal/IDE clickability.
+Units that do not read `CARGO_MANIFEST_DIR` at compile time, do not have a custom `build.rs`,
+depend only on pure proc-macros (from an allowlist such as `serde_derive`, `clap_derive`, `thiserror`),
+and reside within the workspace root receive path-independent action keys with
+`REMAP_PATH_PREFIX=relative` and `MANIFEST_DIR_REL=<rel>`, enabling 100% cache hits
+across independent checkouts, clones, and agent worktrees.
+Crates that read `CARGO_MANIFEST_DIR` via `env!` / `option_env!`, define `build.rs`,
+depend on impure/custom proc-macros that may inspect the manifest dir during macro expansion,
+or reside outside the workspace root (`../shared`) conservatively retain the local absolute
+path in their action key.
+As an additional defense-in-depth safeguard before publishing to the CAS, Mitts scans
+all generated artifacts for the byte sequence of the workspace root path; if found, the artifact
+is never published under the path-independent key.
+For debuggers (`lldb`/`gdb`), relative source paths resolve naturally when running from
+the workspace directory; if debugging from an external directory, target source mapping
+can be configured via `settings set target.source-map "" <workspace_root>`.
 
 ## 4. Store layout
 

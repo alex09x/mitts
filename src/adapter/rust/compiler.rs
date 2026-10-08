@@ -15,69 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Results from invoking `rustc` or `clippy-driver`.
-#[derive(Debug, Clone)]
-pub struct RustcOutput {
-    pub success: bool,
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-    pub command_line: String,
-    pub primary_output: Option<PathBuf>,
-    pub metadata_output: Option<PathBuf>,
-}
-
-pub fn resolve_rustc() -> PathBuf {
-    if let Ok(p) = std::env::var("RUSTC") {
-        return PathBuf::from(p);
-    }
-    if let Ok(paths) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            let p = dir.join("rustc");
-            if p.is_file() {
-                return p;
-            }
-        }
-    }
-    std::env::var("HOME")
-        .ok()
-        .map(|h| PathBuf::from(h).join(".cargo/bin/rustc"))
-        .filter(|p| p.is_file())
-        .unwrap_or_else(|| PathBuf::from("rustc"))
-}
-
-pub fn resolve_clippy_driver() -> PathBuf {
-    std::env::var("CLIPPY_DRIVER")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::var("HOME")
-                .ok()
-                .map(|h| PathBuf::from(h).join(".cargo/bin/clippy-driver"))
-                .filter(|p| p.is_file())
-                .unwrap_or_else(|| PathBuf::from("clippy-driver"))
-        })
-}
-
-/// Discovers the root directory of a Cargo workspace by searching upwards for Cargo.toml with [workspace] or Cargo.lock.
-pub fn find_workspace_root(manifest_path: &Path) -> PathBuf {
-    let start = if manifest_path.is_file() {
-        manifest_path.parent().unwrap_or(Path::new("."))
-    } else {
-        manifest_path
-    };
-    for anc in start.ancestors() {
-        let toml = anc.join("Cargo.toml");
-        if toml.is_file()
-            && (fs::read_to_string(&toml)
-                .map(|c| c.contains("[workspace]"))
-                .unwrap_or(false)
-                || anc.join("Cargo.lock").is_file())
-        {
-            return anc.to_path_buf();
-        }
-    }
-    start.to_path_buf()
-}
+pub use super::compiler_resolve::*;
 
 /// Direct `rustc` or `clippy-driver` command invocation builder.
 pub struct RustcInvocation<'a> {
@@ -202,14 +140,24 @@ impl<'a> RustcInvocation<'a> {
         if !self.unit.is_workspace {
             cmd.arg("--cap-lints").arg("allow");
         } else {
+            let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
             let ws_root = find_workspace_root(&self.unit.manifest_path);
-            let pfx = super::key::MITTS_REMAP_PREFIX;
-            cmd.arg(format!("--remap-path-prefix={}={}", ws_root.display(), pfx));
-            cmd.arg(format!(
-                "--remap-path-prefix={}={}",
-                self.out_dir.display(),
-                pfx
-            ));
+            if pkg_dir.starts_with(&ws_root) {
+                let ws_str = ws_root.to_string_lossy();
+                let ws_prefix = if ws_str.ends_with('/') {
+                    ws_str.to_string()
+                } else {
+                    format!("{}/", ws_str)
+                };
+                let out_str = self.out_dir.to_string_lossy();
+                let out_prefix = if out_str.ends_with('/') {
+                    out_str.to_string()
+                } else {
+                    format!("{}/", out_str)
+                };
+                cmd.arg(format!("--remap-path-prefix={}=", ws_prefix));
+                cmd.arg(format!("--remap-path-prefix={}=", out_prefix));
+            }
         }
 
         // Features
@@ -251,16 +199,7 @@ impl<'a> RustcInvocation<'a> {
             }
         }
 
-        let (major, minor, patch, pre) = semver::Version::parse(&self.unit.version)
-            .map(|s| {
-                (
-                    s.major.to_string(),
-                    s.minor.to_string(),
-                    s.patch.to_string(),
-                    s.pre.to_string(),
-                )
-            })
-            .unwrap_or_else(|_| ("0".into(), "0".into(), "0".into(), String::new()));
+        let (major, minor, patch, pre) = parse_version_parts(&self.unit.version);
 
         // Cargo-compatible environment variables and working directory
         let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));

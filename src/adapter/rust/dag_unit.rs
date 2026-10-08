@@ -19,7 +19,7 @@ use crate::core::lock::FileLock;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
@@ -228,8 +228,8 @@ pub(crate) fn execute_unit(
     let mut cached_outputs = Vec::new();
     let mut action_outputs = Vec::new();
 
-    if let Some(bin_path) = dest_binary {
-        let (hash, size) = ctx.cas.store_file(&bin_path)?;
+    if let Some(ref bin_path) = dest_binary {
+        let (hash, size) = ctx.cas.store_file(bin_path)?;
         let rel_path = PathBuf::from(format!("{}/{}", profile_name, unit.target_name));
         cached_outputs.push(CachedOutput {
             relative_path: rel_path,
@@ -238,10 +238,10 @@ pub(crate) fn execute_unit(
             executable: true,
         });
         let alt_path = profile_dir.join(&clean_crate);
-        if alt_path != bin_path {
-            let _ = crate::core::reflink_or_copy(&bin_path, &alt_path, true);
+        if alt_path != *bin_path {
+            let _ = crate::core::reflink_or_copy(bin_path, &alt_path, true);
         }
-        action_outputs.push(bin_path);
+        action_outputs.push(bin_path.clone());
     } else {
         // Publish primary rlib/dylib or rmeta to CAS
         if let Some(lib_path) = output
@@ -302,14 +302,53 @@ pub(crate) fn execute_unit(
     // Clean up staging directory immediately to guarantee zero workspace target pollution
     let _ = fs::remove_dir_all(&staging_dir);
 
+    // Safeguard: detect any embedded absolute workspace paths in output binaries/libraries
+    let mut contains_ws_root_path = false;
+    if unit.is_workspace {
+        let ws_root = super::compiler::find_workspace_root(&unit.manifest_path);
+        let ws_needle = ws_root.to_string_lossy().as_bytes().to_vec();
+        if !ws_needle.is_empty() {
+            let scan_file = |p: &Path| -> bool {
+                fs::read(p)
+                    .map(|b| {
+                        b.windows(ws_needle.len())
+                            .any(|w| w == ws_needle.as_slice())
+                    })
+                    .unwrap_or(false)
+            };
+            if let Some(ref bp) = dest_binary {
+                if scan_file(bp) {
+                    contains_ws_root_path = true;
+                }
+            }
+            if let Some(ref lp) = output.primary_output {
+                if scan_file(lp) {
+                    contains_ws_root_path = true;
+                }
+            }
+            if let Some(ref mp) = output.metadata_output {
+                if scan_file(mp) {
+                    contains_ws_root_path = true;
+                }
+            }
+        }
+    }
+
     // Record in Action Cache
     if ctx.is_cache_enabled && !cached_outputs.is_empty() {
+        let effective_action_key = if contains_ws_root_path {
+            let ws_root = super::compiler::find_workspace_root(&unit.manifest_path);
+            let ws_hash = crate::core::hash::Sha256::digest(ws_root.to_string_lossy().as_bytes());
+            format!("{}:ws_leak:{}", action_key, ws_hash)
+        } else {
+            action_key.to_string()
+        };
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let entry = ActionCacheEntry {
-            action_key: action_key.to_string(),
+            action_key: effective_action_key,
             action_id: unit.unit_id(),
             created_at_secs: now_secs,
             outputs: cached_outputs,
