@@ -14,7 +14,7 @@ use crate::core::source_store::SourceStore;
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Default)]
