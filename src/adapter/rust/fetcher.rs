@@ -197,13 +197,19 @@ impl CrateFetcher {
         })
     }
 
+    fn cargo_registry_dir() -> Option<PathBuf> {
+        if let Ok(ch) = std::env::var("CARGO_HOME") {
+            Some(PathBuf::from(ch).join("registry"))
+        } else if let Ok(home) = std::env::var("HOME") {
+            Some(PathBuf::from(home).join(".cargo").join("registry"))
+        } else {
+            None
+        }
+    }
+
     /// Searches standard ~/.cargo/registry/cache for downloaded .crate file.
     fn find_in_cargo_registry_cache(&self, name: &str, version: &str) -> Option<PathBuf> {
-        let home = std::env::var("HOME").ok()?;
-        let cache_root = Path::new(&home)
-            .join(".cargo")
-            .join("registry")
-            .join("cache");
+        let cache_root = Self::cargo_registry_dir()?.join("cache");
         if !cache_root.is_dir() {
             return None;
         }
@@ -222,8 +228,7 @@ impl CrateFetcher {
 
     /// Searches standard ~/.cargo/registry/src for already unpacked crate source directory.
     fn find_in_cargo_registry_src(&self, name: &str, version: &str) -> Option<PathBuf> {
-        let home = std::env::var("HOME").ok()?;
-        let src_root = Path::new(&home).join(".cargo").join("registry").join("src");
+        let src_root = Self::cargo_registry_dir()?.join("src");
         if !src_root.is_dir() {
             return None;
         }
