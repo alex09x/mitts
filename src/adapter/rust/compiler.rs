@@ -137,6 +137,22 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("-C").arg("embed-bitcode=no");
         }
 
+        if !self.unit.is_workspace {
+            cmd.arg("--cap-lints").arg("allow");
+        } else {
+            let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
+            let ws_root = find_workspace_root(&self.unit.manifest_path);
+            if pkg_dir.starts_with(&ws_root) {
+                let ws_str = ws_root.to_string_lossy();
+                let ws_clean = ws_str.trim_end_matches('/');
+                cmd.arg(format!("--remap-path-prefix={}/=", ws_clean));
+                cmd.arg(format!("--remap-path-prefix={}=", ws_clean));
+            }
+        }
+
+        // Out-dir remappings must follow workspace remapping so that if OUT_DIR or staging
+        // is inside the workspace (e.g. tests or MITTS_CACHE_DIR=./.cache), rustc's last-matching
+        // rule prioritizes out_dir over the broader workspace prefix.
         let clean_crate = self.unit.target_name.replace('-', "_");
         let stable_out = format!("/mitts/out/{}", clean_crate);
         let stable_out_slash = format!("/mitts/out/{}/", clean_crate);
@@ -158,19 +174,6 @@ impl<'a> RustcInvocation<'a> {
                     d_clean, stable_out_slash
                 ));
                 cmd.arg(format!("--remap-path-prefix={}={}", d_clean, stable_out));
-            }
-        }
-
-        if !self.unit.is_workspace {
-            cmd.arg("--cap-lints").arg("allow");
-        } else {
-            let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
-            let ws_root = find_workspace_root(&self.unit.manifest_path);
-            if pkg_dir.starts_with(&ws_root) {
-                let ws_str = ws_root.to_string_lossy();
-                let ws_clean = ws_str.trim_end_matches('/');
-                cmd.arg(format!("--remap-path-prefix={}/=", ws_clean));
-                cmd.arg(format!("--remap-path-prefix={}=", ws_clean));
             }
         }
 

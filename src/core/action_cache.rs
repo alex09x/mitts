@@ -234,6 +234,7 @@ impl ActionCache {
         sorted_deps.sort_by_key(|(name, _)| *name);
 
         let mut payload = String::new();
+        payload.push_str("action_schema: v2\n");
         payload.push_str("toolchain: ");
         payload.push_str(toolchain_version.trim());
         payload.push('\n');

@@ -420,6 +420,19 @@ def verify_worktree_artifacts(project_name, worktrees, env_mitts, head_commit, c
                             method = f"behavioral_verification (version exact match: {v_cached})"
                     except Exception:
                         pass
+                elif project_name == "ring":
+                    try:
+                        with tempfile.TemporaryDirectory() as tmp_strip:
+                            strip_c = Path(tmp_strip) / "cached_stripped.rlib"
+                            strip_r = Path(tmp_strip) / "clean_stripped.rlib"
+                            subprocess.run(["objcopy", "--strip-debug", str(art), str(strip_c)], check=True)
+                            subprocess.run(["objcopy", "--strip-debug", str(clean_art), str(strip_r)], check=True)
+                            cmp_res = subprocess.run(["cmp", str(strip_c), str(strip_r)], capture_output=True)
+                            if cmp_res.returncode == 0:
+                                matches = True
+                                method = "strip_debug_cmp (code identical, differences only in staging debug paths)"
+                    except Exception:
+                        pass
                 else:
                     try:
                         nm_cached = subprocess.check_output(["nm", "-g", "--defined-only", str(art)], text=True).strip()
@@ -809,7 +822,7 @@ def main():
 
     all_results = {
         "_metadata": {
-            "mitts_bin_path": str(MITTS_BIN),
+            "mitts_bin": "target/release/mitts",
             "mitts_bin_sha256": bin_sha256,
             "mitts_version": mitts_version,
             "mitts_binary_commit": mitts_commit,

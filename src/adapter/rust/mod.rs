@@ -10,6 +10,7 @@
 
 pub mod build_script;
 pub mod build_script_directives;
+pub mod build_script_env;
 pub mod build_script_keys;
 pub mod build_script_purity;
 pub mod builder;

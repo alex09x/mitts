@@ -246,57 +246,17 @@ pub fn execute_build_script(
         );
     }
 
-    let rustc_bin = super::compiler::resolve_rustc();
-    let num_jobs = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .to_string();
-    let mut run_cmd = Command::new(&bin_path);
-    if let Some(bin_dir) = rustc_bin.parent() {
-        let cur_path = std::env::var("PATH").unwrap_or_default();
-        run_cmd.env("PATH", format!("{}:{}", bin_dir.display(), cur_path));
-    }
-    run_cmd
-        .current_dir(pkg_dir)
-        .env("CARGO_MANIFEST_DIR", pkg_dir)
-        .env(
-            "CARGO",
-            std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()),
-        )
-        .env("CARGO_PKG_NAME", &unit.package_name)
-        .env("CARGO_PKG_VERSION", &unit.version)
-        .env("CARGO_PKG_VERSION_MAJOR", &major)
-        .env("CARGO_PKG_VERSION_MINOR", &minor)
-        .env("CARGO_PKG_VERSION_PATCH", &patch)
-        .env("CARGO_PKG_VERSION_PRE", &pre)
-        .env("OUT_DIR", &out_dir)
-        .env("TARGET", &target)
-        .env("HOST", &target)
-        .env("NUM_JOBS", &num_jobs)
-        .env("RUSTC", &rustc_bin)
-        .env("PROFILE", if release { "release" } else { "debug" })
-        .env("OPT_LEVEL", if release { "3" } else { "0" })
-        .env("DEBUG", if release { "false" } else { "true" });
-
-    let target_cfgs = get_target_cfgs(&target);
-    for (k, v) in &target_cfgs {
-        run_cmd.env(k, v);
-    }
-
-    if let Some(ref links) = pkg_toml.package.as_ref().and_then(|p| p.links.as_ref()) {
-        run_cmd.env("CARGO_MANIFEST_LINKS", links);
-    }
-    for feat in features {
-        run_cmd.env(
-            format!("CARGO_FEATURE_{}", feat.to_uppercase().replace('-', "_")),
-            "1",
-        );
-    }
-    if let Some(extra) = extra_env {
-        for (k, v) in extra {
-            run_cmd.env(k, v);
-        }
-    }
+    let mut run_cmd = super::build_script_env::configure_build_script_run_cmd(
+        &bin_path,
+        pkg_dir,
+        unit,
+        &pkg_toml,
+        &out_dir,
+        &target,
+        release,
+        features,
+        extra_env,
+    );
 
     let run_status = run_cmd.output().context("Failed to execute build.rs")?;
     if !run_status.status.success() {

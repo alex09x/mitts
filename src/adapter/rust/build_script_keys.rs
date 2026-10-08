@@ -43,7 +43,7 @@ pub fn compute_build_script_key(
     extern_crates: &[(String, PathBuf)],
 ) -> Result<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v4:");
+    hasher.update(b"build_script_v5:");
     hasher.update(unit.package_name.as_bytes());
     hasher.update(b":");
     hasher.update(unit.version.as_bytes());
@@ -87,6 +87,18 @@ pub fn compute_build_script_key(
     if let Ok(ch) = std::env::var("CARGO_HOME") {
         hasher.update(b":cargo_home:");
         hasher.update(ch.as_bytes());
+    }
+    if let Ok(cf) = std::env::var("CFLAGS") {
+        hasher.update(b":cflags:");
+        hasher.update(cf.as_bytes());
+    }
+    if let Ok(cxx) = std::env::var("CXXFLAGS") {
+        hasher.update(b":cxxflags:");
+        hasher.update(cxx.as_bytes());
+    }
+    if let Ok(asm) = std::env::var("ASMFLAGS") {
+        hasher.update(b":asmflags:");
+        hasher.update(asm.as_bytes());
     }
     if let Some(env) = extra_env {
         let mut sorted: Vec<_> = env.iter().collect();
