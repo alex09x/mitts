@@ -34,6 +34,7 @@ pub struct ExecutionContext<'a> {
     pub compiler_messages: &'a Arc<Mutex<Vec<String>>>,
     pub any_missed: &'a Arc<Mutex<bool>>,
     pub dep_build_metadata: &'a Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
+    pub resolved_keys: Option<&'a Arc<Mutex<HashMap<String, String>>>>,
     pub jobserver: Option<&'a Arc<crate::core::JobserverPool>>,
     pub is_first_job: Option<&'a Arc<std::sync::atomic::AtomicBool>>,
     pub on_metadata_ready: Option<MetadataReadyCallback<'a>>,
@@ -132,6 +133,17 @@ pub fn try_restore_from_cache(
     }
 
     if valid {
+        if let Some(rk_map) = ctx.resolved_keys {
+            let res_key = effective_key
+                .split(":ws_leak:")
+                .next()
+                .unwrap_or(&effective_key);
+            rk_map
+                .lock()
+                .unwrap()
+                .insert(unit.unit_id(), res_key.to_string());
+        }
+
         if meta_path.is_file() {
             if let Ok(content) = fs::read_to_string(&meta_path) {
                 if let Ok(directives) = toml::from_str::<BuildScriptDirectives>(&content) {

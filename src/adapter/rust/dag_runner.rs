@@ -28,8 +28,9 @@ use std::thread;
 pub fn run_native_dag_build(
     opt: &RustBuildOptions,
     explanation: &EffectivePlanExplanation,
-    unit_keys: &HashMap<String, String>,
+    deriver: &super::key::UnitKeyDeriver,
 ) -> Result<(BuildPlan, ActionResult)> {
+    let unit_keys = &deriver.initial_base_keys;
     let cas = match opt.cache_dir {
         Some(ref cd) => ContentAddressedStore::new(cd.join("cas"))?,
         None => ContentAddressedStore::default_store()?,
@@ -49,6 +50,7 @@ pub fn run_native_dag_build(
     let any_missed: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     let dep_build_metadata: Arc<Mutex<HashMap<String, HashMap<String, String>>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    let resolved_keys: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let target_dir = explanation.target_directory.clone();
     fs::create_dir_all(&target_dir)?;
@@ -136,6 +138,8 @@ pub fn run_native_dag_build(
             let compiler_messages = Arc::clone(&compiler_messages);
             let any_missed = Arc::clone(&any_missed);
             let dep_build_metadata = Arc::clone(&dep_build_metadata);
+            let resolved_keys = Arc::clone(&resolved_keys);
+            let deriver = deriver.clone();
             let jobserver = jobserver.clone();
             let is_first_job = Arc::clone(&is_first_job);
             let target_dir = target_dir.clone();
@@ -156,6 +160,7 @@ pub fn run_native_dag_build(
                     compiler_messages: &compiler_messages,
                     any_missed: &any_missed,
                     dep_build_metadata: &dep_build_metadata,
+                    resolved_keys: Some(&resolved_keys),
                     jobserver: jobserver.as_ref(),
                     is_first_job: Some(&is_first_job),
                     on_metadata_ready: Some(on_metadata_ready),
@@ -191,10 +196,22 @@ pub fn run_native_dag_build(
                         continue;
                     };
                     let unit = node.unit.clone();
-                    let action_key = unit_keys
-                        .get(&unit_id)
-                        .cloned()
-                        .unwrap_or_else(|| unit_id.clone());
+                    let dep_keys: Vec<(String, String)> = {
+                        let map = resolved_keys.lock().unwrap();
+                        unit.dependencies
+                            .iter()
+                            .filter_map(|dep_id| {
+                                map.get(dep_id)
+                                    .or_else(|| unit_keys.get(dep_id))
+                                    .map(|k| (dep_id.clone(), k.clone()))
+                            })
+                            .collect()
+                    };
+                    let dep_refs: Vec<(&str, &str)> = dep_keys
+                        .iter()
+                        .map(|(id, k)| (id.as_str(), k.as_str()))
+                        .collect();
+                    let action_key = deriver.compute_dynamic_key(&unit, &dep_refs);
 
                     let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         execute_unit(&unit, &action_key, &ctx, lock_mode)

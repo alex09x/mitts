@@ -173,6 +173,22 @@ pub(crate) fn execute_unit(
 
     let output = if let Some(cb) = ctx.on_metadata_ready {
         invocation.execute_pipelined(|rmeta_path| {
+            let ws_root = if unit.is_workspace {
+                Some(super::compiler::find_workspace_root(&unit.manifest_path))
+            } else {
+                None
+            };
+            if let Some(early_rk) = super::dag_unit_publish::resolve_unit_result_key(
+                unit,
+                action_key,
+                &staging_dir,
+                ws_root.as_deref(),
+            ) {
+                if let Some(rk_map) = ctx.resolved_keys {
+                    rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
+                }
+            }
+
             if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {
                 if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
                     &unit.target_name,

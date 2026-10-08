@@ -80,6 +80,18 @@ impl ActionManifest {
         for entry in &self.entries {
             let mut matches = true;
             for (path_str, expected_hash) in &entry.extra_inputs {
+                if let Some(var_name) = path_str.strip_prefix("env:") {
+                    let actual_hash = match std::env::var(var_name) {
+                        Ok(v) => Sha256::digest(v.as_bytes()),
+                        Err(_) => Sha256::digest(b"__UNSET__"),
+                    };
+                    if actual_hash != *expected_hash {
+                        matches = false;
+                        break;
+                    }
+                    continue;
+                }
+
                 let file_path = if let Some(rel) = path_str.strip_prefix("ws:") {
                     if let Some(root) = ws_root {
                         root.join(rel)

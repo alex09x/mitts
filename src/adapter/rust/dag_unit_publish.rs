@@ -157,66 +157,33 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         }
     }
 
-    fn clean_path(path: &Path) -> PathBuf {
-        use std::path::Component;
-        let mut out = PathBuf::new();
-        for c in path.components() {
-            match c {
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    out.pop();
-                }
-                _ => out.push(c),
-            }
+    // 5. Parse dep-info (.d) in staging_dir for extra inputs outside package_dir (P0, P1, P2)
+    let extra_inputs_res = extract_unit_extra_inputs(unit, args.staging_dir, ws_root.as_deref());
+    let (extra_inputs, can_publish_cache) = match extra_inputs_res {
+        Ok(extra) => (extra, true),
+        Err(err) => {
+            eprintln!(
+                "[mitts::warn] Unit '{}' tracked input hashing failed: {}. Discarding cache publication (fail-closed).",
+                unit.unit_id(),
+                err
+            );
+            (Vec::new(), false)
         }
-        out
-    }
-
-    // 5. Parse dep-info (.d) in staging_dir for extra inputs outside package_dir (P0)
-    let mut extra_inputs = Vec::new();
-    if unit.is_workspace {
-        let root = ws_root.as_ref().unwrap();
-        let cleaned_root = clean_path(root);
-        let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-        let cleaned_pkg = clean_path(pkg_dir);
-        if let Ok(entries) = fs::read_dir(args.staging_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension().map(|e| e == "d").unwrap_or(false) {
-                    if let Ok(tracked) = super::dep_info::parse_dep_info_with_root(&p, Some(root)) {
-                        for file_path in tracked {
-                            let cleaned_file = clean_path(&file_path);
-                            if cleaned_file.starts_with(&cleaned_pkg) {
-                                continue;
-                            }
-                            let norm_path =
-                                if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
-                                    format!("ws:{}", rel.display())
-                                } else {
-                                    cleaned_file.to_string_lossy().to_string()
-                                };
-                            if let Ok(hash) = Sha256::digest_file(&file_path) {
-                                extra_inputs.push((norm_path, hash));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        extra_inputs.sort_by(|a, b| a.0.cmp(&b.0));
-        extra_inputs.dedup_by(|a, b| a.0 == b.0);
-    }
+    };
 
     // 6. Compute result_key and effective action key
-    let result_key = if extra_inputs.is_empty() {
-        action_key.to_string()
+    let result_key = if can_publish_cache {
+        compute_composite_result_key(action_key, &extra_inputs)
     } else {
-        let mut hasher_payload = format!("base:{}\nextra:\n", action_key);
-        for (path, hash) in &extra_inputs {
-            hasher_payload.push_str(&format!("  {}: {}\n", path, hash));
-        }
-        Sha256::digest(hasher_payload.as_bytes())
+        format!("{}:unhashable:{}", action_key, std::process::id())
     };
+
+    if let Some(rk_map) = ctx.resolved_keys {
+        rk_map
+            .lock()
+            .unwrap()
+            .insert(unit.unit_id(), result_key.clone());
+    }
 
     let effective_action_key = if contains_ws_root_path {
         let root = ws_root.as_ref().unwrap();
@@ -227,7 +194,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     };
 
     // 7. Publish Action Cache entry
-    if ctx.is_cache_enabled && !cached_outputs.is_empty() {
+    if can_publish_cache && ctx.is_cache_enabled && !cached_outputs.is_empty() {
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -252,4 +219,94 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     }
 
     Ok(action_outputs)
+}
+
+pub(crate) fn clean_path(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+pub fn extract_unit_extra_inputs(
+    unit: &PlannedCompilationUnit,
+    staging_dir: &Path,
+    ws_root: Option<&Path>,
+) -> Result<Vec<(String, String)>> {
+    let mut extra_inputs = Vec::new();
+    if unit.is_workspace {
+        if let Some(root) = ws_root {
+            let cleaned_root = clean_path(root);
+            let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+            let cleaned_pkg = clean_path(pkg_dir);
+            if let Ok(entries) = fs::read_dir(staging_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().map(|e| e == "d").unwrap_or(false) {
+                        let parsed = super::dep_info::parse_dep_info_full(&p, Some(root))?;
+                        for file_path in parsed.files {
+                            let cleaned_file = clean_path(&file_path);
+                            if cleaned_file.starts_with(&cleaned_pkg) {
+                                continue;
+                            }
+                            let norm_path =
+                                if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
+                                    format!("ws:{}", rel.display())
+                                } else {
+                                    cleaned_file.to_string_lossy().to_string()
+                                };
+                            let hash = Sha256::digest_file(&file_path)?;
+                            extra_inputs.push((norm_path, hash));
+                        }
+                        for (var, val_opt) in parsed.env_deps {
+                            let norm_path = format!("env:{}", var);
+                            let hash = match val_opt {
+                                Some(v) => Sha256::digest(v.as_bytes()),
+                                None => Sha256::digest(b"__UNSET__"),
+                            };
+                            extra_inputs.push((norm_path, hash));
+                        }
+                    }
+                }
+            }
+            extra_inputs.sort_by(|a, b| a.0.cmp(&b.0));
+            extra_inputs.dedup_by(|a, b| a.0 == b.0);
+        }
+    }
+    Ok(extra_inputs)
+}
+
+pub(crate) fn compute_composite_result_key(
+    base_key: &str,
+    extra_inputs: &[(String, String)],
+) -> String {
+    if extra_inputs.is_empty() {
+        base_key.to_string()
+    } else {
+        let mut hasher_payload = format!("base:{}\nextra:\n", base_key);
+        for (path, hash) in extra_inputs {
+            hasher_payload.push_str(&format!("  {}: {}\n", path, hash));
+        }
+        Sha256::digest(hasher_payload.as_bytes())
+    }
+}
+
+pub(crate) fn resolve_unit_result_key(
+    unit: &PlannedCompilationUnit,
+    base_key: &str,
+    staging_dir: &Path,
+    ws_root: Option<&Path>,
+) -> Option<String> {
+    match extract_unit_extra_inputs(unit, staging_dir, ws_root) {
+        Ok(extra) => Some(compute_composite_result_key(base_key, &extra)),
+        Err(_) => None,
+    }
 }

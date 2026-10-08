@@ -174,6 +174,8 @@ fn test_m8_dag_cache_progress_and_non_native() {
         exit_code: 0,
     })
     .unwrap();
+    ac.record_manifest_entry(action_key, Vec::new(), action_key)
+        .unwrap();
 
     let messages = Arc::new(Mutex::new(Vec::new()));
     let msg_clone = Arc::clone(&messages);
@@ -215,6 +217,7 @@ fn test_m8_dag_cache_progress_and_non_native() {
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        resolved_keys: None,
         jobserver: None,
         is_first_job: None,
         on_metadata_ready: None,

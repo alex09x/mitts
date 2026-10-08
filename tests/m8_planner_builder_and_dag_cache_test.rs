@@ -89,6 +89,7 @@ edition = "2021"
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        resolved_keys: None,
         jobserver: None,
         is_first_job: None,
         on_metadata_ready: None,
@@ -120,6 +121,8 @@ edition = "2021"
         exit_code: 0,
     };
     ac.put(&entry).unwrap();
+    ac.record_manifest_entry(action_key, Vec::new(), action_key)
+        .unwrap();
 
     let mut opt_with_cb = opt.clone();
     let hit_count = Arc::new(Mutex::new(0));
@@ -163,6 +166,8 @@ edition = "2021"
         exit_code: 0,
     };
     ac.put(&lib_entry).unwrap();
+    ac.record_manifest_entry(lib_key, Vec::new(), lib_key)
+        .unwrap();
 
     let lib_restored = try_restore_from_cache(&lib_unit, lib_key, &ctx_hit, false).unwrap();
     assert!(lib_restored);

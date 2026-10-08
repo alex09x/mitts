@@ -50,7 +50,7 @@ pub use dag_runner::run_native_dag_build;
 pub use dag_scheduler::{LockMode, UnitExecutionStatus, WaveWorkQueue};
 pub use env_macro::scan_env_macros;
 pub use fetcher::{CrateFetcher, FetchOptions, FetchResult};
-pub use key::derive_unit_action_keys;
+pub use key::{derive_unit_action_key_context, derive_unit_action_keys, UnitKeyDeriver};
 pub use lockfile::{CargoLock, CargoLockPackage};
 pub use resolver::NativeResolver;
 pub use sparse_index::SparseIndexClient;
@@ -229,8 +229,8 @@ impl RustAdapter {
     /// Executes native parallel DAG compilation directly invoking rustc (Milestone M4).
     pub fn build_native(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         let explanation = Self::explain_plan(opt)?;
-        let unit_keys = Self::derive_unit_action_keys(opt, &explanation)?;
-        dag_runner::run_native_dag_build(opt, &explanation, &unit_keys)
+        let deriver = key::derive_unit_action_key_context(opt, &explanation)?;
+        dag_runner::run_native_dag_build(opt, &explanation, &deriver)
     }
 
     /// Resolves or validates the project's Cargo.lock according to the two-phase contract.

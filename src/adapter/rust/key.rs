@@ -14,6 +14,7 @@ use crate::core::action_cache::ActionCache;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
 
 pub use super::key_flags::*;
@@ -56,11 +57,65 @@ where
     })
 }
 
-/// Derives independent deterministic Action Keys for each compilation unit in topological order.
-pub fn derive_unit_action_keys(
+/// Context for deriving unit action keys dynamically in the DAG runner
+/// using the resolved result keys of dependency units.
+#[derive(Clone)]
+pub struct UnitKeyDeriver {
+    pub toolchain_version: String,
+    pub target_triple: String,
+    pub profile: String,
+    pub inputs_by_unit: Arc<HashMap<String, Vec<(String, String)>>>,
+    pub flags_by_unit: Arc<HashMap<String, Vec<String>>>,
+    pub initial_base_keys: Arc<HashMap<String, String>>,
+}
+
+impl UnitKeyDeriver {
+    pub fn compute_dynamic_key(
+        &self,
+        unit: &PlannedCompilationUnit,
+        dep_keys: &[(&str, &str)],
+    ) -> String {
+        let u_id = unit.unit_id();
+        let unit_inputs = match self.inputs_by_unit.get(&u_id) {
+            Some(i) => i,
+            None => {
+                return self
+                    .initial_base_keys
+                    .get(&u_id)
+                    .cloned()
+                    .unwrap_or_else(|| u_id.clone());
+            }
+        };
+        let source_refs: Vec<(&str, &str)> = unit_inputs
+            .iter()
+            .map(|(p, h)| (p.as_str(), h.as_str()))
+            .collect();
+
+        let mut dep_hashes = dep_keys.to_vec();
+        dep_hashes.sort();
+
+        let flags = match self.flags_by_unit.get(&u_id) {
+            Some(f) => f.as_slice(),
+            None => &[],
+        };
+
+        ActionCache::derive_action_key(
+            &self.toolchain_version,
+            &self.target_triple,
+            &self.profile,
+            flags,
+            &unit.features,
+            &source_refs,
+            &dep_hashes,
+        )
+    }
+}
+
+/// Derives independent deterministic Action Keys and builds the dynamic key deriver.
+pub fn derive_unit_action_key_context(
     opt: &RustBuildOptions,
     explanation: &EffectivePlanExplanation,
-) -> Result<HashMap<String, String>> {
+) -> Result<UnitKeyDeriver> {
     let mut unit_keys: HashMap<String, String> = HashMap::new();
 
     // Gather effective environment flags (all CARGO_*, RUST_*, RUSTFLAGS, etc.)
@@ -228,5 +283,21 @@ pub fn derive_unit_action_keys(
         remaining = next_remaining;
     }
 
-    Ok(unit_keys)
+    Ok(UnitKeyDeriver {
+        toolchain_version: explanation.toolchain.version.clone(),
+        target_triple,
+        profile: explanation.profile.clone(),
+        inputs_by_unit: Arc::new(inputs_by_unit),
+        flags_by_unit: Arc::new(flags_by_unit),
+        initial_base_keys: Arc::new(unit_keys),
+    })
+}
+
+/// Derives independent deterministic Action Keys for each compilation unit in topological order.
+pub fn derive_unit_action_keys(
+    opt: &RustBuildOptions,
+    explanation: &EffectivePlanExplanation,
+) -> Result<HashMap<String, String>> {
+    let deriver = derive_unit_action_key_context(opt, explanation)?;
+    Ok((*deriver.initial_base_keys).clone())
 }

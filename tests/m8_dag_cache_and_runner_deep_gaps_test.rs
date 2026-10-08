@@ -90,6 +90,7 @@ links = "native_zlib"
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        resolved_keys: None,
         jobserver: None,
         is_first_job: None,
         on_metadata_ready: None,
@@ -177,6 +178,9 @@ links = "native_zlib"
         exit_code: 0,
     };
     ctx.ac.put(&multi_output_entry).unwrap();
+    ctx.ac
+        .record_manifest_entry(action_key, Vec::new(), action_key)
+        .unwrap();
 
     let progress_called = Arc::new(Mutex::new(false));
     let progress_flag = progress_called.clone();
@@ -201,6 +205,7 @@ links = "native_zlib"
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        resolved_keys: None,
         jobserver: None,
         is_first_job: None,
         on_metadata_ready: None,
@@ -278,6 +283,7 @@ fn test_m8_dag_cache_binary_restore_copy() {
         compiler_messages: &compiler_messages,
         any_missed: &any_missed,
         dep_build_metadata: &dep_build_metadata,
+        resolved_keys: None,
         jobserver: None,
         is_first_job: None,
         on_metadata_ready: None,
@@ -301,6 +307,9 @@ fn test_m8_dag_cache_binary_restore_copy() {
         exit_code: 0,
     };
     ctx.ac.put(&entry).unwrap();
+    ctx.ac
+        .record_manifest_entry(action_key, Vec::new(), action_key)
+        .unwrap();
 
     let restored = try_restore_from_cache(&unit, action_key, &ctx, true).unwrap();
     assert!(restored);

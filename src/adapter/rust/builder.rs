@@ -8,7 +8,6 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::key::derive_unit_action_keys;
 use super::planner::explain_plan;
 use super::types::{RustAdapterError, RustBuildOptions};
 use crate::adapter::RustAdapter;
@@ -160,9 +159,10 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         );
     }
 
-    let unit_keys = logger.measure("keys", "Action key derivation and input hashing", || {
-        derive_unit_action_keys(opt, &explanation)
+    let key_deriver = logger.measure("keys", "Action key derivation and input hashing", || {
+        super::key::derive_unit_action_key_context(opt, &explanation)
     })?;
+    let unit_keys = (*key_deriver.initial_base_keys).clone();
 
     if is_verbose {
         println!(
@@ -173,7 +173,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
 
     let (plan, result) =
         logger.measure("compile", "native parallel rustc DAG execution", || {
-            super::dag_runner::run_native_dag_build(opt, &explanation, &unit_keys)
+            super::dag_runner::run_native_dag_build(opt, &explanation, &key_deriver)
         })?;
 
     record_state_and_trace(
