@@ -16,6 +16,7 @@ use std::path::Path;
 use std::process::Command;
 
 /// Prepares the Command execution environment for running a compiled build.rs binary.
+#[allow(clippy::too_many_arguments)]
 pub fn configure_build_script_run_cmd(
     bin_path: &Path,
     pkg_dir: &Path,
@@ -83,39 +84,75 @@ pub fn configure_build_script_run_cmd(
         }
     }
 
-    // Remap ephemeral staging OUT_DIR and pkg_dir for downstream C/C++/ASM compilers (cc-rs)
-    let clean_crate = unit.package_name.replace('-', "_");
-    let stable_out = format!("/mitts/out/{}", clean_crate);
-    let prefix_map = format!(
-        "-ffile-prefix-map={}={} -ffile-prefix-map={}=.",
-        out_dir.display(),
-        stable_out,
-        pkg_dir.display()
-    );
+    // Inject -ffile-prefix-map for C/C++/ASM compilers (cc-rs) to ensure deterministic builds.
+    // Safety & compatibility constraints:
+    // 1. MSVC (/pathmap) and older compilers do not support -ffile-prefix-map -> skip on msvc targets.
+    // 2. cc-rs splits flags on whitespace -> skip if out_dir or pkg_dir contains spaces.
+    // 3. Do not create higher-precedence target-specific variables that shadow user CFLAGS!
+    //    Append prefix-map only to variables the user already set; if none set, set only base CFLAGS.
+    let out_dir_str = out_dir.to_string_lossy();
+    let pkg_dir_str = pkg_dir.to_string_lossy();
+    let is_msvc = target.contains("msvc");
+    let has_spaces = out_dir_str.contains(' ') || pkg_dir_str.contains(' ');
 
-    let append_flag = |var: &str| -> String {
-        match std::env::var(var) {
-            Ok(existing) if !existing.trim().is_empty() => {
-                format!("{} {}", existing.trim(), prefix_map)
+    if !is_msvc && !has_spaces {
+        let clean_crate = unit.package_name.replace('-', "_");
+        let stable_out = format!("/mitts/out/{}", clean_crate);
+        let prefix_map = format!(
+            "-ffile-prefix-map={}={} -ffile-prefix-map={}=.",
+            out_dir_str, stable_out, pkg_dir_str
+        );
+
+        let get_val = |key: &str| -> Option<String> {
+            if let Some(extra) = extra_env {
+                if let Some(v) = extra.get(key) {
+                    return Some(v.clone());
+                }
             }
-            _ => prefix_map.clone(),
+            std::env::var(key).ok()
+        };
+
+        let target_suffix = target.replace('-', "_");
+        for base in &["CFLAGS", "CXXFLAGS", "ASMFLAGS"] {
+            let target_var = format!("{}_{}", base, target_suffix);
+            let target_prefix_var = format!("TARGET_{}", base);
+
+            let has_target = get_val(&target_var).is_some();
+            let has_target_prefix = get_val(&target_prefix_var).is_some();
+            let has_base = get_val(base).is_some();
+
+            if has_target || has_target_prefix || has_base {
+                if let Some(val) = get_val(&target_var) {
+                    let new_val = if val.trim().is_empty() {
+                        prefix_map.clone()
+                    } else {
+                        format!("{} {}", val.trim(), prefix_map)
+                    };
+                    run_cmd.env(&target_var, new_val);
+                }
+                if let Some(val) = get_val(&target_prefix_var) {
+                    let new_val = if val.trim().is_empty() {
+                        prefix_map.clone()
+                    } else {
+                        format!("{} {}", val.trim(), prefix_map)
+                    };
+                    run_cmd.env(&target_prefix_var, new_val);
+                }
+                if let Some(val) = get_val(base) {
+                    let new_val = if val.trim().is_empty() {
+                        prefix_map.clone()
+                    } else {
+                        format!("{} {}", val.trim(), prefix_map)
+                    };
+                    run_cmd.env(base, new_val);
+                }
+            } else {
+                // If user did not set any C/CXX/ASM flags, set only the base variable (e.g. CFLAGS).
+                // Do NOT set TARGET_CFLAGS or CFLAGS_<target>, which would shadow future user CFLAGS.
+                run_cmd.env(base, &prefix_map);
+            }
         }
-    };
-
-    let target_suffix = target.replace('-', "_");
-    let target_cflags_var = format!("CFLAGS_{}", target_suffix);
-    let target_cxxflags_var = format!("CXXFLAGS_{}", target_suffix);
-    let target_asmflags_var = format!("ASMFLAGS_{}", target_suffix);
-
-    run_cmd.env("CFLAGS", append_flag("CFLAGS"));
-    run_cmd.env("CXXFLAGS", append_flag("CXXFLAGS"));
-    run_cmd.env("ASMFLAGS", append_flag("ASMFLAGS"));
-    run_cmd.env("TARGET_CFLAGS", append_flag("TARGET_CFLAGS"));
-    run_cmd.env("TARGET_CXXFLAGS", append_flag("TARGET_CXXFLAGS"));
-    run_cmd.env("TARGET_ASMFLAGS", append_flag("TARGET_ASMFLAGS"));
-    run_cmd.env(&target_cflags_var, append_flag(&target_cflags_var));
-    run_cmd.env(&target_cxxflags_var, append_flag(&target_cxxflags_var));
-    run_cmd.env(&target_asmflags_var, append_flag(&target_asmflags_var));
+    }
 
     run_cmd
 }

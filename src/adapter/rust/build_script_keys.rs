@@ -88,17 +88,24 @@ pub fn compute_build_script_key(
         hasher.update(b":cargo_home:");
         hasher.update(ch.as_bytes());
     }
-    if let Ok(cf) = std::env::var("CFLAGS") {
-        hasher.update(b":cflags:");
-        hasher.update(cf.as_bytes());
-    }
-    if let Ok(cxx) = std::env::var("CXXFLAGS") {
-        hasher.update(b":cxxflags:");
-        hasher.update(cxx.as_bytes());
-    }
-    if let Ok(asm) = std::env::var("ASMFLAGS") {
-        hasher.update(b":asmflags:");
-        hasher.update(asm.as_bytes());
+    let target_suffix = target.replace('-', "_");
+    for base in &["CFLAGS", "CXXFLAGS", "ASMFLAGS"] {
+        for var in &[
+            format!("{}_{}", base, target_suffix),
+            format!("TARGET_{}", base),
+            base.to_string(),
+        ] {
+            if let Some(val) = extra_env
+                .and_then(|e| e.get(var))
+                .cloned()
+                .or_else(|| std::env::var(var).ok())
+            {
+                hasher.update(b":c_flag_env:");
+                hasher.update(var.as_bytes());
+                hasher.update(b"=");
+                hasher.update(val.as_bytes());
+            }
+        }
     }
     if let Some(env) = extra_env {
         let mut sorted: Vec<_> = env.iter().collect();
