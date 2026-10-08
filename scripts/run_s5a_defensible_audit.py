@@ -372,10 +372,11 @@ def find_primary_artifact(t_dir, project_name):
     return None
 
 
-def verify_worktree_artifacts(project_name, worktrees, env_mitts, head_commit, commit_delta_5, commit_outside):
+def verify_worktree_artifacts(project_name, worktrees, env_mitts, head_commit, commit_delta_1, commit_delta_5, commit_outside):
     print("  [Artifact Verification] Verifying output artifacts against --no-cache clean reference...")
     artifact_check = {}
-    test_indices = {1, 9, 11}  # wt-01 (HEAD), wt-09 (-5), wt-11 (-14)
+    test_indices = {1, 5, 9, 11}  # wt-01 (HEAD), wt-05 (-1), wt-09 (-5), wt-11 (-14)
+    verified_refs = {}
 
     for (idx, wt_dir, commit) in worktrees:
         t_dir = wt_dir / "target" / "mitts" / "debug"
@@ -383,7 +384,7 @@ def verify_worktree_artifacts(project_name, worktrees, env_mitts, head_commit, c
             t_dir = wt_dir / "target" / "debug"
 
         art = find_primary_artifact(t_dir, project_name)
-        rel_pos = "HEAD" if commit == head_commit else ("-5" if commit == commit_delta_5 else ("-14" if commit == commit_outside else "other"))
+        rel_pos = "HEAD" if commit == head_commit else ("-1" if commit == commit_delta_1 else ("-5" if commit == commit_delta_5 else ("-14" if commit == commit_outside else "other")))
 
         if idx in test_indices and art is not None:
             cached_sha = get_file_sha256(art)
@@ -432,6 +433,13 @@ def verify_worktree_artifacts(project_name, worktrees, env_mitts, head_commit, c
             shutil.rmtree(clean_td, ignore_errors=True)
             print(f"    WT {idx:02d} ({rel_pos}): verified={matches} (method: {method})")
 
+            verified_refs[rel_pos] = {
+                "idx": idx,
+                "cached_sha256": cached_sha,
+                "verified": matches,
+                "method": method,
+            }
+
             artifact_check[f"wt-{idx:02d}"] = {
                 "commit": commit,
                 "relative_pos": rel_pos,
@@ -444,15 +452,35 @@ def verify_worktree_artifacts(project_name, worktrees, env_mitts, head_commit, c
             }
         else:
             cached_sha = get_file_sha256(art) if art else ""
+            ref = verified_refs.get(rel_pos)
+            if ref and ref["verified"] and cached_sha == ref["cached_sha256"]:
+                verified_identical = True
+                method = f"sha256_match_with_verified_wt_{ref['idx']:02d}"
+            else:
+                verified_identical = None
+                method = "not_verified"
+
             artifact_check[f"wt-{idx:02d}"] = {
                 "commit": commit,
                 "relative_pos": rel_pos,
                 "target_artifact": art.name if art else "",
                 "cached_sha256": cached_sha,
-                "verified_identical": bool(art),
-                "method": "parallel_swarm_isolated",
+                "verified_identical": verified_identical,
+                "method": method,
                 "isolated_target": True,
             }
+
+    head_ref = verified_refs.get("HEAD")
+    out_ref = verified_refs.get("-14")
+    if head_ref and out_ref:
+        is_diff = (head_ref["cached_sha256"] != out_ref["cached_sha256"])
+        artifact_check["_negative_control"] = {
+            "head_wt_01_sha256": head_ref["cached_sha256"],
+            "outside_wt_11_sha256": out_ref["cached_sha256"],
+            "commits_differ": True,
+            "artifacts_differ": is_diff,
+            "discriminating_verification": is_diff,
+        }
     return artifact_check
 
 
@@ -638,7 +666,7 @@ def audit_project(project_name, iterations=5):
                 breakdown["ws_leak"] = 0
 
             artifact_check = verify_worktree_artifacts(
-                project_name, worktrees, env_mitts, head_commit, commit_delta_5, commit_outside
+                project_name, worktrees, env_mitts, head_commit, commit_delta_1, commit_delta_5, commit_outside
             )
 
             unit_audit_first_run = {
