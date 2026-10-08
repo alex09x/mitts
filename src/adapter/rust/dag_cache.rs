@@ -106,7 +106,7 @@ pub fn try_restore_from_cache(
                             if let Some(parent) = dest_bin.parent() {
                                 let _ = fs::create_dir_all(parent);
                             }
-                            let _ = fs::copy(&rel_dest, &dest_bin);
+                            let _ = crate::core::reflink_or_copy(&rel_dest, &dest_bin, true);
                         }
                         break;
                     }

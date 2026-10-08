@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use super::manifest::CargoToml;
 use super::types::PlannedCompilationUnit;
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
@@ -39,6 +40,26 @@ pub fn classify_dep_requirement(
     );
     if is_consumer_linking {
         return DepRequirement::FullArtifact;
+    }
+    // If consumer package has a build script, build dependencies must be FullArtifact (.rlib)
+    if let Some(parent) = consumer.manifest_path.parent() {
+        if parent.join("build.rs").is_file() || parent.join("build").join("build.rs").is_file() {
+            if let Ok(toml) = CargoToml::from_file(&consumer.manifest_path) {
+                let dep_pkg = dependency.package_name.replace('-', "_");
+                let is_build_dep = toml
+                    .build_dependencies
+                    .keys()
+                    .any(|k| k.replace('-', "_") == dep_pkg)
+                    || toml.target.values().any(|t| {
+                        t.build_dependencies
+                            .keys()
+                            .any(|k| k.replace('-', "_") == dep_pkg)
+                    });
+                if is_build_dep {
+                    return DepRequirement::FullArtifact;
+                }
+            }
+        }
     }
     // Normal library depending on another library only requires metadata for type checking
     DepRequirement::MetadataOnly
@@ -102,7 +123,7 @@ where
     let stdout_handle = std::thread::spawn(move || {
         let mut out = String::new();
         let reader = BufReader::new(stdout_pipe);
-        for line in reader.lines().flatten() {
+        for line in reader.lines().map_while(Result::ok) {
             out.push_str(&line);
             out.push('\n');
         }
@@ -115,7 +136,7 @@ where
     let mut metadata_output = None;
 
     let stderr_reader = BufReader::new(stderr_pipe);
-    for line in stderr_reader.lines().flatten() {
+    for line in stderr_reader.lines().map_while(Result::ok) {
         if let Some((artifact_path, emit)) = parse_rustc_artifact_line(&line) {
             if emit == "metadata" {
                 metadata_output = Some(artifact_path.clone());

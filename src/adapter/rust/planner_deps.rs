@@ -1,0 +1,99 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+use super::lockfile::CargoLockPackage;
+use super::manifest::CargoToml;
+use super::package_selection::{has_active_dependency, parse_dep_spec};
+use super::types::PlannedCompilationUnit;
+use std::collections::HashMap;
+
+/// Resolves exact compilation unit dependencies matching library or proc-macro targets.
+pub fn resolve_unit_dependencies(
+    units: &mut [PlannedCompilationUnit],
+    selected_packages: &[(&CargoLockPackage, bool)],
+) {
+    let mut lib_units_by_exact = HashMap::new();
+    let mut lib_units_by_name: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+    for unit in units.iter() {
+        if unit.kind != "bin" && unit.kind != "test" {
+            let uid = unit.unit_id();
+            lib_units_by_exact.insert(
+                (unit.package_name.clone(), unit.version.clone()),
+                uid.clone(),
+            );
+            lib_units_by_exact.insert(
+                (unit.package_name.replace('-', "_"), unit.version.clone()),
+                uid.clone(),
+            );
+
+            lib_units_by_name
+                .entry(unit.package_name.clone())
+                .or_default()
+                .push((unit.version.clone(), uid.clone()));
+            lib_units_by_name
+                .entry(unit.package_name.replace('-', "_"))
+                .or_default()
+                .push((unit.version.clone(), uid));
+        }
+    }
+
+    for unit in units.iter_mut() {
+        let pkg_match = selected_packages
+            .iter()
+            .find(|(p, _)| p.name == unit.package_name && p.version == unit.version);
+
+        let pkg_toml_opt = CargoToml::from_file(&unit.manifest_path).ok();
+        let is_test = unit.kind == "test";
+
+        let mut unit_deps = Vec::new();
+        if let Some((pkg, _)) = pkg_match {
+            for dep_spec in &pkg.dependencies {
+                let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
+                if let Some(ref toml) = pkg_toml_opt {
+                    if !has_active_dependency(toml, dep_name, &unit.features, is_test) {
+                        continue;
+                    }
+                }
+                let resolved_dep_uid = if let Some(ver) = dep_ver {
+                    lib_units_by_exact
+                        .get(&(dep_name.to_string(), ver.to_string()))
+                        .or_else(|| {
+                            lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string()))
+                        })
+                        .cloned()
+                } else if let Some(candidates) = lib_units_by_name
+                    .get(dep_name)
+                    .or_else(|| lib_units_by_name.get(&dep_name.replace('-', "_")))
+                {
+                    candidates.first().map(|(_, uid)| uid.clone())
+                } else {
+                    None
+                };
+
+                if let Some(dep_uid) = resolved_dep_uid {
+                    unit_deps.push(dep_uid);
+                }
+            }
+        }
+
+        if unit.kind == "bin" || unit.kind == "test" {
+            if let Some(self_lib_uid) =
+                lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone()))
+            {
+                unit_deps.push(self_lib_uid.clone());
+            }
+        }
+
+        unit_deps.sort();
+        unit_deps.dedup();
+        unit.dependencies = unit_deps;
+    }
+}

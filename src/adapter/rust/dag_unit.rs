@@ -239,7 +239,7 @@ pub(crate) fn execute_unit(
         });
         let alt_path = profile_dir.join(&clean_crate);
         if alt_path != bin_path {
-            let _ = fs::copy(&bin_path, &alt_path);
+            let _ = crate::core::reflink_or_copy(&bin_path, &alt_path, true);
         }
         action_outputs.push(bin_path);
     } else {
@@ -277,7 +277,7 @@ pub(crate) fn execute_unit(
                 let deps_dir = ctx.target_dir.join(profile_name).join("deps");
                 let _ = fs::create_dir_all(&deps_dir);
                 let dep_copy = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                let _ = fs::copy(lib_path, &dep_copy);
+                let _ = crate::core::reflink_or_copy(lib_path, &dep_copy, false);
             }
         }
 

@@ -53,6 +53,13 @@ pub struct ActionCache {
 impl ActionCache {
     /// Initializes or opens an Action Cache at the specified directory.
     pub fn new(root: PathBuf) -> Result<Self> {
+        let root = if root.is_relative() {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(&root))
+                .unwrap_or(root)
+        } else {
+            root
+        };
         let tmp_dir = root.join("tmp");
         let locks_dir = root.parent().unwrap_or(&root).join("locks");
 

@@ -31,10 +31,11 @@ pub mod manifest_tests;
 pub mod package_selection;
 pub mod pipelining;
 pub mod planner;
+pub mod planner_deps;
 pub mod resolver;
 pub mod source_lookup;
-pub mod target_filter;
 pub mod sparse_index;
+pub mod target_filter;
 pub mod types;
 pub mod unescape;
 

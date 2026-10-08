@@ -28,6 +28,13 @@ pub struct ContentAddressedStore {
 impl ContentAddressedStore {
     /// Initializes or opens a CAS at the specified directory.
     pub fn new(root: PathBuf) -> Result<Self> {
+        let root = if root.is_relative() {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(&root))
+                .unwrap_or(root)
+        } else {
+            root
+        };
         let objects_dir = root.join("objects");
         let tmp_dir = root.join("tmp");
 
@@ -240,7 +247,9 @@ impl ContentAddressedStore {
         }
 
         #[cfg(unix)]
-        let needs_link = if let (Ok(meta), Ok(obj_meta)) = (fs::metadata(&artifact_path), fs::metadata(&obj_path)) {
+        let needs_link = if let (Ok(meta), Ok(obj_meta)) =
+            (fs::metadata(&artifact_path), fs::metadata(&obj_path))
+        {
             use std::os::unix::fs::MetadataExt;
             meta.ino() != obj_meta.ino() || meta.dev() != obj_meta.dev()
         } else {
