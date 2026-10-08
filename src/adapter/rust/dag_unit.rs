@@ -256,9 +256,9 @@ pub(crate) fn execute_unit(
     }
 
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
-    let profile_dir = ctx.target_dir.join(profile_name);
-    fs::create_dir_all(&profile_dir)?;
-    let dest_binary = is_executable.then(|| profile_dir.join(&unit.target_name));
+    let deps_dir = ctx.target_dir.join(profile_name).join("deps");
+    let _ = fs::create_dir_all(&deps_dir);
+    let dest_binary = is_executable.then(|| ctx.target_dir.join(profile_name).join(&unit.target_name));
 
     let invocation = RustcInvocation {
         unit,
@@ -272,6 +272,7 @@ pub(crate) fn execute_unit(
         mode: ctx.opt.mode,
         extra_compiler_args: &ctx.opt.extra_args,
         jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
+        deps_dir: Some(&deps_dir),
     };
 
     let output = if let Some(cb) = ctx.on_metadata_ready {

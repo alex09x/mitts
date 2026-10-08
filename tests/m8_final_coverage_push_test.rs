@@ -171,6 +171,7 @@ fn test_m8_handlers_gc_action_cache_dir_error_and_compiler_dest() {
         mode: BuildMode::Build,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
 
     let res = inv.execute().unwrap();
@@ -233,6 +234,7 @@ fn test_m8_reflink_and_c_adapter_and_lock_gap_pushes() {
         mode: BuildMode::Build,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
     let res_missing = inv_missing.execute().unwrap();
     assert!(!res_missing.success);

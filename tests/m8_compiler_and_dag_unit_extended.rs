@@ -77,6 +77,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         mode: BuildMode::Build,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
 
     let out = inv.execute().unwrap();
@@ -95,6 +96,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         mode: BuildMode::Check,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
     let out_check = inv_check.execute().unwrap();
     assert!(out_check.success);
@@ -135,6 +137,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         mode: BuildMode::Build,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
     let out_pm = inv_pm.execute().unwrap();
     assert!(out_pm.success);

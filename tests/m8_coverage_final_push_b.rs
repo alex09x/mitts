@@ -192,6 +192,7 @@ edition = "2021"
         mode: BuildMode::Build,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
 
     let res = invocation.execute();

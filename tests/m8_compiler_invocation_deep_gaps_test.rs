@@ -73,6 +73,7 @@ fn test_m8_compiler_invocation_test_mode_and_dest_binary() {
         mode: BuildMode::Test,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
 
     let out = inv.execute().unwrap();
@@ -129,6 +130,7 @@ fn test_m8_compiler_store_source_fallback() {
         mode: BuildMode::Build,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
 
     let out = inv.execute().unwrap();

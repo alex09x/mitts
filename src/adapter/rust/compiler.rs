@@ -30,6 +30,7 @@ pub struct RustcInvocation<'a> {
     pub mode: BuildMode,
     pub extra_compiler_args: &'a [String],
     pub jobserver_auth: Option<&'a str>,
+    pub deps_dir: Option<&'a Path>,
 }
 
 impl<'a> RustcInvocation<'a> {
@@ -207,6 +208,11 @@ impl<'a> RustcInvocation<'a> {
             let clean_dep = dep_crate.replace('-', "_");
             cmd.arg("--extern")
                 .arg(format!("{}={}", clean_dep, dep_artifact_path.display()));
+        }
+
+        if let Some(deps) = self.deps_dir {
+            cmd.arg("-L")
+                .arg(format!("dependency={}", deps.display()));
         }
 
         // Working directory and Cargo-compatible environment variables

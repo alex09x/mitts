@@ -142,6 +142,7 @@ fn test_m8_compiler_non_semver_and_invocation() {
         mode: BuildMode::Build,
         extra_compiler_args: &[],
         jobserver_auth: None,
+        deps_dir: None,
     };
 
     let res = inv.execute();
