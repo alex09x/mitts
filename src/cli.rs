@@ -14,7 +14,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(name = "mitts")]
 #[command(author = "Alexander Panasenko <alex@prod.codes>")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "Rust-first build and package tooling with a shared artifact cache", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
