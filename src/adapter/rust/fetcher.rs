@@ -108,10 +108,15 @@ impl CrateFetcher {
             );
         }
 
-        // 2. Download from crates.io static CDN
+        // 2. Download from crates.io static CDN (or custom mirror / mock server)
+        let base_url = std::env::var("MITTS_CRATES_IO_URL")
+            .unwrap_or_else(|_| "https://static.crates.io/crates".to_string());
         let url = format!(
-            "https://static.crates.io/crates/{}/{}-{}.crate",
-            pkg.name, pkg.name, pkg.version
+            "{}/{}/{}-{}.crate",
+            base_url.trim_end_matches('/'),
+            pkg.name,
+            pkg.name,
+            pkg.version
         );
 
         let mut body_bytes = Vec::new();
