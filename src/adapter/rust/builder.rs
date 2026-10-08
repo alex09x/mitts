@@ -72,7 +72,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     })?;
 
     // Fast build lock pre-flight check: if zero project files changed, return in microsecond time
-    if !opt.no_cache && opt.cache_dir.is_none() {
+    if !opt.no_cache && opt.cache_dir.is_none() && opt.extra_args.is_empty() {
         let lock_start = std::time::Instant::now();
         let freshness = FastBuildLock::check_freshness(&FreshnessCheckArgs {
             project_dir,
