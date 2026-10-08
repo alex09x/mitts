@@ -9,8 +9,9 @@
  */
 
 use super::build_script::execute_build_script;
+use super::build_script_directives::BuildScriptDirectives;
 use super::compiler::RustcInvocation;
-use super::dag_cache::{try_restore_from_cache, ExecutionContext};
+use super::dag_cache::{try_restore_from_cache_with_directives, ExecutionContext};
 use super::dag_scheduler::{LockMode, UnitExecutionStatus};
 use super::types::{BuildProgressEvent, PlannedCompilationUnit};
 use crate::core::action::{Action, ActionKind};
@@ -18,6 +19,7 @@ use crate::core::lock::FileLock;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::thread;
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
@@ -35,8 +37,92 @@ pub(crate) fn execute_unit(
                 crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
             ));
 
+    let has_build = super::unit_env::unit_has_build_script(unit);
+    let mut current_directives: Option<BuildScriptDirectives> = None;
+    let mut staging_dir_holder: Option<PathBuf> = None;
+
+    if has_build {
+        let pid = std::process::id();
+        let thread_id = format!("{:?}", thread::current().id());
+        let clean_tid: String = thread_id.chars().filter(|c| c.is_alphanumeric()).collect();
+        let staging_dir = ctx
+            .cas
+            .root()
+            .join("tmp")
+            .join(format!("stage_{}_{}_{}", clean_crate, pid, clean_tid));
+        fs::create_dir_all(&staging_dir)?;
+
+        let extern_crates = {
+            let completed = ctx.completed_artifacts.lock().unwrap();
+            super::dag_unit_externs::resolve_extern_crates(unit, &completed)
+        };
+        let artifacts_dir = ctx.cas.root().join("artifacts");
+        let mut build_dep_env = HashMap::new();
+        {
+            let all_meta = ctx.dep_build_metadata.lock().unwrap();
+            for dep_id in &unit.dependencies {
+                let dep_pkg = dep_id.split("::").next().unwrap_or(dep_id);
+                let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
+                if let Some(vars) = all_meta.get(dep_id) {
+                    for (k, v) in vars {
+                        build_dep_env.insert(k.clone(), v.clone());
+                    }
+                }
+                if let Some(vars) = all_meta.get(pkg_name_only) {
+                    for (k, v) in vars {
+                        build_dep_env.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+
+        let directives = match execute_build_script(
+            unit,
+            &staging_dir,
+            ctx.opt.release,
+            &unit.features,
+            Some(&artifacts_dir),
+            &extern_crates,
+            Some(&build_dep_env),
+        ) {
+            Ok(d) => d,
+            Err(err) => {
+                let _ = fs::remove_dir_all(&staging_dir);
+                let pkg_dir = unit
+                    .manifest_path
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."));
+                bail!(
+                    "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
+                    unit.unit_id(),
+                    pkg_dir.display(),
+                    err
+                );
+            }
+        };
+
+        let dep_vars = directives.dep_env_vars();
+        if !dep_vars.is_empty() {
+            let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
+            all_meta.insert(unit.unit_id(), dep_vars.clone());
+            all_meta.insert(unit.package_name.clone(), dep_vars);
+        }
+
+        current_directives = Some(directives);
+        staging_dir_holder = Some(staging_dir);
+    }
+
     // 1. Check Action Cache (read phase)
-    if try_restore_from_cache(unit, action_key, ctx, is_executable)? {
+    if try_restore_from_cache_with_directives(
+        unit,
+        action_key,
+        ctx,
+        is_executable,
+        current_directives.as_ref(),
+    )? {
+        if let Some(ref p) = staging_dir_holder {
+            let _ = fs::remove_dir_all(p);
+        }
         return Ok(UnitExecutionStatus::Success);
     }
 
@@ -51,7 +137,16 @@ pub(crate) fn execute_unit(
     };
 
     // Double-checked locking: re-check action cache in case a concurrent process just compiled it
-    if try_restore_from_cache(unit, action_key, ctx, is_executable)? {
+    if try_restore_from_cache_with_directives(
+        unit,
+        action_key,
+        ctx,
+        is_executable,
+        current_directives.as_ref(),
+    )? {
+        if let Some(ref p) = staging_dir_holder {
+            let _ = fs::remove_dir_all(p);
+        }
         return Ok(UnitExecutionStatus::Success);
     }
 
@@ -78,15 +173,21 @@ pub(crate) fn execute_unit(
     }
 
     // Staging directory for build isolation
-    let pid = std::process::id();
-    let thread_id = format!("{:?}", thread::current().id());
-    let clean_tid: String = thread_id.chars().filter(|c| c.is_alphanumeric()).collect();
-    let staging_dir = ctx
-        .cas
-        .root()
-        .join("tmp")
-        .join(format!("stage_{}_{}_{}", clean_crate, pid, clean_tid));
-    fs::create_dir_all(&staging_dir)?;
+    let staging_dir = match staging_dir_holder {
+        Some(s) => s,
+        None => {
+            let pid = std::process::id();
+            let thread_id = format!("{:?}", thread::current().id());
+            let clean_tid: String = thread_id.chars().filter(|c| c.is_alphanumeric()).collect();
+            let s = ctx
+                .cas
+                .root()
+                .join("tmp")
+                .join(format!("stage_{}_{}_{}", clean_crate, pid, clean_tid));
+            fs::create_dir_all(&s)?;
+            s
+        }
+    };
 
     // Gather dependencies' CAS artifact paths for --extern, resolving any Cargo package rename aliases
     let extern_crates = {
@@ -94,58 +195,7 @@ pub(crate) fn execute_unit(
         super::dag_unit_externs::resolve_extern_crates(unit, &completed)
     };
 
-    // Sandboxed build.rs execution if present
-    let artifacts_dir = ctx.cas.root().join("artifacts");
-    let mut build_dep_env = HashMap::new();
-    {
-        let all_meta = ctx.dep_build_metadata.lock().unwrap();
-        for dep_id in &unit.dependencies {
-            let dep_pkg = dep_id.split("::").next().unwrap_or(dep_id);
-            let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
-            if let Some(vars) = all_meta.get(dep_id) {
-                for (k, v) in vars {
-                    build_dep_env.insert(k.clone(), v.clone());
-                }
-            }
-            if let Some(vars) = all_meta.get(pkg_name_only) {
-                for (k, v) in vars {
-                    build_dep_env.insert(k.clone(), v.clone());
-                }
-            }
-        }
-    }
-
-    let directives = match execute_build_script(
-        unit,
-        &staging_dir,
-        ctx.opt.release,
-        &unit.features,
-        Some(&artifacts_dir),
-        &extern_crates,
-        Some(&build_dep_env),
-    ) {
-        Ok(d) => d,
-        Err(err) => {
-            let _ = fs::remove_dir_all(&staging_dir);
-            let pkg_dir = unit
-                .manifest_path
-                .parent()
-                .unwrap_or(std::path::Path::new("."));
-            bail!(
-                "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
-                unit.unit_id(),
-                pkg_dir.display(),
-                err
-            );
-        }
-    };
-
-    let dep_vars = directives.dep_env_vars();
-    if !dep_vars.is_empty() {
-        let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
-        all_meta.insert(unit.unit_id(), dep_vars.clone());
-        all_meta.insert(unit.package_name.clone(), dep_vars);
-    }
+    let directives = current_directives.unwrap_or_default();
     let meta_dir = ctx.cas.root().join("metadata");
     let _ = fs::create_dir_all(&meta_dir);
     if let Ok(toml_str) = toml::to_string(&directives) {

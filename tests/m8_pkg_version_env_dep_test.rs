@@ -186,3 +186,94 @@ edition = "2021"
     let out_b2 = Command::new(&bin_b).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_b2.stdout), "VER:0.2.0");
 }
+
+#[test]
+fn test_m8_build_script_rustc_env_rerun_if_changed() {
+    let cache_dir = TempDir::new().unwrap();
+    let root = TempDir::new().unwrap();
+
+    fs::create_dir_all(root.path().join("crates/dyn_app/src")).unwrap();
+
+    fs::write(
+        root.path().join("Cargo.toml"),
+        r#"[workspace]
+members = ["crates/dyn_app"]
+resolver = "2"
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        root.path().join("crates/dyn_app/Cargo.toml"),
+        r#"[package]
+name = "dyn_app"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        root.path().join("crates/dyn_app/build.rs"),
+        r#"fn main() {
+    let x = std::env::var("BUILD_TEST_X").unwrap_or_else(|_| "DEFAULT".to_string());
+    println!("cargo:rerun-if-env-changed=BUILD_TEST_X");
+    println!("cargo:rustc-env=GEN={}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        root.path().join("crates/dyn_app/src/main.rs"),
+        r#"fn main() {
+    print!("GEN:{}", env!("GEN"));
+}
+"#,
+    )
+    .unwrap();
+
+    // 1. Build with BUILD_TEST_X = "1"
+    std::env::set_var("BUILD_TEST_X", "1");
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(root.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let (_, res1) = RustAdapter::build_native(&opt1).expect("Build 1 failed");
+    assert_eq!(res1.exit_code, 0);
+
+    let bin = root.path().join("target/mitts/debug/dyn_app");
+    let out1 = Command::new(&bin).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out1.stdout), "GEN:1");
+
+    // 2. Re-build with BUILD_TEST_X = "2" -> rerun-if-env-changed must trigger and update GEN
+    std::env::set_var("BUILD_TEST_X", "2");
+    let opt2 = RustBuildOptions {
+        manifest_path: Some(root.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let (_, res2) = RustAdapter::build_native(&opt2).expect("Build 2 failed");
+    assert_eq!(res2.exit_code, 0);
+
+    let out2 = Command::new(&bin).output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out2.stdout),
+        "GEN:2",
+        "Build script rerun-if-env-changed must invalidate cached GEN and print 2"
+    );
+
+    // 3. Re-build with BUILD_TEST_X = "1" -> hits previous cached entry for 1
+    std::env::set_var("BUILD_TEST_X", "1");
+    let opt3 = RustBuildOptions {
+        manifest_path: Some(root.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let (_, res3) = RustAdapter::build_native(&opt3).expect("Build 3 failed");
+    assert_eq!(res3.exit_code, 0);
+
+    let out3 = Command::new(&bin).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out3.stdout), "GEN:1");
+}

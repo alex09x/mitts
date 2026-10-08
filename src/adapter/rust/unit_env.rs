@@ -104,3 +104,14 @@ pub fn compute_unit_rustc_env(
 
     env
 }
+
+/// Returns true if the compilation unit declares or contains an active build.rs build script.
+pub fn unit_has_build_script(unit: &PlannedCompilationUnit) -> bool {
+    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
+    match pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()) {
+        Some(super::manifest::TomlBuild::Disabled(false)) => false,
+        Some(super::manifest::TomlBuild::Path(ref rel_p)) => pkg_dir.join(rel_p).is_file(),
+        _ => pkg_dir.join("build.rs").is_file() || pkg_dir.join("build").join("build.rs").is_file(),
+    }
+}

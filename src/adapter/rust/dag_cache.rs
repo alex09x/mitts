@@ -48,6 +48,17 @@ pub fn try_restore_from_cache(
     ctx: &ExecutionContext,
     is_bin: bool,
 ) -> Result<bool> {
+    try_restore_from_cache_with_directives(unit, action_key, ctx, is_bin, None)
+}
+
+/// Checks the Action Cache using explicitly supplied build script directives for the current run.
+pub fn try_restore_from_cache_with_directives(
+    unit: &PlannedCompilationUnit,
+    action_key: &str,
+    ctx: &ExecutionContext,
+    is_bin: bool,
+    current_directives: Option<&BuildScriptDirectives>,
+) -> Result<bool> {
     if !ctx.is_cache_enabled {
         return Ok(false);
     }
@@ -65,20 +76,12 @@ pub fn try_restore_from_cache(
     let mut candidate_keys = Vec::new();
     if unit.is_workspace {
         if let Ok(Some(manifest)) = ctx.ac.get_manifest(action_key) {
-            let meta_path = ctx
-                .cas
-                .root()
-                .join("metadata")
-                .join(format!("{}.toml", action_key));
-            let cached_directives = if meta_path.is_file() {
-                fs::read_to_string(&meta_path)
-                    .ok()
-                    .and_then(|s| toml::from_str::<BuildScriptDirectives>(&s).ok())
-            } else {
-                None
-            };
-            let unit_env =
-                super::unit_env::compute_unit_rustc_env(unit, cached_directives.as_ref(), None);
+            let has_build = super::unit_env::unit_has_build_script(unit);
+            if has_build && current_directives.is_none() {
+                // Fail-closed: unit with build.rs cannot be restored from manifest without current run directives
+                return Ok(false);
+            }
+            let unit_env = super::unit_env::compute_unit_rustc_env(unit, current_directives, None);
             if let Some(matched_res_key) =
                 manifest.find_matching_entry(ws_root.as_deref(), Some(&unit_env))
             {
@@ -160,7 +163,14 @@ pub fn try_restore_from_cache(
                 .insert(unit.unit_id(), res_key.to_string());
         }
 
-        if meta_path.is_file() {
+        if let Some(d) = current_directives {
+            let dep_vars = d.dep_env_vars();
+            if !dep_vars.is_empty() {
+                let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
+                all_meta.insert(unit.unit_id(), dep_vars.clone());
+                all_meta.insert(unit.package_name.clone(), dep_vars);
+            }
+        } else if meta_path.is_file() {
             if let Ok(content) = fs::read_to_string(&meta_path) {
                 if let Ok(directives) = toml::from_str::<BuildScriptDirectives>(&content) {
                     let dep_vars = directives.dep_env_vars();
