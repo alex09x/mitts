@@ -71,8 +71,11 @@ impl SparseIndexClient {
             .timeout(std::time::Duration::from_secs(30))
             .build();
 
+        let base_url = std::env::var("MITTS_SPARSE_INDEX_URL")
+            .unwrap_or_else(|_| "https://index.crates.io".to_string());
+
         Ok(Self {
-            base_url: "https://index.crates.io".to_string(),
+            base_url,
             cache_dir,
             agent,
         })
@@ -84,8 +87,10 @@ impl SparseIndexClient {
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(30))
             .build();
+        let base_url = std::env::var("MITTS_SPARSE_INDEX_URL")
+            .unwrap_or_else(|_| "https://index.crates.io".to_string());
         Ok(Self {
-            base_url: "https://index.crates.io".to_string(),
+            base_url,
             cache_dir,
             agent,
         })
