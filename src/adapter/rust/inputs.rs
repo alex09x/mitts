@@ -242,12 +242,13 @@ pub fn hash_package_base_inputs(
     Ok(inputs)
 }
 
-/// Appends target-specific dep-info tracked assets to base package inputs.
-pub fn append_unit_dep_info_inputs(
+/// Appends target-specific dep-info tracked assets to base package inputs with optional workspace root for path normalization.
+pub fn append_unit_dep_info_inputs_with_ws(
     mut inputs: Vec<(String, String)>,
     package_dir: &Path,
     target_dir: &Path,
     target_name: &str,
+    ws_root: Option<&Path>,
 ) -> Result<Vec<(String, String)>> {
     for d_path in find_dep_info_files(target_dir, target_name) {
         let tracked_files = parse_dep_info(&d_path)?;
@@ -262,17 +263,33 @@ pub fn append_unit_dep_info_inputs(
             }
             let hash = Sha256::digest_file(&p)
                 .with_context(|| format!("Failed to hash tracked dep-info file {:?}", p))?;
-            let rel = p
-                .strip_prefix(package_dir)
-                .unwrap_or(&p)
-                .to_string_lossy()
-                .to_string();
+            let rel = if let Ok(r) = p.strip_prefix(package_dir) {
+                r.to_string_lossy().to_string()
+            } else if let Some(ws) = ws_root {
+                if let Ok(r) = p.strip_prefix(ws) {
+                    format!("ws:{}", r.display())
+                } else {
+                    p.to_string_lossy().to_string()
+                }
+            } else {
+                p.to_string_lossy().to_string()
+            };
             inputs.push((rel, hash));
         }
     }
     inputs.sort_by(|a, b| a.0.cmp(&b.0));
     inputs.dedup_by(|a, b| a.0 == b.0);
     Ok(inputs)
+}
+
+/// Appends target-specific dep-info tracked assets to base package inputs.
+pub fn append_unit_dep_info_inputs(
+    inputs: Vec<(String, String)>,
+    package_dir: &Path,
+    target_dir: &Path,
+    target_name: &str,
+) -> Result<Vec<(String, String)>> {
+    append_unit_dep_info_inputs_with_ws(inputs, package_dir, target_dir, target_name, None)
 }
 
 /// Gathers and hashes all inputs for a specific target unit, including target dep-info files.

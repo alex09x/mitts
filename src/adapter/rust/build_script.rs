@@ -173,6 +173,15 @@ pub fn execute_build_script(
         .env("CARGO_PKG_VERSION_PATCH", &patch)
         .env("CARGO_PKG_VERSION_PRE", &pre);
 
+    if unit.is_workspace {
+        let ws_root = super::compiler::find_workspace_root(pkg_dir);
+        compile_cmd.arg(format!(
+            "--remap-path-prefix={}={}",
+            ws_root.display(),
+            super::key::MITTS_REMAP_PREFIX
+        ));
+    }
+
     if let Some(ref links) = pkg_toml.package.as_ref().and_then(|p| p.links.as_ref()) {
         compile_cmd.env("CARGO_MANIFEST_LINKS", links);
     }

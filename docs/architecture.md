@@ -57,10 +57,13 @@ deps:      <sorted (dependency unit, dependency action key) pairs>
 - **Dependencies.** A unit's key includes its dependencies' keys, not their
   output bytes. A change anywhere below a unit changes its key.
 
-Known gap: keys of workspace crates still contain absolute paths (for example
-`CARGO_MANIFEST_DIR`). Registry dependencies are shared across worktrees; a
-workspace crate is reused only within the same checkout. Making these keys
-path-independent is in progress.
+Workspace crates compile with `--remap-path-prefix=<workspace_root>=/mitts/ws` to
+stabilize debuginfo, `file!()`, and panic locations across worktrees. Units that do not read
+`CARGO_MANIFEST_DIR` at compile time and do not have a custom `build.rs` receive
+path-independent action keys with `REMAP_PATH_PREFIX=/mitts/ws` and `MANIFEST_DIR_REL=<rel>`,
+enabling 100% cache hits across independent checkouts, clones, and agent worktrees.
+Crates that read `CARGO_MANIFEST_DIR` via `env!` / `option_env!` or define `build.rs`
+conservatively retain the local absolute path in their action key.
 
 ## 4. Store layout
 

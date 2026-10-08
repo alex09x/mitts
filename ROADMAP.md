@@ -105,11 +105,11 @@ Done:
 - [x] No-op fast path (`FastBuildLock`) with file and directory snapshots.
 - [x] `check`, `clippy`, `fmt`, `test`, `coverage` / `llvm-cov` commands.
 - [x] Outputs under `target/mitts/` with `CACHEDIR.TAG`.
+- [x] Path-independent keys for workspace crates via `--remap-path-prefix` and
+  selective `CARGO_MANIFEST_DIR` detection, enabling cross-worktree and cross-clone cache reuse.
 
 Open:
 
-- [ ] Path-independent keys for workspace crates, so your own code is reused
-  across worktrees, not only dependencies.
 - [ ] Cross-compilation beyond the host target.
 - [ ] Clear diagnostics when a build script reads undeclared inputs.
 - [ ] Windows support (locks and jobserver are POSIX-only today).

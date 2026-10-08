@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::inputs::{append_unit_dep_info_inputs, hash_package_base_inputs};
+use super::inputs::{append_unit_dep_info_inputs_with_ws, hash_package_base_inputs};
 use super::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions};
 use crate::core::action::ToolchainInfo;
 use crate::core::action_cache::ActionCache;
@@ -70,15 +70,40 @@ pub fn resolve_unit_pkg_dir(unit: &PlannedCompilationUnit) -> PathBuf {
     }
 }
 
+pub const MITTS_REMAP_PREFIX: &str = "/mitts/ws";
+
 pub fn compute_unit_flags(
     unit: &PlannedCompilationUnit,
     pkg_dir: &Path,
     effective_flags: &[String],
     mode: super::types::BuildMode,
 ) -> Vec<String> {
+    compute_unit_flags_with_ws(unit, pkg_dir, effective_flags, mode, None)
+}
+
+pub fn compute_unit_flags_with_ws(
+    unit: &PlannedCompilationUnit,
+    pkg_dir: &Path,
+    effective_flags: &[String],
+    mode: super::types::BuildMode,
+    ws_root: Option<&Path>,
+) -> Vec<String> {
     let mut u_flags = effective_flags.to_vec();
     if unit.is_workspace {
-        u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
+        let reads_manifest_dir = unit.env_vars.iter().any(|v| v == "CARGO_MANIFEST_DIR")
+            || unit.cache_eligibility.contains("untracked dynamic env");
+        let has_build_script = super::pipelining::package_has_build_script(&unit.manifest_path);
+
+        if reads_manifest_dir || has_build_script {
+            u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
+        } else {
+            u_flags.push(format!("REMAP_PATH_PREFIX={}", MITTS_REMAP_PREFIX));
+            let root = ws_root
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| super::compiler::find_workspace_root(&unit.manifest_path));
+            let rel = pkg_dir.strip_prefix(&root).unwrap_or(Path::new(""));
+            u_flags.push(format!("MANIFEST_DIR_REL={}", rel.display()));
+        }
         u_flags.push(format!("MODE={:?}", mode));
     }
     u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
@@ -89,7 +114,23 @@ pub fn compute_unit_flags(
         u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
     }
 
+    let pkg_toml = super::manifest::CargoToml::from_file(&unit.manifest_path).ok();
+    let pkg_package = pkg_toml.as_ref().and_then(|t| t.package.as_ref());
+
     for var in &unit.env_vars {
+        let str_val = match var.as_str() {
+            "CARGO_PKG_DESCRIPTION" => pkg_package.and_then(|p| p.description.as_deref()),
+            "CARGO_PKG_HOMEPAGE" => pkg_package.and_then(|p| p.homepage.as_deref()),
+            "CARGO_PKG_REPOSITORY" => pkg_package.and_then(|p| p.repository.as_deref()),
+            "CARGO_PKG_LICENSE" => pkg_package.and_then(|p| p.license.as_deref()),
+            "CARGO_PKG_README" => pkg_package.and_then(|p| p.readme.as_deref()),
+            _ => None,
+        };
+        if let Some(val) = str_val {
+            u_flags.push(format!("ENV_MACRO:{}={}", var, val));
+            continue;
+        }
+
         let entry = if var == "CARGO_MANIFEST_DIR" {
             format!("ENV_MACRO:CARGO_MANIFEST_DIR={}", pkg_dir.display())
         } else if var == "CARGO_PKG_NAME" {
@@ -113,70 +154,15 @@ pub fn compute_unit_flags(
             } else {
                 "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
             }
-        } else if var == "CARGO_PKG_DESCRIPTION" {
-            let desc =
-                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                    pkg_toml
-                        .package
-                        .and_then(|p| p.description)
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-            format!("ENV_MACRO:CARGO_PKG_DESCRIPTION={}", desc)
         } else if var == "CARGO_PKG_AUTHORS" {
-            let auth =
-                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                    pkg_toml
-                        .package
-                        .and_then(|p| p.authors)
-                        .map(|a| a.join(":"))
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
+            let auth = pkg_package
+                .and_then(|p| p.authors.as_ref())
+                .map(|a| a.join(":"))
+                .unwrap_or_default();
             format!("ENV_MACRO:CARGO_PKG_AUTHORS={}", auth)
-        } else if var == "CARGO_PKG_HOMEPAGE" {
-            let hp =
-                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                    pkg_toml
-                        .package
-                        .and_then(|p| p.homepage)
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-            format!("ENV_MACRO:CARGO_PKG_HOMEPAGE={}", hp)
-        } else if var == "CARGO_PKG_REPOSITORY" {
-            let repo =
-                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                    pkg_toml
-                        .package
-                        .and_then(|p| p.repository)
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-            format!("ENV_MACRO:CARGO_PKG_REPOSITORY={}", repo)
-        } else if var == "CARGO_PKG_LICENSE" {
-            let lic =
-                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                    pkg_toml.package.and_then(|p| p.license).unwrap_or_default()
-                } else {
-                    String::new()
-                };
-            format!("ENV_MACRO:CARGO_PKG_LICENSE={}", lic)
         } else if var == "CARGO" {
             let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
             format!("ENV_MACRO:CARGO={}", cargo_bin)
-        } else if var == "CARGO_PKG_README" {
-            let rm =
-                if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&unit.manifest_path) {
-                    pkg_toml.package.and_then(|p| p.readme).unwrap_or_default()
-                } else {
-                    String::new()
-                };
-            format!("ENV_MACRO:CARGO_PKG_README={}", rm)
         } else {
             match std::env::var(var) {
                 Ok(val) => format!("ENV_MACRO:{}={}", var, val),
@@ -237,7 +223,15 @@ pub fn derive_unit_action_keys(
     let mut effective_flags = opt.extra_args.clone();
     let mut relevant_env_keys: Vec<String> = std::env::vars()
         .filter_map(|(k, _)| {
-            if k.starts_with("CARGO_")
+            if k == "CARGO_MANIFEST_DIR"
+                || k == "CARGO_TARGET_DIR"
+                || k == "CARGO_MAKEFLAGS"
+                || k == "MAKEFLAGS"
+                || k == "CARGO_HOME"
+                || k == "CARGO"
+            {
+                None
+            } else if k.starts_with("CARGO_")
                 || k.starts_with("RUST_")
                 || k == "RUSTFLAGS"
                 || k == "RUSTC_WRAPPER"
@@ -290,17 +284,29 @@ pub fn derive_unit_action_keys(
             .get(&pkg_dir)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Missing base inputs for package {:?}", pkg_dir))?;
+        let ws_root = if unit.is_workspace {
+            Some(super::compiler::find_workspace_root(&unit.manifest_path))
+        } else {
+            None
+        };
         let inputs = if unit.is_workspace {
-            append_unit_dep_info_inputs(
+            append_unit_dep_info_inputs_with_ws(
                 base_inputs,
                 &pkg_dir,
                 &explanation.target_directory,
                 &unit.target_name,
+                ws_root.as_deref(),
             )?
         } else {
             base_inputs
         };
-        let u_flags = compute_unit_flags(unit, &pkg_dir, &effective_flags, opt.mode);
+        let u_flags = compute_unit_flags_with_ws(
+            unit,
+            &pkg_dir,
+            &effective_flags,
+            opt.mode,
+            ws_root.as_deref(),
+        );
         Ok::<_, anyhow::Error>((unit.unit_id(), inputs, u_flags))
     });
 

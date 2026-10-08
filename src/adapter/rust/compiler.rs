@@ -39,29 +39,44 @@ pub fn resolve_rustc() -> PathBuf {
             }
         }
     }
-    if let Ok(home) = std::env::var("HOME") {
-        let p = PathBuf::from(home).join(".cargo").join("bin").join("rustc");
-        if p.is_file() {
-            return p;
-        }
-    }
-    PathBuf::from("rustc")
+    std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".cargo/bin/rustc"))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("rustc"))
 }
 
 pub fn resolve_clippy_driver() -> PathBuf {
-    if let Ok(p) = std::env::var("CLIPPY_DRIVER") {
-        return PathBuf::from(p);
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        let p = PathBuf::from(home)
-            .join(".cargo")
-            .join("bin")
-            .join("clippy-driver");
-        if p.is_file() {
-            return p;
+    std::env::var("CLIPPY_DRIVER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/clippy-driver"))
+                .filter(|p| p.is_file())
+                .unwrap_or_else(|| PathBuf::from("clippy-driver"))
+        })
+}
+
+/// Discovers the root directory of a Cargo workspace by searching upwards for Cargo.toml with [workspace] or Cargo.lock.
+pub fn find_workspace_root(manifest_path: &Path) -> PathBuf {
+    let start = if manifest_path.is_file() {
+        manifest_path.parent().unwrap_or(Path::new("."))
+    } else {
+        manifest_path
+    };
+    for anc in start.ancestors() {
+        let toml = anc.join("Cargo.toml");
+        if toml.is_file()
+            && (fs::read_to_string(&toml)
+                .map(|c| c.contains("[workspace]"))
+                .unwrap_or(false)
+                || anc.join("Cargo.lock").is_file())
+        {
+            return anc.to_path_buf();
         }
     }
-    PathBuf::from("clippy-driver")
+    start.to_path_buf()
 }
 
 /// Direct `rustc` or `clippy-driver` command invocation builder.
@@ -138,14 +153,7 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("--test");
             cmd.arg("--emit=dep-info,link");
             cmd.arg("--extern").arg("proc_macro");
-            if let Some(dest) = self.dest_binary {
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                cmd.arg("-o").arg(dest);
-            } else {
-                cmd.arg("--out-dir").arg(self.out_dir);
-            }
+            cmd.arg("--out-dir").arg(self.out_dir);
         } else if is_proc_macro {
             cmd.arg("--crate-type").arg("proc-macro");
             cmd.arg("--extern").arg("proc_macro");
@@ -173,14 +181,7 @@ impl<'a> RustcInvocation<'a> {
         } else if is_bin {
             cmd.arg("--crate-type").arg("bin");
             cmd.arg("--emit=dep-info,link");
-            if let Some(dest) = self.dest_binary {
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                cmd.arg("-o").arg(dest);
-            } else {
-                cmd.arg("--out-dir").arg(self.out_dir);
-            }
+            cmd.arg("--out-dir").arg(self.out_dir);
         } else {
             // Standard library: rlib with metadata pipelining
             cmd.arg("--crate-type").arg("rlib");
@@ -200,6 +201,15 @@ impl<'a> RustcInvocation<'a> {
 
         if !self.unit.is_workspace {
             cmd.arg("--cap-lints").arg("allow");
+        } else {
+            let ws_root = find_workspace_root(&self.unit.manifest_path);
+            let pfx = super::key::MITTS_REMAP_PREFIX;
+            cmd.arg(format!("--remap-path-prefix={}={}", ws_root.display(), pfx));
+            cmd.arg(format!(
+                "--remap-path-prefix={}={}",
+                self.out_dir.display(),
+                pfx
+            ));
         }
 
         // Features
@@ -216,14 +226,14 @@ impl<'a> RustcInvocation<'a> {
             if let Some(ref out) = dir.out_dir {
                 cmd.env("OUT_DIR", out);
             }
-            for cfg_item in &dir.cfgs {
-                cmd.arg("--cfg").arg(cfg_item);
+            for c in &dir.cfgs {
+                cmd.arg("--cfg").arg(c);
             }
-            for lib in &dir.link_libs {
-                cmd.arg("-l").arg(lib);
+            for l in &dir.link_libs {
+                cmd.arg("-l").arg(l);
             }
-            for search in &dir.link_searches {
-                cmd.arg("-L").arg(search);
+            for s in &dir.link_searches {
+                cmd.arg("-L").arg(s);
             }
             for (k, v) in &dir.envs {
                 cmd.env(k, v);
@@ -241,25 +251,16 @@ impl<'a> RustcInvocation<'a> {
             }
         }
 
-        let (major, minor, patch, pre) = if let Ok(s) = semver::Version::parse(&self.unit.version) {
-            (
-                s.major.to_string(),
-                s.minor.to_string(),
-                s.patch.to_string(),
-                s.pre.as_str().to_string(),
-            )
-        } else {
-            let mut v = self.unit.version.split('.');
-            let (maj, min) = (v.next().unwrap_or("0"), v.next().unwrap_or("0"));
-            let p_pre = v.next().unwrap_or("0");
-            let (pat, p) = p_pre.split_once('-').unwrap_or((p_pre, ""));
-            (
-                maj.to_string(),
-                min.to_string(),
-                pat.to_string(),
-                p.to_string(),
-            )
-        };
+        let (major, minor, patch, pre) = semver::Version::parse(&self.unit.version)
+            .map(|s| {
+                (
+                    s.major.to_string(),
+                    s.minor.to_string(),
+                    s.patch.to_string(),
+                    s.pre.to_string(),
+                )
+            })
+            .unwrap_or_else(|_| ("0".into(), "0".into(), "0".into(), String::new()));
 
         // Cargo-compatible environment variables and working directory
         let pkg_dir = self.unit.manifest_path.parent().unwrap_or(Path::new("."));
@@ -288,18 +289,14 @@ impl<'a> RustcInvocation<'a> {
 
         if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&self.unit.manifest_path) {
             if let Some(ref p) = pkg_toml.package {
-                cmd.env(
-                    "CARGO_PKG_DESCRIPTION",
-                    p.description.as_deref().unwrap_or(""),
-                );
+                let pkg_d = p.description.as_deref().unwrap_or("");
+                let pkg_r = p.repository.as_deref().unwrap_or("");
+                let authors = p.authors.as_deref().unwrap_or(&[]).join(":");
+                cmd.env("CARGO_PKG_DESCRIPTION", pkg_d);
                 cmd.env("CARGO_PKG_HOMEPAGE", p.homepage.as_deref().unwrap_or(""));
-                cmd.env(
-                    "CARGO_PKG_REPOSITORY",
-                    p.repository.as_deref().unwrap_or(""),
-                );
+                cmd.env("CARGO_PKG_REPOSITORY", pkg_r);
                 cmd.env("CARGO_PKG_LICENSE", p.license.as_deref().unwrap_or(""));
                 cmd.env("CARGO_PKG_README", p.readme.as_deref().unwrap_or(""));
-                let authors = p.authors.as_deref().unwrap_or(&[]).join(":");
                 cmd.env("CARGO_PKG_AUTHORS", authors);
             }
         }
@@ -349,29 +346,28 @@ impl<'a> RustcInvocation<'a> {
             let is_check_or_clippy_ws = self.unit.is_workspace
                 && (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy);
             if (is_bin || is_test) && !is_check_or_clippy_ws {
+                let bin_path = self.out_dir.join(&clean_crate);
                 if let Some(dest) = self.dest_binary {
-                    primary_output = Some(dest.to_path_buf());
-                } else {
-                    let bin_path = self.out_dir.join(&clean_crate);
                     if bin_path.is_file() {
-                        primary_output = Some(bin_path);
+                        let _ = dest.parent().map(fs::create_dir_all);
+                        let _ = crate::core::reflink_or_copy(&bin_path, dest, true);
                     }
+                    primary_output = Some(dest.to_path_buf());
+                } else if bin_path.is_file() {
+                    primary_output = Some(bin_path);
                 }
             }
 
             // Find generated .rlib / .dylib and .rmeta in out_dir if not captured by streaming
             if primary_output.is_none() || metadata_output.is_none() {
                 if let Ok(entries) = fs::read_dir(self.out_dir) {
-                    for entry in entries.flatten() {
-                        let p = entry.path();
-                        if let Some(ext) = p.extension() {
-                            if (ext == "rlib" || ext == "dylib" || ext == "so")
-                                && primary_output.is_none()
-                            {
-                                primary_output = Some(p);
-                            } else if ext == "rmeta" && metadata_output.is_none() {
-                                metadata_output = Some(p);
+                    for p in entries.flatten().map(|e| e.path()) {
+                        match p.extension().and_then(|e| e.to_str()) {
+                            Some("rlib" | "dylib" | "so") if primary_output.is_none() => {
+                                primary_output = Some(p)
                             }
+                            Some("rmeta") if metadata_output.is_none() => metadata_output = Some(p),
+                            _ => {}
                         }
                     }
                 }
