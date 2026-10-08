@@ -332,7 +332,18 @@ pub(crate) fn execute_unit(
         inputs: Vec::new(),
         outputs: action_outputs,
         args: Vec::new(),
-        env: HashMap::new(),
+        env: {
+            let mut env = HashMap::new();
+            if let Some(parent) = unit.manifest_path.parent() {
+                env.insert(
+                    "CARGO_MANIFEST_DIR".to_string(),
+                    parent.to_string_lossy().to_string(),
+                );
+            }
+            env.insert("CARGO_PKG_NAME".to_string(), unit.package_name.clone());
+            env.insert("CARGO_PKG_VERSION".to_string(), unit.version.clone());
+            env
+        },
         dependencies: unit.dependencies.clone(),
     });
 

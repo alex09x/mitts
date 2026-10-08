@@ -202,15 +202,36 @@ pub fn handle_test(args: &TestArgs) -> i32 {
 
     // Locate all compiled test binaries from plan actions
     let mut test_binaries = Vec::new();
+    let mut cli_binaries: std::collections::HashMap<String, PathBuf> =
+        std::collections::HashMap::new();
+
     for action in &plan.actions {
-        if action.kind == ActionKind::CompileBin && action.id.contains("::test:") {
-            for out in &action.outputs {
-                if out.is_file() {
-                    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                        continue;
+        if action.kind == ActionKind::CompileBin {
+            if action.id.contains("::test:") {
+                for out in &action.outputs {
+                    if out.is_file() {
+                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
+                            continue;
+                        }
+                        test_binaries.push((
+                            action.description.clone(),
+                            out.clone(),
+                            action.env.clone(),
+                        ));
                     }
-                    test_binaries.push((action.description.clone(), out.clone()));
+                }
+            } else {
+                for out in &action.outputs {
+                    if out.is_file() {
+                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if ext.is_empty() || ext == "exe" {
+                            if let Some(stem) = out.file_name().and_then(|s| s.to_str()) {
+                                cli_binaries
+                                    .insert(stem.trim_end_matches(".exe").to_string(), out.clone());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -230,7 +251,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
                     }
                     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if name.contains("test") {
-                        test_binaries.push((name.to_string(), p));
+                        test_binaries.push((name.to_string(), p, std::collections::HashMap::new()));
                     }
                 }
             }
@@ -262,8 +283,18 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     }
 
     println!();
-    for (desc, bin_path) in &test_binaries {
+    for (desc, bin_path, env) in &test_binaries {
         let mut cmd = Command::new(bin_path);
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
+            cmd.current_dir(manifest_dir);
+        }
+        for (bin_name, bin_file) in &cli_binaries {
+            let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
+            cmd.env(env_var, bin_file);
+        }
         if let Some(ref filter) = args.filter {
             cmd.arg(filter);
         }

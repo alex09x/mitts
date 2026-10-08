@@ -184,13 +184,30 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     }
 
     let mut test_binaries = Vec::new();
+    let mut cli_binaries: std::collections::HashMap<String, PathBuf> =
+        std::collections::HashMap::new();
+
     for action in &plan.actions {
-        if action.kind == crate::core::ActionKind::CompileBin && action.id.contains("::test:") {
-            for out in &action.outputs {
-                if out.is_file() {
-                    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext != "d" && ext != "rmeta" && ext != "rlib" && ext != "pdb" {
-                        test_binaries.push(out.clone());
+        if action.kind == crate::core::ActionKind::CompileBin {
+            if action.id.contains("::test:") {
+                for out in &action.outputs {
+                    if out.is_file() {
+                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if ext != "d" && ext != "rmeta" && ext != "rlib" && ext != "pdb" {
+                            test_binaries.push((out.clone(), action.env.clone()));
+                        }
+                    }
+                }
+            } else {
+                for out in &action.outputs {
+                    if out.is_file() {
+                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if ext.is_empty() || ext == "exe" {
+                            if let Some(stem) = out.file_name().and_then(|s| s.to_str()) {
+                                cli_binaries
+                                    .insert(stem.trim_end_matches(".exe").to_string(), out.clone());
+                            }
+                        }
                     }
                 }
             }
@@ -210,15 +227,15 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
                     }
                     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if name.contains("test") {
-                        test_binaries.push(p);
+                        test_binaries.push((p, std::collections::HashMap::new()));
                     }
                 }
             }
         }
     }
 
-    test_binaries.sort();
-    test_binaries.dedup();
+    test_binaries.sort_by(|a, b| a.0.cmp(&b.0));
+    test_binaries.dedup_by(|a, b| a.0 == b.0);
 
     if test_binaries.is_empty() {
         println!("mitts coverage: no test binaries found to run");
@@ -234,9 +251,19 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     );
     let profpattern = profraw_dir.join("cov-%p-%m.profraw");
 
-    for bin_path in &test_binaries {
+    for (bin_path, env) in &test_binaries {
         let mut cmd = Command::new(bin_path);
         cmd.env("LLVM_PROFILE_FILE", &profpattern);
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
+            cmd.current_dir(manifest_dir);
+        }
+        for (bin_name, bin_file) in &cli_binaries {
+            let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
+            cmd.env(env_var, bin_file);
+        }
         if let Some(ref filter) = args.filter {
             cmd.arg(filter);
         }
@@ -320,8 +347,8 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         cov_cmd.arg("--use-color");
     }
 
-    cov_cmd.arg(&test_binaries[0]);
-    for extra_bin in &test_binaries[1..] {
+    cov_cmd.arg(&test_binaries[0].0);
+    for (extra_bin, _) in &test_binaries[1..] {
         cov_cmd.arg(format!("--object={}", extra_bin.display()));
     }
     cov_cmd.arg(r"--ignore-filename-regex=(/.cargo/|/rustc/|/target/|\.mitts/)");
@@ -355,8 +382,8 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         let mut check_cmd = Command::new(&llvm_cov);
         check_cmd.arg("export").arg("--summary-only");
         check_cmd.arg(format!("--instr-profile={}", merged_profdata.display()));
-        check_cmd.arg(&test_binaries[0]);
-        for extra_bin in &test_binaries[1..] {
+        check_cmd.arg(&test_binaries[0].0);
+        for (extra_bin, _) in &test_binaries[1..] {
             check_cmd.arg(format!("--object={}", extra_bin.display()));
         }
         check_cmd.arg(r"--ignore-filename-regex=(/.cargo/|/rustc/|/target/|\.mitts/)");
