@@ -20,6 +20,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+pub type MetadataReadyCallback<'a> = &'a (dyn Fn(&str, &Path) + Send + Sync);
+
 pub struct ExecutionContext<'a> {
     pub opt: &'a RustBuildOptions,
     pub toolchain: &'a ToolchainInfo,
@@ -34,6 +36,7 @@ pub struct ExecutionContext<'a> {
     pub dep_build_metadata: &'a Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
     pub jobserver: Option<&'a Arc<crate::core::JobserverPool>>,
     pub is_first_job: Option<&'a Arc<std::sync::atomic::AtomicBool>>,
+    pub on_metadata_ready: Option<MetadataReadyCallback<'a>>,
 }
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.

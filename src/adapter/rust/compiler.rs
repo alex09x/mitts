@@ -59,8 +59,11 @@ pub struct RustcInvocation<'a> {
 }
 
 impl<'a> RustcInvocation<'a> {
-    /// Executes the direct `rustc` or `clippy-driver` compilation.
-    pub fn execute(self) -> Result<RustcOutput> {
+    /// Executes the direct `rustc` or `clippy-driver` compilation with pipelined metadata callback.
+    pub fn execute_pipelined<F>(self, on_metadata: F) -> Result<RustcOutput>
+    where
+        F: FnOnce(&Path),
+    {
         let clean_crate = self.unit.target_name.replace('-', "_");
         let edition = self.unit.edition.as_deref().unwrap_or("2015");
         let short_key = if self.action_key.len() > 16 {
@@ -131,7 +134,10 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("--out-dir").arg(self.out_dir);
         } else if (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy)
             && (self.unit.is_workspace
-                || self.extern_crates.iter().any(|(_, p)| p.extension().and_then(|e| e.to_str()) == Some("rmeta")))
+                || self
+                    .extern_crates
+                    .iter()
+                    .any(|(_, p)| p.extension().and_then(|e| e.to_str()) == Some("rmeta")))
         {
             if is_bin {
                 cmd.arg("--crate-type").arg("bin");
@@ -262,9 +268,15 @@ impl<'a> RustcInvocation<'a> {
 
         if let Ok(pkg_toml) = super::manifest::CargoToml::from_file(&self.unit.manifest_path) {
             if let Some(ref p) = pkg_toml.package {
-                cmd.env("CARGO_PKG_DESCRIPTION", p.description.as_deref().unwrap_or(""));
+                cmd.env(
+                    "CARGO_PKG_DESCRIPTION",
+                    p.description.as_deref().unwrap_or(""),
+                );
                 cmd.env("CARGO_PKG_HOMEPAGE", p.homepage.as_deref().unwrap_or(""));
-                cmd.env("CARGO_PKG_REPOSITORY", p.repository.as_deref().unwrap_or(""));
+                cmd.env(
+                    "CARGO_PKG_REPOSITORY",
+                    p.repository.as_deref().unwrap_or(""),
+                );
                 cmd.env("CARGO_PKG_LICENSE", p.license.as_deref().unwrap_or(""));
                 cmd.env("CARGO_PKG_README", p.readme.as_deref().unwrap_or(""));
                 let authors = p.authors.as_deref().unwrap_or(&[]).join(":");
@@ -279,21 +291,39 @@ impl<'a> RustcInvocation<'a> {
         if !self.unit.is_workspace {
             cmd.arg("--cap-lints").arg("allow");
         }
-        cmd.arg("--color=never");
+        let is_pipelined_lib = self.unit.kind == "lib"
+            && self.mode != BuildMode::Check
+            && self.mode != BuildMode::Clippy;
+
+        if is_pipelined_lib {
+            cmd.arg("--error-format=json").arg("--json=artifacts");
+        } else {
+            cmd.arg("--color=never");
+        }
 
         let command_line = format!("{:?}", cmd);
 
-        let output = cmd.output().with_context(|| {
-            format!("Failed to execute rustc for unit '{}'", self.unit.unit_id())
-        })?;
-
-        let exit_code = output.status.code().unwrap_or(1);
-        let success = output.status.success();
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        let mut primary_output = None;
-        let mut metadata_output = None;
+        let (success, exit_code, stdout, stderr, mut primary_output, mut metadata_output) =
+            if is_pipelined_lib {
+                let res = super::pipelining::run_pipelined_rustc(cmd, on_metadata)?;
+                (
+                    res.success,
+                    res.exit_code,
+                    res.stdout,
+                    res.stderr,
+                    res.primary_output,
+                    res.metadata_output,
+                )
+            } else {
+                let output = cmd.output().with_context(|| {
+                    format!("Failed to execute rustc for unit '{}'", self.unit.unit_id())
+                })?;
+                let exit_code = output.status.code().unwrap_or(1);
+                let success = output.status.success();
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                (success, exit_code, stdout, stderr, None, None)
+            };
 
         if success {
             let is_check_or_clippy_ws = self.unit.is_workspace
@@ -309,15 +339,19 @@ impl<'a> RustcInvocation<'a> {
                 }
             }
 
-            // Find generated .rlib / .dylib and .rmeta in out_dir
-            if let Ok(entries) = fs::read_dir(self.out_dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if let Some(ext) = p.extension() {
-                        if ext == "rlib" || ext == "dylib" || ext == "so" {
-                            primary_output = Some(p);
-                        } else if ext == "rmeta" {
-                            metadata_output = Some(p);
+            // Find generated .rlib / .dylib and .rmeta in out_dir if not captured by streaming
+            if primary_output.is_none() || metadata_output.is_none() {
+                if let Ok(entries) = fs::read_dir(self.out_dir) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if let Some(ext) = p.extension() {
+                            if (ext == "rlib" || ext == "dylib" || ext == "so")
+                                && primary_output.is_none()
+                            {
+                                primary_output = Some(p);
+                            } else if ext == "rmeta" && metadata_output.is_none() {
+                                metadata_output = Some(p);
+                            }
                         }
                     }
                 }
@@ -340,5 +374,10 @@ impl<'a> RustcInvocation<'a> {
             primary_output,
             metadata_output,
         })
+    }
+
+    /// Synchronously executes the compiler invocation without pipelining callback.
+    pub fn execute(self) -> Result<RustcOutput> {
+        self.execute_pipelined(|_| {})
     }
 }

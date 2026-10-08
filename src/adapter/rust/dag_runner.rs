@@ -84,11 +84,42 @@ pub fn run_native_dag_build(
     let concurrency = max_concurrency.min(total_units.max(1));
 
     let cache_root = cas.root().parent().unwrap_or_else(|| cas.root());
-    let jobserver =
-        crate::core::JobserverPool::acquire_or_create(cache_root, max_concurrency)
-            .ok()
-            .map(Arc::new);
+    let jobserver = crate::core::JobserverPool::acquire_or_create(cache_root, max_concurrency)
+        .ok()
+        .map(Arc::new);
     let is_first_job = Arc::new(std::sync::atomic::AtomicBool::new(true));
+
+    let metadata_signaled = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+
+    let on_metadata_ready = {
+        let dag = &dag;
+        let in_degrees = Arc::clone(&in_degrees);
+        let work_queue = Arc::clone(&work_queue);
+        let metadata_signaled = Arc::clone(&metadata_signaled);
+        move |completed_unit_id: &str, _rmeta_path: &std::path::Path| {
+            let mut sig = metadata_signaled.lock().unwrap();
+            if !sig.insert(completed_unit_id.to_string()) {
+                return;
+            }
+            drop(sig);
+
+            if let Some(node) = dag.get_node(completed_unit_id) {
+                for dep_id in &node.dependents {
+                    if let Some(dep_node) = dag.get_node(dep_id) {
+                        if super::pipelining::classify_dep_requirement(&dep_node.unit, &node.unit)
+                            == super::pipelining::DepRequirement::MetadataOnly
+                        {
+                            if let Some(counter) = in_degrees.get(dep_id) {
+                                if counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                                    work_queue.push_ready(dep_id.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
 
     thread::scope(|s| {
         let mut handles = Vec::new();
@@ -96,6 +127,8 @@ pub fn run_native_dag_build(
         for _ in 0..concurrency {
             let work_queue = Arc::clone(&work_queue);
             let in_degrees = Arc::clone(&in_degrees);
+            let metadata_signaled = Arc::clone(&metadata_signaled);
+            let on_metadata_ready = &on_metadata_ready;
             let cas = cas.clone();
             let ac = ac.clone();
             let completed_artifacts = Arc::clone(&completed_artifacts);
@@ -125,6 +158,7 @@ pub fn run_native_dag_build(
                     dep_build_metadata: &dep_build_metadata,
                     jobserver: jobserver.as_ref(),
                     is_first_job: Some(&is_first_job),
+                    on_metadata_ready: Some(on_metadata_ready),
                 };
 
                 struct WorkGuard<'a> {
@@ -169,11 +203,28 @@ pub fn run_native_dag_build(
                     match exec_res {
                         Ok(Ok(UnitExecutionStatus::Success)) => {
                             guard.resolved = true;
+                            let was_meta_signaled =
+                                metadata_signaled.lock().unwrap().contains(&unit_id);
                             if let Some(node) = dag.get_node(&unit_id) {
                                 for dep_id in &node.dependents {
-                                    if let Some(counter) = in_degrees.get(dep_id) {
-                                        if counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
-                                            work_queue.push_ready(dep_id.clone());
+                                    if let Some(dep_node) = dag.get_node(dep_id) {
+                                        let req = super::pipelining::classify_dep_requirement(
+                                            &dep_node.unit,
+                                            &node.unit,
+                                        );
+                                        if was_meta_signaled
+                                            && req
+                                                == super::pipelining::DepRequirement::MetadataOnly
+                                        {
+                                            continue;
+                                        }
+                                        if let Some(counter) = in_degrees.get(dep_id) {
+                                            if counter
+                                                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
+                                                == 1
+                                            {
+                                                work_queue.push_ready(dep_id.clone());
+                                            }
                                         }
                                     }
                                 }
@@ -210,50 +261,50 @@ pub fn run_native_dag_build(
             }));
         }
 
-            for handle in handles {
-                match handle.join() {
-                    Ok(Err(err)) => {
-                        compile_errors.push(format!("{:#}", err));
-                    }
-                    Err(panic_err) => {
-                        let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
-                            s.to_string()
-                        } else if let Some(s) = panic_err.downcast_ref::<String>() {
-                            s.clone()
-                        } else {
-                            "Unknown worker thread panic".to_string()
-                        };
-                        compile_errors.push(format!("Worker thread panicked: {}", msg));
-                    }
-                    Ok(Ok(())) => {}
+        for handle in handles {
+            match handle.join() {
+                Ok(Err(err)) => {
+                    compile_errors.push(format!("{:#}", err));
                 }
-            }
-        });
-
-        if let Some(err) = work_queue.take_error() {
-            if !compile_errors.contains(&err) {
-                compile_errors.push(err);
+                Err(panic_err) => {
+                    let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
+                        s.to_string()
+                    } else if let Some(s) = panic_err.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "Unknown worker thread panic".to_string()
+                    };
+                    compile_errors.push(format!("Worker thread panicked: {}", msg));
+                }
+                Ok(Ok(())) => {}
             }
         }
+    });
 
-        if !compile_errors.is_empty() {
-            let combined_error = compile_errors.join("\n");
-            let result = ActionResult {
-                action_id: "native-dag".to_string(),
-                exit_code: 1,
-                success: false,
-                stdout: String::new(),
-                stderr: combined_error,
-                cached: false,
-            };
-            return Ok((
-                BuildPlan {
-                    actions: recorded_actions.lock().unwrap().clone(),
-                    target_directory: target_dir,
-                },
-                result,
-            ));
+    if let Some(err) = work_queue.take_error() {
+        if !compile_errors.contains(&err) {
+            compile_errors.push(err);
         }
+    }
+
+    if !compile_errors.is_empty() {
+        let combined_error = compile_errors.join("\n");
+        let result = ActionResult {
+            action_id: "native-dag".to_string(),
+            exit_code: 1,
+            success: false,
+            stdout: String::new(),
+            stderr: combined_error,
+            cached: false,
+        };
+        return Ok((
+            BuildPlan {
+                actions: recorded_actions.lock().unwrap().clone(),
+                target_directory: target_dir,
+            },
+            result,
+        ));
+    }
 
     let all_cached = !*any_missed.lock().unwrap();
     let actions = recorded_actions.lock().unwrap().clone();
