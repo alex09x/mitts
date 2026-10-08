@@ -158,6 +158,7 @@ edition = "2021"
     fs::write(fake_registry_src.join("src/lib.rs"), "pub fn ok() {}").unwrap();
 
     std::env::set_var("HOME", &fake_home);
+    std::env::set_var("CARGO_HOME", fake_home.join(".cargo"));
 
     let remote_pkg = CargoLockPackage {
         name: "mock_crate".to_string(),

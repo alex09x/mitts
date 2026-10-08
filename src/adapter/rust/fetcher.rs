@@ -197,29 +197,31 @@ impl CrateFetcher {
         })
     }
 
-    fn cargo_registry_dir() -> Option<PathBuf> {
+    fn cargo_registry_dirs() -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
         if let Ok(ch) = std::env::var("CARGO_HOME") {
-            Some(PathBuf::from(ch).join("registry"))
-        } else if let Ok(home) = std::env::var("HOME") {
-            Some(PathBuf::from(home).join(".cargo").join("registry"))
-        } else {
-            None
+            dirs.push(PathBuf::from(ch).join("registry"));
         }
+        if let Ok(home) = std::env::var("HOME") {
+            let p = PathBuf::from(home).join(".cargo").join("registry");
+            if !dirs.contains(&p) {
+                dirs.push(p);
+            }
+        }
+        dirs
     }
 
     /// Searches standard ~/.cargo/registry/cache for downloaded .crate file.
     fn find_in_cargo_registry_cache(&self, name: &str, version: &str) -> Option<PathBuf> {
-        let cache_root = Self::cargo_registry_dir()?.join("cache");
-        if !cache_root.is_dir() {
-            return None;
-        }
-
         let file_name = format!("{}-{}.crate", name, version);
-        if let Ok(entries) = fs::read_dir(&cache_root) {
-            for entry in entries.flatten() {
-                let candidate = entry.path().join(&file_name);
-                if candidate.is_file() {
-                    return Some(candidate);
+        for reg_dir in Self::cargo_registry_dirs() {
+            let cache_root = reg_dir.join("cache");
+            if let Ok(entries) = fs::read_dir(&cache_root) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path().join(&file_name);
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
                 }
             }
         }
@@ -228,17 +230,15 @@ impl CrateFetcher {
 
     /// Searches standard ~/.cargo/registry/src for already unpacked crate source directory.
     fn find_in_cargo_registry_src(&self, name: &str, version: &str) -> Option<PathBuf> {
-        let src_root = Self::cargo_registry_dir()?.join("src");
-        if !src_root.is_dir() {
-            return None;
-        }
-
         let dir_name = format!("{}-{}", name, version);
-        if let Ok(entries) = fs::read_dir(&src_root) {
-            for entry in entries.flatten() {
-                let candidate = entry.path().join(&dir_name);
-                if candidate.is_dir() && candidate.join("Cargo.toml").is_file() {
-                    return Some(candidate);
+        for reg_dir in Self::cargo_registry_dirs() {
+            let src_root = reg_dir.join("src");
+            if let Ok(entries) = fs::read_dir(&src_root) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path().join(&dir_name);
+                    if candidate.is_dir() && candidate.join("Cargo.toml").is_file() {
+                        return Some(candidate);
+                    }
                 }
             }
         }
