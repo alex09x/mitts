@@ -174,7 +174,6 @@ impl<'a> RustcInvocation<'a> {
         } else {
             cmd.arg("-C").arg("debuginfo=2");
             cmd.arg("-C").arg("embed-bitcode=no");
-            cmd.arg("-C").arg("codegen-units=256");
         }
 
         if !self.unit.is_workspace {
