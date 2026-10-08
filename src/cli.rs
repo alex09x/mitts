@@ -220,6 +220,7 @@ pub mod handlers;
 pub mod run;
 pub mod terminal;
 pub mod test;
+pub mod test_runner;
 pub mod ui;
 
 pub use build::handle_build;

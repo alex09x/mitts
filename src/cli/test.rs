@@ -14,10 +14,8 @@ use crate::adapter::{
 use crate::cli::diagnostic::render_compiler_diagnostics;
 use crate::cli::terminal::TerminalGuard;
 use crate::cli::ui::Ui;
-use crate::core::ActionKind;
 use clap::Args;
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct TestArgs {
@@ -200,67 +198,6 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         return result.exit_code;
     }
 
-    // Locate all compiled test binaries from plan actions
-    let mut test_binaries = Vec::new();
-    let mut cli_binaries: std::collections::HashMap<String, PathBuf> =
-        std::collections::HashMap::new();
-
-    for action in &plan.actions {
-        if action.kind == ActionKind::CompileBin {
-            if action.id.contains("::test:") {
-                for out in &action.outputs {
-                    if out.is_file() {
-                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                            continue;
-                        }
-                        test_binaries.push((
-                            action.description.clone(),
-                            out.clone(),
-                            action.env.clone(),
-                        ));
-                    }
-                }
-            } else {
-                for out in &action.outputs {
-                    if out.is_file() {
-                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if ext.is_empty() || ext == "exe" {
-                            if let Some(stem) = out.file_name().and_then(|s| s.to_str()) {
-                                cli_binaries
-                                    .insert(stem.trim_end_matches(".exe").to_string(), out.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let profile_name = if opt.release { "release" } else { "debug" };
-    let profile_dir = plan.target_directory.join(profile_name);
-
-    // Also populate cli_binaries from profile_dir for any executable CLI binaries
-    if profile_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&profile_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_file() {
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                        continue;
-                    }
-                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if !name.contains("test") && !name.contains("integration") {
-                        let bin_key = name.trim_end_matches(".exe");
-                        cli_binaries.insert(bin_key.to_string(), p);
-                    }
-                }
-            }
-        }
-    }
-
-    // Map test targets to their defining package directory and package name
     let root_manifest = opt
         .manifest_path
         .clone()
@@ -275,150 +212,18 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
         }
     };
-    let mut target_to_pkg: std::collections::HashMap<String, (String, PathBuf)> =
-        std::collections::HashMap::new();
 
-    if let Ok(root_toml) = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest) {
-        let members = root_toml.discover_workspace_members(&root_dir);
-        for (pkg_name, pkg_dir) in members {
-            let member_manifest = pkg_dir.join("Cargo.toml");
-            if let Ok(toml) = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
-            {
-                let test_targets = toml.discover_test_targets(&pkg_dir);
-                for tt in test_targets {
-                    target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
-                }
-            }
-        }
-    }
+    let (binaries, declared_test_count) =
+        super::test_runner::discover_test_binaries(&plan, &opt, &root_dir);
 
-    // Also scan profile directory for test binaries if actions didn't list them
-    let profile_name = if opt.release { "release" } else { "debug" };
-    let profile_dir = plan.target_directory.join(profile_name);
-    if test_binaries.is_empty() && profile_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&profile_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_file() {
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                        continue;
-                    }
-                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if name.contains("test") {
-                        test_binaries.push((name.to_string(), p, std::collections::HashMap::new()));
-                    }
-                }
-            }
-        }
-    }
-
-    test_binaries.sort_by(|a, b| a.1.cmp(&b.1));
-    test_binaries.dedup_by(|a, b| a.1 == b.1);
-
-    if args.no_run {
-        let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-        Ui::stage_start("🧪", &format!("Compiled tests [{}]", profile));
-        Ui::stage_item(
-            true,
-            &Ui::badge_compile(),
-            &format!("Compiled {} test binaries (--no-run)", test_binaries.len()),
-        );
-        Ui::finish(
-            profile,
-            &dur,
-            &format!("{} test binaries ready", test_binaries.len()),
-        );
-        return 0;
-    }
-
-    if test_binaries.is_empty() {
-        println!("mitts test: no tests found to run");
-        return 0;
-    }
-
-    println!();
-    for (desc, bin_path, env) in &mut test_binaries {
-        let bin_name = bin_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !env.contains_key("CARGO_MANIFEST_DIR") {
-            for (tname, (pname, pdir)) in &target_to_pkg {
-                if bin_name == tname || bin_name.contains(tname) || desc.contains(tname) {
-                    env.insert(
-                        "CARGO_MANIFEST_DIR".to_string(),
-                        pdir.to_string_lossy().to_string(),
-                    );
-                    env.insert("CARGO_PKG_NAME".to_string(), pname.clone());
-                    break;
-                }
-            }
-        }
-
-        let abs_bin = if bin_path.is_absolute() {
-            bin_path.clone()
-        } else {
-            root_dir.join(&*bin_path)
-        };
-        let mut cmd = Command::new(&abs_bin);
-        for (k, v) in env.iter() {
-            cmd.env(k, v);
-        }
-        let work_dir = if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
-            if !manifest_dir.is_empty() && manifest_dir != "." {
-                if std::path::Path::new(manifest_dir).is_absolute() {
-                    PathBuf::from(manifest_dir)
-                } else {
-                    root_dir.join(manifest_dir)
-                }
-            } else {
-                root_dir.clone()
-            }
-        } else {
-            root_dir.clone()
-        };
-        cmd.current_dir(&work_dir);
-        for (bin_name, bin_file) in &cli_binaries {
-            let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
-            let abs_cli = if bin_file.is_absolute() {
-                bin_file.clone()
-            } else {
-                root_dir.join(bin_file)
-            };
-            cmd.env(env_var, abs_cli);
-        }
-        if let Some(ref filter) = args.filter {
-            cmd.arg(filter);
-        }
-        for extra in &args.test_args {
-            cmd.arg(extra);
-        }
-
-        let status = match cmd.status() {
-            Ok(st) => st,
-            Err(err) => {
-                eprintln!("mitts error executing {}: {}", bin_path.display(), err);
-                return 1;
-            }
-        };
-
-        if !status.success() {
-            let code = status.code().unwrap_or(1);
-            let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-            Ui::finish_failed(profile, &dur, &format!("Test harness failed: {}", desc));
-            return code;
-        }
-    }
-
-    let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-    Ui::stage_start("🧪", &format!("Completed tests [{}]", profile));
-    Ui::finish(
+    super::test_runner::execute_test_binaries(
+        binaries,
+        declared_test_count,
+        args,
+        &root_dir,
+        start,
         profile,
-        &dur,
-        &format!(
-            "All tests passed ({} test binaries executed)",
-            test_binaries.len()
-        ),
-    );
-    0
+    )
 }
 
 #[cfg(test)]

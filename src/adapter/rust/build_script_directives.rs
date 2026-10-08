@@ -207,7 +207,9 @@ static RUSTC_VERBOSE_VERSION: OnceLock<String> = OnceLock::new();
 
 pub fn get_rustc_verbose_version() -> &'static str {
     RUSTC_VERBOSE_VERSION.get_or_init(|| {
-        let cmd = std::process::Command::new(crate::adapter::rust::compiler::resolve_rustc()).arg("-vV").output();
+        let cmd = std::process::Command::new(crate::adapter::rust::compiler::resolve_rustc())
+            .arg("-vV")
+            .output();
         if let Ok(out) = cmd {
             if out.status.success() {
                 return String::from_utf8_lossy(&out.stdout).trim().to_string();

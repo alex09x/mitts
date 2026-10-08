@@ -242,13 +242,23 @@ impl<'a> RustcInvocation<'a> {
         }
 
         let (major, minor, patch, pre) = if let Ok(s) = semver::Version::parse(&self.unit.version) {
-            (s.major.to_string(), s.minor.to_string(), s.patch.to_string(), s.pre.as_str().to_string())
+            (
+                s.major.to_string(),
+                s.minor.to_string(),
+                s.patch.to_string(),
+                s.pre.as_str().to_string(),
+            )
         } else {
             let mut v = self.unit.version.split('.');
             let (maj, min) = (v.next().unwrap_or("0"), v.next().unwrap_or("0"));
             let p_pre = v.next().unwrap_or("0");
             let (pat, p) = p_pre.split_once('-').unwrap_or((p_pre, ""));
-            (maj.to_string(), min.to_string(), pat.to_string(), p.to_string())
+            (
+                maj.to_string(),
+                min.to_string(),
+                pat.to_string(),
+                p.to_string(),
+            )
         };
 
         // Cargo-compatible environment variables and working directory

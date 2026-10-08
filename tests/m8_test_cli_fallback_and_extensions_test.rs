@@ -104,3 +104,49 @@ fn test_m8_test_cli_empty_tests_found() {
     let code = handle_test(&args);
     assert_eq!(code, 0);
 }
+
+#[test]
+fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let target = root.join("target");
+    let debug_dir = target.join("debug");
+    let manifest = root.join("Cargo.toml");
+    let src = root.join("src");
+
+    fs::create_dir_all(&debug_dir).unwrap();
+    fs::create_dir_all(&src).unwrap();
+
+    fs::write(
+        &manifest,
+        "[package]\nname = \"failing-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[[test]]\nname = \"failing_test\"\npath = \"tests/fail.rs\"\n",
+    )
+    .unwrap();
+    fs::write(src.join("lib.rs"), "pub fn ok() {}\n").unwrap();
+
+    let failing_test = debug_dir.join("failing_test");
+    fs::write(&failing_test, "#!/bin/sh\nexit 101\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&failing_test, fs::Permissions::from_mode(0o755));
+    }
+
+    let args = TestArgs {
+        manifest_path: Some(manifest),
+        target_dir: Some(target),
+        no_run: false,
+        ..Default::default()
+    };
+
+    // First run: must fail
+    let code_first = handle_test(&args);
+    assert_ne!(code_first, 0, "First run on failing fixture must fail");
+
+    // Second consecutive run: must STILL fail (fast-lock must NOT exit 0 or skip execution)
+    let code_second = handle_test(&args);
+    assert_ne!(
+        code_second, 0,
+        "Second consecutive run on failing fixture must also fail"
+    );
+}
