@@ -117,6 +117,9 @@ impl ContentAddressedStore {
             .tmp_dir
             .join(format!("{}.{}.{}.tmp", hash, pid, counter));
 
+        let _ = fs::create_dir_all(&self.tmp_dir);
+        let _ = fs::create_dir_all(&self.objects_dir);
+
         reflink_or_copy(source_path, &tmp_file_path, false)
             .with_context(|| format!("Failed to stage file to {:?}", tmp_file_path))?;
 
