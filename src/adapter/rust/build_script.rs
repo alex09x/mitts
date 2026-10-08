@@ -323,6 +323,10 @@ pub fn execute_build_script(
             directives
                 .rerun_if_changed_hashes
                 .insert(file_rel.clone(), hash);
+        } else {
+            directives
+                .rerun_if_changed_hashes
+                .insert(file_rel.clone(), "<missing>".to_string());
         }
     }
 

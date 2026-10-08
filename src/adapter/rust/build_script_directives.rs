@@ -74,7 +74,7 @@ impl BuildScriptDirectives {
             }
         }
         // Check rerun-if-changed files via content hash (never mtimes)
-        if !self.rerun_if_changed_hashes.is_empty() {
+        if !self.rerun_if_changed.is_empty() || !self.rerun_if_changed_hashes.is_empty() {
             if self.rerun_if_changed.len() != self.rerun_if_changed_hashes.len() {
                 return false;
             }
@@ -84,15 +84,21 @@ impl BuildScriptDirectives {
                 } else {
                     pkg_dir.join(file_rel)
                 };
-                if !fpath.exists() {
-                    return false;
-                }
-                if let Ok(cur_hash) = Sha256::digest_path_recursive(&fpath) {
-                    if cur_hash != *expected_hash {
+                if expected_hash == "<missing>" {
+                    if fpath.exists() {
                         return false;
                     }
                 } else {
-                    return false;
+                    if !fpath.exists() {
+                        return false;
+                    }
+                    if let Ok(cur_hash) = Sha256::digest_path_recursive(&fpath) {
+                        if cur_hash != *expected_hash {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
                 }
             }
             true
@@ -142,6 +148,10 @@ impl BuildScriptDirectives {
                 }
             }
         }
+        directives.rerun_if_changed.sort();
+        directives.rerun_if_changed.dedup();
+        directives.rerun_if_env_changed.sort();
+        directives.rerun_if_env_changed.dedup();
         directives
     }
 }
@@ -343,4 +353,31 @@ pub fn detect_default_target_triple() -> String {
     )))]
     return "host".to_string();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_stdout_dedup() {
+        let stdout = "cargo:rerun-if-changed=build.rs\ncargo:rerun-if-changed=build.rs\ncargo:rustc-cfg=feat\n";
+        let dir = BuildScriptDirectives::parse_stdout(stdout);
+        assert_eq!(dir.rerun_if_changed, vec!["build.rs"]);
+        assert_eq!(dir.cfgs, vec!["feat"]);
+    }
+
+    #[test]
+    fn test_is_fresh_with_missing_file() {
+        let mut dir = BuildScriptDirectives::default();
+        dir.rerun_if_changed.push("nonexistent_header.h".to_string());
+        dir.rerun_if_changed_hashes.insert("nonexistent_header.h".to_string(), "<missing>".to_string());
+        let temp = tempfile::tempdir().unwrap();
+        assert!(dir.is_fresh(temp.path()));
+
+        // If the file suddenly appears, freshness must become false
+        fs::write(temp.path().join("nonexistent_header.h"), "now exists").unwrap();
+        assert!(!dir.is_fresh(temp.path()));
+    }
+}
+
 
