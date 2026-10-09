@@ -262,19 +262,10 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         }
     }
 
-    let explicit_target = inv
-        .extra_compiler_args
-        .iter()
-        .position(|a| a == "--target")
-        .and_then(|idx| inv.extra_compiler_args.get(idx + 1).cloned())
-        .or_else(|| std::env::var("TARGET").ok());
+    let explicit_target =
+        super::key_flags::resolve_explicit_target_from_args(inv.extra_compiler_args);
 
-    let is_host_unit = explicit_target.is_some()
-        && (inv.unit.kind == "proc-macro"
-            || inv.unit.kind == "custom-build"
-            || inv.unit.kind == "build-script");
-
-    if !is_host_unit {
+    if super::key_flags::receives_target_rustflags(inv.unit, explicit_target.as_deref()) {
         if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
             for flag in encoded.split('\x1f').filter(|f| !f.is_empty()) {
                 cmd.arg(flag);

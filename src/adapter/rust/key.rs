@@ -126,6 +126,7 @@ pub fn derive_unit_action_key_context(
 
     // Target triple and effective Cargo config rustflags
     let target_triple = resolve_effective_target_triple(opt, &explanation.toolchain);
+    let explicit_target = resolve_explicit_target(opt);
     let proj_dir = explanation.manifest_path.parent().unwrap_or(Path::new("."));
     let config_start_dir = super::cargo_config::resolve_config_start_dir_with_opt(
         proj_dir,
@@ -138,7 +139,7 @@ pub fn derive_unit_action_key_context(
     } else {
         super::cargo_config::load_cargo_config_rustflags(
             &config_start_dir,
-            Some(&target_triple),
+            explicit_target.as_deref(),
         ).unwrap_or_default()
     };
 
@@ -186,10 +187,7 @@ pub fn derive_unit_action_key_context(
             ws_root.as_deref(),
         );
 
-        let is_target_unit = opt.mode == super::types::BuildMode::Test
-            || (unit.kind != "proc-macro" && unit.kind != "build-script");
-
-        if is_target_unit {
+        if receives_target_rustflags(unit, explicit_target.as_deref()) {
             for rf in &effective_target_rustflags {
                 u_flags.push(format!("CONFIG_RUSTFLAG:{}", rf));
             }

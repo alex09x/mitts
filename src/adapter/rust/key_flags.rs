@@ -58,32 +58,62 @@ pub fn is_known_pure_proc_macro(name: &str) -> bool {
     )
 }
 
-/// Resolves the effective target triple considering CLI args, Cargo env vars, and toolchain defaults.
-pub fn resolve_effective_target_triple(
-    opt: &RustBuildOptions,
-    toolchain: &ToolchainInfo,
-) -> String {
-    let mut args_iter = opt.extra_args.iter();
+/// Resolves explicit target triple from CLI extra_args or environment if specified.
+/// Returns None when compiling natively for the default host toolchain without explicit target.
+pub fn resolve_explicit_target_from_args(extra_args: &[String]) -> Option<String> {
+    let mut args_iter = extra_args.iter();
     while let Some(arg) = args_iter.next() {
         if arg == "--target" {
             if let Some(val) = args_iter.next() {
-                return val.clone();
+                return Some(val.clone());
             }
         } else if let Some(val) = arg.strip_prefix("--target=") {
-            return val.to_string();
+            return Some(val.to_string());
         }
     }
 
     if let Ok(target) = std::env::var("CARGO_BUILD_TARGET") {
         if !target.is_empty() {
-            return target;
+            return Some(target);
         }
     }
 
-    toolchain
-        .target_triple
-        .clone()
-        .unwrap_or_else(|| "unknown".to_string())
+    std::env::var("TARGET").ok()
+}
+
+pub fn resolve_explicit_target(opt: &RustBuildOptions) -> Option<String> {
+    resolve_explicit_target_from_args(&opt.extra_args)
+}
+
+/// Returns true if a compilation unit receives target rustflags during compilation.
+/// In Cargo semantics: when cross-compiling (`explicit_target` is Some), host-only units
+/// (proc-macros and build scripts) do NOT receive target rustflags;
+/// when building natively (`explicit_target` is None), all units receive rustflags.
+pub fn receives_target_rustflags(
+    unit: &PlannedCompilationUnit,
+    explicit_target: Option<&str>,
+) -> bool {
+    if explicit_target.is_some() {
+        let is_host_kind = unit.kind == "proc-macro"
+            || unit.kind == "custom-build"
+            || unit.kind == "build-script";
+        !is_host_kind
+    } else {
+        true
+    }
+}
+
+/// Resolves the effective target triple considering CLI args, Cargo env vars, and toolchain defaults.
+pub fn resolve_effective_target_triple(
+    opt: &RustBuildOptions,
+    toolchain: &ToolchainInfo,
+) -> String {
+    resolve_explicit_target(opt).unwrap_or_else(|| {
+        toolchain
+            .target_triple
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string())
+    })
 }
 
 pub fn resolve_unit_pkg_dir(unit: &PlannedCompilationUnit) -> PathBuf {
