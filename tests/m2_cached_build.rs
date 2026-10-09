@@ -1284,7 +1284,7 @@ fn test_unicode_source_does_not_panic_env_scanner() {
     fs::write(
         &main_rs,
         r#"
-// Non-ASCII in comment: 🦀 привет, мир!
+// Non-ASCII in comment: 🦀 hello, world! Grüße!
 /* Multibyte block comment:
    中文测试, ελληνικά, café, 🚀
 */

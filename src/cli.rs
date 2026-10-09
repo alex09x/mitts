@@ -11,10 +11,12 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS_GIT_SHA"), ")");
+
 #[derive(Parser, Debug)]
 #[command(name = "mitts")]
 #[command(author = "Alexander Panasenko <alex@prod.codes>")]
-#[command(version)]
+#[command(version = MITTS_VERSION)]
 #[command(about = "Rust-first build and package tooling with a shared artifact cache", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]

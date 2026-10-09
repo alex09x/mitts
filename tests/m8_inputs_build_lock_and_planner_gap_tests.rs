@@ -15,10 +15,14 @@ use mitts::core::build_lock::{
     FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs,
 };
 use std::fs;
+use std::sync::Mutex;
 use tempfile::TempDir;
+
+static SERIAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_m8_inputs_cargo_home_and_ancestors() {
+    let _lock = SERIAL_TEST_LOCK.lock().unwrap();
     let temp_dir = TempDir::new().expect("tempdir");
     let ws_dir = temp_dir.path().join("workspace");
     let crate_dir = ws_dir.join("crates").join("my_crate");
@@ -88,6 +92,7 @@ fn test_m8_inputs_cargo_home_and_ancestors() {
 
 #[test]
 fn test_m8_build_lock_sha_mtime_tolerance() {
+    let _lock = SERIAL_TEST_LOCK.lock().unwrap();
     let temp_dir = TempDir::new().expect("tempdir");
     let proj_dir = temp_dir.path();
     let manifest = proj_dir.join("Cargo.toml");

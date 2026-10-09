@@ -60,9 +60,16 @@ impl FastBuildLock {
         if lock.toolchain_version != args.toolchain_version {
             return FreshnessResult::Stale("Toolchain version changed".to_string());
         }
-        let cur_rustflags = std::env::var("RUSTFLAGS").ok();
-        if lock.rustflags != cur_rustflags {
-            return FreshnessResult::Stale("RUSTFLAGS changed".to_string());
+        let cur_env_hash = super::build_env::compute_effective_env_hash();
+        if let Some(ref expected_hash) = lock.env_hash {
+            if expected_hash != &cur_env_hash {
+                return FreshnessResult::Stale("Environment configuration changed".to_string());
+            }
+        } else {
+            let cur_rustflags = std::env::var("RUSTFLAGS").ok();
+            if lock.rustflags != cur_rustflags {
+                return FreshnessResult::Stale("RUSTFLAGS changed".to_string());
+            }
         }
 
         // Check Cargo.lock
@@ -168,6 +175,45 @@ impl FastBuildLock {
             }
         }
 
+        // Check Cargo configuration files (.cargo/config.toml, .cargo/config)
+        let current_configs =
+            crate::adapter::rust::cargo_config::discover_cargo_config_files(args.project_dir);
+        if current_configs.len() != lock.cargo_configs.len() {
+            return FreshnessResult::Stale(
+                "Cargo configuration files changed (added/removed)".to_string(),
+            );
+        }
+
+        for cfg_snap in &lock.cargo_configs {
+            let full_p = &cfg_snap.relative_path;
+            let Ok(meta) = fs::metadata(full_p) else {
+                return FreshnessResult::Stale(format!(
+                    "Cargo config missing: {}",
+                    full_p.display()
+                ));
+            };
+            let (m_secs, m_nanos) = mtime_parts(&meta);
+            if (m_secs, m_nanos) != (cfg_snap.mtime_secs, cfg_snap.mtime_nanos)
+                || meta.len() != cfg_snap.size
+            {
+                let content_hash = fs::read(full_p).ok().map(|b| Sha256::digest(&b));
+                if content_hash != cfg_snap.sha256 {
+                    return FreshnessResult::Stale(format!(
+                        "Cargo config modified: {}",
+                        full_p.display()
+                    ));
+                }
+            }
+        }
+        for cfg_p in &current_configs {
+            if !lock.cargo_configs.iter().any(|c| &c.relative_path == cfg_p) {
+                return FreshnessResult::Stale(format!(
+                    "New Cargo config added: {}",
+                    cfg_p.display()
+                ));
+            }
+        }
+
         FreshnessResult::Fresh {
             action_count: lock.action_count,
             root_binary: lock.root_binary,
@@ -228,6 +274,23 @@ impl FastBuildLock {
             }
         }
 
+        let discovered_configs =
+            crate::adapter::rust::cargo_config::discover_cargo_config_files(args.project_dir);
+        let mut cargo_configs = Vec::new();
+        for cfg_p in discovered_configs {
+            if let Ok(meta) = fs::metadata(&cfg_p) {
+                let (s, n) = mtime_parts(&meta);
+                let hash = fs::read(&cfg_p).ok().map(|b| Sha256::digest(&b));
+                cargo_configs.push(FileSnapshot {
+                    relative_path: cfg_p,
+                    mtime_secs: s,
+                    mtime_nanos: n,
+                    size: meta.len(),
+                    sha256: hash,
+                });
+            }
+        }
+
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -242,6 +305,7 @@ impl FastBuildLock {
             all_features: args.all_features,
             toolchain_version: args.toolchain_version.to_string(),
             rustflags: std::env::var("RUSTFLAGS").ok(),
+            env_hash: Some(super::build_env::compute_effective_env_hash()),
             created_at_secs: now,
             action_count: args.action_count,
             root_binary: args.root_binary.clone(),
@@ -249,6 +313,7 @@ impl FastBuildLock {
             manifests,
             sources,
             directories,
+            cargo_configs,
             outputs: output_snaps,
             stderr: args.stderr.map(|s| s.to_string()),
         };

@@ -25,6 +25,24 @@ pub struct RustcOutput {
 
 static RESOLVED_RUSTC: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static RESOLVED_CLIPPY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static RESOLVED_HOST_TRIPLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Resolves the host target triple from `rustc -vV`.
+pub fn resolve_host_triple() -> &'static str {
+    RESOLVED_HOST_TRIPLE.get_or_init(|| {
+        let rustc = resolve_rustc();
+        if let Ok(out) = std::process::Command::new(&rustc).arg("-vV").output() {
+            if let Ok(text) = String::from_utf8(out.stdout) {
+                for line in text.lines() {
+                    if let Some(rest) = line.strip_prefix("host: ") {
+                        return rest.trim().to_string();
+                    }
+                }
+            }
+        }
+        "unknown".to_string()
+    })
+}
 
 pub fn resolve_rustc() -> PathBuf {
     RESOLVED_RUSTC

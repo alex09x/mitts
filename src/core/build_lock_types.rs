@@ -31,6 +31,8 @@ pub struct FastBuildLock {
     pub toolchain_version: String,
     #[serde(default)]
     pub rustflags: Option<String>,
+    #[serde(default)]
+    pub env_hash: Option<String>,
     pub created_at_secs: u64,
     pub action_count: usize,
     pub root_binary: Option<PathBuf>,
@@ -39,6 +41,8 @@ pub struct FastBuildLock {
     pub sources: Vec<FileSnapshot>,
     #[serde(default)]
     pub directories: Vec<FileSnapshot>,
+    #[serde(default)]
+    pub cargo_configs: Vec<FileSnapshot>,
     pub outputs: Vec<FileSnapshot>,
     #[serde(default)]
     pub stderr: Option<String>,

@@ -114,10 +114,19 @@ def get_binary_provenance(mitts_bin: Path):
         pass
 
     git_c = ""
-    try:
-        git_c = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent, text=True).strip()
-    except Exception:
-        pass
+    m_git = re.search(r"\(([^)]+)\)", mitts_v)
+    if m_git:
+        git_c = m_git.group(1)
+    else:
+        repo_dirs = [Path(__file__).parent, Path.home() / "mitts", Path.cwd()]
+        for rd in repo_dirs:
+            if (rd / ".git").exists():
+                try:
+                    git_c = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=rd, stderr=subprocess.DEVNULL, text=True).strip()
+                    if git_c:
+                        break
+                except Exception:
+                    pass
 
     sccache_v = ""
     try:
@@ -139,7 +148,7 @@ def get_binary_provenance(mitts_bin: Path):
     }
 
 
-def get_project_metadata(repo_dir: Path):
+def get_project_metadata(repo_dir: Path, anomaly_location=None, impure_units=None):
     lock_file = repo_dir / "Cargo.lock"
     lock_sha = ""
     if lock_file.exists():
@@ -158,10 +167,15 @@ def get_project_metadata(repo_dir: Path):
     except Exception:
         pass
 
-    return {
+    meta = {
         "cargo_lock_sha256": lock_sha,
         "workspace_crates_count": crate_count,
     }
+    if anomaly_location is not None:
+        meta["anomaly_location"] = anomaly_location
+    if impure_units is not None:
+        meta["impure_units"] = impure_units
+    return meta
 
 
 def compute_stats(vals):
@@ -282,13 +296,14 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
 
     baseline_cargo_res = None
     last_mitts_res = None
+    last_anomaly_info = None
 
     print(f"[3/5] Executing {runs_count} iterations across 12 worktrees per tool...")
     for run_idx in range(1, runs_count + 1):
         print(f"  --- Iteration {run_idx}/{runs_count} ---")
         for tool in ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]:
             wts = prepare_worktrees(repo_dir, wt_base, commits)
-            inject_anomaly(wts[-1][1])
+            last_anomaly_info = inject_anomaly(wts[-1][1])
 
             if tool == "mitts_cas":
                 restore_cache(snap_cas, mitts_cache)
@@ -409,13 +424,27 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         cmd_d_mitts = [str(MITTS_BIN), "clippy", "--", "-D", "warnings"]
     p_c = subprocess.run(cmd_d_cargo, cwd=wt_base / "wt-12", env=env_d, capture_output=True, text=True)
     p_m = subprocess.run(cmd_d_mitts, cwd=wt_base / "wt-12", env=env_d, capture_output=True, text=True)
-    d_exit_nonzero = (p_c.returncode != 0) and (p_m.returncode != 0)
-    has_anomaly_c = "unused_test_var" in p_c.stderr and "error:" in p_c.stderr
+    d_exit_matched = (p_c.returncode == 101) and (p_m.returncode == 101)
+
+    expected_file = last_anomaly_info["relative_file"] if last_anomaly_info else ""
+    expected_line = str(last_anomaly_info["line"]) if last_anomaly_info else ""
+    expected_loc = f"{expected_file}:{expected_line}"
+
+    has_anomaly_c = (
+        ("unused_test_var" in p_c.stderr)
+        and ("error" in p_c.stderr)
+        and (expected_loc in p_c.stderr or (expected_file in p_c.stderr and f":{expected_line}:" in p_c.stderr))
+    )
     m_combined = p_m.stderr + "\n" + p_m.stdout
-    has_anomaly_m = "unused_test_var" in m_combined and ("error:" in m_combined or "error" in m_combined)
-    d_warnings_exit_code_matched = d_exit_nonzero and has_anomaly_c and has_anomaly_m
+    has_anomaly_m = (
+        ("unused_test_var" in m_combined)
+        and ("error" in m_combined)
+        and (expected_loc in m_combined or (expected_file in m_combined and f":{expected_line}:" in m_combined))
+    )
+    d_warnings_exit_code_matched = d_exit_matched and has_anomaly_c and has_anomaly_m
     if not d_warnings_exit_code_matched:
         print(f"  [DEBUG -D warnings] p_c exit={p_c.returncode}, p_m exit={p_m.returncode}")
+        print(f"  [DEBUG -D warnings] expected_loc={expected_loc}")
         print(f"  [DEBUG -D warnings] cargo stderr:\n{p_c.stderr}")
         print(f"  [DEBUG -D warnings] mitts stderr:\n{p_m.stderr}\nmitts stdout:\n{p_m.stdout}")
 
@@ -455,7 +484,8 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     for tool in tool_results:
         tool_results[tool].pop("runs_data", None)
 
-    proj_meta = get_project_metadata(repo_dir)
+    impure_units = ["nu-cmd-lang"] if project_name == "nushell" else None
+    proj_meta = get_project_metadata(repo_dir, anomaly_location=last_anomaly_info, impure_units=impure_units)
     return {
         "mode": mode,
         "worktrees_count": 12,
@@ -482,7 +512,7 @@ def main():
     parser.add_argument("--projects", default="tokio,serde,ripgrep,nushell", help="Comma-separated project list")
     parser.add_argument("--mode", choices=["check", "clippy"], default="check", help="Build mode to audit")
     parser.add_argument("--runs", type=int, default=5, help="Number of benchmark iterations")
-    parser.add_argument("--output", default="docs/results_l5a_audit_defensible.json", help="Output JSON path")
+    parser.add_argument("--output", default=".mitts/benchmarks/results_l5a_audit_defensible.json", help="Output JSON path")
     args = parser.parse_args()
 
     rig = get_rig_info()

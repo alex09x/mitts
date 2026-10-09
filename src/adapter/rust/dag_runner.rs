@@ -315,7 +315,7 @@ pub fn run_native_dag_build(
         let combined_error = compile_errors.join("\n");
         let result = ActionResult {
             action_id: "native-dag".to_string(),
-            exit_code: 1,
+            exit_code: 101,
             success: false,
             stdout: String::new(),
             stderr: combined_error,

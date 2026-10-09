@@ -137,7 +137,7 @@ fn test_m8_dag_unit_build_script_failure_propagation() {
         !res.success,
         "Broken build.rs must result in failed ActionResult"
     );
-    assert_eq!(res.exit_code, 1);
+    assert_eq!(res.exit_code, 101);
     assert!(
         res.stderr.contains("Failed to compile build.rs")
             || res.stderr.contains("rustc failed for unit")

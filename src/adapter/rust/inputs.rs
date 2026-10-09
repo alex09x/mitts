@@ -143,69 +143,42 @@ pub fn hash_package_base_inputs(
         }
     }
 
-    // 3. Applicable .cargo/config.toml or .cargo/config in package dir or ancestor dirs
-    let mut config_candidate = Some(package_dir);
+    // 3. Applicable .cargo/config.toml or .cargo/config files
     let ws_root = if is_workspace {
         workspace_manifest.and_then(|p| p.parent())
     } else {
         None
     };
-    while let Some(dir) = config_candidate {
-        let toml_cfg = dir.join(".cargo").join("config.toml");
-        if toml_cfg.is_file() {
-            let hash = Sha256::digest_file(&toml_cfg)
-                .with_context(|| format!("Failed to hash {:?}", toml_cfg))?;
-            let label = if dir == package_dir {
-                ".cargo/config.toml".to_string()
-            } else if Some(dir) == ws_root {
-                "workspace:.cargo/config.toml".to_string()
+    let config_files = super::cargo_config::discover_cargo_config_files(package_dir);
+    for cfg_p in config_files {
+        let hash = Sha256::digest_file(&cfg_p)
+            .with_context(|| format!("Failed to hash {:?}", cfg_p))?;
+        let label = if let Ok(rel) = cfg_p.strip_prefix(package_dir) {
+            rel.to_string_lossy().to_string()
+        } else if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w.join(".cargo"))) {
+            format!("workspace:{}", cfg_p.strip_prefix(ws).unwrap().display())
+        } else if let Some((depth, rel)) = package_dir
+            .ancestors()
+            .enumerate()
+            .find_map(|(idx, a)| cfg_p.strip_prefix(a.join(".cargo")).ok().map(|r| (idx, r)))
+        {
+            format!("ancestor:{}/.cargo/{}", "../".repeat(depth), rel.display())
+        } else if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+            if let Ok(rel) = cfg_p.strip_prefix(&cargo_home) {
+                format!("CARGO_HOME/{}", rel.display())
             } else {
-                let depth = package_dir.ancestors().position(|a| a == dir).unwrap_or(1);
-                format!("ancestor:{}/.cargo/config.toml", "../".repeat(depth))
-            };
-            inputs.push((label, hash));
-        }
-        let bare_cfg = dir.join(".cargo").join("config");
-        if bare_cfg.is_file() {
-            let hash = Sha256::digest_file(&bare_cfg)
-                .with_context(|| format!("Failed to hash {:?}", bare_cfg))?;
-            let label = if dir == package_dir {
-                ".cargo/config".to_string()
-            } else if Some(dir) == ws_root {
-                "workspace:.cargo/config".to_string()
+                cfg_p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "config.toml".to_string())
+            }
+        } else if let Ok(home) = std::env::var("HOME") {
+            if let Ok(rel) = cfg_p.strip_prefix(Path::new(&home).join(".cargo")) {
+                format!("~/.cargo/{}", rel.display())
             } else {
-                let depth = package_dir.ancestors().position(|a| a == dir).unwrap_or(1);
-                format!("ancestor:{}/.cargo/config", "../".repeat(depth))
-            };
-            inputs.push((label, hash));
-        }
-        if !is_workspace || Some(dir) == ws_root {
-            break;
-        }
-        config_candidate = dir.parent();
-    }
-
-    // 4. Global Cargo configs in $CARGO_HOME or $HOME/.cargo
-    if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
-        let home_path = PathBuf::from(cargo_home);
-        for name in &["config.toml", "config"] {
-            let p = home_path.join(name);
-            if p.is_file() {
-                let hash =
-                    Sha256::digest_file(&p).with_context(|| format!("Failed to hash {:?}", p))?;
-                inputs.push((format!("CARGO_HOME/{}", name), hash));
+                cfg_p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "config.toml".to_string())
             }
-        }
-    } else if let Ok(home) = std::env::var("HOME") {
-        let cargo_dir = PathBuf::from(home).join(".cargo");
-        for name in &["config.toml", "config"] {
-            let p = cargo_dir.join(name);
-            if p.is_file() {
-                let hash =
-                    Sha256::digest_file(&p).with_context(|| format!("Failed to hash {:?}", p))?;
-                inputs.push((format!("~/.cargo/{}", name), hash));
-            }
-        }
+        } else {
+            cfg_p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "config.toml".to_string())
+        };
+        inputs.push((label, hash));
     }
 
     // 6. Scan workspace package directory (src, assets, custom directories)

@@ -9,3 +9,8 @@ target/
 .prod/
 __pycache__/
 *.pyc
+reports/
+benchmarks/
+*.html
+*.profraw
+*.profdata

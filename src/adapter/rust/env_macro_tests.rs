@@ -76,10 +76,10 @@ fn test_scan_env_macros_escaped_string() {
 #[test]
 fn test_scan_env_macros_unicode_does_not_panic() {
     let code = r#"
-        // Line comment with Unicode: 🦀 привет мир!
+        // Line comment with Unicode: 🦀 hello world! Grüße
         /* Block comment with Unicode:
            中文测试, café, résumé, 🚀 emoji, ελληνικά
-           nested /* ещё один комментарий */
+           nested /* another unicode comment: 日本語テスト */
         */
         fn café() {
             let identifier_ü = 1;

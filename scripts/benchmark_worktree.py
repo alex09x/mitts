@@ -104,10 +104,25 @@ def inject_anomaly(wt_dir):
                 break
 
     if target:
-        snippet = "\n#[allow(dead_code)]\n#[allow(missing_docs)]\n#[doc(hidden)]\npub fn __mitts_audit_anomaly() {\n    let unused_test_var = 42;\n}\n"
-        with open(target, "a") as f:
-            f.write(snippet)
-        return target
+        with open(target, "r") as f:
+            original = f.read()
+        separator = "" if original.endswith("\n") else "\n"
+        snippet = separator + "#[allow(dead_code)]\n#[allow(missing_docs)]\n#[doc(hidden)]\npub fn __mitts_audit_anomaly() {\n    let unused_test_var = 42;\n}\n"
+        new_content = original + snippet
+        with open(target, "w") as f:
+            f.write(new_content)
+
+        anomaly_line = None
+        for idx, line in enumerate(new_content.splitlines(), start=1):
+            if "unused_test_var" in line:
+                anomaly_line = idx
+                break
+
+        rel_path = str(target.relative_to(wt_dir))
+        return {
+            "relative_file": rel_path,
+            "line": anomaly_line,
+        }
     return None
 
 

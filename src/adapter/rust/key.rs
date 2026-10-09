@@ -120,38 +120,8 @@ pub fn derive_unit_action_key_context(
 
     // Gather effective environment flags (all CARGO_*, RUST_*, RUSTFLAGS, etc.)
     let mut effective_flags = opt.extra_args.clone();
-    let mut relevant_env_keys: Vec<String> = std::env::vars()
-        .filter_map(|(k, _)| {
-            if k == "CARGO_MANIFEST_DIR"
-                || k == "CARGO_TARGET_DIR"
-                || k == "CARGO_MAKEFLAGS"
-                || k == "MAKEFLAGS"
-                || k == "CARGO_HOME"
-                || k == "CARGO"
-            {
-                None
-            } else if k.starts_with("CARGO_")
-                || k.starts_with("RUST_")
-                || k.starts_with("CLIPPY_")
-                || k == "RUSTFLAGS"
-                || k == "RUSTC_WRAPPER"
-                || k == "RUSTC_WORKSPACE_WRAPPER"
-                || k == "RUSTDOCFLAGS"
-                || k == "TARGET"
-                || k == "HOST"
-                || k == "PROFILE"
-            {
-                Some(k)
-            } else {
-                None
-            }
-        })
-        .collect();
-    relevant_env_keys.sort();
-    for k in relevant_env_keys {
-        if let Ok(v) = std::env::var(&k) {
-            effective_flags.push(format!("ENV:{}={}", k, v));
-        }
+    for (k, v) in crate::core::build_env::collect_relevant_env_vars() {
+        effective_flags.push(format!("ENV:{}={}", k, v));
     }
 
     // 1. Gather all unique package directories and their workspace status
