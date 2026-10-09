@@ -75,6 +75,16 @@ def get_rig_info():
     except Exception:
         pass
 
+    os_name = "Linux"
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    os_name = line.split("=", 1)[1].strip().strip('"')
+                    break
+    except Exception:
+        pass
+
     kernel = os.uname().release
     rustc_v = subprocess.check_output(["rustc", "-vV"], text=True).strip().splitlines()[0]
     clippy_v = subprocess.check_output(["cargo", "clippy", "-V"], text=True).strip()
@@ -82,7 +92,7 @@ def get_rig_info():
     return {
         "cpu": cpu_model,
         "ram_gb": ram_gb,
-        "os": "Ubuntu 24.04.1 LTS",
+        "os": os_name,
         "kernel": kernel,
         "rustc_version": rustc_v,
         "clippy_version": clippy_v,
