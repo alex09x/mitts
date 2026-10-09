@@ -13,7 +13,7 @@ from pathlib import Path
 ANSI_REGEX = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 DIAG_HEADER_RE = re.compile(r'^(warning|error)(?:\[([^\]]+)\])?:\s+(.*)$')
 LOC_RE = re.compile(r'^\s+-->\s+([^:]+):(\d+):(\d+)')
-SUMMARY_RE = re.compile(r'^(warning|error):\s+.*(generated \d+ warning|could not compile|aborting due to)')
+SUMMARY_RE = re.compile(r'^(warning|error):\s+.*(generated \d+ warning|could not compile|aborting due to|\d+ warnings? emitted)')
 MITTS_BANNER_RE = re.compile(r'^\[mitts::.*\]')
 
 

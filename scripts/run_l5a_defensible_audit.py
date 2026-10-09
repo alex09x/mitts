@@ -256,6 +256,14 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     print("[4/5] Verifying strict defensibility invariants...")
     m_runs = last_mitts_res["results"]
     c_runs = baseline_cargo_res["results"]
+    print("  Mitts exit codes:", [(m['wt_index'], m['exit_code']) for m in m_runs])
+    print("  Cargo exit codes:", [(c['wt_index'], c['exit_code']) for c in c_runs])
+    for m in m_runs:
+        if m['exit_code'] != 0:
+            print(f"  WT-{m['wt_index']} Mitts failed (exit {m['exit_code']}):\n{m['stderr']}\n{m['stdout']}")
+    for c in c_runs:
+        if c['exit_code'] != 0:
+            print(f"  WT-{c['wt_index']} Cargo failed (exit {c['exit_code']}):\n{c['stderr']}\n{c['stdout']}")
 
     exit_codes_all_matched = all(m["exit_code"] == c["exit_code"] for m, c in zip(m_runs, c_runs))
 

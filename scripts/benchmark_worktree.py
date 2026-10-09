@@ -104,7 +104,7 @@ def inject_anomaly(wt_dir):
                 break
 
     if target:
-        snippet = "\n#[allow(dead_code)]\npub fn __mitts_audit_anomaly() {\n    let unused_test_var = 42;\n}\n"
+        snippet = "\n#[allow(dead_code)]\n#[allow(missing_docs)]\n#[doc(hidden)]\npub fn __mitts_audit_anomaly() {\n    let unused_test_var = 42;\n}\n"
         with open(target, "a") as f:
             f.write(snippet)
         return target

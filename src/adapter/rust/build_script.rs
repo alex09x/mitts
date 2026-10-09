@@ -190,6 +190,21 @@ pub fn execute_build_script(
             "1",
         );
     }
+    compile_cmd.arg("--check-cfg").arg("cfg(docsrs,test)");
+    let mut all_features: Vec<String> = pkg_toml.features.keys().cloned().collect();
+    for (dep_name, dep_val) in &pkg_toml.dependencies {
+        if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
+            if d.optional == Some(true) {
+                all_features.push(dep_name.clone());
+            }
+        }
+    }
+    all_features.sort();
+    all_features.dedup();
+    let quoted: Vec<String> = all_features.iter().map(|f| format!("\"{}\"", f)).collect();
+    compile_cmd
+        .arg("--check-cfg")
+        .arg(format!("cfg(feature, values({}))", quoted.join(", ")));
     compile_cmd.env("CARGO_CFG_FEATURE", features.join(","));
     for (crate_name, artifact_path) in extern_crates {
         let rlib = artifact_path.with_extension("rlib");

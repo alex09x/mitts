@@ -175,7 +175,25 @@ impl<'a> RustcInvocation<'a> {
             }
         }
 
-        // Features
+        // Features and Cargo-compatible check-cfg declarations
+        cmd.arg("--check-cfg").arg("cfg(docsrs,test)");
+        if let Ok(toml) = super::manifest::CargoToml::from_file(&self.unit.manifest_path) {
+            let mut all_features: Vec<String> = toml.features.keys().cloned().collect();
+            for (dep_name, dep_val) in &toml.dependencies {
+                if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
+                    if d.optional == Some(true) {
+                        all_features.push(dep_name.clone());
+                    }
+                }
+            }
+            all_features.sort();
+            all_features.dedup();
+            let quoted: Vec<String> = all_features.iter().map(|f| format!("\"{}\"", f)).collect();
+            cmd.arg("--check-cfg")
+                .arg(format!("cfg(feature, values({}))", quoted.join(", ")));
+        } else {
+            cmd.arg("--check-cfg").arg("cfg(feature, values(any()))");
+        }
         for feat in self.features {
             cmd.arg("--cfg").arg(format!("feature=\"{}\"", feat));
         }
