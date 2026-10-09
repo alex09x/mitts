@@ -43,6 +43,25 @@ pub fn select_transitive_packages<'a>(
         } else {
             bail!("Package '{target_pkg}' not found in workspace lockfile");
         }
+    } else if opt
+        .extra_args
+        .iter()
+        .any(|a| a == "--workspace" || a == "--all")
+    {
+        for (name, (_member_dir, ws_toml)) in workspace_manifests {
+            let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
+            if let Some(pkgs) = packages_by_name.get(name) {
+                if let Some(ver) = ws_version {
+                    if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
+                        root_pkgs.push(matching);
+                    } else if let Some(first) = pkgs.first() {
+                        root_pkgs.push(first);
+                    }
+                } else if let Some(first) = pkgs.first() {
+                    root_pkgs.push(first);
+                }
+            }
+        }
     } else {
         let default_members = root_toml
             .workspace
@@ -92,14 +111,7 @@ pub fn select_transitive_packages<'a>(
         }
 
         if root_pkgs.is_empty() {
-            for (name, (member_dir, ws_toml)) in workspace_manifests {
-                let mut targets = ws_toml.discover_targets(member_dir);
-                if opt.mode == crate::adapter::BuildMode::Test {
-                    targets.extend(ws_toml.discover_test_targets(member_dir));
-                }
-                if targets.is_empty() {
-                    continue;
-                }
+            for (name, (_member_dir, ws_toml)) in workspace_manifests {
                 let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                 if let Some(pkgs) = packages_by_name.get(name) {
                     if let Some(ver) = ws_version {
