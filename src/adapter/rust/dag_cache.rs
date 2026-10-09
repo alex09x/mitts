@@ -97,9 +97,7 @@ pub fn try_restore_from_cache_with_directives(
                         Some(ctx.cas.root()),
                         d,
                     ) {
-                        if purity.is_pure {
-                            unit_env.insert("OUT_DIR".to_string(), purity.out_dir_hash);
-                        }
+                        unit_env.insert("OUT_DIR".to_string(), purity.out_dir_hash);
                     }
                 }
             }

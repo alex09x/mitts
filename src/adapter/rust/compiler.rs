@@ -135,16 +135,6 @@ impl<'a> RustcInvocation<'a> {
             cmd.arg("-C").arg("embed-bitcode=no");
         }
 
-        if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
-            for flag in encoded.split('\x1f').filter(|f| !f.is_empty()) {
-                cmd.arg(flag);
-            }
-        } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
-            for flag in flags.split_whitespace() {
-                cmd.arg(flag);
-            }
-        }
-
         if !self.unit.is_workspace {
             cmd.arg("--cap-lints").arg("allow");
         } else {
@@ -291,6 +281,16 @@ impl<'a> RustcInvocation<'a> {
         {
             if compiler_bin.to_string_lossy().contains(".rustup/toolchains") {
                 cmd.env("RUSTUP_TOOLCHAIN", toolchain_name);
+            }
+        }
+
+        if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+            for flag in encoded.split('\x1f').filter(|f| !f.is_empty()) {
+                cmd.arg(flag);
+            }
+        } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
+            for flag in flags.split_whitespace() {
+                cmd.arg(flag);
             }
         }
 

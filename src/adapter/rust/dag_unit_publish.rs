@@ -317,14 +317,7 @@ pub fn extract_unit_extra_inputs(
                             let norm_path = format!("env:{}", var);
                             let hash = if var == "OUT_DIR" {
                                 if let Some(purity) = out_dir_purity {
-                                    if purity.is_pure {
-                                        Sha256::digest(purity.out_dir_hash.as_bytes())
-                                    } else {
-                                        match val_opt {
-                                            Some(v) => Sha256::digest(v.as_bytes()),
-                                            None => Sha256::digest(b"__UNSET__"),
-                                        }
-                                    }
+                                    Sha256::digest(purity.out_dir_hash.as_bytes())
                                 } else {
                                     match val_opt {
                                         Some(v) => Sha256::digest(v.as_bytes()),
