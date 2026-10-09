@@ -119,6 +119,7 @@ fn test_m8_handlers_clean_cache_and_gc_options() {
             features: Vec::new(),
             no_default_features: false,
             all_features: false,
+            json: false,
         };
         assert_eq!(handle_explain(&explain_args), 0);
     }

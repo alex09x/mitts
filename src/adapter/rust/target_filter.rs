@@ -219,10 +219,17 @@ fn eval_atom(atom: &str) -> bool {
             "target_vendor" => host_target_vendor() == val,
             "target_pointer_width" => host_target_pointer_width() == val,
             "target_endian" => host_target_endian() == val,
+            "target_has_atomic"
+            | "target_has_atomic_load_store"
+            | "target_has_atomic_equal_alignment" => host_target_has_atomic(val),
             _ => false,
         };
     }
     false
+}
+
+fn host_target_has_atomic(val: &str) -> bool {
+    matches!(val, "8" | "16" | "32" | "64" | "ptr")
 }
 
 fn host_target_endian() -> &'static str {

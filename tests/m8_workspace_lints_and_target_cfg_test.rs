@@ -169,3 +169,49 @@ tempfile = { version = "3.8", features = ["nitro"] }
         "target dev-dependency must not be recognized in non-test mode"
     );
 }
+
+#[test]
+fn test_m8_target_has_atomic_filtering() {
+    use mitts::adapter::rust::target_filter::is_target_cfg_incompatible_with_host;
+
+    // On modern host (x86_64 / aarch64), target_has_atomic = "ptr" is true.
+    // Therefore cfg(not(target_has_atomic = "ptr")) must be incompatible (evaluated to false).
+    assert!(
+        is_target_cfg_incompatible_with_host("cfg(not(target_has_atomic = \"ptr\"))"),
+        "not(target_has_atomic = ptr) must be marked incompatible on host"
+    );
+    assert!(
+        !is_target_cfg_incompatible_with_host("cfg(target_has_atomic = \"ptr\")"),
+        "target_has_atomic = ptr must be marked compatible on host"
+    );
+    assert!(
+        !is_target_cfg_incompatible_with_host("cfg(target_has_atomic = \"64\")"),
+        "target_has_atomic = 64 must be marked compatible on host"
+    );
+}
+
+#[test]
+fn test_m8_build_disabled_ignores_build_dependencies() {
+    use mitts::adapter::rust::manifest::CargoToml;
+    use mitts::adapter::rust::package_selection::is_declared_dependency;
+
+    let manifest_str = r#"
+        [package]
+        name = "test-pkg"
+        version = "0.1.0"
+        edition = "2021"
+        build = false
+
+        [build-dependencies]
+        rustc_version = "0.4"
+    "#;
+    let dir = tempfile::tempdir().unwrap();
+    let manifest_path = dir.path().join("Cargo.toml");
+    std::fs::write(&manifest_path, manifest_str).unwrap();
+
+    let toml = CargoToml::from_file(&manifest_path).unwrap();
+    assert!(
+        !is_declared_dependency(&toml, "rustc_version", false),
+        "build_dependencies must be ignored when build = false"
+    );
+}

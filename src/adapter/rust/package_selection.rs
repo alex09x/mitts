@@ -257,22 +257,11 @@ pub fn has_active_dependency(
         }
     }
 
-    for (alias, d) in &pkg_toml.build_dependencies {
-        if check_dep(alias, d) {
-            return true;
-        }
-    }
-
     for (target_spec, target) in &pkg_toml.target {
         if is_target_cfg_incompatible_with_host(target_spec) {
             continue;
         }
         for (alias, d) in &target.dependencies {
-            if check_dep(alias, d) {
-                return true;
-            }
-        }
-        for (alias, d) in &target.build_dependencies {
             if check_dep(alias, d) {
                 return true;
             }
@@ -325,9 +314,16 @@ pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: boo
         }
     }
 
-    for (alias, d) in &pkg_toml.build_dependencies {
-        if check_dep(alias, d) {
-            return true;
+    let build_disabled = matches!(
+        pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()),
+        Some(crate::adapter::rust::manifest::TomlBuild::Disabled(false))
+    );
+
+    if !build_disabled {
+        for (alias, d) in &pkg_toml.build_dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
         }
     }
 
@@ -340,9 +336,11 @@ pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: boo
                 return true;
             }
         }
-        for (alias, d) in &target.build_dependencies {
-            if check_dep(alias, d) {
-                return true;
+        if !build_disabled {
+            for (alias, d) in &target.build_dependencies {
+                if check_dep(alias, d) {
+                    return true;
+                }
             }
         }
         if is_test {

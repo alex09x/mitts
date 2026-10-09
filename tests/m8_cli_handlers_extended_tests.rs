@@ -36,8 +36,17 @@ fn test_m8_cli_explain_and_fetch() {
         features: Vec::new(),
         no_default_features: false,
         all_features: false,
+        json: false,
     };
     assert_eq!(handle_explain(&explain_args), 0);
+
+    // Explain JSON output
+    let explain_json = ExplainArgs {
+        manifest_path: Some(cargo_toml.clone()),
+        json: true,
+        ..Default::default()
+    };
+    assert_eq!(handle_explain(&explain_json), 0);
 
     // Explain missing manifest
     let explain_missing = ExplainArgs {
@@ -47,6 +56,7 @@ fn test_m8_cli_explain_and_fetch() {
         features: Vec::new(),
         no_default_features: false,
         all_features: false,
+        json: false,
     };
     assert_eq!(handle_explain(&explain_missing), 1);
 

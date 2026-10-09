@@ -175,6 +175,10 @@ pub struct ExplainArgs {
     /// Activate all available features
     #[arg(long)]
     pub all_features: bool,
+
+    /// Output explanation in JSON format
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]

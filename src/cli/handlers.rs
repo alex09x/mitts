@@ -32,6 +32,21 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
         }
     };
 
+    if args.json {
+        match serde_json::to_string_pretty(&explanation) {
+            Ok(json_str) => {
+                println!("{json_str}");
+                return 0;
+            }
+            Err(err) => {
+                eprintln!("Failed to serialize explanation to JSON: {err}");
+                return 1;
+            }
+        }
+    }
+
+    let project_dir = explanation.manifest_path.parent();
+
     println!("Mitts Build Plan Explanation");
     println!("============================");
     println!("Manifest:         {}", explanation.manifest_path.display());
@@ -61,7 +76,13 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
             unit.kind,
             unit.target_name
         );
-        println!("     Source:      {}", unit.src_path.display());
+        let display_src = project_dir
+            .and_then(|p| unit.src_path.strip_prefix(p).ok())
+            .unwrap_or(&unit.src_path);
+        println!("     Source:      {}", display_src.display());
+        if !unit.features.is_empty() {
+            println!("     Features:    {}", unit.features.join(", "));
+        }
         if !unit.dependencies.is_empty() {
             println!("     Deps:        {}", unit.dependencies.join(", "));
         }
