@@ -376,6 +376,7 @@ def run_t5_project(project_name, runs_count=3):
     return {
         "mode": "test",
         "worktrees_count": 12,
+        "provenance": get_binary_provenance(MITTS_BIN),
         "commit_distribution": "4/3/3/2",
         "runs": tool_results,
         "speedup_vs_sound_baseline": {
@@ -422,6 +423,18 @@ def main():
             print(f"ERROR auditing project {proj}: {e}")
             import traceback
             traceback.print_exc()
+            final_report["projects"][proj] = {
+                "mode": "test",
+                "status": "FAIL",
+                "error": str(e),
+                "provenance": get_binary_provenance(MITTS_BIN),
+                "invariants": {
+                    "exit_codes_all_matched": False,
+                    "intentional_defect_caught_by_both": False,
+                    "test_counts_match": False,
+                    "fast_lock_never_skips_test_execution": False,
+                }
+            }
 
     out_p.parent.mkdir(parents=True, exist_ok=True)
     with open(out_p, "w") as f:

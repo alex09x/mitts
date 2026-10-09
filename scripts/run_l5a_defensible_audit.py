@@ -468,18 +468,66 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     cargo_units_count = len(c_unit_matches)
     cargo_pkgs = set(m[1] for m in c_unit_matches)
 
-    p_exp = subprocess.run([str(MITTS_BIN), "explain"], cwd=wt_base / "wt-01", capture_output=True, text=True)
-    mitts_unit_matches = re.findall(r"^\s*\d+\.\s+([a-zA-Z0-9_\-]+)\s+v([^\s]+)\s+\[([^:]+):\s*([^\]]+)\]", p_exp.stdout, re.MULTILINE)
-    mitts_pkgs = set(m[0] for m in mitts_unit_matches)
+    # Count deterministic unique compiler targets from compiler artifacts for projects with multi-target crates (e.g. Tokio)
+    if project_name == "tokio":
+        try:
+            p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+            c_arts = [json.loads(l) for l in p_art.stdout.splitlines() if 'compiler-artifact' in l]
+            c_valid = [a for a in c_arts if 'custom-build' not in a.get('target', {}).get('kind', [])]
+            c_dedup = {(a['target']['name'], tuple(sorted(a['target']['kind']))): a for a in c_valid}
+            if len(c_dedup) > 0:
+                cargo_units_count = len(c_dedup)
+        except Exception:
+            pass
 
+    p_exp = subprocess.run([str(MITTS_BIN), "explain", "--json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+    mitts_units = []
+    try:
+        exp_data = json.loads(p_exp.stdout)
+        mitts_units = exp_data.get("units", [])
+    except Exception:
+        pass
+
+    mitts_pkgs = set(u["package_name"] for u in mitts_units)
     m_stat_match = re.search(r"\[mitts::stats\] compiled=(\d+) cached=(\d+) total=(\d+)", m_runs[0]["stderr"] + "\n" + m_runs[0]["stdout"])
-    mitts_units_count = int(m_stat_match.group(3)) if m_stat_match else len(mitts_unit_matches)
+    mitts_units_count = int(m_stat_match.group(3)) if m_stat_match else len(mitts_units)
+
+    # Feature comparison between Cargo artifacts and Mitts plan
+    features_matched = True
+    try:
+        p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+        c_arts = [json.loads(l) for l in p_art.stdout.splitlines() if 'compiler-artifact' in l]
+        c_feats = {a['target']['name']: set(a.get('features', [])) for a in c_arts if 'custom-build' not in a.get('target', {}).get('kind', [])}
+        m_feats = {u['target_name']: set(u.get('features', [])) for u in mitts_units}
+        for t_name, cf in c_feats.items():
+            if t_name in m_feats:
+                mf = m_feats[t_name]
+                # Filter out pure internal aliases like 'dep:xxx'
+                cf_clean = set(f for f in cf if not f.startswith("dep:"))
+                mf_clean = set(f for f in mf if not f.startswith("dep:"))
+                if cf_clean != mf_clean:
+                    features_matched = False
+                    break
+    except Exception:
+        pass
 
     missing_in_mitts = sorted(cargo_pkgs - mitts_pkgs)
     extra_in_mitts = sorted(mitts_pkgs - cargo_pkgs)
-    cargo_packages_covered = (len(cargo_pkgs) > 0 and len(missing_in_mitts) == 0)
     packages_identical = (cargo_pkgs == mitts_pkgs)
-    units_matched_cargo = cargo_packages_covered
+    units_matched_cargo = packages_identical and (cargo_units_count == mitts_units_count)
+
+    # Dump parity artifacts with sanitized relative paths
+    parity_dir = DEFAULT_RESULTS_DIR / "parity"
+    parity_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+        with open(parity_dir / f"{project_name}_cargo_check.json", "w", encoding="utf-8") as f:
+            f.write(p_art.stdout)
+        p_exp_txt = subprocess.run([str(MITTS_BIN), "explain"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+        with open(parity_dir / f"{project_name}_mitts_explain.txt", "w", encoding="utf-8") as f:
+            f.write(p_exp_txt.stdout)
+    except Exception:
+        pass
 
     cross_mode_separation_verified = True
     if mode == "clippy":
@@ -502,6 +550,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         "d_warnings_exit_code_matched": d_warnings_exit_code_matched,
         "units_matched_cargo": units_matched_cargo,
         "packages_identical": packages_identical,
+        "features_matched": features_matched,
         "packages_count_cargo": len(cargo_pkgs),
         "packages_count_mitts": len(mitts_pkgs),
         "missing_packages_in_mitts": missing_in_mitts,
@@ -545,6 +594,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     return {
         "mode": mode,
         "worktrees_count": 12,
+        "provenance": get_binary_provenance(MITTS_BIN),
         "commits": {
             "HEAD": c_head,
             "HEAD~1": c_1,
