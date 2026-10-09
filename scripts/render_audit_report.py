@@ -203,8 +203,8 @@ def render_report():
                 lines.append(f"| `{proj}` | `{tool}` | {med:.3f} | {iqr:.3f} | {sp_sound} | {disk:,.1f} | {prov_str} | {tool_status} | `projects.{proj}.runs.{tool}` |")
     lines.append("")
     lines.append("**T5 Concurrency and Baseline Notes**:")
-    lines.append("- `cargo_shared` (Unsound): On Tokio, `cargo_shared` achieves 85.9s compared to Mitts CAS 121.6s. As noted in the architecture documentation, `cargo_shared` shares a mutable target directory across concurrent worktrees without transaction isolation or lock safety, which is unsound in multi-worktree CI environments.")
-    lines.append("- **Tokio Runtime Variance (IQR Analysis)**: Mitts CAS exhibits an IQR of 18.2s (15% of 121.6s median) on Tokio test swarm, whereas Cargo Bare exhibits 0.07s. This variance stems from concurrent CAS artifact lock arbitration and fast-lock warm-up across 12 simultaneous worktrees competing for I/O and jobserver slots on 32 threads.")
+    lines.append("- `cargo_shared` (Unsound): On Tokio, `cargo_shared` achieves 88.7s compared to Mitts CAS 100.0s (in earlier run: 85.9s vs 121.6s). As noted in the architecture documentation, `cargo_shared` shares a mutable target directory across concurrent worktrees without transaction isolation or lock safety, which is unsound in multi-worktree CI environments.")
+    lines.append("- **Tokio Runtime Variance (IQR Analysis)**: Mitts CAS exhibits an IQR of 17.1s (17% of 100.0s median; in earlier 5-run: 18.2s / 15% of 121.6s) on Tokio test swarm, whereas Cargo Bare exhibits 0.82s (earlier: 0.07s). This variance stems from concurrent CAS artifact lock arbitration and fast-lock warm-up across 12 simultaneous worktrees competing for I/O and jobserver slots on 32 threads.")
     lines.append("")
 
     # Section 6: Invariants Status
