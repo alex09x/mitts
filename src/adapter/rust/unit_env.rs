@@ -92,6 +92,7 @@ pub fn compute_unit_rustc_env(
             "1".to_string(),
         );
     }
+    env.insert("CARGO_CFG_FEATURE".to_string(), unit.features.join(","));
 
     if let Some(dir) = directives {
         if let Some(ref out) = dir.out_dir {

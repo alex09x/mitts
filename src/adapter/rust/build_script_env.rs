@@ -78,6 +78,7 @@ pub fn configure_build_script_run_cmd(
             "1",
         );
     }
+    run_cmd.env("CARGO_CFG_FEATURE", features.join(","));
     if let Some(extra) = extra_env {
         for (k, v) in extra {
             run_cmd.env(k, v);

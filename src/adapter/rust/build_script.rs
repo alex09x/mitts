@@ -190,6 +190,7 @@ pub fn execute_build_script(
             "1",
         );
     }
+    compile_cmd.env("CARGO_CFG_FEATURE", features.join(","));
     for (crate_name, artifact_path) in extern_crates {
         let rlib = artifact_path.with_extension("rlib");
         let effective = if rlib.is_file() { &rlib } else { artifact_path };
