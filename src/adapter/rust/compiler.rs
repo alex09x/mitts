@@ -194,6 +194,15 @@ impl<'a> RustcInvocation<'a> {
                     }
                 }
             }
+            for target_spec in toml.target.values() {
+                for (dep_name, dep_val) in &target_spec.dependencies {
+                    if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
+                        if d.optional == Some(true) {
+                            all_features.push(dep_name.clone());
+                        }
+                    }
+                }
+            }
             all_features.sort();
             all_features.dedup();
             let quoted: Vec<String> = all_features.iter().map(|f| format!("\"{}\"", f)).collect();
