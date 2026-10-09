@@ -274,6 +274,13 @@ pub fn has_active_dependency(
                 return true;
             }
         }
+        if is_test {
+            for (alias, d) in &target.dev_dependencies {
+                if check_dep(alias, d) {
+                    return true;
+                }
+            }
+        }
     }
 
     if is_test {
@@ -333,6 +340,13 @@ pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: boo
         for (alias, d) in &target.build_dependencies {
             if check_dep(alias, d) {
                 return true;
+            }
+        }
+        if is_test {
+            for (alias, d) in &target.dev_dependencies {
+                if check_dep(alias, d) {
+                    return true;
+                }
             }
         }
     }

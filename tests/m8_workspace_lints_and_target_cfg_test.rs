@@ -129,3 +129,34 @@ winapi = { version = "0.3", optional = true }
         "Non-optional dependency libc should not be in feature values"
     );
 }
+
+#[test]
+fn test_target_specific_dev_dependencies_in_test_mode() {
+    let manifest_str = r#"
+[package]
+name = "my-test-crate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0"
+
+[target.'cfg(all())'.dev-dependencies]
+tempfile = { version = "3.8", features = ["nitro"] }
+"#;
+
+    let dir = tempfile::tempdir().unwrap();
+    let manifest_path = dir.path().join("Cargo.toml");
+    std::fs::write(&manifest_path, manifest_str).unwrap();
+
+    let toml = CargoToml::from_file(&manifest_path).unwrap();
+    let target_spec = toml.target.get("cfg(all())").expect("cfg(all()) found");
+    assert!(target_spec.dev_dependencies.contains_key("tempfile"));
+
+    let is_dep_in_test = mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", true);
+    assert!(is_dep_in_test, "target dev-dependency must be recognized in test mode");
+
+    let is_dep_in_build = mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", false);
+    assert!(!is_dep_in_build, "target dev-dependency must not be recognized in non-test mode");
+}
+

@@ -112,6 +112,9 @@ impl CargoToml {
             for (alias, dep) in &target_spec.build_dependencies {
                 record(alias, dep);
             }
+            for (alias, dep) in &target_spec.dev_dependencies {
+                record(alias, dep);
+            }
         }
         res
     }

@@ -122,6 +122,7 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
     for target in manifest.target.values_mut() {
         merge_dep_map(&mut target.dependencies);
         merge_dep_map(&mut target.build_dependencies);
+        merge_dep_map(&mut target.dev_dependencies);
     }
 
     if let Some(ref ws_lints) = ws.lints {

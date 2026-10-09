@@ -234,6 +234,13 @@ fn find_manifest_dependency<'a>(toml: &'a CargoToml, name: &str) -> Option<&'a T
             {
                 return Some(d);
             }
+            if let Some(d) = target_spec
+                .dev_dependencies
+                .get(name)
+                .or_else(|| target_spec.dev_dependencies.get(&norm))
+            {
+                return Some(d);
+            }
         }
     }
     None
@@ -287,31 +294,29 @@ fn collect_dependency_features(
     opt: &RustBuildOptions,
     requested: &mut HashMap<String, HashSet<String>>,
 ) {
-    let target_deps = ctx
-        .toml
-        .target
-        .iter()
-        .filter(|(spec, _)| {
-            !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec)
-        })
-        .flat_map(|(_, t)| t.dependencies.iter().chain(&t.build_dependencies));
-
     let is_test = opt.mode == crate::adapter::BuildMode::Test;
-    let empty_map = HashMap::new();
-    let dev_deps = if is_test && ctx.is_workspace {
-        &ctx.toml.dev_dependencies
-    } else {
-        &empty_map
-    };
-
-    for (dep_key, dep) in ctx
+    let mut all_deps: Vec<(&String, &TomlDependency)> = ctx
         .toml
         .dependencies
         .iter()
         .chain(&ctx.toml.build_dependencies)
-        .chain(dev_deps.iter())
-        .chain(target_deps)
-    {
+        .collect();
+
+    if is_test && ctx.is_workspace {
+        all_deps.extend(&ctx.toml.dev_dependencies);
+    }
+
+    for (spec, t) in &ctx.toml.target {
+        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
+            all_deps.extend(&t.dependencies);
+            all_deps.extend(&t.build_dependencies);
+            if is_test && ctx.is_workspace {
+                all_deps.extend(&t.dev_dependencies);
+            }
+        }
+    }
+
+    for (dep_key, dep) in all_deps {
         let is_optional = match dep {
             TomlDependency::Simple(_) => false,
             TomlDependency::Detailed(d) => d.optional.unwrap_or(false),

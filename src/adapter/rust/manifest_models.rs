@@ -1,3 +1,13 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
 fn deserialize_maybe_bool_or_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -49,6 +59,8 @@ pub struct TomlTargetSpec {
     pub dependencies: HashMap<String, TomlDependency>,
     #[serde(default, rename = "build-dependencies", alias = "build_dependencies")]
     pub build_dependencies: HashMap<String, TomlDependency>,
+    #[serde(default, rename = "dev-dependencies", alias = "dev_dependencies")]
+    pub dev_dependencies: HashMap<String, TomlDependency>,
 }
 
 fn deserialize_maybe_inherited_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
