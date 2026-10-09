@@ -14,6 +14,11 @@ CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
     os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BENCHMARK_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
+)
+
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
 PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", BENCH_ROOT / "projects"))
 MITTS_BIN = Path(
@@ -374,7 +379,8 @@ def main():
         selected = sys.argv[1].split(",")
         projects = [p for p in projects if p[0] in selected]
 
-    out_file = BENCH_ROOT / "benchmark_results_v2.json"
+    BENCHMARK_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_file = BENCHMARK_RESULTS_DIR / "benchmark_results_v2.json"
     full_report = {}
     if out_file.exists():
         try:

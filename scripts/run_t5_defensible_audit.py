@@ -41,6 +41,11 @@ from benchmark_worktree import (
 
 print = functools.partial(print, flush=True)
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
+)
+
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
 PROJECTS_DIR = BENCH_ROOT / "projects"
 SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
@@ -53,21 +58,30 @@ if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
 
 
 def inject_test_defect(wt_dir: Path):
-    candidates = [
-        wt_dir / "src/lib.rs",
-        wt_dir / "src/main.rs",
-        wt_dir / "crates/nu-protocol/src/lib.rs",
-        wt_dir / "crates/nu-utils/src/lib.rs",
-        wt_dir / "tokio/src/lib.rs",
-        wt_dir / "serde/src/lib.rs",
-        wt_dir / "crates/core/lib.rs",
-    ]
-    target = next((c for c in candidates if c.is_file()), None)
-    if not target:
+    # Prefer integration test files in tests/ directories so that `cargo test --tests` executes them
+    candidates = []
+    for r, _, files in os.walk(wt_dir):
+        if ".git" in r or "target" in r:
+            continue
+        p_r = Path(r)
+        if p_r.name == "tests" or "tests" in p_r.parts:
+            for f in sorted(files):
+                if f.endswith(".rs") and not f.startswith(".") and f != "lib.rs" and f != "mod.rs":
+                    candidates.append(p_r / f)
+                    break
+        if candidates:
+            break
+    if not candidates:
         for r, _, files in os.walk(wt_dir):
-            if "lib.rs" in files and ".git" not in r:
-                target = Path(r) / "lib.rs"
+            if ".git" in r or "target" in r:
+                continue
+            for f in sorted(files):
+                if f.endswith(".rs") and not f.startswith("."):
+                    candidates.append(Path(r) / f)
+                    break
+            if candidates:
                 break
+    target = candidates[0] if candidates else None
     if target:
         with open(target, "r") as f:
             content = f.read()
@@ -91,6 +105,28 @@ def parse_test_results(output: str):
         "passed": total_passed,
         "failed": total_failed,
         "ignored": total_ignored,
+    }
+
+
+def parse_mitts_stats(text: str):
+    m_comp = re.search(r"\[mitts::stats\] compiled=(\d+)", text)
+    m_cache = re.search(r"\[mitts::stats\] cached=(\d+)", text)
+    return {
+        "compiled": int(m_comp.group(1)) if m_comp else 0,
+        "cached": int(m_cache.group(1)) if m_cache else 0,
+    }
+
+
+def parse_sccache_stats(text: str):
+    def get_num(key):
+        m = re.search(rf"{key}\s+(\d+)", text)
+        return int(m.group(1)) if m else 0
+
+    return {
+        "compile_requests": get_num("Compile requests"),
+        "compile_requests_executed": get_num("Compile requests executed"),
+        "cache_hits": get_num("Cache hits"),
+        "cache_misses": get_num("Cache misses"),
     }
 
 
@@ -122,7 +158,9 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
         stderr = err_f.read().decode("utf-8", errors="replace")
 
     exit_code = os.waitstatus_to_exitcode(status) if hasattr(os, "waitstatus_to_exitcode") else (status >> 8)
-    test_stats = parse_test_results(stdout + "\n" + stderr)
+    full_output = stdout + "\n" + stderr
+    test_stats = parse_test_results(full_output)
+    mitts_stats = parse_mitts_stats(full_output) if tool == "mitts_cas" else None
     return {
         "wt_index": i,
         "wall_sec": round(elapsed, 3),
@@ -131,6 +169,7 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
         "stdout": stdout,
         "stderr": stderr,
         "test_stats": test_stats,
+        "mitts_stats": mitts_stats,
     }
 
 
@@ -228,6 +267,10 @@ def run_t5_project(project_name, runs_count=3):
                 restore_cache(snap_cas, mitts_cache)
             elif tool == "cargo_sccache":
                 restore_cache(snap_sccache, sccache_dir)
+                try:
+                    subprocess.run([str(SCCACHE_BIN), "--zero-stats"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
             elif tool == "cargo_shared":
                 st = SHARED_TARGET_ROOT / f"{project_name}_test"
                 if st.exists():
@@ -241,10 +284,19 @@ def run_t5_project(project_name, runs_count=3):
 
             if tool == "cargo_sccache":
                 disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts] + [sccache_dir])
+                try:
+                    s_out = subprocess.check_output([str(SCCACHE_BIN), "--show-stats"], text=True)
+                    s_stats = parse_sccache_stats(s_out)
+                    tool_results[tool].setdefault("sccache_stats_runs", []).append(s_stats)
+                except Exception:
+                    pass
             elif tool == "mitts_cas":
                 cas_mb = get_disk_usage_mb([mitts_cache])
                 wt_mb = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
                 disk = cas_mb + wt_mb
+                tot_comp = sum(r.get("mitts_stats", {}).get("compiled", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
+                tot_cach = sum(r.get("mitts_stats", {}).get("cached", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
+                tool_results[tool].setdefault("mitts_stats_runs", []).append({"compiled": tot_comp, "cached": tot_cach})
             else:
                 disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
             tool_results[tool]["disk_mb"] = max(tool_results[tool]["disk_mb"], disk)
@@ -260,6 +312,15 @@ def run_t5_project(project_name, runs_count=3):
         st = compute_stats(data["durations_s"])
         data.update(st)
 
+    if "sccache_stats_runs" in tool_results["cargo_sccache"]:
+        runs_s = tool_results["cargo_sccache"].pop("sccache_stats_runs")
+        if runs_s:
+            tool_results["cargo_sccache"]["sccache_stats"] = runs_s[-1]
+    if "mitts_stats_runs" in tool_results["mitts_cas"]:
+        runs_m = tool_results["mitts_cas"].pop("mitts_stats_runs")
+        if runs_m:
+            tool_results["mitts_cas"]["mitts_compilation_stats"] = runs_m[-1]
+
     bare_med = tool_results["cargo_bare"]["median"]
     scc_med = tool_results["cargo_sccache"]["median"]
     mitts_med = tool_results["mitts_cas"]["median"]
@@ -273,10 +334,8 @@ def run_t5_project(project_name, runs_count=3):
     c_runs = baseline_cargo_res["results"]
 
     exit_codes_all_matched = (
-        all(m["exit_code"] == 0 for m in m_runs[:-1])
-        and all(c["exit_code"] == 0 for c in c_runs[:-1])
+        all(m["exit_code"] == c["exit_code"] for m, c in zip(m_runs, c_runs))
         and (m_runs[-1]["exit_code"] != 0)
-        and (c_runs[-1]["exit_code"] != 0)
     )
 
     defect_m = "__intentional_test_failure" in (m_runs[-1]["stdout"] + m_runs[-1]["stderr"])
@@ -295,8 +354,8 @@ def run_t5_project(project_name, runs_count=3):
     wt01_tuple = (1, wt_base / "wt-01", commits[0])
     res_fl = run_single_worktree("mitts_cas", wt01_tuple)
     fast_lock_executed_tests = (
-        (res_fl["exit_code"] == 0)
-        and (res_fl["test_stats"].get("passed", 0) == c_stats_clean.get("passed", 0))
+        (res_fl["exit_code"] == m_runs[0]["exit_code"])
+        and (res_fl["test_stats"].get("passed", 0) == m_stats_clean.get("passed", 0))
         and (res_fl["test_stats"].get("passed", 0) > 0)
     )
 
@@ -331,9 +390,11 @@ def run_t5_project(project_name, runs_count=3):
 def main():
     parser = argparse.ArgumentParser(description="T5 Multi-Worktree Test Swarm Defensible Audit")
     parser.add_argument("--projects", default="tokio,serde,ripgrep,nushell", help="Comma-separated project list")
-    parser.add_argument("--runs", type=int, default=3, help="Number of benchmark iterations")
-    parser.add_argument("--output", default=".mitts/benchmarks/results_t5_test_swarm_defensible.json", help="Output JSON path")
+    parser.add_argument("--runs", type=int, default=5, help="Number of benchmark iterations (default: 5)")
+    parser.add_argument("--output", default=None, help="Output JSON path")
     args = parser.parse_args()
+
+    out_p = Path(args.output) if args.output else (DEFAULT_RESULTS_DIR / "results_t5_test_swarm_defensible.json")
 
     rig = get_rig_info()
     projects = [p.strip() for p in args.projects.split(",") if p.strip()]
@@ -355,7 +416,6 @@ def main():
             import traceback
             traceback.print_exc()
 
-    out_p = Path(args.output)
     out_p.parent.mkdir(parents=True, exist_ok=True)
     with open(out_p, "w") as f:
         json.dump(final_report, f, indent=2)

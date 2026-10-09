@@ -42,6 +42,11 @@ from benchmark_worktree import (
 
 print = functools.partial(print, flush=True)
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
+)
+
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
 PROJECTS_DIR = BENCH_ROOT / "projects"
 SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
@@ -549,8 +554,11 @@ def main():
     parser.add_argument("--projects", default="tokio,serde,ripgrep,nushell", help="Comma-separated project list")
     parser.add_argument("--mode", choices=["check", "clippy"], default="check", help="Build mode to audit")
     parser.add_argument("--runs", type=int, default=5, help="Number of benchmark iterations")
-    parser.add_argument("--output", default=".mitts/benchmarks/results_l5a_audit_defensible.json", help="Output JSON path")
+    parser.add_argument("--output", default=None, help="Output JSON path")
     args = parser.parse_args()
+
+    default_name = "results_l5b_clippy_defensible.json" if args.mode == "clippy" else "results_l5a_check_defensible.json"
+    out_p = Path(args.output) if args.output else (DEFAULT_RESULTS_DIR / default_name)
 
     rig = get_rig_info()
     projects = [p.strip() for p in args.projects.split(",") if p.strip()]
@@ -572,7 +580,6 @@ def main():
             import traceback
             traceback.print_exc()
 
-    out_p = Path(args.output)
     out_p.parent.mkdir(parents=True, exist_ok=True)
     with open(out_p, "w") as f:
         json.dump(final_report, f, indent=2)

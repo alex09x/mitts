@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from benchmark_common import (
+    BENCHMARK_RESULTS_DIR,
     CARGO_BIN_DIR,
     MITTS_BIN,
     SCCACHE_BIN,
@@ -130,7 +131,8 @@ def main():
     )
 
     # 3. Save JSON output
-    out_file = Path(args.output) if args.output else (BENCH_ROOT / f"results_{project_name}_defensible.json")
+    out_file = Path(args.output) if args.output else (BENCHMARK_RESULTS_DIR / f"results_{project_name}_defensible.json")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     with open(out_file, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\n✅ Benchmark completed successfully! Full results saved to: {out_file}")

@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
 import json
+import os
+import sys
 from pathlib import Path
 
-path = Path("docs/results_s5a_audit_defensible.json")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
+)
+
+path = Path(sys.argv[1]) if len(sys.argv) > 1 else (DEFAULT_RESULTS_DIR / "results_s5a_audit_defensible.json")
+if not path.is_file():
+    alt = Path("docs/results_s5a_audit_defensible.json")
+    if alt.is_file():
+        path = alt
+    else:
+        print(f"Error: {path} not found.")
+        sys.exit(1)
+
 with open(path) as f:
     d = json.load(f)
 

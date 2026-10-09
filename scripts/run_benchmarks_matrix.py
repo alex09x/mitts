@@ -38,6 +38,11 @@ CANDIDATE_MITTS = [
 VALID_CANDIDATE_MITTS = [p for p in CANDIDATE_MITTS if p is not None]
 MITTS_BIN = next((p for p in VALID_CANDIDATE_MITTS if p.exists()), VALID_CANDIDATE_MITTS[0] if VALID_CANDIDATE_MITTS else Path("mitts"))
 SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BENCHMARK_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
+)
+
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT") or (Path.home() / "mitts-benchmarks"))
 PROJECTS_DIR = BENCH_ROOT / "projects"
 SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
@@ -459,7 +464,8 @@ def main():
             import traceback
             traceback.print_exc()
 
-    out_file = BENCH_ROOT / "results_matrix_defensible.json"
+    BENCHMARK_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_file = BENCHMARK_RESULTS_DIR / "results_matrix_defensible.json"
     with open(out_file, "w") as f:
         json.dump(all_results, f, indent=2)
 

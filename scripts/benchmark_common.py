@@ -11,6 +11,11 @@ import subprocess
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BENCHMARK_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
+)
+
 CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
     os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"

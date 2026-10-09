@@ -34,6 +34,11 @@ import tempfile
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
+)
+
 print = functools.partial(print, flush=True)
 
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
@@ -800,6 +805,7 @@ def main():
     parser.add_argument("--bench-root", type=Path, default=BENCH_ROOT, help="Benchmark root directory")
     parser.add_argument("--mitts-bin", type=Path, default=MITTS_BIN, help="Path to mitts binary")
     parser.add_argument("--mitts-repo", type=Path, default=MITTS_REPO, help="Path to mitts git repository")
+    parser.add_argument("--output", type=Path, default=DEFAULT_RESULTS_DIR / "results_s5a_audit_defensible.json", help="Output JSON path")
     parser.add_argument("projects", nargs="*", default=["tokio", "ripgrep", "serde", "ring"])
     args = parser.parse_args()
 
@@ -833,7 +839,8 @@ def main():
     for p in args.projects:
         all_results[p] = audit_project(p, iterations=args.iterations)
 
-    out_file = BENCH_ROOT / "results_s5a_audit_defensible.json"
+    out_file = args.output
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     with open(out_file, "w") as f:
         json.dump(all_results, f, indent=2)
     print(f"\n✅ All {len(args.projects)} project audits completed! Saved to {out_file}")
