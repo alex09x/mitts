@@ -105,6 +105,16 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                     &format!("Fast build lock HIT: {} actions up-to-date", action_count),
                 );
                 let _ = logger.write_trace(profile, 0, "Fast lock hit (0ms no-op)");
+                eprintln!(
+                    "[mitts::stats] compiled=0 cached=0 total={} fast_lock=1",
+                    action_count
+                );
+                if std::env::var("MITTS_STATS").as_deref() == Ok("json") {
+                    eprintln!(
+                        r#"{{"compiled": 0, "cached": 0, "total": {}, "fast_lock": 1}}"#,
+                        action_count
+                    );
+                }
 
                 let mut actions = Vec::new();
                 if let Some(ref bin) = root_binary {

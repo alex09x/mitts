@@ -93,6 +93,8 @@ edition = "2021"
         jobserver: None,
         is_first_job: None,
         on_metadata_ready: None,
+        compiled_actions: None,
+        cached_actions: None,
     };
     assert!(!try_restore_from_cache(&unit, "key1", &ctx_no_cache, true).unwrap());
 

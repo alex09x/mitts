@@ -38,6 +38,8 @@ pub struct ExecutionContext<'a> {
     pub jobserver: Option<&'a Arc<crate::core::JobserverPool>>,
     pub is_first_job: Option<&'a Arc<std::sync::atomic::AtomicBool>>,
     pub on_metadata_ready: Option<MetadataReadyCallback<'a>>,
+    pub compiled_actions: Option<&'a Arc<std::sync::atomic::AtomicUsize>>,
+    pub cached_actions: Option<&'a Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.
@@ -311,6 +313,10 @@ pub fn try_restore_from_cache_with_directives(
 
         if let Some(ref cb) = ctx.opt.progress {
             cb.0(BuildProgressEvent::UnitFinished);
+        }
+
+        if let Some(c) = ctx.cached_actions {
+            c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
 
         return Ok(true);

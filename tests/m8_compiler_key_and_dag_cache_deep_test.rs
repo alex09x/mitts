@@ -222,6 +222,8 @@ fn test_m8_dag_cache_progress_and_non_native() {
         jobserver: None,
         is_first_job: None,
         on_metadata_ready: None,
+        compiled_actions: None,
+        cached_actions: None,
     };
 
     let unit = PlannedCompilationUnit {

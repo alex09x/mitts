@@ -123,6 +123,9 @@ pub fn run_native_dag_build(
         }
     };
 
+    let compiled_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let cached_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
     thread::scope(|s| {
         let mut handles = Vec::new();
 
@@ -146,6 +149,8 @@ pub fn run_native_dag_build(
             let toolchain = explanation.toolchain.clone();
             let opt = opt.clone();
             let dag = &dag;
+            let compiled_actions = Arc::clone(&compiled_actions);
+            let cached_actions = Arc::clone(&cached_actions);
 
             handles.push(s.spawn(move || -> Result<()> {
                 let ctx = ExecutionContext {
@@ -164,6 +169,8 @@ pub fn run_native_dag_build(
                     jobserver: jobserver.as_ref(),
                     is_first_job: Some(&is_first_job),
                     on_metadata_ready: Some(on_metadata_ready),
+                    compiled_actions: Some(&compiled_actions),
+                    cached_actions: Some(&cached_actions),
                 };
 
                 struct WorkGuard<'a> {
@@ -326,6 +333,20 @@ pub fn run_native_dag_build(
     let all_cached = !*any_missed.lock().unwrap();
     let actions = recorded_actions.lock().unwrap().clone();
     let stderr = compiler_messages.lock().unwrap().join("\n");
+
+    let n_compiled = compiled_actions.load(std::sync::atomic::Ordering::Relaxed);
+    let n_cached = cached_actions.load(std::sync::atomic::Ordering::Relaxed);
+    let n_total = actions.len();
+    eprintln!(
+        "[mitts::stats] compiled={} cached={} total={} fast_lock=0",
+        n_compiled, n_cached, n_total
+    );
+    if std::env::var("MITTS_STATS").as_deref() == Ok("json") {
+        eprintln!(
+            r#"{{"compiled": {}, "cached": {}, "total": {}, "fast_lock": 0}}"#,
+            n_compiled, n_cached, n_total
+        );
+    }
 
     let result = ActionResult {
         action_id: "native-dag".to_string(),

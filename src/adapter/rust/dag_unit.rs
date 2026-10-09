@@ -42,14 +42,8 @@ pub(crate) fn execute_unit(
     let mut staging_dir_holder: Option<PathBuf> = None;
 
     if has_build {
-        let pid = std::process::id();
-        let thread_id = format!("{:?}", thread::current().id());
-        let clean_tid: String = thread_id.chars().filter(|c| c.is_alphanumeric()).collect();
-        let staging_dir = ctx
-            .cas
-            .root()
-            .join("tmp")
-            .join(format!("stage_{}_{}_{}", clean_crate, pid, clean_tid));
+        let tid: String = format!("{:?}", thread::current().id()).chars().filter(|c| c.is_alphanumeric()).collect();
+        let staging_dir = ctx.cas.root().join("tmp").join(format!("stage_{}_{}_{}", clean_crate, std::process::id(), tid));
         fs::create_dir_all(&staging_dir)?;
 
         let extern_crates = super::dag_unit_externs::resolve_extern_crates(
@@ -202,6 +196,9 @@ pub(crate) fn execute_unit(
 
     // Genuinely missed cache and we hold the exclusive compilation lock
     *ctx.any_missed.lock().unwrap() = true;
+    if let Some(c) = ctx.compiled_actions {
+        c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 
     // Acquire execution token from jobserver pool before compiling (implicit token for 1st job)
     let _job_token = match (ctx.jobserver, ctx.is_first_job) {
@@ -380,14 +377,16 @@ pub(crate) fn execute_unit(
         inputs: Vec::new(),
         outputs: action_outputs,
         args: Vec::new(),
-        env: unit.manifest_path.parent().map(|p| HashMap::from([
-            ("CARGO_PKG_NAME".to_string(), unit.package_name.clone()),
-            ("CARGO_PKG_VERSION".to_string(), unit.version.clone()),
-            ("CARGO_MANIFEST_DIR".to_string(), p.to_string_lossy().to_string()),
-        ])).unwrap_or_else(|| HashMap::from([
-            ("CARGO_PKG_NAME".to_string(), unit.package_name.clone()),
-            ("CARGO_PKG_VERSION".to_string(), unit.version.clone()),
-        ])),
+        env: {
+            let mut env = HashMap::from([
+                ("CARGO_PKG_NAME".into(), unit.package_name.clone()),
+                ("CARGO_PKG_VERSION".into(), unit.version.clone()),
+            ]);
+            if let Some(p) = unit.manifest_path.parent() {
+                env.insert("CARGO_MANIFEST_DIR".into(), p.to_string_lossy().into());
+            }
+            env
+        },
         dependencies: unit.dependencies.clone(),
     });
 

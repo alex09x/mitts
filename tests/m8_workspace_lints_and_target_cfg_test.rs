@@ -1,0 +1,131 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+use mitts::adapter::rust::manifest::CargoToml;
+use mitts::adapter::rust::manifest_inherit::{
+    extract_check_cfg_from_lints, extract_lint_flags_from_lints,
+    resolve_inherited_workspace_fields,
+};
+use std::fs;
+use tempfile::tempdir;
+
+#[test]
+fn test_workspace_lints_inheritance_and_check_cfg() {
+    let tmp = tempdir().unwrap();
+    let ws_root = tmp.path();
+
+    let root_toml = r#"
+[workspace]
+members = ["crates/member_a"]
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)', 'cfg(loom)'] }
+missing_docs = "warn"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+"#;
+    fs::write(ws_root.join("Cargo.toml"), root_toml).unwrap();
+
+    let member_dir = ws_root.join("crates").join("member_a");
+    fs::create_dir_all(&member_dir).unwrap();
+    let member_toml_content = r#"
+[package]
+name = "member_a"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+"#;
+    let member_manifest_path = member_dir.join("Cargo.toml");
+    fs::write(&member_manifest_path, member_toml_content).unwrap();
+
+    let mut member_toml = CargoToml::from_file(&member_manifest_path).unwrap();
+    resolve_inherited_workspace_fields(&mut member_toml, &member_manifest_path);
+
+    assert!(member_toml.lints.is_some(), "lints should be inherited from workspace");
+    let lints_val = member_toml.lints.as_ref().unwrap();
+
+    let check_cfgs = extract_check_cfg_from_lints(lints_val);
+    assert!(check_cfgs.contains(&"cfg(tokio_unstable)".to_string()));
+    assert!(check_cfgs.contains(&"cfg(loom)".to_string()));
+
+    let lint_flags = extract_lint_flags_from_lints(lints_val);
+    assert!(lint_flags.contains(&"-Wmissing_docs".to_string()));
+    assert!(lint_flags.contains(&"-Dunsafe_code".to_string()));
+    assert!(lint_flags.contains(&"-Dclippy::dbg_macro".to_string()));
+}
+
+#[test]
+fn test_target_specific_optional_dependencies_in_check_cfg() {
+    let tmp = tempdir().unwrap();
+    let manifest_path = tmp.path().join("Cargo.toml");
+
+    let toml_content = r#"
+[package]
+name = "target_dep_crate"
+version = "1.0.0"
+edition = "2021"
+
+[features]
+default = []
+custom_feat = []
+
+[dependencies]
+direct_dep = { version = "1.0", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+mio_uds = { version = "0.6", optional = true }
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", optional = true }
+"#;
+    fs::write(&manifest_path, toml_content).unwrap();
+
+    let toml = CargoToml::from_file(&manifest_path).unwrap();
+
+    let mut all_features: Vec<String> = toml.features.keys().cloned().collect();
+    for (dep_name, dep_val) in &toml.dependencies {
+        if let mitts::adapter::rust::manifest::TomlDependency::Detailed(ref d) = dep_val {
+            if d.optional == Some(true) {
+                all_features.push(dep_name.clone());
+            }
+        }
+    }
+    for target_spec in toml.target.values() {
+        for (dep_name, dep_val) in &target_spec.dependencies {
+            if let mitts::adapter::rust::manifest::TomlDependency::Detailed(ref d) = dep_val {
+                if d.optional == Some(true) {
+                    all_features.push(dep_name.clone());
+                }
+            }
+        }
+    }
+    all_features.sort();
+    all_features.dedup();
+
+    assert!(all_features.contains(&"custom_feat".to_string()));
+    assert!(all_features.contains(&"direct_dep".to_string()));
+    assert!(
+        all_features.contains(&"mio_uds".to_string()),
+        "Target-specific optional dependency mio_uds should be included in feature values"
+    );
+    assert!(
+        all_features.contains(&"winapi".to_string()),
+        "Target-specific optional dependency winapi should be included in feature values"
+    );
+    assert!(
+        !all_features.contains(&"libc".to_string()),
+        "Non-optional dependency libc should not be in feature values"
+    );
+}
