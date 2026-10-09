@@ -106,10 +106,11 @@ impl<'a> RustcInvocation<'a> {
         {
             if is_bin {
                 cmd.arg("--crate-type").arg("bin");
+                cmd.arg("--emit=dep-info,metadata");
             } else {
                 cmd.arg("--crate-type").arg("rlib");
+                cmd.arg("--emit=dep-info,metadata,link");
             }
-            cmd.arg("--emit=dep-info,metadata");
             cmd.arg("-C").arg(format!("metadata={}", short_key));
             cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
             cmd.arg("--out-dir").arg(self.out_dir);
