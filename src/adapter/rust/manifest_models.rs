@@ -140,6 +140,8 @@ pub struct TomlWorkspace {
     pub package: Option<HashMap<String, toml::Value>>,
     #[serde(default)]
     pub dependencies: HashMap<String, TomlDependency>,
+    #[serde(default)]
+    pub lints: Option<toml::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

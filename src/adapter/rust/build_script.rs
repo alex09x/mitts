@@ -205,6 +205,14 @@ pub fn execute_build_script(
     compile_cmd
         .arg("--check-cfg")
         .arg(format!("cfg(feature, values({}))", quoted.join(", ")));
+    if let Some(ref lints_val) = pkg_toml.lints {
+        for cc in super::manifest_inherit::extract_check_cfg_from_lints(lints_val) {
+            compile_cmd.arg("--check-cfg").arg(cc);
+        }
+        for lf in super::manifest_inherit::extract_lint_flags_from_lints(lints_val) {
+            compile_cmd.arg(lf);
+        }
+    }
     compile_cmd.env("CARGO_CFG_FEATURE", features.join(","));
     for (crate_name, artifact_path) in extern_crates {
         let rlib = artifact_path.with_extension("rlib");

@@ -34,6 +34,8 @@ pub struct CargoToml {
     pub features: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub target: HashMap<String, TomlTargetSpec>,
+    #[serde(default)]
+    pub lints: Option<toml::Value>,
 }
 
 pub use super::manifest_models::*;

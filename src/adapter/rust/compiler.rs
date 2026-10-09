@@ -178,6 +178,14 @@ impl<'a> RustcInvocation<'a> {
         // Features and Cargo-compatible check-cfg declarations
         cmd.arg("--check-cfg").arg("cfg(docsrs,test)");
         if let Ok(toml) = super::manifest::CargoToml::from_file(&self.unit.manifest_path) {
+            if let Some(ref lints_val) = toml.lints {
+                for cc in super::manifest_inherit::extract_check_cfg_from_lints(lints_val) {
+                    cmd.arg("--check-cfg").arg(cc);
+                }
+                for lf in super::manifest_inherit::extract_lint_flags_from_lints(lints_val) {
+                    cmd.arg(lf);
+                }
+            }
             let mut all_features: Vec<String> = toml.features.keys().cloned().collect();
             for (dep_name, dep_val) in &toml.dependencies {
                 if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {

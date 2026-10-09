@@ -115,4 +115,94 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
         merge_dep_map(&mut target.dependencies);
         merge_dep_map(&mut target.build_dependencies);
     }
+
+    if let Some(ref ws_lints) = ws.lints {
+        let should_inherit = match manifest.lints {
+            Some(ref l) => {
+                if let Some(tbl) = l.as_table() {
+                    tbl.get("workspace").and_then(|v| v.as_bool()) == Some(true)
+                } else {
+                    false
+                }
+            }
+            None => false,
+        };
+        if should_inherit {
+            manifest.lints = Some(ws_lints.clone());
+        }
+    }
+
+    if manifest.lints.is_none() {
+        if let Some(ref ws) = manifest.workspace {
+            if let Some(ref ws_lints) = ws.lints {
+                manifest.lints = Some(ws_lints.clone());
+            }
+        }
+    }
+}
+
+/// Extracts `--check-cfg` condition strings from Cargo `[lints.rust.unexpected_cfgs.check-cfg]`.
+pub fn extract_check_cfg_from_lints(lints_val: &toml::Value) -> Vec<String> {
+    let mut check_cfgs = Vec::new();
+    let Some(tbl) = lints_val.as_table() else {
+        return check_cfgs;
+    };
+    for (_tool_name, tool_val) in tbl {
+        let Some(tool_tbl) = tool_val.as_table() else {
+            continue;
+        };
+        for (_lint_name, lint_val) in tool_tbl {
+            let Some(l_tbl) = lint_val.as_table() else {
+                continue;
+            };
+            let cfg_arr = l_tbl.get("check-cfg").or_else(|| l_tbl.get("check_cfg"));
+            if let Some(toml::Value::Array(arr)) = cfg_arr {
+                for item in arr {
+                    if let Some(s) = item.as_str() {
+                        check_cfgs.push(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+    check_cfgs
+}
+
+/// Extracts rustc CLI lint flags (`-A`, `-W`, `-D`, `-F`) from Cargo `[lints]` configuration.
+pub fn extract_lint_flags_from_lints(lints_val: &toml::Value) -> Vec<String> {
+    let mut flags = Vec::new();
+    let Some(tbl) = lints_val.as_table() else {
+        return flags;
+    };
+    for (tool_name, tool_val) in tbl {
+        let Some(tool_tbl) = tool_val.as_table() else {
+            continue;
+        };
+        for (lint_name, lint_val) in tool_tbl {
+            let level = if let Some(s) = lint_val.as_str() {
+                Some(s)
+            } else if let Some(l_tbl) = lint_val.as_table() {
+                l_tbl.get("level").and_then(|v| v.as_str())
+            } else {
+                None
+            };
+            let flag = match level {
+                Some("allow") => Some("-A"),
+                Some("warn") => Some("-W"),
+                Some("deny") => Some("-D"),
+                Some("forbid") => Some("-F"),
+                _ => None,
+            };
+            if let Some(f) = flag {
+                let clean_name = lint_name.replace('-', "_");
+                let full_name = if tool_name == "rust" {
+                    clean_name
+                } else {
+                    format!("{}::{}", tool_name, clean_name)
+                };
+                flags.push(format!("{}{}", f, full_name));
+            }
+        }
+    }
+    flags
 }
