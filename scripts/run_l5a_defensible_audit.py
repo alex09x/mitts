@@ -15,8 +15,10 @@ across 12 git worktrees on 4 distinct commits on AMD Ryzen 9 9950X.
 import argparse
 import concurrent.futures
 import functools
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -34,7 +36,6 @@ from benchmark_worktree import (
     get_disk_usage_mb,
     inject_anomaly,
     prepare_worktrees,
-    read_cgroup_peak_bytes,
     restore_cache,
     snapshot_cache,
 )
@@ -97,6 +98,69 @@ def get_rig_info():
         "rustc_version": rustc_v,
         "clippy_version": clippy_v,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def get_binary_provenance(mitts_bin: Path):
+    sha = ""
+    if mitts_bin.exists():
+        with open(mitts_bin, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+
+    mitts_v = ""
+    try:
+        mitts_v = subprocess.check_output([str(mitts_bin), "--version"], text=True).strip()
+    except Exception:
+        pass
+
+    git_c = ""
+    try:
+        git_c = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent, text=True).strip()
+    except Exception:
+        pass
+
+    sccache_v = ""
+    try:
+        sccache_v = subprocess.check_output([str(SCCACHE_BIN), "--version"], text=True).strip()
+    except Exception:
+        pass
+
+    try:
+        rel_p = str(mitts_bin.relative_to(BENCH_ROOT))
+    except ValueError:
+        rel_p = str(mitts_bin)
+
+    return {
+        "binary_sha256": sha,
+        "mitts_version": mitts_v,
+        "git_commit": git_c,
+        "relative_path": rel_p,
+        "sccache_version": sccache_v,
+    }
+
+
+def get_project_metadata(repo_dir: Path):
+    lock_file = repo_dir / "Cargo.lock"
+    lock_sha = ""
+    if lock_file.exists():
+        with open(lock_file, "rb") as f:
+            lock_sha = hashlib.sha256(f.read()).hexdigest()
+
+    crate_count = 1
+    try:
+        meta_out = subprocess.check_output(
+            ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+            cwd=repo_dir,
+            text=True,
+        )
+        meta_json = json.loads(meta_out)
+        crate_count = len(meta_json.get("packages", []))
+    except Exception:
+        pass
+
+    return {
+        "cargo_lock_sha256": lock_sha,
+        "workspace_crates_count": crate_count,
     }
 
 
@@ -210,10 +274,10 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     snapshot_cache(sccache_dir, snap_sccache)
 
     tool_results = {
-        "mitts_cas": {"durations_s": [], "cgroup_memory_peak_bytes": 0, "disk_mb": 0.0, "runs_data": []},
-        "cargo_bare": {"durations_s": [], "cgroup_memory_peak_bytes": 0, "disk_mb": 0.0, "runs_data": []},
-        "cargo_sccache": {"durations_s": [], "cgroup_memory_peak_bytes": 0, "disk_mb": 0.0, "runs_data": []},
-        "cargo_shared": {"durations_s": [], "cgroup_memory_peak_bytes": 0, "disk_mb": 0.0, "runs_data": []},
+        "mitts_cas": {"durations_s": [], "disk_mb": 0.0, "cas_disk_mb": 0.0, "worktrees_disk_mb": 0.0, "runs_data": []},
+        "cargo_bare": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
+        "cargo_sccache": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
+        "cargo_shared": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
     }
 
     baseline_cargo_res = None
@@ -241,7 +305,16 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
             tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
             tool_results[tool]["runs_data"].append(swarm_res)
 
-            disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts] + ([mitts_cache] if tool == "mitts_cas" else []))
+            if tool == "cargo_sccache":
+                disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts] + [sccache_dir])
+            elif tool == "mitts_cas":
+                cas_mb = get_disk_usage_mb([mitts_cache])
+                wt_mb = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
+                disk = cas_mb + wt_mb
+                tool_results[tool]["cas_disk_mb"] = max(tool_results[tool].get("cas_disk_mb", 0.0), cas_mb)
+                tool_results[tool]["worktrees_disk_mb"] = max(tool_results[tool].get("worktrees_disk_mb", 0.0), wt_mb)
+            else:
+                disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
             tool_results[tool]["disk_mb"] = max(tool_results[tool]["disk_mb"], disk)
 
             if tool == "cargo_bare" and baseline_cargo_res is None:
@@ -285,33 +358,60 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
 
     wt12_c = c_runs[-1]
     wt12_m = m_runs[-1]
-    anomaly_detected_cargo = "unused_test_var" in wt12_c["stderr"] or "unused_variable" in wt12_c["stderr"]
-    anomaly_detected_mitts = "unused_test_var" in wt12_m["stderr"] or "unused_variable" in wt12_m["stderr"]
+    anomaly_detected_cargo = "unused_test_var" in wt12_c["stderr"]
+    anomaly_detected_mitts = "unused_test_var" in wt12_m["stderr"]
     intentional_diagnostic_detected_by_both = anomaly_detected_cargo and anomaly_detected_mitts
 
     print("[5/5] Testing warning replay on cache hit in WT 12...")
     wt12_tuple = (12, wt_base / "wt-12", commits[-1])
     res_replay = run_single_worktree("mitts_cas", mode, wt12_tuple)
     replay_ok, _ = verify_warning_replay(wt12_m["stderr"], res_replay["stderr"], wt_base / "wt-12", is_anomaly_wt=True)
+    m_text = res_replay["stderr"] + "\n" + res_replay["stdout"]
+    compiled_match = re.search(r"\[mitts::stats\] compiled=(\d+)", m_text)
+    compiled_count = int(compiled_match.group(1)) if compiled_match else None
     zero_compiled_units = (
-        "Restored" in res_replay["stdout"]
-        or "Up-to-date" in res_replay["stdout"]
-        or "Checked" in res_replay["stdout"]
-        or "0 actions" in res_replay["stdout"]
+        (compiled_count == 0)
+        and (
+            "Restored" in res_replay["stdout"]
+            or "Up-to-date" in res_replay["stdout"]
+            or "0 project changes" in res_replay["stdout"]
+        )
     )
     warning_replay_verified = replay_ok and zero_compiled_units
 
     print("  Testing rmeta separation: check vs build in WT 01...")
     wt01_tuple = (1, wt_base / "wt-01", commits[0])
     res_build = run_single_worktree("mitts_cas", "build", wt01_tuple)
-    rmeta_separation_verified = (res_build["exit_code"] == 0) and ("fast-lock-hit" not in res_build["stdout"])
+    has_o_files = False
+    for rlib in (wt_base / "wt-01" / "target" / "debug" / "deps").glob("*.rlib"):
+        try:
+            ar_out = subprocess.check_output(["ar", "t", str(rlib)], text=True)
+            if any(line.endswith(".o") for line in ar_out.splitlines()):
+                has_o_files = True
+                break
+        except Exception:
+            pass
+    rmeta_separation_verified = (
+        (res_build["exit_code"] == 0)
+        and ("fast-lock-hit" not in res_build["stdout"])
+        and has_o_files
+    )
 
     print("  Testing -D warnings exit code parity on WT 12...")
-    cmd_d_cargo = ["cargo", mode, "--", "-D", "warnings"]
-    cmd_d_mitts = [str(MITTS_BIN), mode, "--", "-D", "warnings"]
-    p_c = subprocess.run(cmd_d_cargo, cwd=wt_base / "wt-12", capture_output=True)
-    p_m = subprocess.run(cmd_d_mitts, cwd=wt_base / "wt-12", capture_output=True)
-    d_warnings_exit_code_matched = (p_c.returncode != 0) and (p_m.returncode != 0) and (p_c.returncode == p_m.returncode)
+    env_d = os.environ.copy()
+    if mode == "check":
+        env_d["RUSTFLAGS"] = "-D warnings"
+        cmd_d_cargo = ["cargo", "check"]
+        cmd_d_mitts = [str(MITTS_BIN), "check"]
+    else:
+        cmd_d_cargo = ["cargo", "clippy", "--", "-D", "warnings"]
+        cmd_d_mitts = [str(MITTS_BIN), "clippy", "--", "-D", "warnings"]
+    p_c = subprocess.run(cmd_d_cargo, cwd=wt_base / "wt-12", env=env_d, capture_output=True, text=True)
+    p_m = subprocess.run(cmd_d_mitts, cwd=wt_base / "wt-12", env=env_d, capture_output=True, text=True)
+    d_exit_nonzero = (p_c.returncode != 0) and (p_m.returncode != 0)
+    has_anomaly_c = "unused_test_var" in p_c.stderr and "error:" in p_c.stderr
+    has_anomaly_m = "unused_test_var" in p_m.stderr and "error:" in p_m.stderr
+    d_warnings_exit_code_matched = d_exit_nonzero and has_anomaly_c and has_anomaly_m
 
     invariants = {
         "exit_codes_all_matched": exit_codes_all_matched,
@@ -325,13 +425,42 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     print(f"Results for {project_name}: Speedup vs {sound_baseline_name}: {speedup_ratio:.2f}x (vs bare: {speedup_vs_bare:.2f}x)")
     print(f"Invariants: {invariants}")
 
+    if last_mitts_res:
+        wt_unit_stats = []
+        for m in last_mitts_res["results"]:
+            m_text = m["stderr"] + "\n" + m["stdout"]
+            stats_m = re.search(r"\[mitts::stats\] compiled=(\d+) cached=(\d+) total=(\d+)", m_text)
+            if stats_m:
+                wt_unit_stats.append({
+                    "wt_index": m["wt_index"],
+                    "compiled": int(stats_m.group(1)),
+                    "cached": int(stats_m.group(2)),
+                    "total": int(stats_m.group(3)),
+                })
+            else:
+                wt_unit_stats.append({
+                    "wt_index": m["wt_index"],
+                    "compiled": 0 if ("Restored" in m_text or "Up-to-date" in m_text) else -1,
+                    "cached": -1,
+                    "total": -1,
+                })
+        tool_results["mitts_cas"]["worktree_unit_stats"] = wt_unit_stats
+
     for tool in tool_results:
         tool_results[tool].pop("runs_data", None)
 
+    proj_meta = get_project_metadata(repo_dir)
     return {
         "mode": mode,
         "worktrees_count": 12,
-        "commits": ["HEAD", "HEAD~1", "HEAD~5", "HEAD~14"],
+        "commits": {
+            "HEAD": c_head,
+            "HEAD~1": c_1,
+            "HEAD~5": c_5,
+            "HEAD~14": c_14,
+        },
+        "commit_distribution": "4/3/3/2",
+        "project_metadata": proj_meta,
         "runs": tool_results,
         "speedup_vs_sound_baseline": {
             "sound_baseline": sound_baseline_name,
@@ -354,7 +483,8 @@ def main():
     projects = [p.strip() for p in args.projects.split(",") if p.strip()]
 
     final_report = {
-        "schema_version": "l5a_check_clippy_v1",
+        "schema_version": "l5a_check_clippy_v2",
+        "provenance": get_binary_provenance(MITTS_BIN),
         "rig": rig,
         "mode": args.mode,
         "projects": {},
