@@ -58,13 +58,13 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
     );
 
     let mitts_bin = project_dir
-        .join(".mitts")
         .join("target")
+        .join("mitts")
         .join("debug")
         .join("hello-rust");
     assert!(
         mitts_bin.is_file(),
-        "Mitts binary must exist in .mitts/target/debug"
+        "Mitts binary must exist in target/mitts/debug"
     );
 
     // 3. Verify both binaries execute and produce expected output
@@ -78,9 +78,10 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
 
     // 4. Verify cargo target directory was NOT corrupted or modified by mitts
     assert!(cargo_bin.is_file());
-    assert!(!plan
-        .target_directory
-        .starts_with(project_dir.join("target")));
+    assert_eq!(
+        plan.target_directory,
+        project_dir.join("target").join("mitts")
+    );
 }
 
 #[test]

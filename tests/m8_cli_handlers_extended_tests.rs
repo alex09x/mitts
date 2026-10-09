@@ -80,9 +80,9 @@ fn test_m8_cli_gc_and_clean_variants() {
     assert_eq!(handle_gc(&gc_args), 0);
 
     // Clean dev + target
-    let mitts_dir = tmp.path().join(".mitts");
-    fs::create_dir_all(mitts_dir.join("target").join("debug")).unwrap();
-    fs::create_dir_all(mitts_dir.join("target").join("release")).unwrap();
+    let mitts_dir = tmp.path().join("target").join("mitts");
+    fs::create_dir_all(mitts_dir.join("debug")).unwrap();
+    fs::create_dir_all(mitts_dir.join("release")).unwrap();
     let dev_lock = mitts_dir.join("build-dev.lock");
     let rel_lock = mitts_dir.join("build-release.lock");
     fs::write(&dev_lock, "lock").unwrap();

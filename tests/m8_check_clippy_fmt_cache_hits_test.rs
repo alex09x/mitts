@@ -58,7 +58,7 @@ edition = "2021"
     assert_eq!(code2, 0);
 
     // Touch src to invalidate fast-lock, then run again to test Action Cache hit
-    let fast_lock = root.join(".mitts").join("check.lock");
+    let fast_lock = mitts::core::FastBuildLock::lock_path(root, "check");
     let _ = fs::remove_file(fast_lock);
     let code3 = handle_check(&check_args);
     assert_eq!(code3, 0);
@@ -81,7 +81,7 @@ edition = "2021"
     assert_eq!(c_code2, 0);
 
     // Invalidate fast-lock to test Action Cache hit
-    let clippy_lock = root.join(".mitts").join("clippy.lock");
+    let clippy_lock = mitts::core::FastBuildLock::lock_path(root, "clippy");
     let _ = fs::remove_file(clippy_lock);
     let c_code3 = handle_clippy(&clippy_args);
     assert_eq!(c_code3, 0);

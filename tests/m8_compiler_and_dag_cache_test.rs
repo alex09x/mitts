@@ -114,6 +114,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
     };
 
     let test_res = test_invocation.execute();
-    assert!(test_res.is_ok());
-    assert!(test_res.unwrap().success);
+    assert!(test_res.is_ok(), "test_res err: {:?}", test_res.as_ref().err());
+    let out = test_res.unwrap();
+    assert!(out.success, "test out stderr: {}", out.stderr);
 }

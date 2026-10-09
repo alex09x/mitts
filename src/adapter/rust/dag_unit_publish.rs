@@ -96,11 +96,17 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 .insert(unit.unit_id(), named.clone());
             action_outputs.push(named);
 
-            let profile_name = if ctx.opt.release { "release" } else { "debug" };
-            let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-            let _ = fs::create_dir_all(&deps_dir);
-            let dep_copy = deps_dir.join(file_name);
-            let _ = crate::core::reflink_or_copy(lib_path, &dep_copy, false);
+            if !ctx.opt.native || unit.is_workspace {
+                let profile_name = if ctx.opt.release { "release" } else { "debug" };
+                let deps_dir = ctx.target_dir.join(profile_name).join("deps");
+                let _ = fs::create_dir_all(&deps_dir);
+                let dep_copy = deps_dir.join(file_name);
+                let _ = crate::core::reflink_or_copy(lib_path, &dep_copy, false);
+                let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
+                if !unhashed.is_file() {
+                    let _ = crate::core::reflink_or_copy(lib_path, &unhashed, false);
+                }
+            }
         }
 
         // 3. Publish metadata output (rmeta)
@@ -119,11 +125,17 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 file_size: meta_size,
                 executable: false,
             });
-            let profile_name = if ctx.opt.release { "release" } else { "debug" };
-            let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-            let _ = fs::create_dir_all(&deps_dir);
-            let dep_copy = deps_dir.join(file_name);
-            let _ = crate::core::reflink_or_copy(mp, &dep_copy, false);
+            if !ctx.opt.native || unit.is_workspace {
+                let profile_name = if ctx.opt.release { "release" } else { "debug" };
+                let deps_dir = ctx.target_dir.join(profile_name).join("deps");
+                let _ = fs::create_dir_all(&deps_dir);
+                let dep_copy = deps_dir.join(file_name);
+                let _ = crate::core::reflink_or_copy(mp, &dep_copy, false);
+                let unhashed = deps_dir.join(format!("lib{}.rmeta", clean_crate));
+                if !unhashed.is_file() {
+                    let _ = crate::core::reflink_or_copy(mp, &unhashed, false);
+                }
+            }
         }
     }
 

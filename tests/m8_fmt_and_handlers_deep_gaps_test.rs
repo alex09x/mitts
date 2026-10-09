@@ -112,17 +112,17 @@ path = "src/lib.rs"
     .unwrap();
 
     // Setup .mitts directory with logs, locks, and target/release
-    let mitts_dir = root.join(".mitts");
+    let mitts_dir = root.join("target").join("mitts");
     fs::create_dir_all(&mitts_dir).unwrap();
     fs::write(mitts_dir.join("build.log"), "build log output").unwrap();
     fs::write(mitts_dir.join("build.lock"), "lock").unwrap();
-    fs::write(mitts_dir.join("release.lock"), "lock").unwrap();
-    fs::write(mitts_dir.join("dev.lock"), "lock").unwrap();
+    fs::write(mitts_dir.join("build-release.lock"), "lock").unwrap();
+    fs::write(mitts_dir.join("build-dev.lock"), "lock").unwrap();
     fs::write(mitts_dir.join("check.lock"), "lock").unwrap();
     fs::write(mitts_dir.join("clippy.lock"), "lock").unwrap();
     fs::write(mitts_dir.join("test.lock"), "lock").unwrap();
 
-    let target_release = mitts_dir.join("target").join("release");
+    let target_release = mitts_dir.join("release");
     fs::create_dir_all(&target_release).unwrap();
     fs::write(target_release.join("libclean_pkg.rlib"), b"dummy rlib").unwrap();
 
@@ -136,10 +136,10 @@ path = "src/lib.rs"
     assert!(!target_release.exists());
 
     // 2. Re-create target and locks, then clean without release (cleans whole target)
-    let target_debug = mitts_dir.join("target").join("debug");
+    let target_debug = mitts_dir.join("debug");
     fs::create_dir_all(&target_debug).unwrap();
     fs::write(mitts_dir.join("build.log"), "log").unwrap();
-    fs::write(mitts_dir.join("build.lock"), "lock").unwrap();
+    fs::write(mitts_dir.join("build-dev.lock"), "lock").unwrap();
 
     let clean_all = CleanArgs {
         manifest_path: Some(root.join("Cargo.toml")),
@@ -147,8 +147,7 @@ path = "src/lib.rs"
         ..Default::default()
     };
     assert_eq!(handle_clean(&clean_all), 0);
-    assert!(!mitts_dir.join("target").exists());
-    assert!(!mitts_dir.join("build.log").exists());
+    assert!(!mitts_dir.exists());
 
     // 3. handle_gc with cache_dir: None (uses default stores)
     let gc_args = GcArgs {

@@ -112,10 +112,10 @@ pub fn resolve_clippy_driver() -> PathBuf {
 
 /// Discovers the root directory of a Cargo workspace by searching upwards for Cargo.toml with [workspace] or Cargo.lock.
 pub fn find_workspace_root(manifest_path: &Path) -> PathBuf {
-    let start = if manifest_path.is_file() {
-        manifest_path.parent().unwrap_or(Path::new("."))
-    } else {
+    let start = if manifest_path.is_dir() {
         manifest_path
+    } else {
+        manifest_path.parent().unwrap_or(Path::new("."))
     };
     for anc in start.ancestors() {
         let toml = anc.join("Cargo.toml");

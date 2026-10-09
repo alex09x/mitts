@@ -58,6 +58,8 @@ pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedD
         .with_context(|| format!("Failed to read dep-info file {:?}", d_path))?;
     let mut parsed = ParsedDepInfo::default();
 
+    let mut in_deps = false;
+
     for line in content.lines() {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("# env-dep:") {
@@ -75,11 +77,13 @@ pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedD
             continue;
         }
 
-        let tokens_part = if let Some((_, deps_part)) = line.split_once(':') {
-            deps_part
+        let is_continuation = line.ends_with('\\');
+        let (tokens_part, line_in_deps) = if let Some((_, deps_part)) = line.split_once(':') {
+            (deps_part, true)
         } else {
-            line
+            (line, in_deps)
         };
+
         for token in tokens_part.split_whitespace() {
             let token = token.trim_end_matches('\\');
             if !token.is_empty() {
@@ -93,9 +97,12 @@ pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedD
                 } else {
                     p.clone()
                 };
-                parsed.files.push(resolved);
+                if line_in_deps || resolved.is_file() {
+                    parsed.files.push(resolved);
+                }
             }
         }
+        in_deps = is_continuation && line_in_deps;
     }
     Ok(parsed)
 }

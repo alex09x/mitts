@@ -54,9 +54,8 @@ fn test_m8_handlers_explain_clean_and_gc_comprehensive() {
     assert_eq!(handle_clean(&err_clean), 1);
 
     // 4. Create locks, target dirs, build.log for both release and dev
-    let mitts_dir = proj_dir.join(".mitts");
-    let target_dir = mitts_dir.join("target");
-    let target_rel = target_dir.join("release");
+    let mitts_dir = proj_dir.join("target").join("mitts");
+    let target_rel = mitts_dir.join("release");
     fs::create_dir_all(&target_rel).unwrap();
     fs::write(target_rel.join("artifact.bin"), b"binary").unwrap();
     fs::write(mitts_dir.join("build.log"), "sample log").unwrap();

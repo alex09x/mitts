@@ -73,11 +73,15 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         scan_deps(member_dir, &toml.build_dependencies);
     }
 
-    for (name, (path, toml)) in &path_dependencies {
-        if path.starts_with(project_dir) {
-            workspace_manifests
-                .entry(name.clone())
-                .or_insert_with(|| (path.clone(), toml.clone()));
+    if root_toml.workspace.is_some() {
+        let canon_proj = project_dir.canonicalize().unwrap_or_else(|_| project_dir.to_path_buf());
+        for (name, (path, toml)) in &path_dependencies {
+            let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            if canon_path.starts_with(&canon_proj) {
+                workspace_manifests
+                    .entry(name.clone())
+                    .or_insert_with(|| (path.clone(), toml.clone()));
+            }
         }
     }
 

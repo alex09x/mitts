@@ -256,8 +256,14 @@ pub(crate) fn execute_unit(
     }
 
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
-    let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-    let _ = fs::create_dir_all(&deps_dir);
+    let cas_artifacts = ctx.cas.root().join("artifacts");
+    let target_deps_dir = ctx.target_dir.join(profile_name).join("deps");
+    let deps_dir = if ctx.opt.native {
+        &cas_artifacts
+    } else {
+        let _ = fs::create_dir_all(&target_deps_dir);
+        &target_deps_dir
+    };
     let dest_binary = is_executable.then(|| ctx.target_dir.join(profile_name).join(&unit.target_name));
 
     let invocation = RustcInvocation {
@@ -272,7 +278,7 @@ pub(crate) fn execute_unit(
         mode: ctx.opt.mode,
         extra_compiler_args: &ctx.opt.extra_args,
         jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
-        deps_dir: Some(&deps_dir),
+        deps_dir: Some(deps_dir),
     };
 
     let output = if let Some(cb) = ctx.on_metadata_ready {
@@ -297,9 +303,12 @@ pub(crate) fn execute_unit(
                     ctx.completed_artifacts.lock().unwrap().insert(unit.unit_id(), named.clone());
                     cb(&unit.unit_id(), &named);
                 }
-                if let Some(fname) = rmeta_path.file_name() {
-                    let dep_copy = deps_dir.join(fname);
-                    let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+                if !ctx.opt.native || unit.is_workspace {
+                    if let Some(fname) = rmeta_path.file_name() {
+                        let _ = fs::create_dir_all(&target_deps_dir);
+                        let dep_copy = target_deps_dir.join(fname);
+                        let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+                    }
                 }
             }
         })?

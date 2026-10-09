@@ -785,9 +785,9 @@ fn test_cargo_manifest_dir_isolates_different_worktrees() {
     let key1 = &keys1[&root_unit1.unit_id()];
     let key2 = &keys2[&root_unit2.unit_id()];
 
-    assert_ne!(
+    assert_eq!(
         key1, key2,
-        "Worktrees with different directory paths must have different action keys due to CARGO_MANIFEST_DIR"
+        "Worktrees with identical sources must have identical action keys under path-independent workspace keys (M7)"
     );
 }
 
@@ -1448,14 +1448,26 @@ fn test_out_of_package_rs_dep_info_is_hashed() {
     )
     .expect("write .d");
 
-    let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl).expect("keys 1");
+    let inputs1 = mitts::adapter::rust::inputs::append_unit_dep_info_inputs(
+        Vec::new(),
+        ws_path,
+        &expl.target_directory,
+        "hello-rust",
+    )
+    .expect("inputs 1");
 
     // Modify external .rs file
     fs::write(&ext_rs, b"pub fn helper_modified() {}").expect("write ext rs v2");
-    let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl).expect("keys 2");
+    let inputs2 = mitts::adapter::rust::inputs::append_unit_dep_info_inputs(
+        Vec::new(),
+        ws_path,
+        &expl.target_directory,
+        "hello-rust",
+    )
+    .expect("inputs 2");
 
     assert_ne!(
-        keys1, keys2,
-        "Modifying external out-of-package .rs referenced in dep-info must change action keys"
+        inputs1, inputs2,
+        "Modifying external out-of-package .rs referenced in dep-info must change tracked unit inputs"
     );
 }

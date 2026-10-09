@@ -225,14 +225,21 @@ pub fn try_restore_from_cache_with_directives(
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("rlib");
-                let profile_name = if ctx.opt.release { "release" } else { "debug" };
-                let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                let _ = fs::create_dir_all(&deps_dir);
-                let target_dep_dest = deps_dir.join(&out.relative_path);
-                if !target_dep_dest.is_file() {
-                    let _ = ctx
-                        .cas
-                        .restore_object(&out.cas_hash, &target_dep_dest, false);
+                if !ctx.opt.native || unit.is_workspace {
+                    let profile_name = if ctx.opt.release { "release" } else { "debug" };
+                    let deps_dir = ctx.target_dir.join(profile_name).join("deps");
+                    let _ = fs::create_dir_all(&deps_dir);
+                    let target_dep_dest = deps_dir.join(&out.relative_path);
+                    if !target_dep_dest.is_file() {
+                        let _ = ctx
+                            .cas
+                            .restore_object(&out.cas_hash, &target_dep_dest, false);
+                    }
+                    let clean_crate = unit.target_name.replace('-', "_");
+                    let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
+                    if !unhashed.is_file() {
+                        let _ = ctx.cas.restore_object(&out.cas_hash, &unhashed, false);
+                    }
                 }
 
                 if ext == "rlib" || ext == "dylib" || ext == "so" {

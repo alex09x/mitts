@@ -25,8 +25,8 @@ fn test_m8_clean_cli_release_and_cache_flags() {
     let _guard = ENV_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let pkg_dir = temp.path().join("clean_pkg");
-    let mitts_dir = pkg_dir.join(".mitts");
-    let rel_target = mitts_dir.join("target").join("release");
+    let mitts_dir = pkg_dir.join("target").join("mitts");
+    let rel_target = mitts_dir.join("release");
     fs::create_dir_all(&rel_target).unwrap();
 
     fs::write(

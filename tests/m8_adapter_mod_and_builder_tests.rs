@@ -73,7 +73,7 @@ fn test_m8_adapter_resolve_manifest_and_target_dir() {
     // Target dir: None -> fallback to .mitts/target
     let opt_no_target = RustBuildOptions::default();
     let default_target = RustAdapter::resolve_target_dir(&cargo_toml, &opt_no_target).unwrap();
-    assert_eq!(default_target, tmp.path().join(".mitts").join("target"));
+    assert_eq!(default_target, tmp.path().join("target").join("mitts"));
 }
 
 #[test]

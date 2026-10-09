@@ -49,7 +49,7 @@ fn test_m8_rust_adapter_resolve_manifest_and_target_dir() {
 
     // 4. Resolve target dir default (.mitts/target)
     let res_default = RustAdapter::resolve_target_dir(&manifest_file, &opt).unwrap();
-    assert_eq!(res_default, temp_dir.path().join(".mitts").join("target"));
+    assert_eq!(res_default, temp_dir.path().join("target").join("mitts"));
 }
 
 #[test]

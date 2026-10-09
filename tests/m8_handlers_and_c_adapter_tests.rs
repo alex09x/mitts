@@ -27,7 +27,7 @@ fn test_m8_handlers_clean_release_and_dev() {
     )
     .unwrap();
 
-    let mitts_dir = pkg_dir.join(".mitts");
+    let mitts_dir = pkg_dir.join("target").join("mitts");
     fs::create_dir_all(&mitts_dir).unwrap();
     fs::write(mitts_dir.join("build-dev.lock"), "lock").unwrap();
     fs::write(mitts_dir.join("build-release.lock"), "lock").unwrap();

@@ -35,13 +35,13 @@ path = "src/lib.rs"
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src/lib.rs"), "pub fn test() {}").unwrap();
 
-    // Create fake .mitts directory with build.lock, build.log, target/release
-    let mitts_dir = root.join(".mitts");
+    // Create fake target/mitts directory with build.lock, build.log, release
+    let mitts_dir = root.join("target").join("mitts");
     fs::create_dir_all(&mitts_dir).unwrap();
     fs::write(mitts_dir.join("build-release.lock"), "lock").unwrap();
     fs::write(mitts_dir.join("build.log"), "log content").unwrap();
 
-    let rel_target = mitts_dir.join("target").join("release");
+    let rel_target = mitts_dir.join("release");
     fs::create_dir_all(&rel_target).unwrap();
     fs::write(rel_target.join("artifact.bin"), "bin").unwrap();
 

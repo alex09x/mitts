@@ -54,40 +54,7 @@ impl CargoToml {
     }
 
     pub fn resolve_inherited_workspace_fields(&mut self, path: &Path) {
-        if let Some(ref mut pkg) = self.package {
-            if pkg.edition.is_none() {
-                if let Some(ref ws) = self.workspace {
-                    if let Some(ref ws_pkg) = ws.package {
-                        if let Some(toml::Value::String(ref ed)) = ws_pkg.get("edition") {
-                            pkg.edition = Some(ed.clone());
-                        }
-                    }
-                }
-                if pkg.edition.is_none() {
-                    let mut parent = path.parent().and_then(|p| p.parent());
-                    while let Some(dir) = parent {
-                        let candidate = dir.join("Cargo.toml");
-                        if candidate.is_file() {
-                            if let Ok(content) = fs::read_to_string(&candidate) {
-                                if let Ok(parent_toml) = Self::parse(&content) {
-                                    if let Some(ref ws) = parent_toml.workspace {
-                                        if let Some(ref ws_pkg) = ws.package {
-                                            if let Some(toml::Value::String(ref ed)) =
-                                                ws_pkg.get("edition")
-                                            {
-                                                pkg.edition = Some(ed.clone());
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        parent = dir.parent();
-                    }
-                }
-            }
-        }
+        super::manifest_inherit::resolve_inherited_workspace_fields(self, path);
     }
 
     /// Checks if this package defines or defaults to a build script.

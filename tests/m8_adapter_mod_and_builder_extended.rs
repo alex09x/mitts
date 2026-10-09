@@ -59,7 +59,7 @@ fn test_m8_adapter_manifest_resolution_and_build_native() {
     );
     assert_eq!(
         RustAdapter::resolve_target_dir(&manifest, &opt).unwrap(),
-        tmp.path().join(".mitts").join("target")
+        tmp.path().join("target").join("mitts")
     );
 
     // 3. build_native directly

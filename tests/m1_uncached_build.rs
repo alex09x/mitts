@@ -39,8 +39,8 @@ fn test_fixture_uncached_build_and_oracle() {
     assert_eq!(result.exit_code, 0, "Build exit code must be 0");
     assert!(!plan.actions.is_empty(), "Plan must have recorded actions");
 
-    // Verify isolated .mitts/target directory was used
-    let target_dir = manifest.parent().unwrap().join(".mitts").join("target");
+    // Verify isolated target/mitts directory was used
+    let target_dir = manifest.parent().unwrap().join("target").join("mitts");
     assert_eq!(plan.target_directory, target_dir);
     assert!(
         target_dir.exists(),
@@ -155,7 +155,7 @@ fn test_coexistence_with_ordinary_cargo() {
     let (plan, result) = RustAdapter::build(&opt).expect("Mitts build must succeed");
     assert!(result.success, "Mitts build must succeed");
 
-    let mitts_target = fixture_dir.join(".mitts").join("target");
+    let mitts_target = fixture_dir.join("target").join("mitts");
     assert_eq!(plan.target_directory, mitts_target);
     let mitts_bin = mitts_target.join("debug").join("hello-rust");
     assert!(mitts_bin.exists(), "Mitts binary must exist");
@@ -189,7 +189,7 @@ fn test_explain_effective_plan() {
     assert_eq!(explanation.profile, "debug");
     assert_eq!(
         explanation.target_directory,
-        manifest.parent().unwrap().join(".mitts").join("target")
+        manifest.parent().unwrap().join("target").join("mitts")
     );
     assert!(
         !explanation.units.is_empty(),
