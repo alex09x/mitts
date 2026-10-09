@@ -40,6 +40,7 @@ extra_feat = ["dep:bar"]
         name: "my-crate",
         version: "0.1.0",
         is_workspace: true,
+        is_root: true,
         toml: &toml,
         dependencies: &dep_specs,
     };

@@ -190,6 +190,59 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         resolved_packages.push((*pkg, *is_workspace, pkg_dir, pkg_toml));
     }
 
+    // Determine root packages being targeted by the build
+    let target_pkg = opt.package.as_deref();
+    let has_all_ws = opt
+        .extra_args
+        .iter()
+        .any(|a| a == "--workspace" || a == "--all");
+    let is_virtual_workspace = root_toml.workspace.is_some() && root_toml.package.is_none();
+    let default_members = root_toml
+        .workspace
+        .as_ref()
+        .map(|w| &w.default_members)
+        .filter(|dm| !dm.is_empty());
+
+    let is_selected_ws_member = |pkg_name: &str| -> bool {
+        if let Some(dm) = default_members {
+            for member_pat in dm {
+                let clean_pat = member_pat.trim_start_matches("./").trim_end_matches('/');
+                let member_dir = if clean_pat == "." || clean_pat.is_empty() {
+                    project_dir.to_path_buf()
+                } else {
+                    project_dir.join(clean_pat)
+                };
+                if let Some((dir, _)) = workspace_manifests.get(pkg_name) {
+                    if dir == &member_dir || (clean_pat == "." && dir == project_dir) {
+                        return true;
+                    }
+                }
+            }
+            false
+        } else {
+            workspace_manifests.contains_key(pkg_name)
+        }
+    };
+
+    if let Some(dm) = default_members {
+        if !workspace_manifests.keys().any(|k| is_selected_ws_member(k)) {
+            anyhow::bail!("No workspace members matched default-members: {:?}", dm);
+        }
+    }
+
+    let is_primary_pkg = |pkg_name: &str| -> bool {
+        if let Some(target) = target_pkg {
+            pkg_name == target
+        } else if has_all_ws {
+            workspace_manifests.contains_key(pkg_name)
+                || root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
+        } else if is_virtual_workspace || default_members.is_some() {
+            is_selected_ws_member(pkg_name)
+        } else {
+            root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
+        }
+    };
+
     // Resolve unified compile-time features across all packages
     let feature_inputs: Vec<PackageFeatureContext> = resolved_packages
         .iter()
@@ -197,6 +250,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             name: pkg.name.as_str(),
             version: pkg.version.as_str(),
             is_workspace: *is_ws,
+            is_root: is_primary_pkg(&pkg.name),
             toml,
             dependencies: &pkg.dependencies,
         })
@@ -306,58 +360,6 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     super::planner_deps::resolve_unit_dependencies(&mut units, &selected_packages);
 
     // Prune compilation units not reachable from active root targets
-    let target_pkg = opt.package.as_deref();
-    let has_all_ws = opt
-        .extra_args
-        .iter()
-        .any(|a| a == "--workspace" || a == "--all");
-    let is_virtual_workspace = root_toml.workspace.is_some() && root_toml.package.is_none();
-    let default_members = root_toml
-        .workspace
-        .as_ref()
-        .map(|w| &w.default_members)
-        .filter(|dm| !dm.is_empty());
-
-    let is_selected_ws_member = |pkg_name: &str| -> bool {
-        if let Some(dm) = default_members {
-            for member_pat in dm {
-                let clean_pat = member_pat.trim_start_matches("./").trim_end_matches('/');
-                let member_dir = if clean_pat == "." || clean_pat.is_empty() {
-                    project_dir.to_path_buf()
-                } else {
-                    project_dir.join(clean_pat)
-                };
-                if let Some((dir, _)) = workspace_manifests.get(pkg_name) {
-                    if dir == &member_dir || (clean_pat == "." && dir == project_dir) {
-                        return true;
-                    }
-                }
-            }
-            false
-        } else {
-            workspace_manifests.contains_key(pkg_name)
-        }
-    };
-
-    if let Some(dm) = default_members {
-        if !workspace_manifests.keys().any(|k| is_selected_ws_member(k)) {
-            anyhow::bail!("No workspace members matched default-members: {:?}", dm);
-        }
-    }
-
-    let is_primary_pkg = |pkg_name: &str| -> bool {
-        if let Some(target) = target_pkg {
-            pkg_name == target
-        } else if has_all_ws {
-            workspace_manifests.contains_key(pkg_name)
-                || root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
-        } else if is_virtual_workspace || default_members.is_some() {
-            is_selected_ws_member(pkg_name)
-        } else {
-            root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
-        }
-    };
-
     for u in &mut units {
         let prim = is_primary_pkg(&u.package_name);
         u.is_primary = prim;

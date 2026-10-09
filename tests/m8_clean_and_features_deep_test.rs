@@ -102,6 +102,7 @@ libc = { version = "0.2", optional = true }
         name: "feat_pkg",
         version: "0.1.0",
         is_workspace: true,
+        is_root: true,
         toml: &toml,
         dependencies: &deps,
     };
@@ -126,6 +127,7 @@ libc = { version = "0.2", optional = true }
         name: "feat_pkg",
         version: "0.1.0",
         is_workspace: true,
+        is_root: true,
         toml: &toml_inactive,
         dependencies: &empty_deps,
     };
