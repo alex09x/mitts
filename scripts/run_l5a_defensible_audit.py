@@ -494,6 +494,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         return "workspace"
 
     cargo_target_units = {}
+    cargo_all_compiled_features = {}
     try:
         p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
         for l in p_art.stdout.splitlines():
@@ -510,6 +511,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
                 is_tgt = a["profile"].get("debuginfo") == 2
                 feats = tuple(sorted(f for f in a.get("features", []) if not f.startswith("dep:")))
                 u_key = (pkg_name, version, src_kind, tgt_name, kind)
+                cargo_all_compiled_features.setdefault(u_key, set()).add(feats)
                 if u_key not in cargo_target_units or is_tgt:
                     cargo_target_units[u_key] = feats
     except Exception as e:
@@ -548,7 +550,8 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     for k in sorted(cargo_unit_keys & mitts_unit_keys):
         cf = cargo_target_units[k]
         mf = mitts_units_map[k]
-        if cf != mf:
+        all_cf = cargo_all_compiled_features.get(k, {cf})
+        if mf not in all_cf and cf != mf:
             feature_discrepancies.append({
                 "unit": list(k),
                 "cargo_features": list(cf),

@@ -196,6 +196,13 @@ pub fn resolve_package_features(
                                 }
                             }
                         } else if let Some(dep_name) = sub.strip_prefix("dep:") {
+                            if requested.entry(id.clone()).or_default().insert(dep_name.to_string()) {
+                                changed = true;
+                            }
+                            let norm = dep_name.replace('-', "_");
+                            if norm != dep_name {
+                                requested.entry(id.clone()).or_default().insert(norm);
+                            }
                             let deps = collect_manifest_dependencies(ctx.toml, dep_name);
                             activate_manifest_dep(
                                 ctx,
@@ -239,13 +246,10 @@ pub fn resolve_package_features(
             if f == "default" && !ctx.toml.features.contains_key("default") {
                 continue;
             }
-            if ctx.toml.features.contains_key(&f) {
+            if ctx.toml.features.contains_key(&f)
+                || (is_any_optional_dep(ctx.toml, &f) && is_implicit_feature(ctx.toml, &f))
+            {
                 list.push(f);
-            } else {
-                let deps = collect_manifest_dependencies(ctx.toml, &f);
-                if is_optional_dep(&deps) && is_implicit_feature(ctx.toml, &f) {
-                    list.push(f);
-                }
             }
         }
         list.sort();
@@ -257,16 +261,8 @@ pub fn resolve_package_features(
 }
 
 fn is_implicit_feature(toml: &CargoToml, name: &str) -> bool {
-    let dep_needle = format!("dep:{}", name);
-    let dep_needle_norm = format!("dep:{}", name.replace('-', "_"));
-    for sub_feats in toml.features.values() {
-        for sub in sub_feats {
-            if sub == &dep_needle || sub == &dep_needle_norm {
-                return false;
-            }
-        }
-    }
-    true
+    let (n1, n2) = (format!("dep:{}", name), format!("dep:{}", name.replace('-', "_")));
+    !toml.features.values().any(|sf| sf.iter().any(|s| s == &n1 || s == &n2))
 }
 
 fn activate_dep_instance(
@@ -323,11 +319,10 @@ fn resolve_dep_id_from_ctx(
     dep_name: &str,
 ) -> Option<String> {
     let clean = dep_name.replace('-', "_");
-    let dep_spec = ctx.dependencies.iter().find(|s| {
+    let req_ver = ctx.dependencies.iter().find(|s| {
         let (name, _) = parse_dep_spec(s);
         name == dep_name || name.replace('-', "_") == clean
-    });
-    let req_ver = dep_spec.and_then(|s| parse_dep_spec(s).1);
+    }).and_then(|s| parse_dep_spec(s).1);
     resolve_dep_id(packages, dep_name, req_ver)
 }
 
@@ -360,6 +355,19 @@ fn is_optional_dep(deps: &[&TomlDependency]) -> bool {
     })
 }
 
+fn is_any_optional_dep(toml: &CargoToml, name: &str) -> bool {
+    let norm = name.replace('-', "_");
+    let check = |map: &HashMap<String, TomlDependency>| {
+        map.get(name).or_else(|| map.get(&norm)).is_some_and(|d| match d {
+            TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
+            _ => false,
+        })
+    };
+    check(&toml.dependencies)
+        || check(&toml.build_dependencies)
+        || toml.target.values().any(|t| check(&t.dependencies) || check(&t.build_dependencies))
+}
+
 fn activate_manifest_dep(
     ctx: &PackageFeatureContext,
     packages: &[PackageFeatureContext],
@@ -380,17 +388,7 @@ fn resolve_dep_id(
     ver: Option<&str>,
 ) -> Option<String> {
     let clean = dep.replace('-', "_");
-    if let Some(v) = ver {
-        for ctx in packages {
-            if (ctx.name == dep || ctx.name.replace('-', "_") == clean) && ctx.version == v {
-                return Some(ctx.id());
-            }
-        }
-    }
-    for ctx in packages {
-        if ctx.name == dep || ctx.name.replace('-', "_") == clean {
-            return Some(ctx.id());
-        }
-    }
-    None
+    let m = |c: &PackageFeatureContext| c.name == dep || c.name.replace('-', "_") == clean;
+    ver.and_then(|v| packages.iter().find(|c| m(c) && c.version == v).map(|c| c.id()))
+        .or_else(|| packages.iter().find(|c| m(c)).map(|c| c.id()))
 }
