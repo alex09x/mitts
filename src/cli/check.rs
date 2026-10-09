@@ -194,6 +194,13 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
                     );
                 }
             } else {
+                if !result.stderr.is_empty() {
+                    if result.stderr.ends_with('\n') {
+                        eprint!("{}", result.stderr);
+                    } else {
+                        eprintln!("{}", result.stderr);
+                    }
+                }
                 Ui::stage_start("❌", &format!("Check failed [{}]", profile));
                 render_compiler_diagnostics(&result.stderr, is_verbose);
                 Ui::finish_failed(profile, &dur, "type check errors");

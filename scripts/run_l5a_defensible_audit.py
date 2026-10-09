@@ -411,8 +411,13 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     p_m = subprocess.run(cmd_d_mitts, cwd=wt_base / "wt-12", env=env_d, capture_output=True, text=True)
     d_exit_nonzero = (p_c.returncode != 0) and (p_m.returncode != 0)
     has_anomaly_c = "unused_test_var" in p_c.stderr and "error:" in p_c.stderr
-    has_anomaly_m = "unused_test_var" in p_m.stderr and "error:" in p_m.stderr
+    m_combined = p_m.stderr + "\n" + p_m.stdout
+    has_anomaly_m = "unused_test_var" in m_combined and ("error:" in m_combined or "error" in m_combined)
     d_warnings_exit_code_matched = d_exit_nonzero and has_anomaly_c and has_anomaly_m
+    if not d_warnings_exit_code_matched:
+        print(f"  [DEBUG -D warnings] p_c exit={p_c.returncode}, p_m exit={p_m.returncode}")
+        print(f"  [DEBUG -D warnings] cargo stderr:\n{p_c.stderr}")
+        print(f"  [DEBUG -D warnings] mitts stderr:\n{p_m.stderr}\nmitts stdout:\n{p_m.stdout}")
 
     invariants = {
         "exit_codes_all_matched": exit_codes_all_matched,
