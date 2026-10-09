@@ -56,7 +56,7 @@ pub fn resolve_unit_dependencies(
         let pkg_dir = unit.manifest_path.parent().unwrap_or(std::path::Path::new("."));
         let has_build_script = pkg_toml_opt
             .as_ref()
-            .map_or(false, |t| t.has_build_script(pkg_dir));
+            .is_some_and(|t| t.has_build_script(pkg_dir));
 
         let mut unit_deps = Vec::new();
         if let Some((pkg, _)) = pkg_match {

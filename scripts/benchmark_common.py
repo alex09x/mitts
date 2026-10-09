@@ -239,5 +239,6 @@ def get_binary_provenance(mitts_bin: Path):
         "git_commit": git_c,
         "relative_path": mitts_bin.name,
         "sccache_version": sccache_v,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 

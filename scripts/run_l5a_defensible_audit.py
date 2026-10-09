@@ -43,11 +43,10 @@ from benchmark_worktree import (
 print = functools.partial(print, flush=True)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_RESULTS_DIR = Path(
-    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
-)
-
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
+DEFAULT_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", BENCH_ROOT / "benchmark-results")
+)
 PROJECTS_DIR = BENCH_ROOT / "projects"
 SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
 MITTS_BIN = Path(os.environ.get("MITTS_BIN", BENCH_ROOT / "mitts-bin"))
@@ -150,6 +149,7 @@ def get_binary_provenance(mitts_bin: Path):
         "git_commit": git_c,
         "relative_path": rel_p,
         "sccache_version": sccache_v,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
 
@@ -463,71 +463,120 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         print(f"  [DEBUG -D warnings] cargo stderr:\n{p_c.stderr}")
         print(f"  [DEBUG -D warnings] mitts stderr:\n{p_m.stderr}\nmitts stdout:\n{p_m.stdout}")
 
-    print("  Testing unit counts and package parity matched against Cargo...")
-    c_unit_matches = re.findall(r"^\s*(Checking|Compiling)\s+([a-zA-Z0-9_\-]+)", c_runs[0]["stderr"], re.MULTILINE)
-    cargo_units_count = len(c_unit_matches)
-    cargo_pkgs = set(m[1] for m in c_unit_matches)
+    print("  Testing unit counts, package parity, and features matched against Cargo...")
+    def norm_kind(k):
+        if k == "rlib":
+            return "lib"
+        if "," in k:
+            return k.split(",")[0]
+        return k
 
-    # Count deterministic unique compiler targets from compiler artifacts for projects with multi-target crates (e.g. Tokio)
-    if project_name == "tokio":
-        try:
-            p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
-            c_arts = [json.loads(l) for l in p_art.stdout.splitlines() if 'compiler-artifact' in l]
-            c_valid = [a for a in c_arts if 'custom-build' not in a.get('target', {}).get('kind', [])]
-            c_dedup = {(a['target']['name'], tuple(sorted(a['target']['kind']))): a for a in c_valid}
-            if len(c_dedup) > 0:
-                cargo_units_count = len(c_dedup)
-        except Exception:
-            pass
+    def parse_cargo_package_id(pkg_id):
+        if "#" in pkg_id:
+            url, _, rest = pkg_id.partition("#")
+            if "@" in rest:
+                pkg_name, _, version = rest.rpartition("@")
+            else:
+                pkg_name = url.rstrip("/").split("/")[-1]
+                version = rest
+        else:
+            parts = pkg_id.split()
+            pkg_name = parts[0]
+            version = parts[1] if len(parts) > 1 else ""
+        pkg_name = pkg_name.split("?")[0]
+        return pkg_name, version
+
+    def get_source_kind(src_path):
+        if ".cargo/registry" in src_path:
+            return "registry"
+        if ".cargo/git" in src_path:
+            return "git"
+        return "workspace"
+
+    cargo_target_units = {}
+    try:
+        p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+        for l in p_art.stdout.splitlines():
+            if "compiler-artifact" in l:
+                a = json.loads(l)
+                pkg_name, version = parse_cargo_package_id(a["package_id"])
+                tgt_name = a["target"]["name"]
+                k_raw = a["target"]["kind"][0] if a["target"].get("kind") else "lib"
+                if k_raw == "custom-build":
+                    continue
+                kind = norm_kind(k_raw)
+                src_path = a["target"].get("src_path", "")
+                src_kind = get_source_kind(src_path)
+                is_tgt = a["profile"].get("debuginfo") == 2
+                feats = tuple(sorted(f for f in a.get("features", []) if not f.startswith("dep:")))
+                u_key = (pkg_name, version, src_kind, tgt_name, kind)
+                if u_key not in cargo_target_units or is_tgt:
+                    cargo_target_units[u_key] = feats
+    except Exception as e:
+        print(f"  [ERROR parsing cargo artifacts] {e}")
 
     p_exp = subprocess.run([str(MITTS_BIN), "explain", "--json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+    mitts_units_map = {}
     mitts_units = []
     try:
         exp_data = json.loads(p_exp.stdout)
         mitts_units = exp_data.get("units", [])
-    except Exception:
-        pass
+        for u in mitts_units:
+            pkg_name = u["package_name"]
+            version = u["version"]
+            src_path = u.get("src_path", "")
+            src_kind = get_source_kind(src_path)
+            tgt_name = u["target_name"]
+            kind = norm_kind(u["kind"])
+            feats = tuple(sorted(f for f in u.get("features", []) if not f.startswith("dep:")))
+            mitts_units_map[(pkg_name, version, src_kind, tgt_name, kind)] = feats
+    except Exception as e:
+        print(f"  [ERROR parsing mitts explain] {e}")
 
-    mitts_pkgs = set(u["package_name"] for u in mitts_units)
-    m_stat_match = re.search(r"\[mitts::stats\] compiled=(\d+) cached=(\d+) total=(\d+)", m_runs[0]["stderr"] + "\n" + m_runs[0]["stdout"])
-    mitts_units_count = int(m_stat_match.group(3)) if m_stat_match else len(mitts_units)
+    cargo_unit_keys = set(cargo_target_units.keys())
+    mitts_unit_keys = set(mitts_units_map.keys())
 
-    # Feature comparison between Cargo artifacts and Mitts plan
-    features_matched = True
-    try:
-        p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
-        c_arts = [json.loads(l) for l in p_art.stdout.splitlines() if 'compiler-artifact' in l]
-        c_feats = {a['target']['name']: set(a.get('features', [])) for a in c_arts if 'custom-build' not in a.get('target', {}).get('kind', [])}
-        m_feats = {u['target_name']: set(u.get('features', [])) for u in mitts_units}
-        for t_name, cf in c_feats.items():
-            if t_name in m_feats:
-                mf = m_feats[t_name]
-                # Filter out pure internal aliases like 'dep:xxx'
-                cf_clean = set(f for f in cf if not f.startswith("dep:"))
-                mf_clean = set(f for f in mf if not f.startswith("dep:"))
-                if cf_clean != mf_clean:
-                    features_matched = False
-                    break
-    except Exception:
-        pass
+    missing_in_mitts = [list(k) for k in sorted(cargo_unit_keys - mitts_unit_keys)]
+    extra_in_mitts = [list(k) for k in sorted(mitts_unit_keys - cargo_unit_keys)]
+    units_matched_cargo = (len(missing_in_mitts) == 0 and len(extra_in_mitts) == 0 and len(cargo_unit_keys) > 0)
 
-    missing_in_mitts = sorted(cargo_pkgs - mitts_pkgs)
-    extra_in_mitts = sorted(mitts_pkgs - cargo_pkgs)
-    packages_identical = (cargo_pkgs == mitts_pkgs)
-    units_matched_cargo = packages_identical and (cargo_units_count == mitts_units_count)
+    cargo_pkgs = set((k[0], k[1]) for k in cargo_unit_keys)
+    mitts_pkgs = set((k[0], k[1]) for k in mitts_unit_keys)
+    packages_identical = (cargo_pkgs == mitts_pkgs and len(cargo_pkgs) > 0)
+
+    feature_discrepancies = []
+    for k in sorted(cargo_unit_keys & mitts_unit_keys):
+        cf = cargo_target_units[k]
+        mf = mitts_units_map[k]
+        if cf != mf:
+            feature_discrepancies.append({
+                "unit": list(k),
+                "cargo_features": list(cf),
+                "mitts_features": list(mf),
+            })
+
+    features_matched = units_matched_cargo and (len(feature_discrepancies) == 0)
 
     # Dump parity artifacts with sanitized relative paths
+    def sanitize_paths(text: str) -> str:
+        home_str = str(Path.home())
+        text = text.replace(f"{home_str}/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/", "<cargo_registry>/")
+        text = re.sub(r"/home/[a-zA-Z0-9_\-]+/\.cargo/registry/src/[^/]+/", "<cargo_registry>/", text)
+        text = re.sub(r"/home/[a-zA-Z0-9_\-]+/\.cargo/git/checkouts/[^/]+/[^/]+/", "<cargo_git>/", text)
+        text = text.replace(home_str, "<home>")
+        return text
+
     parity_dir = DEFAULT_RESULTS_DIR / "parity"
     parity_dir.mkdir(parents=True, exist_ok=True)
     try:
         p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
         with open(parity_dir / f"{project_name}_cargo_check.json", "w", encoding="utf-8") as f:
-            f.write(p_art.stdout)
+            f.write(sanitize_paths(p_art.stdout))
         p_exp_txt = subprocess.run([str(MITTS_BIN), "explain"], cwd=wt_base / "wt-01", capture_output=True, text=True)
         with open(parity_dir / f"{project_name}_mitts_explain.txt", "w", encoding="utf-8") as f:
-            f.write(p_exp_txt.stdout)
-    except Exception:
-        pass
+            f.write(sanitize_paths(p_exp_txt.stdout))
+    except Exception as e:
+        print(f"  [ERROR dumping parity] {e}")
 
     cross_mode_separation_verified = True
     if mode == "clippy":
@@ -553,9 +602,11 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         "features_matched": features_matched,
         "packages_count_cargo": len(cargo_pkgs),
         "packages_count_mitts": len(mitts_pkgs),
-        "missing_packages_in_mitts": missing_in_mitts,
-        "units_count_cargo": cargo_units_count,
-        "units_count_mitts": mitts_units_count,
+        "missing_units_in_mitts": missing_in_mitts,
+        "extra_units_in_mitts": extra_in_mitts,
+        "feature_discrepancies": feature_discrepancies,
+        "units_count_cargo": len(cargo_unit_keys),
+        "units_count_mitts": len(mitts_unit_keys),
         "diagnostics_count_cargo": total_diag_c,
         "diagnostics_count_mitts": total_diag_m,
     }

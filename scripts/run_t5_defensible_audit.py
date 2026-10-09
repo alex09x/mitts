@@ -42,11 +42,10 @@ from benchmark_worktree import (
 print = functools.partial(print, flush=True)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_RESULTS_DIR = Path(
-    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
-)
-
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
+DEFAULT_RESULTS_DIR = Path(
+    os.environ.get("BENCHMARK_OUTPUT_DIR", BENCH_ROOT / "benchmark-results")
+)
 PROJECTS_DIR = BENCH_ROOT / "projects"
 SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
 MITTS_BIN = Path(os.environ.get("MITTS_BIN", BENCH_ROOT / "mitts-bin"))
@@ -135,6 +134,8 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
     env = os.environ.copy()
     if CARGO_BIN_DIR not in env.get("PATH", ""):
         env["PATH"] = f"{CARGO_BIN_DIR}:{env.get('PATH', '')}"
+    cargo_bin = shutil.which("cargo") or (Path.home() / ".cargo/bin/cargo")
+    env["CARGO"] = str(cargo_bin)
 
     if tool == "mitts_cas":
         cmd = [str(MITTS_BIN), "test"]
@@ -207,7 +208,7 @@ def compute_stats(vals):
     }
 
 
-def run_t5_project(project_name, runs_count=3):
+def run_t5_project(project_name, runs_count=5):
     print(f"\n=======================================================")
     print(f"  Starting T5 Defensible Test Swarm: {project_name}")
     print(f"=======================================================")

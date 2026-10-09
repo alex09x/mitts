@@ -200,144 +200,84 @@ fn split_cfg_args(s: &str) -> Vec<&str> {
     args
 }
 
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
+static HOST_CFG_ATOMS: OnceLock<HashSet<String>> = OnceLock::new();
+
+pub fn get_host_cfg_atoms() -> &'static HashSet<String> {
+    HOST_CFG_ATOMS.get_or_init(|| {
+        let mut atoms = HashSet::new();
+        if let Ok(output) = std::process::Command::new("rustc")
+            .arg("--print")
+            .arg("cfg")
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(text) = std::str::from_utf8(&output.stdout) {
+                    for line in text.lines() {
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            atoms.insert(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if atoms.is_empty() {
+            #[cfg(unix)]
+            atoms.insert("unix".to_string());
+            #[cfg(windows)]
+            atoms.insert("windows".to_string());
+            #[cfg(target_os = "linux")]
+            atoms.insert("target_os=\"linux\"".to_string());
+            #[cfg(target_os = "macos")]
+            atoms.insert("target_os=\"macos\"".to_string());
+            #[cfg(target_os = "windows")]
+            atoms.insert("target_os=\"windows\"".to_string());
+            #[cfg(target_arch = "x86_64")]
+            atoms.insert("target_arch=\"x86_64\"".to_string());
+            #[cfg(target_arch = "aarch64")]
+            atoms.insert("target_arch=\"aarch64\"".to_string());
+            #[cfg(target_pointer_width = "64")]
+            atoms.insert("target_pointer_width=\"64\"".to_string());
+            #[cfg(target_pointer_width = "32")]
+            atoms.insert("target_pointer_width=\"32\"".to_string());
+            atoms.insert("target_has_atomic=\"8\"".to_string());
+            atoms.insert("target_has_atomic=\"16\"".to_string());
+            atoms.insert("target_has_atomic=\"32\"".to_string());
+            atoms.insert("target_has_atomic=\"64\"".to_string());
+            atoms.insert("target_has_atomic=\"ptr\"".to_string());
+        }
+        atoms
+    })
+}
+
 fn eval_atom(atom: &str) -> bool {
     let atom = atom.trim();
-    if atom == "windows" {
-        return cfg!(target_os = "windows");
-    }
-    if atom == "unix" {
-        return cfg!(unix);
+    let atoms = get_host_cfg_atoms();
+    if atoms.contains(atom) {
+        return true;
     }
     if let Some((k, v)) = atom.split_once('=') {
         let key = k.trim();
         let val = v.trim().trim_matches('"').trim_matches('\'');
-        return match key {
-            "target_os" => host_target_os() == val,
-            "target_arch" => host_target_arch() == val,
-            "target_env" => host_target_env() == val,
-            "target_family" => host_target_family() == val,
-            "target_vendor" => host_target_vendor() == val,
-            "target_pointer_width" => host_target_pointer_width() == val,
-            "target_endian" => host_target_endian() == val,
-            "target_has_atomic"
-            | "target_has_atomic_load_store"
-            | "target_has_atomic_equal_alignment" => host_target_has_atomic(val),
-            _ => false,
-        };
+        let normalized = format!("{key}=\"{val}\"");
+        return atoms.contains(&normalized);
     }
     false
 }
 
-fn host_target_has_atomic(val: &str) -> bool {
-    matches!(val, "8" | "16" | "32" | "64" | "ptr")
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_eval_cfg_target_atoms() {
+        assert!(eval_atom("target_has_atomic = \"64\"") || eval_atom("target_has_atomic = \"32\""));
+        assert!(!eval_atom("target_os = \"nonexistent_os\""));
+        assert!(!is_target_cfg_incompatible_with_host("cfg(any(unix, windows))"));
+        assert!(is_target_cfg_incompatible_with_host("cfg(target_os = \"nonexistent_os\")"));
+    }
 }
 
-fn host_target_endian() -> &'static str {
-    #[cfg(target_endian = "little")]
-    return "little";
-    #[cfg(target_endian = "big")]
-    return "big";
-    #[cfg(not(any(target_endian = "little", target_endian = "big")))]
-    return "";
-}
-
-fn host_target_pointer_width() -> &'static str {
-    #[cfg(target_pointer_width = "64")]
-    return "64";
-    #[cfg(target_pointer_width = "32")]
-    return "32";
-    #[cfg(not(any(target_pointer_width = "64", target_pointer_width = "32")))]
-    return "";
-}
-
-fn host_target_os() -> &'static str {
-    #[cfg(target_os = "linux")]
-    return "linux";
-    #[cfg(target_os = "macos")]
-    return "macos";
-    #[cfg(target_os = "windows")]
-    return "windows";
-    #[cfg(target_os = "freebsd")]
-    return "freebsd";
-    #[cfg(target_os = "openbsd")]
-    return "openbsd";
-    #[cfg(target_os = "netbsd")]
-    return "netbsd";
-    #[cfg(target_os = "dragonfly")]
-    return "dragonfly";
-    #[cfg(target_os = "android")]
-    return "android";
-    #[cfg(target_os = "ios")]
-    return "ios";
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "freebsd",
-        target_os = "openbsd",
-        target_os = "netbsd",
-        target_os = "dragonfly",
-        target_os = "android",
-        target_os = "ios"
-    )))]
-    return "unknown";
-}
-
-fn host_target_arch() -> &'static str {
-    #[cfg(target_arch = "x86_64")]
-    return "x86_64";
-    #[cfg(target_arch = "aarch64")]
-    return "aarch64";
-    #[cfg(target_arch = "arm")]
-    return "arm";
-    #[cfg(target_arch = "x86")]
-    return "x86";
-    #[cfg(target_arch = "riscv64")]
-    return "riscv64";
-    #[cfg(target_arch = "wasm32")]
-    return "wasm32";
-    #[cfg(not(any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "arm",
-        target_arch = "x86",
-        target_arch = "riscv64",
-        target_arch = "wasm32"
-    )))]
-    return "unknown";
-}
-
-fn host_target_env() -> &'static str {
-    #[cfg(target_env = "gnu")]
-    return "gnu";
-    #[cfg(target_env = "musl")]
-    return "musl";
-    #[cfg(target_env = "msvc")]
-    return "msvc";
-    #[cfg(not(any(target_env = "gnu", target_env = "musl", target_env = "msvc")))]
-    return "";
-}
-
-fn host_target_family() -> &'static str {
-    #[cfg(unix)]
-    return "unix";
-    #[cfg(windows)]
-    return "windows";
-    #[cfg(not(any(unix, windows)))]
-    return "";
-}
-
-fn host_target_vendor() -> &'static str {
-    #[cfg(target_vendor = "apple")]
-    return "apple";
-    #[cfg(target_vendor = "pc")]
-    return "pc";
-    #[cfg(target_vendor = "unknown")]
-    return "unknown";
-    #[cfg(not(any(
-        target_vendor = "apple",
-        target_vendor = "pc",
-        target_vendor = "unknown"
-    )))]
-    return "";
-}

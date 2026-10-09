@@ -171,7 +171,17 @@ impl BuildScriptDirectives {
             hasher.update(b"env:");
             hasher.update(k.as_bytes());
             hasher.update(b"=");
-            hasher.update(v.as_bytes());
+            let norm_v = if let Some(ref out_dir) = self.out_dir {
+                let out_str = out_dir.to_string_lossy();
+                if v.contains(out_str.as_ref()) {
+                    v.replace(out_str.as_ref(), "<OUT_DIR>")
+                } else {
+                    v.to_string()
+                }
+            } else {
+                v.to_string()
+            };
+            hasher.update(norm_v.as_bytes());
             hasher.update(b"\n");
         }
 

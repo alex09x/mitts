@@ -214,7 +214,21 @@ pub fn assess_build_script_purity(
         }
     }
     for (k, v) in &directives.envs {
-        if let Some(leak) = check_bytes(k.as_bytes()).or_else(|| check_bytes(v.as_bytes())) {
+        let v_scrubbed = {
+            let mut s = v.clone();
+            let staging_str = staging_out_dir.to_string_lossy();
+            if s.contains(staging_str.as_ref()) {
+                s = s.replace(staging_str.as_ref(), "<OUT_DIR>");
+            }
+            if let Some(ref d) = directives.out_dir {
+                let d_str = d.to_string_lossy();
+                if s.contains(d_str.as_ref()) {
+                    s = s.replace(d_str.as_ref(), "<OUT_DIR>");
+                }
+            }
+            s
+        };
+        if let Some(leak) = check_bytes(k.as_bytes()).or_else(|| check_bytes(v_scrubbed.as_bytes())) {
             return Ok(BuildScriptPurity {
                 is_pure: false,
                 out_dir_hash: String::new(),

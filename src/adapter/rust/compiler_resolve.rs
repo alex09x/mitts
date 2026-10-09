@@ -25,7 +25,34 @@ pub struct RustcOutput {
 
 static RESOLVED_RUSTC: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static RESOLVED_CLIPPY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static RESOLVED_CARGO: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static RESOLVED_HOST_TRIPLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn resolve_cargo() -> PathBuf {
+    RESOLVED_CARGO
+        .get_or_init(|| {
+            if let Ok(p) = std::env::var("CARGO") {
+                let pb = PathBuf::from(p);
+                if pb.is_file() {
+                    return pb;
+                }
+            }
+            if let Ok(paths) = std::env::var("PATH") {
+                for dir in std::env::split_paths(&paths) {
+                    let p = dir.join("cargo");
+                    if p.is_file() {
+                        return p;
+                    }
+                }
+            }
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/cargo"))
+                .filter(|p| p.is_file())
+                .unwrap_or_else(|| PathBuf::from("cargo"))
+        })
+        .clone()
+}
 
 /// Resolves the host target triple from `rustc -vV`.
 pub fn resolve_host_triple() -> &'static str {

@@ -196,21 +196,24 @@ pub fn execute_test_binaries(
             cmd.arg(extra);
         }
 
+        if env.get("CARGO").is_none() {
+            cmd.env("CARGO", crate::adapter::rust::compiler::resolve_cargo());
+        }
+
         println!("     Running {}", bin_path.display());
 
         let status = match cmd.status() {
             Ok(st) => st,
             Err(err) => {
                 eprintln!("mitts error executing {}: {}", bin_path.display(), err);
-                return 1;
+                return 101;
             }
         };
 
         if !status.success() {
-            let code = status.code().unwrap_or(1);
             let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             Ui::finish_failed(profile, &dur, &format!("Test harness failed: {}", desc));
-            return code;
+            return 101;
         }
     }
 

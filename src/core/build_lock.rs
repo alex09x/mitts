@@ -167,9 +167,17 @@ impl FastBuildLock {
                     out_snap.relative_path.display()
                 ));
             };
-            if meta.len() == 0 {
+            if meta.len() == 0 && out_snap.size > 0 {
                 return FreshnessResult::Stale(format!(
                     "Output artifact truncated: {}",
+                    out_snap.relative_path.display()
+                ));
+            }
+            if meta.len() != out_snap.size {
+                return FreshnessResult::Stale(format!(
+                    "Output artifact size changed (expected {} bytes, got {} bytes): {}",
+                    out_snap.size,
+                    meta.len(),
                     out_snap.relative_path.display()
                 ));
             }
@@ -377,11 +385,7 @@ impl FastBuildLock {
         };
 
         let bytes = serde_json::to_vec_pretty(&lock)?;
-        let temp_p = lock_dir.join(format!(
-            "build-{}.lock.tmp.{}",
-            args.profile,
-            std::process::id()
-        ));
+        let temp_p = lock_dir.join(format!("build-{}.lock.tmp.{}", args.profile, std::process::id()));
         fs::write(&temp_p, bytes)?;
         fs::rename(temp_p, Self::lock_path(args.project_dir, args.profile))?;
 

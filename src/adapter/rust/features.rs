@@ -146,28 +146,42 @@ pub fn resolve_package_features(
                                 dep_decls = collect_manifest_dependencies(ctx.toml, real_dep);
                             }
 
-                            let is_dep_active = if let Some(target_id) =
-                                resolve_dep_id_from_ctx(ctx, packages, real_dep)
-                            {
-                                active_packages.contains(&target_id)
+                            let is_dep_active = if is_weak {
+                                !dep_decls.is_empty()
+                                    && (!is_optional_dep(&dep_decls)
+                                        || requested
+                                            .get(&id)
+                                            .is_some_and(|s| s.contains(actual_dep) || s.contains(real_dep)))
                             } else {
-                                false
+                                resolve_dep_id_from_ctx(ctx, packages, real_dep)
+                                    .is_some_and(|tid| active_packages.contains(&tid))
                             };
 
                             if is_weak {
                                 if !is_dep_active {
                                     continue;
                                 }
-                            } else if !dep_decls.is_empty() {
-                                activate_manifest_dep(
-                                    ctx,
-                                    packages,
-                                    actual_dep,
-                                    &dep_decls,
-                                    &mut active_packages,
-                                    &mut requested,
-                                    &mut changed,
-                                );
+                            } else {
+                                if !dep_decls.is_empty() {
+                                    activate_manifest_dep(
+                                        ctx,
+                                        packages,
+                                        actual_dep,
+                                        &dep_decls,
+                                        &mut active_packages,
+                                        &mut requested,
+                                        &mut changed,
+                                    );
+                                }
+                                if (ctx.toml.features.contains_key(actual_dep)
+                                    || is_optional_dep(&dep_decls))
+                                    && requested
+                                        .entry(id.clone())
+                                        .or_default()
+                                        .insert(actual_dep.to_string())
+                                {
+                                    changed = true;
+                                }
                             }
 
                             if let Some(target_id) =
@@ -356,15 +370,7 @@ fn activate_manifest_dep(
     changed: &mut bool,
 ) {
     for d in deps {
-        activate_dep_instance(
-            ctx,
-            packages,
-            dep_name,
-            d,
-            active_packages,
-            requested,
-            changed,
-        );
+        activate_dep_instance(ctx, packages, dep_name, d, active_packages, requested, changed);
     }
 }
 
