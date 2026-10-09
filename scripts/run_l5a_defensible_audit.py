@@ -383,7 +383,8 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     wt01_tuple = (1, wt_base / "wt-01", commits[0])
     res_build = run_single_worktree("mitts_cas", "build", wt01_tuple)
     has_o_files = False
-    for rlib in (wt_base / "wt-01" / "target" / "debug" / "deps").glob("*.rlib"):
+    rlib_candidates = list((wt_base / "wt-01" / "target" / "mitts" / "debug" / "deps").glob("*.rlib")) + list((wt_base / "wt-01" / "target" / "debug" / "deps").glob("*.rlib"))
+    for rlib in rlib_candidates:
         try:
             ar_out = subprocess.check_output(["ar", "t", str(rlib)], text=True)
             if any(line.endswith(".o") for line in ar_out.splitlines()):

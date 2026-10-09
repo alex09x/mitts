@@ -60,6 +60,10 @@ impl FastBuildLock {
         if lock.toolchain_version != args.toolchain_version {
             return FreshnessResult::Stale("Toolchain version changed".to_string());
         }
+        let cur_rustflags = std::env::var("RUSTFLAGS").ok();
+        if lock.rustflags != cur_rustflags {
+            return FreshnessResult::Stale("RUSTFLAGS changed".to_string());
+        }
 
         // Check Cargo.lock
         if let Some(ref lock_snap) = lock.cargo_lock {
@@ -237,6 +241,7 @@ impl FastBuildLock {
             no_default_features: args.no_default_features,
             all_features: args.all_features,
             toolchain_version: args.toolchain_version.to_string(),
+            rustflags: std::env::var("RUSTFLAGS").ok(),
             created_at_secs: now,
             action_count: args.action_count,
             root_binary: args.root_binary.clone(),

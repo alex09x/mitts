@@ -63,6 +63,7 @@ fn test_m8_build_lock_profile_package_feature_toolchain_mismatch() {
         no_default_features: false,
         all_features: false,
         toolchain_version: "rustc 1.80.0".to_string(),
+        rustflags: None,
         created_at_secs: 1000,
         cargo_lock: None,
         manifests: vec![],

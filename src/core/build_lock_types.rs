@@ -29,6 +29,8 @@ pub struct FastBuildLock {
     pub no_default_features: bool,
     pub all_features: bool,
     pub toolchain_version: String,
+    #[serde(default)]
+    pub rustflags: Option<String>,
     pub created_at_secs: u64,
     pub action_count: usize,
     pub root_binary: Option<PathBuf>,
