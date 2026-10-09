@@ -138,6 +138,8 @@ pub struct TomlWorkspace {
     #[serde(default)]
     pub exclude: Vec<String>,
     pub package: Option<HashMap<String, toml::Value>>,
+    #[serde(default)]
+    pub dependencies: HashMap<String, TomlDependency>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
