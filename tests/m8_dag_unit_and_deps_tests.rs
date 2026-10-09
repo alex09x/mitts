@@ -24,6 +24,7 @@ fn make_unit(pkg: &str, target: &str, kind: &str, deps: Vec<String>) -> PlannedC
         manifest_path: PathBuf::from("Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: vec![],
         dependencies: deps,
         edition: Some("2021".to_string()),

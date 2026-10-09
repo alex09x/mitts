@@ -66,7 +66,10 @@ pub(crate) fn collect_project_files(
         if meta.is_dir() {
             collect_project_files(root_dir, &path, manifests, sources, directories)?;
         } else if meta.is_file() {
-            if fname_str == "Cargo.toml" || fname_str == "clippy.toml" || fname_str == ".clippy.toml" {
+            if fname_str == "Cargo.toml"
+                || fname_str == "clippy.toml"
+                || fname_str == ".clippy.toml"
+            {
                 let (s, n) = mtime_parts(&meta);
                 let hash = fs::read(&path).ok().map(|b| Sha256::digest(&b));
                 let rel = path.strip_prefix(root_dir).unwrap_or(&path).to_path_buf();

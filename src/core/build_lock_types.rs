@@ -43,6 +43,8 @@ pub struct FastBuildLock {
     pub directories: Vec<FileSnapshot>,
     #[serde(default)]
     pub cargo_configs: Vec<FileSnapshot>,
+    #[serde(default)]
+    pub clippy_configs: Vec<FileSnapshot>,
     pub outputs: Vec<FileSnapshot>,
     #[serde(default)]
     pub stderr: Option<String>,

@@ -132,6 +132,7 @@ fn test_m8_compiler_invocation_non_semver_and_options() {
         manifest_path: temp.path().join("Cargo.toml"),
         cache_eligibility: "Uncached".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),

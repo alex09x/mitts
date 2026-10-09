@@ -129,7 +129,8 @@ fn test_member_config_yields_distinct_action_keys_from_root_vs_member() {
         ..Default::default()
     };
     let plan_root = RustAdapter::explain_plan(&opt_root).expect("Plan from root failed");
-    let keys_from_root = derive_unit_action_keys(&opt_root, &plan_root).expect("Keys from root failed");
+    let keys_from_root =
+        derive_unit_action_keys(&opt_root, &plan_root).expect("Keys from root failed");
 
     let member_unit = plan_root
         .units

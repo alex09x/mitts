@@ -44,24 +44,25 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     let mut path_dependencies: HashMap<String, (PathBuf, CargoToml)> = HashMap::new();
-    let mut scan_deps = |base_dir: &Path, deps: &HashMap<String, super::manifest::TomlDependency>| {
-        for (dep_name, dep_val) in deps {
-            if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
-                if let Some(ref rel_p) = d.path {
-                    let dep_dir = base_dir.join(rel_p);
-                    let dep_manifest = dep_dir.join("Cargo.toml");
-                    if let Ok(dep_toml) = CargoToml::from_file(&dep_manifest) {
-                        let name = dep_toml
-                            .package
-                            .as_ref()
-                            .map(|p| p.name.clone())
-                            .unwrap_or_else(|| dep_name.clone());
-                        path_dependencies.insert(name, (dep_dir, dep_toml));
+    let mut scan_deps =
+        |base_dir: &Path, deps: &HashMap<String, super::manifest::TomlDependency>| {
+            for (dep_name, dep_val) in deps {
+                if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
+                    if let Some(ref rel_p) = d.path {
+                        let dep_dir = base_dir.join(rel_p);
+                        let dep_manifest = dep_dir.join("Cargo.toml");
+                        if let Ok(dep_toml) = CargoToml::from_file(&dep_manifest) {
+                            let name = dep_toml
+                                .package
+                                .as_ref()
+                                .map(|p| p.name.clone())
+                                .unwrap_or_else(|| dep_name.clone());
+                            path_dependencies.insert(name, (dep_dir, dep_toml));
+                        }
                     }
                 }
             }
-        }
-    };
+        };
 
     if let Some(ref ws) = root_toml.workspace {
         scan_deps(project_dir, &ws.dependencies);
@@ -74,7 +75,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     if root_toml.workspace.is_some() {
-        let canon_proj = project_dir.canonicalize().unwrap_or_else(|_| project_dir.to_path_buf());
+        let canon_proj = project_dir
+            .canonicalize()
+            .unwrap_or_else(|_| project_dir.to_path_buf());
         for (name, (path, toml)) in &path_dependencies {
             let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
             if canon_path.starts_with(&canon_proj) {
@@ -288,6 +291,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                 manifest_path: pkg_dir.join("Cargo.toml"),
                 cache_eligibility: eligibility,
                 is_workspace: *is_workspace,
+                is_primary: false,
                 env_vars: env_vars.clone(),
                 dependencies: Vec::new(), // Populated in Pass 2
                 edition: target
@@ -356,7 +360,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
 
     for u in &mut units {
         let prim = is_primary_pkg(&u.package_name);
-        u.env_vars.push(format!("CARGO_PRIMARY_PACKAGE={}", if prim { "1" } else { "0" }));
+        u.is_primary = prim;
     }
 
     let mut root_unit_ids = Vec::new();

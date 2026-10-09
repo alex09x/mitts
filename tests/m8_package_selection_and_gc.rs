@@ -181,6 +181,7 @@ fn test_m8_package_selection_target_cfg_filtering_and_pruning() {
         manifest_path: PathBuf::from("Cargo.toml"),
         cache_eligibility: "test".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: deps
             .into_iter()

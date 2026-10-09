@@ -222,18 +222,26 @@ mod tests {
 rustflags = "-C opt-level=3 --cfg custom_mark"
 "#;
         let val: toml::Value = toml::from_str(content_str).unwrap();
-        let extracted = extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
-            .unwrap();
-        assert_eq!(extracted.build.unwrap(), vec!["-C", "opt-level=3", "--cfg", "custom_mark"]);
+        let extracted =
+            extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
+                .unwrap();
+        assert_eq!(
+            extracted.build.unwrap(),
+            vec!["-C", "opt-level=3", "--cfg", "custom_mark"]
+        );
 
         let content_arr = r#"
 [build]
 rustflags = ["-C", "opt-level=2", "--cfg", "mark_array"]
 "#;
         let val2: toml::Value = toml::from_str(content_arr).unwrap();
-        let extracted2 = extract_rustflags_from_toml(&val2, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
-            .unwrap();
-        assert_eq!(extracted2.build.unwrap(), vec!["-C", "opt-level=2", "--cfg", "mark_array"]);
+        let extracted2 =
+            extract_rustflags_from_toml(&val2, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
+                .unwrap();
+        assert_eq!(
+            extracted2.build.unwrap(),
+            vec!["-C", "opt-level=2", "--cfg", "mark_array"]
+        );
     }
 
     #[test]
@@ -246,8 +254,9 @@ rustflags = ["--cfg", "build_flag"]
 rustflags = ["--cfg", "linux_flag"]
 "#;
         let val: toml::Value = toml::from_str(content).unwrap();
-        let extracted = extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
-            .unwrap();
+        let extracted =
+            extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
+                .unwrap();
         assert_eq!(extracted.target.unwrap(), vec!["--cfg", "linux_flag"]);
         assert_eq!(extracted.build.unwrap(), vec!["--cfg", "build_flag"]);
     }
@@ -259,9 +268,13 @@ rustflags = ["--cfg", "linux_flag"]
 rustflags = ["--cfg", "linux_cfg"]
 "#;
         let val: toml::Value = toml::from_str(content).unwrap();
-        let res = extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("custom.toml"));
+        let res =
+            extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("custom.toml"));
         assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("target.'cfg(...)' rustflags is not yet supported"));
+        assert!(res
+            .unwrap_err()
+            .to_string()
+            .contains("target.'cfg(...)' rustflags is not yet supported"));
     }
 
     static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

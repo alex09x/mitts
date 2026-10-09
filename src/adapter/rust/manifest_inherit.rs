@@ -78,7 +78,11 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
     let merge_dep_map = |deps: &mut HashMap<String, TomlDependency>| {
         for (key, dep) in deps.iter_mut() {
             let norm = key.replace('-', "_");
-            if let Some(ws_dep) = ws.dependencies.get(key).or_else(|| ws.dependencies.get(&norm)) {
+            if let Some(ws_dep) = ws
+                .dependencies
+                .get(key)
+                .or_else(|| ws.dependencies.get(&norm))
+            {
                 match (dep, ws_dep) {
                     (TomlDependency::Detailed(ref mut d), TomlDependency::Detailed(ref ws_d)) => {
                         if d.version.is_none() {

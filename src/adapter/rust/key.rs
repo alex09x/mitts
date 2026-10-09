@@ -128,19 +128,22 @@ pub fn derive_unit_action_key_context(
     let target_triple = resolve_effective_target_triple(opt, &explanation.toolchain);
     let explicit_target = resolve_explicit_target(opt);
     let proj_dir = explanation.manifest_path.parent().unwrap_or(Path::new("."));
-    let config_start_dir = super::cargo_config::resolve_config_start_dir_with_opt(
-        proj_dir,
-        opt.start_dir.as_deref(),
-    );
+    let config_start_dir =
+        super::cargo_config::resolve_config_start_dir_with_opt(proj_dir, opt.start_dir.as_deref());
     let effective_target_rustflags = if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
-        encoded.split('\x1f').filter(|f| !f.is_empty()).map(|s| s.to_string()).collect()
+        encoded
+            .split('\x1f')
+            .filter(|f| !f.is_empty())
+            .map(|s| s.to_string())
+            .collect()
     } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
         flags.split_whitespace().map(|s| s.to_string()).collect()
     } else {
         super::cargo_config::load_cargo_config_rustflags(
             &config_start_dir,
             explicit_target.as_deref(),
-        ).unwrap_or_default()
+        )
+        .unwrap_or_default()
     };
 
     // 1. Gather all unique package directories and their workspace status

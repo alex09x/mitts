@@ -55,6 +55,7 @@ fn test_m8_compiler_proc_macro_and_check_modes() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 
@@ -116,6 +117,7 @@ fn test_m8_compiler_workspace_check_mode_and_nonsemver() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: None,
     };
 
@@ -164,6 +166,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: false,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 

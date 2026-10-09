@@ -24,6 +24,7 @@ fn make_unit_for_build_script(pkg_dir: &std::path::Path) -> PlannedCompilationUn
         manifest_path: pkg_dir.join("Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: vec![],
         dependencies: vec![],
         edition: Some("2021".to_string()),

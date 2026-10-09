@@ -42,8 +42,16 @@ pub(crate) fn execute_unit(
     let mut staging_dir_holder: Option<PathBuf> = None;
 
     if has_build {
-        let tid: String = format!("{:?}", thread::current().id()).chars().filter(|c| c.is_alphanumeric()).collect();
-        let staging_dir = ctx.cas.root().join("tmp").join(format!("stage_{}_{}_{}", clean_crate, std::process::id(), tid));
+        let tid: String = format!("{:?}", thread::current().id())
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+        let staging_dir = ctx.cas.root().join("tmp").join(format!(
+            "stage_{}_{}_{}",
+            clean_crate,
+            std::process::id(),
+            tid
+        ));
         fs::create_dir_all(&staging_dir)?;
 
         let extern_crates = super::dag_unit_externs::resolve_extern_crates(
@@ -287,8 +295,12 @@ pub(crate) fn execute_unit(
                 None
             };
             let early_rk = super::dag_unit_publish::resolve_unit_result_key(
-                unit, &effective_action_key, &staging_dir, ws_root.as_deref(),
-                build_purity_opt.as_ref(), directives.out_dir.as_deref(),
+                unit,
+                &effective_action_key,
+                &staging_dir,
+                ws_root.as_deref(),
+                build_purity_opt.as_ref(),
+                directives.out_dir.as_deref(),
             );
             if let (Some(rk), Some(rk_map)) = (early_rk, ctx.resolved_keys) {
                 rk_map.lock().unwrap().insert(unit.unit_id(), rk);
@@ -296,9 +308,15 @@ pub(crate) fn execute_unit(
 
             if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {
                 if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
-                    &unit.target_name, &meta_hash, &effective_action_key, "rmeta",
+                    &unit.target_name,
+                    &meta_hash,
+                    &effective_action_key,
+                    "rmeta",
                 ) {
-                    ctx.completed_artifacts.lock().unwrap().insert(unit.unit_id(), named.clone());
+                    ctx.completed_artifacts
+                        .lock()
+                        .unwrap()
+                        .insert(unit.unit_id(), named.clone());
                     cb(&unit.unit_id(), &named);
                 }
                 if !ctx.opt.native || unit.is_workspace {

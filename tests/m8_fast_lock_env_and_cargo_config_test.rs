@@ -54,7 +54,7 @@ impl Drop for EnvGuard {
 
 #[test]
 fn test_fast_lock_env_hash_invalidation() {
-    let _lock = SERIAL_TEST_LOCK.lock().unwrap();
+    let _lock = SERIAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let proj_dir = temp.path();
 
@@ -202,16 +202,10 @@ rustflags = ["--cfg", "host_specific_flag"]
     .unwrap();
 
     // 1. Target triple matching other_triple (string syntax)
-    let flags_other =
-        load_cargo_config_rustflags(&pkg_dir, Some(other_triple)).unwrap();
+    let flags_other = load_cargo_config_rustflags(&pkg_dir, Some(other_triple)).unwrap();
     assert_eq!(
         flags_other,
-        vec![
-            "-C",
-            "target-cpu=native",
-            "--cfg",
-            "other_specific_flag"
-        ]
+        vec!["-C", "target-cpu=native", "--cfg", "other_specific_flag"]
     );
 
     // 2. Unknown target triple falls back to [build].rustflags
@@ -285,7 +279,10 @@ rustflags = ["--cfg", "linux_only"]
     .unwrap();
 
     let res = load_cargo_config_rustflags(&pkg_dir, None);
-    assert!(res.is_err(), "Expected fail-closed error for target.'cfg(...)'");
+    assert!(
+        res.is_err(),
+        "Expected fail-closed error for target.'cfg(...)'"
+    );
     let err_msg = res.unwrap_err().to_string();
     assert!(
         err_msg.contains("target.'cfg(...)' rustflags is not yet supported"),
@@ -296,9 +293,10 @@ rustflags = ["--cfg", "linux_only"]
 
 #[test]
 fn test_compiler_end_to_end_cargo_config_integration() {
-    let _lock = SERIAL_TEST_LOCK.lock().unwrap();
+    let _lock = SERIAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let root = temp.path();
+    let _guard = EnvGuard::new(&root.join("empty_cargo_home"));
 
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join(".cargo")).unwrap();
@@ -335,10 +333,6 @@ rustflags = ["--cfg", "custom_config_active"]
     )
     .unwrap();
 
-    // Clean any env overrides
-    std::env::remove_var("CARGO_ENCODED_RUSTFLAGS");
-    std::env::remove_var("RUSTFLAGS");
-
     let opt = RustBuildOptions {
         manifest_path: Some(root.join("Cargo.toml")),
         mode: BuildMode::Check,
@@ -362,9 +356,10 @@ rustflags = ["--cfg", "custom_config_active"]
 
 #[test]
 fn test_fast_lock_cargo_config_invalidation() {
-    let _lock = SERIAL_TEST_LOCK.lock().unwrap();
+    let _lock = SERIAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let root = temp.path();
+    let _guard = EnvGuard::new(&root.join("empty_cargo_home"));
 
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join(".cargo")).unwrap();

@@ -2,6 +2,7 @@
 import concurrent.futures
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -385,7 +386,7 @@ def main():
     if "metadata" not in full_report:
         full_report["metadata"] = {
             "timestamp": int(time.time()),
-            "host": "benchmark host (AMD Ryzen 9 9950X Zen 5, 32 threads, 192 GB DDR5 RAM, Ubuntu 24.04)",
+            "host": f"{platform.node()} ({platform.machine()}, {platform.system()})",
             "mitts_version": "0.1.0-release",
             "worktrees_count": 30,
             "engines": ["cargo", "cargo_sccache", "mitts"]

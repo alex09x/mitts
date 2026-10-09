@@ -280,15 +280,7 @@ pub fn execute_build_script(
     }
 
     let mut run_cmd = super::build_script_env::configure_build_script_run_cmd(
-        &bin_path,
-        pkg_dir,
-        unit,
-        &pkg_toml,
-        &out_dir,
-        &target,
-        release,
-        features,
-        extra_env,
+        &bin_path, pkg_dir, unit, &pkg_toml, &out_dir, &target, release, features, extra_env,
     );
 
     let run_status = run_cmd.output().context("Failed to execute build.rs")?;

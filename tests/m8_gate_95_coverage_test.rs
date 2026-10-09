@@ -185,6 +185,7 @@ fn test_m8_compiler_test_no_dest_and_non_semver() {
         cache_eligibility: "eligible".to_string(),
         edition: Some("2021".to_string()),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         features: Vec::new(),

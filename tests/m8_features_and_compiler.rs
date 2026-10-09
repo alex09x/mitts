@@ -145,6 +145,7 @@ fn test_m8_compiler_invocation_execution() {
         src_path: src_file,
         edition: Some("2021".to_string()),
         is_workspace: true,
+        is_primary: false,
         manifest_path: temp_dir.path().join("Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         env_vars: Vec::new(),

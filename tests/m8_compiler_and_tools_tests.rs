@@ -85,6 +85,7 @@ fn test_m8_compiler_invocation_modes_and_args() {
         manifest_path: temp_dir.path().join("Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: vec![],
         dependencies: vec![],
         edition: Some("2021".to_string()),
@@ -151,6 +152,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         manifest_path: temp_dir.path().join("Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         is_workspace: false, // Non-workspace crate -> cap-lints allow
+        is_primary: false,
         env_vars: vec![],
         dependencies: vec![],
         edition: Some("2021".to_string()),

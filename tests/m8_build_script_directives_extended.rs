@@ -74,6 +74,7 @@ fn test_m8_build_script_custom_path_and_disabled() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 
@@ -141,6 +142,7 @@ fn test_m8_build_script_nested_build_dir_fallback() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 

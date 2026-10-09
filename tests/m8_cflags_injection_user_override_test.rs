@@ -30,6 +30,7 @@ fn make_unit(pkg_dir: &Path) -> PlannedCompilationUnit {
         manifest_path: pkg_dir.join("Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: vec![],
         dependencies: vec![],
         edition: Some("2021".to_string()),
@@ -233,15 +234,7 @@ fn main() {
     let mut extra_env = HashMap::new();
     extra_env.insert("CFLAGS".to_string(), "-DMITTS_MARK=1".to_string());
 
-    let res = execute_build_script(
-        &unit,
-        &staging_dir,
-        false,
-        &[],
-        None,
-        &[],
-        Some(&extra_env),
-    );
+    let res = execute_build_script(&unit, &staging_dir, false, &[], None, &[], Some(&extra_env));
 
     assert!(
         res.is_ok(),

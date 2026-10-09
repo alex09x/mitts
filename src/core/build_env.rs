@@ -61,9 +61,13 @@ pub fn compute_effective_env_hash() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_collect_relevant_env_vars_filtering() {
+        let _lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("CARGO_PKG_NAME", "test-pkg");
         std::env::set_var("RUSTFLAGS", "--cfg foo");
         std::env::set_var("MAKEFLAGS", "ignore_me");
@@ -78,6 +82,7 @@ mod tests {
 
     #[test]
     fn test_compute_effective_env_hash_deterministic() {
+        let _lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let h1 = compute_effective_env_hash();
         let h2 = compute_effective_env_hash();
         assert_eq!(h1, h2);

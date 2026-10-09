@@ -94,9 +94,8 @@ pub fn receives_target_rustflags(
     explicit_target: Option<&str>,
 ) -> bool {
     if explicit_target.is_some() {
-        let is_host_kind = unit.kind == "proc-macro"
-            || unit.kind == "custom-build"
-            || unit.kind == "build-script";
+        let is_host_kind =
+            unit.kind == "proc-macro" || unit.kind == "custom-build" || unit.kind == "build-script";
         !is_host_kind
     } else {
         true
@@ -196,9 +195,10 @@ pub fn compute_unit_flags_with_ws(
     if unit.kind == "bin" {
         u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
     }
-    let is_primary = unit.env_vars.iter().any(|v| v == "CARGO_PRIMARY_PACKAGE=1" || v == "CARGO_PRIMARY_PACKAGE")
-        || (unit.is_workspace && !unit.env_vars.iter().any(|v| v == "CARGO_PRIMARY_PACKAGE=0"));
-    u_flags.push(format!("CARGO_PRIMARY_PACKAGE={}", if is_primary { "1" } else { "0" }));
+    u_flags.push(format!(
+        "CARGO_PRIMARY_PACKAGE={}",
+        if unit.is_primary { "1" } else { "0" }
+    ));
 
     let pkg_toml = super::manifest::CargoToml::from_file(&unit.manifest_path).ok();
     let pkg_package = pkg_toml.as_ref().and_then(|t| t.package.as_ref());

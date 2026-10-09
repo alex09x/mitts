@@ -78,7 +78,8 @@ pub fn resolve_extern_crates(
                 artifact_path.clone()
             };
 
-            let self_crate_name = if unit.kind == "test" && unit.target_name.ends_with("_unit_test") {
+            let self_crate_name = if unit.kind == "test" && unit.target_name.ends_with("_unit_test")
+            {
                 unit.package_name.replace('-', "_")
             } else {
                 unit.target_name.replace('-', "_")
@@ -89,7 +90,10 @@ pub fn resolve_extern_crates(
                 if clean == self_crate_name {
                     return;
                 }
-                if !extern_crates.iter().any(|(n, _): &(String, PathBuf)| n == &clean) {
+                if !extern_crates
+                    .iter()
+                    .any(|(n, _): &(String, PathBuf)| n == &clean)
+                {
                     extern_crates.push((clean, path.clone()));
                 }
             };

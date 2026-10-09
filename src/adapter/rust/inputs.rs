@@ -22,6 +22,30 @@ use std::path::{Path, PathBuf};
 /// - Tracked dep-info (.d) files from rustc (including include_bytes! / include_str!)
 ///
 /// Returns error on any read/hash failure to prevent publishing invalid cache keys.
+/// Discovers applicable clippy.toml or .clippy.toml starting from start_dir or $CLIPPY_CONF_DIR.
+pub fn discover_clippy_config(start_dir: &Path) -> Option<PathBuf> {
+    if let Ok(conf_dir) = std::env::var("CLIPPY_CONF_DIR") {
+        let p = Path::new(&conf_dir);
+        for name in &["clippy.toml", ".clippy.toml"] {
+            let candidate = p.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    let mut cur = Some(start_dir);
+    while let Some(dir) = cur {
+        for name in &["clippy.toml", ".clippy.toml"] {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        cur = dir.parent();
+    }
+    None
+}
+
 pub fn hash_package_base_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
@@ -130,7 +154,6 @@ pub fn hash_package_base_inputs(
             }
             lock_candidate = dir.parent();
         }
-
     }
 
     // 3. Applicable .cargo/config.toml or .cargo/config files
@@ -143,8 +166,8 @@ pub fn hash_package_base_inputs(
     let config_start_dir = super::cargo_config::resolve_config_start_dir(base_dir);
     let config_files = super::cargo_config::discover_cargo_config_files(&config_start_dir);
     for cfg_p in config_files {
-        let hash = Sha256::digest_file(&cfg_p)
-            .with_context(|| format!("Failed to hash {:?}", cfg_p))?;
+        let hash =
+            Sha256::digest_file(&cfg_p).with_context(|| format!("Failed to hash {:?}", cfg_p))?;
         let label = if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w.join(".cargo"))) {
             format!("workspace:{}", cfg_p.strip_prefix(ws).unwrap().display())
         } else if let Ok(rel) = cfg_p.strip_prefix(package_dir) {
@@ -161,49 +184,31 @@ pub fn hash_package_base_inputs(
             if let Ok(rel) = cfg_p.strip_prefix(&cargo_home) {
                 format!("CARGO_HOME/{}", rel.display())
             } else {
-                cfg_p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "config.toml".to_string())
+                cfg_p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "config.toml".to_string())
             }
         } else if let Ok(home) = std::env::var("HOME") {
             if let Ok(rel) = cfg_p.strip_prefix(Path::new(&home).join(".cargo")) {
                 format!("~/.cargo/{}", rel.display())
             } else {
-                cfg_p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "config.toml".to_string())
+                cfg_p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "config.toml".to_string())
             }
         } else {
-            cfg_p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "config.toml".to_string())
+            cfg_p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "config.toml".to_string())
         };
         inputs.push((label, hash));
     }
 
     // 4. Applicable clippy.toml or .clippy.toml files
-    let mut clippy_file = None;
-    if let Ok(conf_dir) = std::env::var("CLIPPY_CONF_DIR") {
-        let p = Path::new(&conf_dir);
-        for name in &["clippy.toml", ".clippy.toml"] {
-            let candidate = p.join(name);
-            if candidate.is_file() {
-                clippy_file = Some(candidate);
-                break;
-            }
-        }
-    }
-    if clippy_file.is_none() {
-        let mut cur = Some(package_dir);
-        while let Some(dir) = cur {
-            for name in &["clippy.toml", ".clippy.toml"] {
-                let candidate = dir.join(name);
-                if candidate.is_file() {
-                    clippy_file = Some(candidate);
-                    break;
-                }
-            }
-            if clippy_file.is_some() {
-                break;
-            }
-            cur = dir.parent();
-        }
-    }
-    if let Some(cp) = clippy_file {
+    if let Some(cp) = discover_clippy_config(package_dir) {
         let hash = Sha256::digest_file(&cp)
             .with_context(|| format!("Failed to hash clippy config {:?}", cp))?;
         let label = if let Ok(rel) = cp.strip_prefix(package_dir) {

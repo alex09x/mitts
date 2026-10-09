@@ -186,6 +186,7 @@ fn test_m8_key_target_triple_and_pkg_dir() {
         manifest_path: manifest.clone(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: vec![],
         dependencies: vec![],
         edition: Some("2021".to_string()),

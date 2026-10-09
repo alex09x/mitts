@@ -10,8 +10,7 @@
 
 use mitts::adapter::rust::manifest::CargoToml;
 use mitts::adapter::rust::manifest_inherit::{
-    extract_check_cfg_from_lints, extract_lint_flags_from_lints,
-    resolve_inherited_workspace_fields,
+    extract_check_cfg_from_lints, extract_lint_flags_from_lints, resolve_inherited_workspace_fields,
 };
 use std::fs;
 use tempfile::tempdir;
@@ -52,7 +51,10 @@ workspace = true
     let mut member_toml = CargoToml::from_file(&member_manifest_path).unwrap();
     resolve_inherited_workspace_fields(&mut member_toml, &member_manifest_path);
 
-    assert!(member_toml.lints.is_some(), "lints should be inherited from workspace");
+    assert!(
+        member_toml.lints.is_some(),
+        "lints should be inherited from workspace"
+    );
     let lints_val = member_toml.lints.as_ref().unwrap();
 
     let check_cfgs = extract_check_cfg_from_lints(lints_val);
@@ -153,10 +155,17 @@ tempfile = { version = "3.8", features = ["nitro"] }
     let target_spec = toml.target.get("cfg(all())").expect("cfg(all()) found");
     assert!(target_spec.dev_dependencies.contains_key("tempfile"));
 
-    let is_dep_in_test = mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", true);
-    assert!(is_dep_in_test, "target dev-dependency must be recognized in test mode");
+    let is_dep_in_test =
+        mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", true);
+    assert!(
+        is_dep_in_test,
+        "target dev-dependency must be recognized in test mode"
+    );
 
-    let is_dep_in_build = mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", false);
-    assert!(!is_dep_in_build, "target dev-dependency must not be recognized in non-test mode");
+    let is_dep_in_build =
+        mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", false);
+    assert!(
+        !is_dep_in_build,
+        "target dev-dependency must not be recognized in non-test mode"
+    );
 }
-

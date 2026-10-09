@@ -67,6 +67,7 @@ fn make_dummy_unit(name: &str, kind: &str) -> PlannedCompilationUnit {
         manifest_path: PathBuf::from("Cargo.toml"),
         cache_eligibility: "Cached".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
@@ -159,11 +160,7 @@ path = "src/lib.rs"
 "#,
     )
     .unwrap();
-    fs::write(
-        pm_dir.join("src/lib.rs"),
-        "// proc macro dummy\n",
-    )
-    .unwrap();
+    fs::write(pm_dir.join("src/lib.rs"), "// proc macro dummy\n").unwrap();
 
     let cargo_dir = root.join(".cargo");
     fs::create_dir_all(&cargo_dir).unwrap();
@@ -221,7 +218,10 @@ rustflags = ["--cfg", "native_flag_v1"]
         deps_dir: None,
     };
     let (cmd_pm_nat, _, _) = build_compiler_command(&inv_pm_nat).unwrap();
-    let args_pm_nat: Vec<String> = cmd_pm_nat.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+    let args_pm_nat: Vec<String> = cmd_pm_nat
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
     assert!(
         args_pm_nat.contains(&"native_flag_v1".to_string()),
         "Native proc-macro must receive config rustflags in rustc command: {:?}",
@@ -330,7 +330,10 @@ rustflags = ["--cfg", "target_flag_v1"]
         deps_dir: None,
     };
     let (cmd_pm_cross_v1, _, _) = build_compiler_command(&inv_pm_cross_v1).unwrap();
-    let args_pm_cross_v1: Vec<String> = cmd_pm_cross_v1.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+    let args_pm_cross_v1: Vec<String> = cmd_pm_cross_v1
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
     assert!(
         !args_pm_cross_v1.contains(&"target_flag_v1".to_string()),
         "With explicit --target, host proc-macro command must NOT contain target config rustflags: {:?}",
@@ -353,7 +356,10 @@ rustflags = ["--cfg", "target_flag_v1"]
         deps_dir: None,
     };
     let (cmd_lib_cross_v1, _, _) = build_compiler_command(&inv_lib_cross_v1).unwrap();
-    let args_lib_cross_v1: Vec<String> = cmd_lib_cross_v1.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+    let args_lib_cross_v1: Vec<String> = cmd_lib_cross_v1
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
     assert!(
         args_lib_cross_v1.contains(&"target_flag_v1".to_string()),
         "With explicit --target, target lib command MUST contain target config rustflags: {:?}",
@@ -461,7 +467,10 @@ rustflags = ["--cfg", "target_flag_v2"]
         deps_dir: None,
     };
     let (cmd_pm_cross_v2, _, _) = build_compiler_command(&inv_pm_cross_v2).unwrap();
-    let args_pm_cross_v2: Vec<String> = cmd_pm_cross_v2.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+    let args_pm_cross_v2: Vec<String> = cmd_pm_cross_v2
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
     assert!(
         !args_pm_cross_v2.contains(&"target_flag_v2".to_string()),
         "With explicit --target, host proc-macro command must NOT contain v2 target config rustflags"
@@ -482,7 +491,10 @@ rustflags = ["--cfg", "target_flag_v2"]
         deps_dir: None,
     };
     let (cmd_lib_cross_v2, _, _) = build_compiler_command(&inv_lib_cross_v2).unwrap();
-    let args_lib_cross_v2: Vec<String> = cmd_lib_cross_v2.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+    let args_lib_cross_v2: Vec<String> = cmd_lib_cross_v2
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
     assert!(
         args_lib_cross_v2.contains(&"target_flag_v2".to_string()),
         "With explicit --target, target lib command MUST contain v2 target config rustflags"

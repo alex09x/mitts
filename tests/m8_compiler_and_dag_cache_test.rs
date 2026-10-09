@@ -46,6 +46,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         manifest_path: root.join("Cargo.toml"),
         cache_eligibility: "Immutable".into(),
         is_workspace: false,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".into()),
@@ -92,6 +93,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         manifest_path: root.join("Cargo.toml"),
         cache_eligibility: "Workspace".into(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".into()),
@@ -114,7 +116,11 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
     };
 
     let test_res = test_invocation.execute();
-    assert!(test_res.is_ok(), "test_res err: {:?}", test_res.as_ref().err());
+    assert!(
+        test_res.is_ok(),
+        "test_res err: {:?}",
+        test_res.as_ref().err()
+    );
     let out = test_res.unwrap();
     assert!(out.success, "test out stderr: {}", out.stderr);
 }

@@ -185,6 +185,7 @@ description = "Demo package for MSRV check"
         manifest_path: root.join("Cargo.toml"),
         cache_eligibility: "Eligible".to_string(),
         is_workspace: true,
+        is_primary: true,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
@@ -203,6 +204,7 @@ description = "Demo package for MSRV check"
 
     let unit_non_ws = PlannedCompilationUnit {
         is_workspace: false,
+        is_primary: false,
         ..unit_ws
     };
     let env_non_ws = compute_unit_rustc_env(&unit_non_ws, None, None);
@@ -242,7 +244,10 @@ rust-version.workspace = true
 
     let parsed = CargoToml::from_file(&member_dir.join("Cargo.toml")).unwrap();
     assert_eq!(
-        parsed.package.as_ref().and_then(|p| p.rust_version.as_deref()),
+        parsed
+            .package
+            .as_ref()
+            .and_then(|p| p.rust_version.as_deref()),
         Some("1.75")
     );
 }

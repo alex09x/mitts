@@ -32,13 +32,13 @@ if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
     os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
 
 CANDIDATE_MITTS = [
-    Path("/home/user/mitts/target/release/mitts"),
+    Path(os.environ["MITTS_BIN"]) if "MITTS_BIN" in os.environ else None,
     Path.home() / "mitts/target/release/mitts",
-    Path("/home/user/mitts/target/release/mitts")
 ]
-MITTS_BIN = next((p for p in CANDIDATE_MITTS if p.exists()), CANDIDATE_MITTS[0])
+VALID_CANDIDATE_MITTS = [p for p in CANDIDATE_MITTS if p is not None]
+MITTS_BIN = next((p for p in VALID_CANDIDATE_MITTS if p.exists()), VALID_CANDIDATE_MITTS[0] if VALID_CANDIDATE_MITTS else Path("mitts"))
 SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
-BENCH_ROOT = Path("/home/user/mitts-benchmarks")
+BENCH_ROOT = Path(os.environ.get("BENCH_ROOT") or (Path.home() / "mitts-benchmarks"))
 PROJECTS_DIR = BENCH_ROOT / "projects"
 SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
 

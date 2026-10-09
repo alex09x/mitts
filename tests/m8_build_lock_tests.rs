@@ -71,6 +71,7 @@ fn test_m8_build_lock_profile_package_feature_toolchain_mismatch() {
         sources: vec![],
         directories: vec![],
         cargo_configs: vec![],
+        clippy_configs: vec![],
         outputs: vec![],
         stderr: None,
         action_count: 5,

@@ -76,6 +76,7 @@ fn test_m8_compute_unit_flags_comprehensive_env_macros() {
         ],
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 
@@ -140,6 +141,7 @@ fn test_m8_derive_unit_action_keys_cycle_fallback() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 
@@ -156,6 +158,7 @@ fn test_m8_derive_unit_action_keys_cycle_fallback() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 

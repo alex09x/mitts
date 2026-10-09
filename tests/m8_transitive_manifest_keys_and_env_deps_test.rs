@@ -236,6 +236,7 @@ fn test_m8_fail_closed_unhashable_tracked_input() {
         manifest_path: ws_dir.path().join("crates/mock/Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: None,

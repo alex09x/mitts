@@ -90,9 +90,7 @@ pub fn compute_unit_rustc_env(
         env.insert("CARGO_PKG_RUST_VERSION".to_string(), String::new());
     }
 
-    let is_primary = unit.env_vars.iter().any(|v| v == "CARGO_PRIMARY_PACKAGE=1" || v == "CARGO_PRIMARY_PACKAGE")
-        || (unit.is_workspace && !unit.env_vars.iter().any(|v| v == "CARGO_PRIMARY_PACKAGE=0"));
-    if is_primary {
+    if unit.is_primary {
         env.insert("CARGO_PRIMARY_PACKAGE".to_string(), "1".to_string());
     }
 

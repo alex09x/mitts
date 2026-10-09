@@ -70,6 +70,7 @@ edition = "2021"
         manifest_path: manifest_path.clone(),
         cache_eligibility: "Eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),

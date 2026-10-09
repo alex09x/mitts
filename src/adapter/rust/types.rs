@@ -39,7 +39,7 @@ pub enum RustAdapterError {
     CargoFailed(i32),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlannedCompilationUnit {
     #[serde(default)]
     pub package_id: String,
@@ -53,6 +53,8 @@ pub struct PlannedCompilationUnit {
     pub cache_eligibility: String,
     #[serde(default)]
     pub is_workspace: bool,
+    #[serde(default)]
+    pub is_primary: bool,
     #[serde(default)]
     pub env_vars: Vec<String>,
     #[serde(default)]

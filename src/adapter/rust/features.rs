@@ -240,7 +240,9 @@ fn collect_all_manifest_dependencies<'a>(
 }
 
 fn find_manifest_dependency<'a>(toml: &'a CargoToml, name: &str) -> Option<&'a TomlDependency> {
-    collect_all_manifest_dependencies(toml, name).into_iter().next()
+    collect_all_manifest_dependencies(toml, name)
+        .into_iter()
+        .next()
 }
 
 fn activate_dep_target(

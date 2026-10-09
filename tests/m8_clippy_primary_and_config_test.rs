@@ -85,14 +85,30 @@ version = "0.1.0"
         ..Default::default()
     };
     let plan_app = RustAdapter::explain_plan(&opt_app).unwrap();
-    let app_unit = plan_app.units.iter().find(|u| u.package_name == "app").unwrap();
-    let core_dep_unit = plan_app.units.iter().find(|u| u.package_name == "core").unwrap();
+    let app_unit = plan_app
+        .units
+        .iter()
+        .find(|u| u.package_name == "app")
+        .unwrap();
+    let core_dep_unit = plan_app
+        .units
+        .iter()
+        .find(|u| u.package_name == "core")
+        .unwrap();
 
     let app_env = compute_unit_rustc_env(app_unit, None, None);
-    assert_eq!(app_env.get("CARGO_PRIMARY_PACKAGE").map(String::as_str), Some("1"));
+    assert_eq!(
+        app_env.get("CARGO_PRIMARY_PACKAGE").map(String::as_str),
+        Some("1")
+    );
+    assert!(app_unit.is_primary, "App unit must be primary");
 
     let core_dep_env = compute_unit_rustc_env(core_dep_unit, None, None);
     assert_eq!(core_dep_env.get("CARGO_PRIMARY_PACKAGE"), None);
+    assert!(
+        !core_dep_unit.is_primary,
+        "Core dep unit must not be primary"
+    );
 
     // 2. Build plan when core is selected: core is primary
     let opt_core = RustBuildOptions {
@@ -101,14 +117,25 @@ version = "0.1.0"
         ..Default::default()
     };
     let plan_core = RustAdapter::explain_plan(&opt_core).unwrap();
-    let core_primary_unit = plan_core.units.iter().find(|u| u.package_name == "core").unwrap();
+    let core_primary_unit = plan_core
+        .units
+        .iter()
+        .find(|u| u.package_name == "core")
+        .unwrap();
 
     let core_primary_env = compute_unit_rustc_env(core_primary_unit, None, None);
-    assert_eq!(core_primary_env.get("CARGO_PRIMARY_PACKAGE").map(String::as_str), Some("1"));
+    assert_eq!(
+        core_primary_env
+            .get("CARGO_PRIMARY_PACKAGE")
+            .map(String::as_str),
+        Some("1")
+    );
 
     // 3. Verify action keys for core differ between primary and non-primary
-    let key_ctx_app = mitts::adapter::rust::key::derive_unit_action_key_context(&opt_app, &plan_app).unwrap();
-    let key_ctx_core = mitts::adapter::rust::key::derive_unit_action_key_context(&opt_core, &plan_core).unwrap();
+    let key_ctx_app =
+        mitts::adapter::rust::key::derive_unit_action_key_context(&opt_app, &plan_app).unwrap();
+    let key_ctx_core =
+        mitts::adapter::rust::key::derive_unit_action_key_context(&opt_core, &plan_core).unwrap();
 
     let core_dep_key = key_ctx_app.compute_dynamic_key(core_dep_unit, &[]);
     let core_prim_key = key_ctx_core.compute_dynamic_key(core_primary_unit, &[]);
@@ -151,8 +178,15 @@ edition = "2021"
     // 3. Edit clippy.toml content -> hash must change
     fs::write(&clippy_p, "disallowed-names = [\"bar\"]\n").unwrap();
     let base3 = hash_package_base_inputs(&member_dir, None, false).unwrap();
-    let clippy_entry2 = base3.iter().find(|(lbl, _)| lbl.contains("clippy.toml")).unwrap();
-    assert_ne!(clippy_entry1.unwrap().1, clippy_entry2.1, "Modified clippy.toml must change hash");
+    let clippy_entry2 = base3
+        .iter()
+        .find(|(lbl, _)| lbl.contains("clippy.toml"))
+        .unwrap();
+    assert_ne!(
+        clippy_entry1.unwrap().1,
+        clippy_entry2.1,
+        "Modified clippy.toml must change hash"
+    );
 }
 
 #[test]
@@ -199,6 +233,7 @@ edition = "2021"
             manifest_path: pkg_dir.join("Cargo.toml"),
             cache_eligibility: "eligible".to_string(),
             is_workspace: true,
+            is_primary: true,
             env_vars: Vec::new(),
             dependencies: Vec::new(),
             edition: Some("2021".to_string()),
@@ -214,6 +249,7 @@ edition = "2021"
             manifest_path: pkg_dir.join("Cargo.toml"),
             cache_eligibility: "eligible".to_string(),
             is_workspace: true,
+            is_primary: true,
             env_vars: Vec::new(),
             dependencies: Vec::new(),
             edition: Some("2021".to_string()),
@@ -224,10 +260,89 @@ edition = "2021"
     let selected = vec![(&lockfile.packages[0], true)];
     resolve_unit_dependencies(&mut units, &selected);
 
-    let unit_test = units.iter().find(|u| u.target_name == "my_lib_unit_test").unwrap();
+    let unit_test = units
+        .iter()
+        .find(|u| u.target_name == "my_lib_unit_test")
+        .unwrap();
     assert!(
         !unit_test.dependencies.iter().any(|d| d.contains("my_lib")),
         "Library unit test must not depend on its own library rlib: {:?}",
         unit_test.dependencies
     );
+}
+
+#[test]
+fn test_m8_external_clippy_toml_invalidates_fast_lock() {
+    use mitts::core::build_lock::{
+        FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs,
+    };
+
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    let repo_dir = root.join("repo");
+    fs::create_dir_all(repo_dir.join("src")).unwrap();
+    fs::write(
+        repo_dir.join("Cargo.toml"),
+        r#"[package]
+name = "my-app"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    fs::write(repo_dir.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+    // Place clippy.toml in ancestor directory above repo_dir
+    let ancestor_clippy = root.join("clippy.toml");
+    fs::write(&ancestor_clippy, "disallowed-names = [\"foo\"]\n").unwrap();
+
+    let record_args = RecordStateArgs {
+        project_dir: &repo_dir,
+        profile: "debug",
+        package: &None,
+        features: &[],
+        no_default_features: false,
+        all_features: false,
+        toolchain_version: "rustc 1.97.0",
+        action_count: 1,
+        root_binary: None,
+        outputs: &[],
+        stderr: None,
+    };
+    FastBuildLock::record_state(&record_args).unwrap();
+
+    let check_args = FreshnessCheckArgs {
+        project_dir: &repo_dir,
+        profile: "debug",
+        package: &None,
+        features: &[],
+        no_default_features: false,
+        all_features: false,
+        toolchain_version: "rustc 1.97.0",
+    };
+
+    // 1. Immediately fresh
+    match FastBuildLock::check_freshness(&check_args) {
+        FreshnessResult::Fresh { .. } => {}
+        FreshnessResult::Stale(r) => panic!("Expected Fresh, got Stale: {}", r),
+    }
+
+    // 2. Modify ancestor clippy.toml -> must be Stale
+    fs::write(
+        &ancestor_clippy,
+        "disallowed-names = [\"bar\", \"new_longer_disallowed_name\"]\n",
+    )
+    .unwrap();
+    match FastBuildLock::check_freshness(&check_args) {
+        FreshnessResult::Stale(r) => {
+            assert!(
+                r.contains("Clippy config modified"),
+                "Expected Clippy config modified, got: {}",
+                r
+            );
+        }
+        FreshnessResult::Fresh { .. } => {
+            panic!("Expected Stale after modifying ancestor clippy.toml!")
+        }
+    }
 }

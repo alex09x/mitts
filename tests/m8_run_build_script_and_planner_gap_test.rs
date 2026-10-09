@@ -103,6 +103,7 @@ fn main() {
         manifest_path: root.join("Cargo.toml"),
         cache_eligibility: "test".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),

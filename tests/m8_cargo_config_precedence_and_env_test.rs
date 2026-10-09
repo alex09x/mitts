@@ -159,7 +159,12 @@ rustflags = ["--cfg", "from_build_config"]
 
     assert_eq!(
         loaded,
-        vec!["--cfg", "from_build_config", "--cfg", "from_build_env_active"],
+        vec![
+            "--cfg",
+            "from_build_config",
+            "--cfg",
+            "from_build_env_active"
+        ],
         "CARGO_BUILD_RUSTFLAGS must be appended to config file build flags"
     );
 }
@@ -271,6 +276,7 @@ fn test_compiler_args_fails_closed_on_config_cli_arg() {
         edition: Some("2021".to_string()),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         features: Vec::new(),

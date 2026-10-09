@@ -71,6 +71,7 @@ fn main() {
         manifest_path: manifest,
         cache_eligibility: "Workspace".into(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".into()),

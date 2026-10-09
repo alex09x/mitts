@@ -28,6 +28,7 @@ fn make_dummy_unit(name: &str, kind: &str) -> PlannedCompilationUnit {
         manifest_path: PathBuf::from("Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),

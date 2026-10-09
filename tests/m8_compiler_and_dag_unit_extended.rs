@@ -62,6 +62,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 
@@ -122,6 +123,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         env_vars: Vec::new(),
         cache_eligibility: "eligible".to_string(),
         is_workspace: true,
+        is_primary: false,
         edition: Some("2021".to_string()),
     };
 
