@@ -151,12 +151,16 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         Ok((plan, result)) => {
             let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             if result.success {
+                if !result.stderr.is_empty() {
+                    if result.stderr.ends_with('\n') {
+                        eprint!("{}", result.stderr);
+                    } else {
+                        eprintln!("{}", result.stderr);
+                    }
+                }
                 Ui::stage_start("🔎", &format!("Checked target [{}]", profile));
                 if result.cached {
                     if result.action_id == "fast-lock-hit" {
-                        if !result.stderr.is_empty() {
-                            eprintln!("{}", result.stderr);
-                        }
                         Ui::stage_item(
                             true,
                             &Ui::badge_ac_hit(),
