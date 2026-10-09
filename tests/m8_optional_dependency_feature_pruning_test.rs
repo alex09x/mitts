@@ -180,3 +180,100 @@ extra_feat = []
         common_unit_with_net.features
     );
 }
+
+#[test]
+fn test_m8_target_dependency_optional_feature_merging_and_dev_dep_isolation() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"[workspace]
+members = ["app", "sub_dep"]
+resolver = "2"
+"#,
+    )
+    .unwrap();
+
+    let app_dir = root.join("app");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(
+        app_dir.join("Cargo.toml"),
+        r#"[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+net = ["sub_dep"]
+
+[target.'cfg(all())'.dependencies]
+sub_dep = { path = "../sub_dep", optional = true, features = ["feat_from_target"] }
+
+[target.'cfg(all())'.dev-dependencies]
+sub_dep = { path = "../sub_dep" }
+"#,
+    )
+    .unwrap();
+    fs::write(app_dir.join("src/lib.rs"), "pub fn app_run() {}\n").unwrap();
+
+    let sub_dir = root.join("sub_dep");
+    fs::create_dir_all(sub_dir.join("src")).unwrap();
+    fs::write(
+        sub_dir.join("Cargo.toml"),
+        r#"[package]
+name = "sub_dep"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+feat_from_target = []
+"#,
+    )
+    .unwrap();
+    fs::write(sub_dir.join("src/lib.rs"), "pub fn sub_run() {}\n").unwrap();
+
+    let lock_status = Command::new("cargo")
+        .args(["generate-lockfile"])
+        .current_dir(root)
+        .status();
+    if let Ok(st) = lock_status {
+        assert!(st.success(), "cargo generate-lockfile failed");
+    }
+
+    // 1. Without 'net': sub_dep must NOT be in plan
+    let opt_without = RustBuildOptions {
+        manifest_path: Some(app_dir.join("Cargo.toml")),
+        ..Default::default()
+    };
+    let plan_without =
+        RustAdapter::explain_plan(&opt_without).expect("explain_plan without net failed");
+    let pkgs_without: Vec<String> = plan_without
+        .units
+        .iter()
+        .map(|u| u.package_name.clone())
+        .collect();
+    assert!(
+        !pkgs_without.contains(&"sub_dep".to_string()),
+        "sub_dep must not be in compilation plan when optional and inactive"
+    );
+
+    // 2. With 'net': sub_dep MUST be in plan AND have 'feat_from_target'
+    let opt_with = RustBuildOptions {
+        manifest_path: Some(app_dir.join("Cargo.toml")),
+        features: vec!["net".to_string()],
+        ..Default::default()
+    };
+    let plan_with = RustAdapter::explain_plan(&opt_with).expect("explain_plan with net failed");
+    let sub_unit = plan_with
+        .units
+        .iter()
+        .find(|u| u.package_name == "sub_dep")
+        .expect("sub_dep unit must be present in compilation plan");
+    assert!(
+        sub_unit.features.contains(&"feat_from_target".to_string()),
+        "sub_dep must have 'feat_from_target' activated from target dependencies; got {:?}",
+        sub_unit.features
+    );
+}
+

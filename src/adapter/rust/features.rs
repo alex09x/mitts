@@ -43,36 +43,18 @@ pub fn resolve_package_features(
         let id = ctx.id();
         if ctx.is_root {
             active_packages.insert(id.clone());
+            let set = requested.entry(id.clone()).or_default();
             if opt.all_features {
-                for feat in ctx.toml.features.keys() {
-                    requested
-                        .entry(id.clone())
-                        .or_default()
-                        .insert(feat.clone());
-                }
+                set.extend(ctx.toml.features.keys().cloned());
             } else {
-                for feat in &opt.features {
-                    requested
-                        .entry(id.clone())
-                        .or_default()
-                        .insert(feat.clone());
-                }
+                set.extend(opt.features.iter().cloned());
             }
-
             if !opt.no_default_features && ctx.toml.features.contains_key("default") {
-                requested
-                    .entry(id.clone())
-                    .or_default()
-                    .insert("default".to_string());
+                set.insert("default".to_string());
             }
         } else if opt.all_features && ctx.is_workspace {
             active_packages.insert(id.clone());
-            for feat in ctx.toml.features.keys() {
-                requested
-                    .entry(id.clone())
-                    .or_default()
-                    .insert(feat.clone());
-            }
+            requested.entry(id).or_default().extend(ctx.toml.features.keys().cloned());
         }
     }
 
@@ -132,22 +114,17 @@ pub fn resolve_package_features(
 
             for feat in &current_feats {
                 // If feat is an implicit optional dependency feature, activate it
-                if let Some(dep) = find_manifest_dependency(ctx.toml, feat) {
-                    let is_optional = match dep {
-                        TomlDependency::Simple(_) => false,
-                        TomlDependency::Detailed(d) => d.optional.unwrap_or(false),
-                    };
-                    if is_optional {
-                        activate_dep_instance(
-                            ctx,
-                            packages,
-                            feat,
-                            dep,
-                            &mut active_packages,
-                            &mut requested,
-                            &mut changed,
-                        );
-                    }
+                let deps = collect_manifest_dependencies(ctx.toml, feat);
+                if is_optional_dep(&deps) {
+                    activate_manifest_dep(
+                        ctx,
+                        packages,
+                        feat,
+                        &deps,
+                        &mut active_packages,
+                        &mut requested,
+                        &mut changed,
+                    );
                 }
 
                 // If feat is declared in [features]
@@ -163,8 +140,11 @@ pub fn resolve_package_features(
                                 .map(|s| s.as_str())
                                 .unwrap_or(actual_dep);
 
-                            let dep_decl = find_manifest_dependency(ctx.toml, actual_dep)
-                                .or_else(|| find_manifest_dependency(ctx.toml, real_dep));
+                            let mut dep_decls =
+                                collect_manifest_dependencies(ctx.toml, actual_dep);
+                            if dep_decls.is_empty() {
+                                dep_decls = collect_manifest_dependencies(ctx.toml, real_dep);
+                            }
 
                             let is_dep_active = if let Some(target_id) =
                                 resolve_dep_id_from_ctx(ctx, packages, real_dep)
@@ -178,12 +158,12 @@ pub fn resolve_package_features(
                                 if !is_dep_active {
                                     continue;
                                 }
-                            } else if let Some(d) = dep_decl {
-                                activate_dep_instance(
+                            } else if !dep_decls.is_empty() {
+                                activate_manifest_dep(
                                     ctx,
                                     packages,
                                     actual_dep,
-                                    d,
+                                    &dep_decls,
                                     &mut active_packages,
                                     &mut requested,
                                     &mut changed,
@@ -202,37 +182,31 @@ pub fn resolve_package_features(
                                 }
                             }
                         } else if let Some(dep_name) = sub.strip_prefix("dep:") {
-                            if let Some(d) = find_manifest_dependency(ctx.toml, dep_name) {
-                                activate_dep_instance(
-                                    ctx,
-                                    packages,
-                                    dep_name,
-                                    d,
-                                    &mut active_packages,
-                                    &mut requested,
-                                    &mut changed,
-                                );
-                            }
+                            let deps = collect_manifest_dependencies(ctx.toml, dep_name);
+                            activate_manifest_dep(
+                                ctx,
+                                packages,
+                                dep_name,
+                                &deps,
+                                &mut active_packages,
+                                &mut requested,
+                                &mut changed,
+                            );
                         } else {
                             if requested.entry(id.clone()).or_default().insert(sub.clone()) {
                                 changed = true;
                             }
-                            if let Some(d) = find_manifest_dependency(ctx.toml, sub) {
-                                let is_optional = match d {
-                                    TomlDependency::Simple(_) => false,
-                                    TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
-                                };
-                                if is_optional {
-                                    activate_dep_instance(
-                                        ctx,
-                                        packages,
-                                        sub,
-                                        d,
-                                        &mut active_packages,
-                                        &mut requested,
-                                        &mut changed,
-                                    );
-                                }
+                            let deps = collect_manifest_dependencies(ctx.toml, sub);
+                            if is_optional_dep(&deps) {
+                                activate_manifest_dep(
+                                    ctx,
+                                    packages,
+                                    sub,
+                                    &deps,
+                                    &mut active_packages,
+                                    &mut requested,
+                                    &mut changed,
+                                );
                             }
                         }
                     }
@@ -253,12 +227,9 @@ pub fn resolve_package_features(
             }
             if ctx.toml.features.contains_key(&f) {
                 list.push(f);
-            } else if let Some(dep) = find_manifest_dependency(ctx.toml, &f) {
-                let is_optional = match dep {
-                    TomlDependency::Simple(_) => false,
-                    TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
-                };
-                if is_optional && is_implicit_feature(ctx.toml, &f) {
+            } else {
+                let deps = collect_manifest_dependencies(ctx.toml, &f);
+                if is_optional_dep(&deps) && is_implicit_feature(ctx.toml, &f) {
                     list.push(f);
                 }
             }
@@ -346,7 +317,7 @@ fn resolve_dep_id_from_ctx(
     resolve_dep_id(packages, dep_name, req_ver)
 }
 
-fn collect_all_manifest_dependencies<'a>(
+fn collect_manifest_dependencies<'a>(
     toml: &'a CargoToml,
     name: &str,
 ) -> Vec<&'a TomlDependency> {
@@ -359,21 +330,42 @@ fn collect_all_manifest_dependencies<'a>(
     };
     add(&toml.dependencies);
     add(&toml.build_dependencies);
-    add(&toml.dev_dependencies);
     for (spec, t) in &toml.target {
         if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
             add(&t.dependencies);
             add(&t.build_dependencies);
-            add(&t.dev_dependencies);
         }
     }
     result
 }
 
-fn find_manifest_dependency<'a>(toml: &'a CargoToml, name: &str) -> Option<&'a TomlDependency> {
-    collect_all_manifest_dependencies(toml, name)
-        .into_iter()
-        .next()
+fn is_optional_dep(deps: &[&TomlDependency]) -> bool {
+    deps.iter().any(|d| match d {
+        TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
+        _ => false,
+    })
+}
+
+fn activate_manifest_dep(
+    ctx: &PackageFeatureContext,
+    packages: &[PackageFeatureContext],
+    dep_name: &str,
+    deps: &[&TomlDependency],
+    active_packages: &mut HashSet<String>,
+    requested: &mut HashMap<String, HashSet<String>>,
+    changed: &mut bool,
+) {
+    for d in deps {
+        activate_dep_instance(
+            ctx,
+            packages,
+            dep_name,
+            d,
+            active_packages,
+            requested,
+            changed,
+        );
+    }
 }
 
 fn resolve_dep_id(

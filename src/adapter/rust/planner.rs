@@ -67,11 +67,16 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     if let Some(ref ws) = root_toml.workspace {
         scan_deps(project_dir, &ws.dependencies);
     }
-    scan_deps(project_dir, &root_toml.dependencies);
-    scan_deps(project_dir, &root_toml.build_dependencies);
-    for (member_dir, toml) in workspace_manifests.values() {
-        scan_deps(member_dir, &toml.dependencies);
-        scan_deps(member_dir, &toml.build_dependencies);
+    let tomls_to_scan: Vec<(&Path, &CargoToml)> = std::iter::once((project_dir, &root_toml))
+        .chain(workspace_manifests.values().map(|(p, t)| (p.as_path(), t)))
+        .collect();
+    for (base, toml) in tomls_to_scan {
+        scan_deps(base, &toml.dependencies);
+        scan_deps(base, &toml.build_dependencies);
+        for t in toml.target.values() {
+            scan_deps(base, &t.dependencies);
+            scan_deps(base, &t.build_dependencies);
+        }
     }
 
     if root_toml.workspace.is_some() {
@@ -88,11 +93,13 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         }
     }
 
-    let lock_path = project_dir.join("Cargo.lock");
-    let mut lockfile = if lock_path.is_file() {
-        CargoLock::from_file(&lock_path)?
-    } else {
-        CargoLock::resolve_or_sync(&manifest_path, false)?
+    let lock_path = project_dir
+        .ancestors()
+        .map(|p| p.join("Cargo.lock"))
+        .find(|p| p.is_file());
+    let mut lockfile = match lock_path {
+        Some(ref lp) => CargoLock::from_file(lp)?,
+        None => CargoLock::resolve_or_sync(&manifest_path, false)?,
     };
 
     // Ensure all path dependencies and workspace packages exist in the lockfile
@@ -122,7 +129,12 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                 .and_then(|p| p.version.clone())
                 .unwrap_or_else(|| "0.1.0".to_string());
             let mut deps = Vec::new();
-            for (dep_name, dep_val) in &manifest.dependencies {
+            let mut all_deps: Vec<(&String, &super::manifest::TomlDependency)> =
+                manifest.dependencies.iter().collect();
+            for t in manifest.target.values() {
+                all_deps.extend(&t.dependencies);
+            }
+            for (dep_name, dep_val) in all_deps {
                 let real_name = match dep_val {
                     super::manifest::TomlDependency::Detailed(d) => {
                         d.package_name.as_deref().unwrap_or(dep_name.as_str())
@@ -161,10 +173,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let mut resolved_packages = Vec::new();
     for (pkg, is_workspace) in &selected_packages {
         let (pkg_dir, pkg_toml) = if *is_workspace {
-            if let Some((dir, toml)) = workspace_manifests.get(&pkg.name) {
-                (dir.clone(), toml.clone())
-            } else {
-                continue;
+            match workspace_manifests.get(&pkg.name) {
+                Some((dir, toml)) => (dir.clone(), toml.clone()),
+                None => continue,
             }
         } else if let Some((dir, toml)) = path_dependencies.get(&pkg.name) {
             (dir.clone(), toml.clone())
@@ -205,20 +216,17 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
 
     let is_selected_ws_member = |pkg_name: &str| -> bool {
         if let Some(dm) = default_members {
-            for member_pat in dm {
+            dm.iter().any(|member_pat| {
                 let clean_pat = member_pat.trim_start_matches("./").trim_end_matches('/');
                 let member_dir = if clean_pat == "." || clean_pat.is_empty() {
                     project_dir.to_path_buf()
                 } else {
                     project_dir.join(clean_pat)
                 };
-                if let Some((dir, _)) = workspace_manifests.get(pkg_name) {
-                    if dir == &member_dir || (clean_pat == "." && dir == project_dir) {
-                        return true;
-                    }
-                }
-            }
-            false
+                workspace_manifests.get(pkg_name).is_some_and(|(dir, _)| {
+                    dir == &member_dir || (clean_pat == "." && dir == project_dir)
+                })
+            })
         } else {
             workspace_manifests.contains_key(pkg_name)
         }
@@ -230,17 +238,13 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         }
     }
 
-    let is_primary_pkg = |pkg_name: &str| -> bool {
-        if let Some(target) = target_pkg {
-            pkg_name == target
-        } else if has_all_ws {
-            workspace_manifests.contains_key(pkg_name)
-                || root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
-        } else if is_virtual_workspace || default_members.is_some() {
-            is_selected_ws_member(pkg_name)
-        } else {
-            root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
-        }
+    let is_primary_pkg = |name: &str| -> bool {
+        target_pkg.map_or_else(
+            || (has_all_ws && workspace_manifests.contains_key(name))
+                || ((is_virtual_workspace || default_members.is_some()) && is_selected_ws_member(name))
+                || root_toml.package.as_ref().is_some_and(|p| p.name == name),
+            |target| name == target,
+        )
     };
 
     // Resolve unified compile-time features across all packages
@@ -380,11 +384,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
     prune_unreachable_units(&mut units, &root_unit_ids);
 
-    let profile = if opt.release {
-        "release".to_string()
-    } else {
-        "debug".to_string()
-    };
+    let profile = if opt.release { "release" } else { "debug" }.to_string();
 
     Ok(EffectivePlanExplanation {
         manifest_path,
