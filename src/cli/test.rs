@@ -169,6 +169,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         verbose: args.verbose,
         mode: BuildMode::Test,
         progress: None,
+        start_dir: None,
     };
 
     let start = std::time::Instant::now();

@@ -32,6 +32,7 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         verbose: args.verbose,
         mode: crate::adapter::BuildMode::Build,
         progress: None,
+        start_dir: None,
     }
 }
 

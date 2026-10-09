@@ -122,6 +122,7 @@ pub struct RustBuildOptions {
     pub verbose: u8,
     pub mode: BuildMode,
     pub progress: Option<BuildProgressCallback>,
+    pub start_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

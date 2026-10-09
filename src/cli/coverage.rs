@@ -150,6 +150,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         extra_args: vec!["-C".to_string(), "instrument-coverage".to_string()],
         verbose: args.verbose,
         progress: None,
+        start_dir: None,
     };
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {

@@ -13,7 +13,7 @@ use super::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOp
 use crate::core::action_cache::ActionCache;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 
@@ -124,6 +124,24 @@ pub fn derive_unit_action_key_context(
         effective_flags.push(format!("ENV:{}={}", k, v));
     }
 
+    // Target triple and effective Cargo config rustflags
+    let target_triple = resolve_effective_target_triple(opt, &explanation.toolchain);
+    let proj_dir = explanation.manifest_path.parent().unwrap_or(Path::new("."));
+    let config_start_dir = super::cargo_config::resolve_config_start_dir_with_opt(
+        proj_dir,
+        opt.start_dir.as_deref(),
+    );
+    let effective_target_rustflags = if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+        encoded.split('\x1f').filter(|f| !f.is_empty()).map(|s| s.to_string()).collect()
+    } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
+        flags.split_whitespace().map(|s| s.to_string()).collect()
+    } else {
+        super::cargo_config::load_cargo_config_rustflags(
+            &config_start_dir,
+            Some(&target_triple),
+        ).unwrap_or_default()
+    };
+
     // 1. Gather all unique package directories and their workspace status
     let mut unique_pkgs: HashMap<PathBuf, bool> = HashMap::new();
     for unit in &explanation.units {
@@ -160,13 +178,23 @@ pub fn derive_unit_action_key_context(
             None
         };
         let inputs = base_inputs;
-        let u_flags = compute_unit_flags_with_ws(
+        let mut u_flags = compute_unit_flags_with_ws(
             unit,
             &pkg_dir,
             &effective_flags,
             opt.mode,
             ws_root.as_deref(),
         );
+
+        let is_target_unit = opt.mode == super::types::BuildMode::Test
+            || (unit.kind != "proc-macro" && unit.kind != "build-script");
+
+        if is_target_unit {
+            for rf in &effective_target_rustflags {
+                u_flags.push(format!("CONFIG_RUSTFLAG:{}", rf));
+            }
+        }
+
         Ok::<_, anyhow::Error>((unit.unit_id(), inputs, u_flags))
     });
 
@@ -181,7 +209,6 @@ pub fn derive_unit_action_key_context(
     // 3. Fast in-memory topological Action Key derivation
     let planned_unit_ids: HashSet<String> = explanation.units.iter().map(|u| u.unit_id()).collect();
     let mut remaining: Vec<&PlannedCompilationUnit> = explanation.units.iter().collect();
-    let target_triple = resolve_effective_target_triple(opt, &explanation.toolchain);
 
     while !remaining.is_empty() {
         let mut progress = false;

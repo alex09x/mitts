@@ -149,8 +149,9 @@ pub fn hash_package_base_inputs(
     } else {
         None
     };
-    let config_start_dir = ws_root.unwrap_or(package_dir);
-    let config_files = super::cargo_config::discover_cargo_config_files(config_start_dir);
+    let base_dir = ws_root.unwrap_or(package_dir);
+    let config_start_dir = super::cargo_config::resolve_config_start_dir(base_dir);
+    let config_files = super::cargo_config::discover_cargo_config_files(&config_start_dir);
     for cfg_p in config_files {
         let hash = Sha256::digest_file(&cfg_p)
             .with_context(|| format!("Failed to hash {:?}", cfg_p))?;
@@ -158,6 +159,8 @@ pub fn hash_package_base_inputs(
             format!("workspace:{}", cfg_p.strip_prefix(ws).unwrap().display())
         } else if let Ok(rel) = cfg_p.strip_prefix(package_dir) {
             rel.to_string_lossy().to_string()
+        } else if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w)) {
+            format!("workspace:{}", cfg_p.strip_prefix(ws).unwrap().display())
         } else if let Some((depth, rel)) = config_start_dir
             .ancestors()
             .enumerate()

@@ -20,6 +20,38 @@ use tempfile::TempDir;
 
 static SERIAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+struct EnvGuard {
+    cargo_home_orig: Option<std::ffi::OsString>,
+}
+
+impl EnvGuard {
+    fn new(isolated_cargo_home: &std::path::Path) -> Self {
+        let cargo_home_orig = std::env::var_os("CARGO_HOME");
+        std::env::set_var("CARGO_HOME", isolated_cargo_home);
+        std::env::remove_var("CARGO_ENCODED_RUSTFLAGS");
+        std::env::remove_var("RUSTFLAGS");
+        std::env::remove_var("CARGO_BUILD_RUSTFLAGS");
+        let host = resolve_host_triple();
+        let upper_triple = host.replace('-', "_").to_uppercase();
+        std::env::remove_var(format!("CARGO_TARGET_{}_RUSTFLAGS", upper_triple));
+        Self { cargo_home_orig }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        if let Some(ref orig) = self.cargo_home_orig {
+            std::env::set_var("CARGO_HOME", orig);
+        } else {
+            std::env::remove_var("CARGO_HOME");
+        }
+        std::env::remove_var("CARGO_BUILD_RUSTFLAGS");
+        let host = resolve_host_triple();
+        let upper_triple = host.replace('-', "_").to_uppercase();
+        std::env::remove_var(format!("CARGO_TARGET_{}_RUSTFLAGS", upper_triple));
+    }
+}
+
 #[test]
 fn test_fast_lock_env_hash_invalidation() {
     let _lock = SERIAL_TEST_LOCK.lock().unwrap();
@@ -136,11 +168,17 @@ fn test_cargo_config_rustflags_discovery_and_precedence() {
     let _lock = SERIAL_TEST_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let root = temp.path();
+    let _guard = EnvGuard::new(&root.join("empty_cargo_home"));
 
     let pkg_dir = root.join("crates/sub_crate");
     fs::create_dir_all(&pkg_dir).unwrap();
 
     let host_triple = resolve_host_triple();
+    let other_triple = if host_triple == "aarch64-apple-darwin" {
+        "x86_64-unknown-linux-gnu"
+    } else {
+        "aarch64-apple-darwin"
+    };
 
     // Create .cargo/config.toml at root with [build] and [target]
     let cargo_dir = root.join(".cargo");
@@ -152,44 +190,36 @@ fn test_cargo_config_rustflags_discovery_and_precedence() {
 [build]
 rustflags = ["--cfg", "fallback_config_flag"]
 
-[target.'x86_64-unknown-linux-gnu']
-rustflags = ["--cfg", "linux_x86_specific_flag"]
-
-[target.'aarch64-apple-darwin']
-rustflags = "-C target-cpu=native --cfg apple_arm_specific_flag"
+[target.'{}']
+rustflags = "-C target-cpu=native --cfg other_specific_flag"
 
 [target.'{}']
 rustflags = ["--cfg", "host_specific_flag"]
 "#,
-            host_triple
+            other_triple, host_triple
         ),
     )
     .unwrap();
 
-    // 1. Target triple matching x86_64-unknown-linux-gnu
-    let flags_linux =
-        load_cargo_config_rustflags(&pkg_dir, Some("x86_64-unknown-linux-gnu")).unwrap();
-    assert_eq!(flags_linux, vec!["--cfg", "linux_x86_specific_flag"]);
-
-    // 2. Target triple matching aarch64-apple-darwin (string syntax)
-    let flags_apple =
-        load_cargo_config_rustflags(&pkg_dir, Some("aarch64-apple-darwin")).unwrap();
+    // 1. Target triple matching other_triple (string syntax)
+    let flags_other =
+        load_cargo_config_rustflags(&pkg_dir, Some(other_triple)).unwrap();
     assert_eq!(
-        flags_apple,
+        flags_other,
         vec![
             "-C",
             "target-cpu=native",
             "--cfg",
-            "apple_arm_specific_flag"
+            "other_specific_flag"
         ]
     );
 
-    // 3. Unknown target triple falls back to [build].rustflags
+    // 2. Unknown target triple falls back to [build].rustflags
     let flags_fallback =
         load_cargo_config_rustflags(&pkg_dir, Some("wasm32-unknown-unknown")).unwrap();
     assert_eq!(flags_fallback, vec!["--cfg", "fallback_config_flag"]);
 
-    // 4. None target triple automatically resolves to host triple!
+    // 3. None target triple automatically resolves to host triple!
     let flags_none = load_cargo_config_rustflags(&pkg_dir, None).unwrap();
     assert_eq!(flags_none, vec!["--cfg", "host_specific_flag"]);
 }

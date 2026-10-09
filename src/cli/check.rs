@@ -90,6 +90,7 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         verbose: args.verbose,
         mode: BuildMode::Check,
         progress: None,
+        start_dir: None,
     };
 
     let start = std::time::Instant::now();

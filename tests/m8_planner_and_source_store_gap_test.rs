@@ -84,6 +84,7 @@ edition = "2021"
         extra_args: Vec::new(),
         verbose: 0,
         progress: None,
+        ..Default::default()
     };
 
     // Plans without existing Cargo.lock -> resolves lockfile and plans units
@@ -163,6 +164,7 @@ dependencies = [
         extra_args: Vec::new(),
         verbose: 0,
         progress: None,
+        ..Default::default()
     };
 
     let plan = RustAdapter::explain_plan(&opt).unwrap();

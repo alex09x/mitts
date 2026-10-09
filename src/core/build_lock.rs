@@ -176,8 +176,10 @@ impl FastBuildLock {
         }
 
         // Check Cargo configuration files (.cargo/config.toml, .cargo/config)
+        let config_start_dir =
+            crate::adapter::rust::cargo_config::resolve_config_start_dir(args.project_dir);
         let current_configs =
-            crate::adapter::rust::cargo_config::discover_cargo_config_files(args.project_dir);
+            crate::adapter::rust::cargo_config::discover_cargo_config_files(&config_start_dir);
         if current_configs.len() != lock.cargo_configs.len() {
             return FreshnessResult::Stale(
                 "Cargo configuration files changed (added/removed)".to_string(),
@@ -274,8 +276,10 @@ impl FastBuildLock {
             }
         }
 
+        let config_start_dir =
+            crate::adapter::rust::cargo_config::resolve_config_start_dir(args.project_dir);
         let discovered_configs =
-            crate::adapter::rust::cargo_config::discover_cargo_config_files(args.project_dir);
+            crate::adapter::rust::cargo_config::discover_cargo_config_files(&config_start_dir);
         let mut cargo_configs = Vec::new();
         for cfg_p in discovered_configs {
             if let Ok(meta) = fs::metadata(&cfg_p) {

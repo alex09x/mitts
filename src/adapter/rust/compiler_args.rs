@@ -284,17 +284,16 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
                 cmd.arg(flag);
             }
         } else {
-            let config_start_dir = std::env::current_dir().unwrap_or_else(|_| {
-                if inv.unit.is_workspace {
-                    find_workspace_root(&inv.unit.manifest_path)
-                } else {
-                    inv.unit
-                        .manifest_path
-                        .parent()
-                        .unwrap_or(Path::new("."))
-                        .to_path_buf()
-                }
-            });
+            let base_dir = if inv.unit.is_workspace {
+                find_workspace_root(&inv.unit.manifest_path)
+            } else {
+                inv.unit
+                    .manifest_path
+                    .parent()
+                    .unwrap_or(Path::new("."))
+                    .to_path_buf()
+            };
+            let config_start_dir = super::cargo_config::resolve_config_start_dir(&base_dir);
             if let Ok(config_flags) = super::cargo_config::load_cargo_config_rustflags(
                 &config_start_dir,
                 explicit_target.as_deref(),

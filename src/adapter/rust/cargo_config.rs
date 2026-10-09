@@ -186,6 +186,30 @@ fn parse_flags_value(val: &toml::Value) -> Option<Vec<String>> {
     }
 }
 
+/// Resolves the unified Cargo config start directory given a base project or workspace directory.
+/// If `explicit_start_dir` is provided, returns that directory.
+/// Otherwise, if `current_dir()` is within `base_dir` or `base_dir` is within `current_dir()`,
+/// returns `current_dir()` (e.g. member subdirectory during invocation);
+/// otherwise falls back to `base_dir` (e.g. in isolated test environments).
+pub fn resolve_config_start_dir_with_opt(
+    base_dir: &Path,
+    explicit_start_dir: Option<&Path>,
+) -> PathBuf {
+    if let Some(explicit) = explicit_start_dir {
+        return explicit.to_path_buf();
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd.starts_with(base_dir) || base_dir.starts_with(&cwd) {
+            return cwd;
+        }
+    }
+    base_dir.to_path_buf()
+}
+
+pub fn resolve_config_start_dir(base_dir: &Path) -> PathBuf {
+    resolve_config_start_dir_with_opt(base_dir, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,8 +264,36 @@ rustflags = ["--cfg", "linux_cfg"]
         assert!(res.unwrap_err().to_string().contains("target.'cfg(...)' rustflags is not yet supported"));
     }
 
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct EnvGuard {
+        cargo_home_orig: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn new(isolated_cargo_home: &Path) -> Self {
+            let cargo_home_orig = std::env::var_os("CARGO_HOME");
+            std::env::set_var("CARGO_HOME", isolated_cargo_home);
+            Self { cargo_home_orig }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(ref orig) = self.cargo_home_orig {
+                std::env::set_var("CARGO_HOME", orig);
+            } else {
+                std::env::remove_var("CARGO_HOME");
+            }
+        }
+    }
+
     #[test]
     fn test_load_cargo_config_rustflags_from_dir() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let home = tempdir().unwrap();
+        let _guard = EnvGuard::new(home.path());
+
         let dir = tempdir().unwrap();
         let cargo_dir = dir.path().join(".cargo");
         fs::create_dir_all(&cargo_dir).unwrap();
@@ -258,6 +310,10 @@ rustflags = ["--cfg", "linux_cfg"]
 
     #[test]
     fn test_bare_config_precedence_over_config_toml() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let home = tempdir().unwrap();
+        let _guard = EnvGuard::new(home.path());
+
         let dir = tempdir().unwrap();
         let cargo_dir = dir.path().join(".cargo");
         fs::create_dir_all(&cargo_dir).unwrap();
@@ -282,6 +338,10 @@ rustflags = ["--cfg", "linux_cfg"]
 
     #[test]
     fn test_target_overrides_build_across_files() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let home = tempdir().unwrap();
+        let _guard = EnvGuard::new(home.path());
+
         let parent = tempdir().unwrap();
         let child = parent.path().join("child");
         fs::create_dir_all(&child).unwrap();
