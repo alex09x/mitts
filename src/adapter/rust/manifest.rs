@@ -153,6 +153,7 @@ impl CargoToml {
                     edition: edition.clone(),
                     crate_types,
                     required_features: None,
+                    harness: self.lib.as_ref().and_then(|l| l.harness).unwrap_or(true),
                 });
             }
         } else {
@@ -165,6 +166,7 @@ impl CargoToml {
                     edition: edition.clone(),
                     crate_types: vec!["lib".to_string()],
                     required_features: None,
+                    harness: true,
                 });
             }
         }
@@ -194,6 +196,7 @@ impl CargoToml {
                         edition: edition.clone(),
                         crate_types: vec!["bin".to_string()],
                         required_features: b.required_features.clone(),
+                        harness: b.harness.unwrap_or(true),
                     });
                 }
             }
@@ -207,6 +210,7 @@ impl CargoToml {
                     edition: edition.clone(),
                     crate_types: vec!["bin".to_string()],
                     required_features: None,
+                    harness: true,
                 });
             }
 
@@ -231,6 +235,7 @@ impl CargoToml {
                                     edition: edition.clone(),
                                     crate_types: vec!["bin".to_string()],
                                     required_features: None,
+                                    harness: true,
                                 });
                             }
                         } else if path.is_dir() {
@@ -244,6 +249,7 @@ impl CargoToml {
                                         edition: edition.clone(),
                                         crate_types: vec!["bin".to_string()],
                                         required_features: None,
+                                        harness: true,
                                     });
                                 }
                             }

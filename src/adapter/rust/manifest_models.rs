@@ -51,6 +51,8 @@ pub struct TomlTest {
     pub path: Option<String>,
     #[serde(rename = "required-features")]
     pub required_features: Option<Vec<String>>,
+    #[serde(default)]
+    pub harness: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -173,6 +175,8 @@ pub struct TomlLib {
     pub proc_macro: Option<bool>,
     #[serde(default, rename = "crate-type")]
     pub crate_type: Vec<String>,
+    #[serde(default)]
+    pub harness: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -181,6 +185,8 @@ pub struct TomlBin {
     pub path: Option<String>,
     #[serde(rename = "required-features")]
     pub required_features: Option<Vec<String>>,
+    #[serde(default)]
+    pub harness: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -218,4 +224,5 @@ pub struct DiscoveredTarget {
     pub edition: Option<String>,
     pub crate_types: Vec<String>,
     pub required_features: Option<Vec<String>>,
+    pub harness: bool,
 }
