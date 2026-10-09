@@ -19,6 +19,14 @@ use std::process::Command;
 /// Prepares and configures the `Command` for a `RustcInvocation`.
 /// Returns `(cmd, clean_crate, is_pipelined_lib)`.
 pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String, bool)> {
+    if inv
+        .extra_compiler_args
+        .iter()
+        .any(|a| a == "--config" || a.starts_with("--config="))
+    {
+        anyhow::bail!("Unsupported option: --config is not yet supported in mitts");
+    }
+
     let clean_crate = inv.unit.target_name.replace('-', "_");
     let edition = inv.unit.edition.as_deref().unwrap_or("2015");
     let short_key = if inv.action_key.len() > 16 {
@@ -276,9 +284,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
                 cmd.arg(flag);
             }
         } else {
-            let pkg_dir = inv.unit.manifest_path.parent().unwrap_or(Path::new("."));
+            let config_start_dir = if inv.unit.is_workspace {
+                find_workspace_root(&inv.unit.manifest_path)
+            } else {
+                inv.unit
+                    .manifest_path
+                    .parent()
+                    .unwrap_or(Path::new("."))
+                    .to_path_buf()
+            };
             if let Ok(config_flags) = super::cargo_config::load_cargo_config_rustflags(
-                pkg_dir,
+                &config_start_dir,
                 explicit_target.as_deref(),
             ) {
                 for flag in config_flags {

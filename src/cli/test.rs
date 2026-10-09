@@ -71,6 +71,10 @@ pub struct TestArgs {
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    /// Override a configuration value (not yet supported)
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub config: Vec<String>,
+
     /// Arguments passed to the test binary runner (e.g. -- --nocapture)
     #[arg(last = true)]
     pub test_args: Vec<String>,
@@ -125,6 +129,11 @@ pub fn create_test_progress_callback(
 }
 
 pub fn handle_test(args: &TestArgs) -> i32 {
+    if !args.config.is_empty() {
+        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
+        return 1;
+    }
+
     if args.coverage {
         let cov_args = crate::cli::coverage::CoverageArgs {
             manifest_path: args.manifest_path.clone(),

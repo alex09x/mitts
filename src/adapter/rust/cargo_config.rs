@@ -13,6 +13,17 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Finds either bare `config` (preferred by Cargo) or `config.toml` in `dir`.
+fn find_config_in_dir(dir: &Path) -> Option<PathBuf> {
+    for name in &["config", "config.toml"] {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 /// Discovers all applicable Cargo configuration files from global locations
 /// and the filesystem root down to `start_dir`, ordered from lowest to highest precedence.
 pub fn discover_cargo_config_files(start_dir: &Path) -> Vec<PathBuf> {
@@ -25,13 +36,10 @@ pub fn discover_cargo_config_files(start_dir: &Path) -> Vec<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")));
 
     if let Some(gdir) = global_dir {
-        for name in &["config.toml", "config"] {
-            let p = gdir.join(name);
-            if p.is_file() {
-                let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
-                if seen.insert(canon) {
-                    files.push(p);
-                }
+        if let Some(p) = find_config_in_dir(&gdir) {
+            let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
+            if seen.insert(canon) {
+                files.push(p);
             }
         }
     }
@@ -47,13 +55,10 @@ pub fn discover_cargo_config_files(start_dir: &Path) -> Vec<PathBuf> {
 
     for dir in ancestor_chain {
         let cargo_dir = dir.join(".cargo");
-        for name in &["config.toml", "config"] {
-            let p = cargo_dir.join(name);
-            if p.is_file() {
-                let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
-                if seen.insert(canon) {
-                    files.push(p);
-                }
+        if let Some(p) = find_config_in_dir(&cargo_dir) {
+            let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
+            if seen.insert(canon) {
+                files.push(p);
             }
         }
     }
@@ -62,15 +67,29 @@ pub fn discover_cargo_config_files(start_dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Discovers and parses applicable .cargo/config.toml or .cargo/config files,
-/// merging rustflags defined in [target.<triple>].rustflags or [build].rustflags.
+/// merging rustflags according to Cargo's precedence rules:
+/// 1. CARGO_TARGET_<UPPER_TRIPLE>_RUSTFLAGS environment variable
+/// 2. target.<triple>.rustflags merged across config files
+/// 3. CARGO_BUILD_RUSTFLAGS environment variable
+/// 4. build.rustflags merged across config files
 pub fn load_cargo_config_rustflags(
-    package_dir: &Path,
+    start_dir: &Path,
     target_triple: Option<&str>,
 ) -> Result<Vec<String>> {
-    let files = discover_cargo_config_files(package_dir);
-    let mut merged = Vec::new();
     let host_triple = super::compiler_resolve::resolve_host_triple();
     let effective_target = target_triple.unwrap_or(host_triple);
+
+    // 1. CARGO_TARGET_<UPPER_TRIPLE>_RUSTFLAGS environment variable
+    let upper_triple = effective_target.replace('-', "_").to_uppercase();
+    let target_env_key = format!("CARGO_TARGET_{}_RUSTFLAGS", upper_triple);
+    if let Ok(flags_str) = std::env::var(&target_env_key) {
+        return Ok(flags_str.split_whitespace().map(|s| s.to_string()).collect());
+    }
+
+    // 2. Discover and parse cargo config files
+    let files = discover_cargo_config_files(start_dir);
+    let mut all_target_flags = Vec::new();
+    let mut all_build_flags = Vec::new();
 
     for config_path in files {
         let content = fs::read_to_string(&config_path)
@@ -78,18 +97,46 @@ pub fn load_cargo_config_rustflags(
         let val: toml::Value = toml::from_str(&content)
             .with_context(|| format!("Failed to parse cargo config at {:?}", config_path))?;
 
-        if let Some(flags) = extract_rustflags_from_toml(&val, effective_target, &config_path)? {
-            merged.extend(flags);
+        let extracted = extract_rustflags_from_toml(&val, effective_target, &config_path)?;
+        if let Some(tf) = extracted.target {
+            all_target_flags.extend(tf);
+        }
+        if let Some(bf) = extracted.build {
+            all_build_flags.extend(bf);
         }
     }
-    Ok(merged)
+
+    // 3. If any target.<triple>.rustflags was found across config files, it takes precedence
+    if !all_target_flags.is_empty() {
+        return Ok(all_target_flags);
+    }
+
+    // 4. CARGO_BUILD_RUSTFLAGS environment variable
+    if let Ok(flags_str) = std::env::var("CARGO_BUILD_RUSTFLAGS") {
+        return Ok(flags_str.split_whitespace().map(|s| s.to_string()).collect());
+    }
+
+    // 5. Merged [build].rustflags across all config files
+    if !all_build_flags.is_empty() {
+        return Ok(all_build_flags);
+    }
+
+    Ok(Vec::new())
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
+struct ExtractedRustflags {
+    target: Option<Vec<String>>,
+    build: Option<Vec<String>>,
 }
 
 fn extract_rustflags_from_toml(
     val: &toml::Value,
     effective_target: &str,
     config_path: &Path,
-) -> Result<Option<Vec<String>>> {
+) -> Result<ExtractedRustflags> {
+    let mut extracted = ExtractedRustflags::default();
+
     if let Some(targets) = val.get("target").and_then(|t| t.as_table()) {
         // Fail-closed on target.'cfg(...)'.rustflags until arbitrary cfg expressions are supported
         for (key, target_val) in targets {
@@ -108,7 +155,7 @@ fn extract_rustflags_from_toml(
         // 1. Check target.<effective_target>.rustflags
         if let Some(target_val) = targets.get(effective_target) {
             if let Some(rf) = target_val.get("rustflags") {
-                return Ok(parse_flags_value(rf));
+                extracted.target = parse_flags_value(rf);
             }
         }
     }
@@ -116,11 +163,11 @@ fn extract_rustflags_from_toml(
     // 2. Check [build].rustflags
     if let Some(build_tbl) = val.get("build").and_then(|b| b.as_table()) {
         if let Some(rf) = build_tbl.get("rustflags") {
-            return Ok(parse_flags_value(rf));
+            extracted.build = parse_flags_value(rf);
         }
     }
 
-    Ok(None)
+    Ok(extracted)
 }
 
 fn parse_flags_value(val: &toml::Value) -> Option<Vec<String>> {
@@ -151,20 +198,18 @@ mod tests {
 rustflags = "-C opt-level=3 --cfg custom_mark"
 "#;
         let val: toml::Value = toml::from_str(content_str).unwrap();
-        let flags = extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
-            .unwrap()
+        let extracted = extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
             .unwrap();
-        assert_eq!(flags, vec!["-C", "opt-level=3", "--cfg", "custom_mark"]);
+        assert_eq!(extracted.build.unwrap(), vec!["-C", "opt-level=3", "--cfg", "custom_mark"]);
 
         let content_arr = r#"
 [build]
 rustflags = ["-C", "opt-level=2", "--cfg", "mark_array"]
 "#;
         let val2: toml::Value = toml::from_str(content_arr).unwrap();
-        let flags2 = extract_rustflags_from_toml(&val2, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
-            .unwrap()
+        let extracted2 = extract_rustflags_from_toml(&val2, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
             .unwrap();
-        assert_eq!(flags2, vec!["-C", "opt-level=2", "--cfg", "mark_array"]);
+        assert_eq!(extracted2.build.unwrap(), vec!["-C", "opt-level=2", "--cfg", "mark_array"]);
     }
 
     #[test]
@@ -177,16 +222,10 @@ rustflags = ["--cfg", "build_flag"]
 rustflags = ["--cfg", "linux_flag"]
 "#;
         let val: toml::Value = toml::from_str(content).unwrap();
-        let flags = extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
-            .unwrap()
+        let extracted = extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
             .unwrap();
-        assert_eq!(flags, vec!["--cfg", "linux_flag"]);
-
-        let fallback_flags =
-            extract_rustflags_from_toml(&val, "aarch64-apple-darwin", Path::new("dummy.toml"))
-                .unwrap()
-                .unwrap();
-        assert_eq!(fallback_flags, vec!["--cfg", "build_flag"]);
+        assert_eq!(extracted.target.unwrap(), vec!["--cfg", "linux_flag"]);
+        assert_eq!(extracted.build.unwrap(), vec!["--cfg", "build_flag"]);
     }
 
     #[test]
@@ -215,5 +254,55 @@ rustflags = ["--cfg", "linux_cfg"]
         let loaded = load_cargo_config_rustflags(dir.path(), None).unwrap();
         assert!(loaded.contains(&"--cfg".to_string()));
         assert!(loaded.contains(&"test_loaded".to_string()));
+    }
+
+    #[test]
+    fn test_bare_config_precedence_over_config_toml() {
+        let dir = tempdir().unwrap();
+        let cargo_dir = dir.path().join(".cargo");
+        fs::create_dir_all(&cargo_dir).unwrap();
+        fs::write(
+            cargo_dir.join("config"),
+            "[build]\nrustflags = [\"--cfg\", \"from_bare_config\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            cargo_dir.join("config.toml"),
+            "[build]\nrustflags = [\"--cfg\", \"from_config_toml\"]\n",
+        )
+        .unwrap();
+
+        let files = discover_cargo_config_files(dir.path());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "config");
+
+        let loaded = load_cargo_config_rustflags(dir.path(), None).unwrap();
+        assert_eq!(loaded, vec!["--cfg", "from_bare_config"]);
+    }
+
+    #[test]
+    fn test_target_overrides_build_across_files() {
+        let parent = tempdir().unwrap();
+        let child = parent.path().join("child");
+        fs::create_dir_all(&child).unwrap();
+
+        let parent_cargo = parent.path().join(".cargo");
+        fs::create_dir_all(&parent_cargo).unwrap();
+        fs::write(
+            parent_cargo.join("config.toml"),
+            "[build]\nrustflags = [\"--cfg\", \"parent_build\"]\n",
+        )
+        .unwrap();
+
+        let child_cargo = child.join(".cargo");
+        fs::create_dir_all(&child_cargo).unwrap();
+        fs::write(
+            child_cargo.join("config.toml"),
+            "[target.x86_64-unknown-linux-gnu]\nrustflags = [\"--cfg\", \"child_target\"]\n",
+        )
+        .unwrap();
+
+        let loaded = load_cargo_config_rustflags(&child, Some("x86_64-unknown-linux-gnu")).unwrap();
+        assert_eq!(loaded, vec!["--cfg", "child_target"]);
     }
 }

@@ -59,12 +59,21 @@ pub struct ClippyArgs {
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    /// Override a configuration value (not yet supported)
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub config: Vec<String>,
+
     /// Additional arguments passed to clippy-driver (e.g. -D warnings)
     #[arg(last = true)]
     pub extra_args: Vec<String>,
 }
 
 pub fn handle_clippy(args: &ClippyArgs) -> i32 {
+    if !args.config.is_empty() {
+        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
+        return 1;
+    }
+
     let mut opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
         package: args.package.clone(),

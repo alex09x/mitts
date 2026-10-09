@@ -149,15 +149,16 @@ pub fn hash_package_base_inputs(
     } else {
         None
     };
-    let config_files = super::cargo_config::discover_cargo_config_files(package_dir);
+    let config_start_dir = ws_root.unwrap_or(package_dir);
+    let config_files = super::cargo_config::discover_cargo_config_files(config_start_dir);
     for cfg_p in config_files {
         let hash = Sha256::digest_file(&cfg_p)
             .with_context(|| format!("Failed to hash {:?}", cfg_p))?;
-        let label = if let Ok(rel) = cfg_p.strip_prefix(package_dir) {
-            rel.to_string_lossy().to_string()
-        } else if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w.join(".cargo"))) {
+        let label = if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w.join(".cargo"))) {
             format!("workspace:{}", cfg_p.strip_prefix(ws).unwrap().display())
-        } else if let Some((depth, rel)) = package_dir
+        } else if let Ok(rel) = cfg_p.strip_prefix(package_dir) {
+            rel.to_string_lossy().to_string()
+        } else if let Some((depth, rel)) = config_start_dir
             .ancestors()
             .enumerate()
             .find_map(|(idx, a)| cfg_p.strip_prefix(a.join(".cargo")).ok().map(|r| (idx, r)))

@@ -131,6 +131,10 @@ pub struct BuildArgs {
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    /// Override a configuration value (not yet supported)
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub config: Vec<String>,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,

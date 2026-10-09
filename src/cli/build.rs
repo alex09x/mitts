@@ -159,6 +159,11 @@ pub fn render_build_result(
 }
 
 pub fn handle_build(args: &BuildArgs) -> i32 {
+    if !args.config.is_empty() {
+        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
+        return 1;
+    }
+
     let mut opt = to_rust_options(args);
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };

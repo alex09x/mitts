@@ -11,6 +11,7 @@ __pycache__/
 *.pyc
 reports/
 benchmarks/
-*.html
+reports/*.html
+docs/*.html
 *.profraw
 *.profdata
