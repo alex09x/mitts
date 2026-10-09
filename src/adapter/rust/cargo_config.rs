@@ -79,14 +79,7 @@ pub fn load_cargo_config_rustflags(
     let host_triple = super::compiler_resolve::resolve_host_triple();
     let effective_target = target_triple.unwrap_or(host_triple);
 
-    // 1. CARGO_TARGET_<UPPER_TRIPLE>_RUSTFLAGS environment variable
-    let upper_triple = effective_target.replace('-', "_").to_uppercase();
-    let target_env_key = format!("CARGO_TARGET_{}_RUSTFLAGS", upper_triple);
-    if let Ok(flags_str) = std::env::var(&target_env_key) {
-        return Ok(flags_str.split_whitespace().map(|s| s.to_string()).collect());
-    }
-
-    // 2. Discover and parse cargo config files
+    // 1. Discover and parse cargo config files
     let files = discover_cargo_config_files(start_dir);
     let mut all_target_flags = Vec::new();
     let mut all_build_flags = Vec::new();
@@ -106,17 +99,24 @@ pub fn load_cargo_config_rustflags(
         }
     }
 
-    // 3. If any target.<triple>.rustflags was found across config files, it takes precedence
+    // 2. CARGO_TARGET_<UPPER_TRIPLE>_RUSTFLAGS environment variable (appended to config file flags)
+    let upper_triple = effective_target.replace('-', "_").to_uppercase();
+    let target_env_key = format!("CARGO_TARGET_{}_RUSTFLAGS", upper_triple);
+    if let Ok(flags_str) = std::env::var(&target_env_key) {
+        all_target_flags.extend(flags_str.split_whitespace().map(|s| s.to_string()));
+    }
+
+    // 3. If any target.<triple>.rustflags was found in configs or env, it takes precedence
     if !all_target_flags.is_empty() {
         return Ok(all_target_flags);
     }
 
-    // 4. CARGO_BUILD_RUSTFLAGS environment variable
+    // 4. CARGO_BUILD_RUSTFLAGS environment variable (appended to config file flags)
     if let Ok(flags_str) = std::env::var("CARGO_BUILD_RUSTFLAGS") {
-        return Ok(flags_str.split_whitespace().map(|s| s.to_string()).collect());
+        all_build_flags.extend(flags_str.split_whitespace().map(|s| s.to_string()));
     }
 
-    // 5. Merged [build].rustflags across all config files
+    // 5. Merged [build].rustflags across all config files and env
     if !all_build_flags.is_empty() {
         return Ok(all_build_flags);
     }

@@ -95,7 +95,7 @@ rustflags = ["--cfg", "child_target_flag"]
 }
 
 #[test]
-fn test_cargo_target_env_var_precedence() {
+fn test_cargo_target_env_var_appended_to_file_target() {
     let _lock = SERIAL_TEST_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let child = temp.path();
@@ -125,13 +125,18 @@ rustflags = ["--cfg", "from_target_config"]
 
     assert_eq!(
         loaded,
-        vec!["--cfg", "from_target_env_active"],
-        "CARGO_TARGET_<TRIPLE>_RUSTFLAGS must override config file target flags"
+        vec![
+            "--cfg",
+            "from_target_config",
+            "--cfg",
+            "from_target_env_active"
+        ],
+        "CARGO_TARGET_<TRIPLE>_RUSTFLAGS must be appended to config file target flags"
     );
 }
 
 #[test]
-fn test_cargo_build_env_var_precedence() {
+fn test_cargo_build_env_var_appended_to_file_build() {
     let _lock = SERIAL_TEST_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let child = temp.path();
@@ -154,8 +159,8 @@ rustflags = ["--cfg", "from_build_config"]
 
     assert_eq!(
         loaded,
-        vec!["--cfg", "from_build_env_active"],
-        "CARGO_BUILD_RUSTFLAGS must override config file build flags"
+        vec!["--cfg", "from_build_config", "--cfg", "from_build_env_active"],
+        "CARGO_BUILD_RUSTFLAGS must be appended to config file build flags"
     );
 }
 
@@ -189,6 +194,39 @@ rustflags = ["--cfg", "from_target_config_active"]
         loaded,
         vec!["--cfg", "from_target_config_active"],
         "target.<triple>.rustflags in config must take precedence over CARGO_BUILD_RUSTFLAGS in environment"
+    );
+}
+
+#[test]
+fn test_empty_target_falls_back_to_build_flags() {
+    let _lock = SERIAL_TEST_LOCK.lock().unwrap();
+    let temp = TempDir::new().unwrap();
+    let child = temp.path();
+    let _guard = EnvGuard::new(&child.join("empty_cargo_home"));
+
+    let child_cargo = child.join(".cargo");
+    fs::create_dir_all(&child_cargo).unwrap();
+    let host = resolve_host_triple();
+    fs::write(
+        child_cargo.join("config.toml"),
+        format!(
+            r#"
+[build]
+rustflags = ["--cfg", "fallback_build_flag"]
+
+[target.{}]
+rustflags = []
+"#,
+            host
+        ),
+    )
+    .unwrap();
+
+    let loaded = load_cargo_config_rustflags(child, None).unwrap();
+    assert_eq!(
+        loaded,
+        vec!["--cfg", "fallback_build_flag"],
+        "Empty target.<triple>.rustflags must fall back to build.rustflags matching Cargo"
     );
 }
 
