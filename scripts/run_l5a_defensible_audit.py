@@ -584,6 +584,13 @@ def main():
         "mode": args.mode,
         "projects": {},
     }
+    if out_p.exists():
+        try:
+            with open(out_p, "r") as f:
+                existing = json.load(f)
+                final_report["projects"] = existing.get("projects", {})
+        except Exception:
+            pass
 
     for proj in projects:
         try:

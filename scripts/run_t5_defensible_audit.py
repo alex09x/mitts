@@ -66,7 +66,7 @@ def inject_test_defect(wt_dir: Path):
         p_r = Path(r)
         if p_r.name == "tests" or "tests" in p_r.parts:
             for f in sorted(files):
-                if f.endswith(".rs") and not f.startswith(".") and f != "lib.rs" and f != "mod.rs":
+                if f.endswith(".rs") and not f.startswith(".") and not f.startswith("_") and f != "lib.rs" and f != "mod.rs":
                     candidates.append(p_r / f)
                     break
         if candidates:
@@ -406,6 +406,13 @@ def main():
         "mode": "test",
         "projects": {},
     }
+    if out_p.exists():
+        try:
+            with open(out_p, "r") as f:
+                existing = json.load(f)
+                final_report["projects"] = existing.get("projects", {})
+        except Exception:
+            pass
 
     for proj in projects:
         try:
