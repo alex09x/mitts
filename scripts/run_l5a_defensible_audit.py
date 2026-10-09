@@ -283,7 +283,12 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     wt12_tuple = (12, wt_base / "wt-12", commits[-1])
     res_replay = run_single_worktree("mitts_cas", mode, wt12_tuple)
     replay_ok, _ = verify_warning_replay(wt12_m["stderr"], res_replay["stderr"], wt_base / "wt-12", is_anomaly_wt=True)
-    zero_compiled_units = "Restored" in res_replay["stdout"] or "Up-to-date" in res_replay["stdout"] or "0 actions" in res_replay["stdout"]
+    zero_compiled_units = (
+        "Restored" in res_replay["stdout"]
+        or "Up-to-date" in res_replay["stdout"]
+        or "Checked" in res_replay["stdout"]
+        or "0 actions" in res_replay["stdout"]
+    )
     warning_replay_verified = replay_ok and zero_compiled_units
 
     print("  Testing rmeta separation: check vs build in WT 01...")
