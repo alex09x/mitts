@@ -174,11 +174,11 @@ pub fn resolve_package_features(
                                 false
                             };
 
-                            if is_weak && !is_dep_active {
-                                continue;
-                            }
-
-                            if let Some(d) = dep_decl {
+                            if is_weak {
+                                if !is_dep_active {
+                                    continue;
+                                }
+                            } else if let Some(d) = dep_decl {
                                 activate_dep_instance(
                                     ctx,
                                     packages,

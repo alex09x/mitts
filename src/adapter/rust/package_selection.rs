@@ -236,12 +236,11 @@ pub fn has_active_dependency(
                     for sub in sub_feats {
                         let sub_dep = sub.strip_prefix("dep:").unwrap_or(sub);
                         let sub_crate = sub_dep.split('/').next().unwrap_or(sub_dep);
-                        let sub_crate_clean = sub_crate.strip_suffix('?').unwrap_or(sub_crate);
-                        if sub_crate_clean == alias
-                            || sub_crate_clean.replace('-', "_") == clean
-                            || sub_crate_clean == real_name
-                            || sub_crate_clean.replace('-', "_") == real_name.replace('-', "_")
-                        {
+                        if sub_crate.ends_with('?') {
+                            continue;
+                        }
+                        let sub_clean = sub_crate.replace('-', "_");
+                        if sub_crate == alias || sub_clean == clean || sub_crate == real_name {
                             return true;
                         }
                     }
