@@ -16,25 +16,33 @@ is paired with its exact JSON path. Anything not in JSON is marked as 'not measu
 """
 
 import json
+import os
 from pathlib import Path
 
-BENCH_DIR = Path("benchmark-results")
-L5B_JSON = BENCH_DIR / "results_l5b_clippy_defensible.json"
-T5_JSON = BENCH_DIR / "results_t5_test_swarm_defensible.json"
-L5A_JSON = BENCH_DIR / "results_l5a_check_defensible.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BENCH_DIR = Path(os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results"))
+BENCH_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_json(p: Path):
-    if not p.is_file():
-        return None
-    with open(p, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_json(filename: str):
+    candidates = [
+        BENCH_DIR / filename,
+        REPO_ROOT / "benchmark-results" / filename,
+        Path.home() / "mitts-benchmarks/docs" / filename,
+        Path.home() / "mitts-benchmarks" / filename,
+        Path.cwd() / "benchmark-results" / filename,
+    ]
+    for p in candidates:
+        if p.is_file():
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+    return None
 
 
 def render_report():
-    l5b_data = load_json(L5B_JSON)
-    t5_data = load_json(T5_JSON)
-    l5a_data = load_json(L5A_JSON)
+    l5b_data = load_json("results_l5b_clippy_defensible.json")
+    t5_data = load_json("results_t5_test_swarm_defensible.json")
+    l5a_data = load_json("results_l5a_check_defensible.json") or load_json("results_l5a_audit_defensible.json")
 
     lines = []
     lines.append("# Defensible Multi-Worktree Benchmark Audit Report")
