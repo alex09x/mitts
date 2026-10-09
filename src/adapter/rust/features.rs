@@ -207,43 +207,40 @@ pub fn resolve_package_features(
     result
 }
 
-fn find_manifest_dependency<'a>(toml: &'a CargoToml, name: &str) -> Option<&'a TomlDependency> {
-    if let Some(d) = toml.dependencies.get(name) {
-        return Some(d);
-    }
-    if let Some(d) = toml.dev_dependencies.get(name) {
-        return Some(d);
-    }
-    if let Some(d) = toml.build_dependencies.get(name) {
-        return Some(d);
-    }
+fn collect_all_manifest_dependencies<'a>(
+    toml: &'a CargoToml,
+    name: &str,
+) -> Vec<&'a TomlDependency> {
     let norm = name.replace('-', "_");
-    for (spec, target_spec) in &toml.target {
+    let mut result = Vec::new();
+    let mut add = |map: &'a HashMap<String, TomlDependency>| {
+        if let Some(d) = map.get(name).or_else(|| map.get(&norm)) {
+            result.push(d);
+        }
+    };
+    add(&toml.dependencies);
+    for (spec, t) in &toml.target {
         if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
-            if let Some(d) = target_spec
-                .dependencies
-                .get(name)
-                .or_else(|| target_spec.dependencies.get(&norm))
-            {
-                return Some(d);
-            }
-            if let Some(d) = target_spec
-                .build_dependencies
-                .get(name)
-                .or_else(|| target_spec.build_dependencies.get(&norm))
-            {
-                return Some(d);
-            }
-            if let Some(d) = target_spec
-                .dev_dependencies
-                .get(name)
-                .or_else(|| target_spec.dev_dependencies.get(&norm))
-            {
-                return Some(d);
-            }
+            add(&t.dependencies);
         }
     }
-    None
+    add(&toml.build_dependencies);
+    for (spec, t) in &toml.target {
+        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
+            add(&t.build_dependencies);
+        }
+    }
+    add(&toml.dev_dependencies);
+    for (spec, t) in &toml.target {
+        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
+            add(&t.dev_dependencies);
+        }
+    }
+    result
+}
+
+fn find_manifest_dependency<'a>(toml: &'a CargoToml, name: &str) -> Option<&'a TomlDependency> {
+    collect_all_manifest_dependencies(toml, name).into_iter().next()
 }
 
 fn activate_dep_target(
@@ -265,24 +262,32 @@ fn activate_dep_target(
     });
     let req_ver = dep_spec.and_then(|s| parse_dep_spec(s).1);
     if let Some(target_id) = resolve_dep_id(packages, real, req_ver) {
-        let (feats, default_feats) = find_manifest_dependency(ctx.toml, dep_name)
-            .or_else(|| find_manifest_dependency(ctx.toml, real))
-            .map(|d| match d {
-                TomlDependency::Simple(_) => (Vec::new(), true),
-                TomlDependency::Detailed(dt) => (
-                    dt.features.clone().unwrap_or_default(),
-                    dt.default_features.unwrap_or(true),
-                ),
-            })
-            .unwrap_or_else(|| (Vec::new(), true));
-
-        let set = requested.entry(target_id).or_default();
-        if default_feats && set.insert("default".to_string()) {
-            *changed = true;
+        let mut decls = collect_all_manifest_dependencies(ctx.toml, dep_name);
+        if decls.is_empty() && real != dep_name {
+            decls = collect_all_manifest_dependencies(ctx.toml, real);
         }
-        for f in feats {
-            if set.insert(f) {
+        let set = requested.entry(target_id).or_default();
+        if decls.is_empty() {
+            if set.insert("default".to_string()) {
                 *changed = true;
+            }
+        } else {
+            for d in decls {
+                let (feats, default_feats) = match d {
+                    TomlDependency::Simple(_) => (Vec::new(), true),
+                    TomlDependency::Detailed(dt) => (
+                        dt.features.clone().unwrap_or_default(),
+                        dt.default_features.unwrap_or(true),
+                    ),
+                };
+                if default_feats && set.insert("default".to_string()) {
+                    *changed = true;
+                }
+                for f in feats {
+                    if set.insert(f) {
+                        *changed = true;
+                    }
+                }
             }
         }
     }

@@ -40,15 +40,19 @@ impl CargoToml {
             });
         }
 
-        let default_main = pkg_dir.join("src").join("main.rs");
-        if default_main.is_file() {
+        let bin_targets: Vec<DiscoveredTarget> = self
+            .discover_targets(pkg_dir)
+            .into_iter()
+            .filter(|t| t.kind == "bin")
+            .collect();
+        for b in bin_targets {
             targets.push(DiscoveredTarget {
-                name: format!("{}_bin_test", pkg_name.replace('-', "_")),
+                name: format!("{}_bin_test", b.name),
                 kind: "test".to_string(),
-                src_path: default_main,
-                edition: edition.clone(),
+                src_path: b.src_path,
+                edition: b.edition,
                 crate_types: vec!["bin".to_string()],
-                required_features: None,
+                required_features: b.required_features,
             });
         }
 
