@@ -247,29 +247,41 @@ impl ContentAddressedStore {
         }
 
         #[cfg(unix)]
-        let needs_link = if let (Ok(meta), Ok(obj_meta)) =
-            (fs::metadata(&artifact_path), fs::metadata(&obj_path))
         {
             use std::os::unix::fs::MetadataExt;
-            meta.ino() != obj_meta.ino() || meta.dev() != obj_meta.dev()
-        } else {
-            true
-        };
-
-        #[cfg(not(unix))]
-        let needs_link = if let Ok(meta) = fs::metadata(&artifact_path) {
-            let obj_meta = fs::metadata(&obj_path)?;
-            meta.len() != obj_meta.len()
-        } else {
-            true
-        };
-
-        if needs_link {
-            let _ = fs::remove_file(&artifact_path);
-            if fs::hard_link(&obj_path, &artifact_path).is_err() {
-                reflink_or_copy(&obj_path, &artifact_path, false)?;
+            if let (Ok(meta), Ok(obj_meta)) =
+                (fs::metadata(&artifact_path), fs::metadata(&obj_path))
+            {
+                if meta.ino() == obj_meta.ino() && meta.dev() == obj_meta.dev() {
+                    return Ok(artifact_path);
+                }
             }
         }
+
+        #[cfg(not(unix))]
+        {
+            if let (Ok(meta), Ok(obj_meta)) =
+                (fs::metadata(&artifact_path), fs::metadata(&obj_path))
+            {
+                if meta.len() == obj_meta.len() {
+                    return Ok(artifact_path);
+                }
+            }
+        }
+
+        let pid = std::process::id();
+        let tid = format!("{:?}", std::thread::current().id());
+        let clean_tid: String = tid.chars().filter(|c| c.is_alphanumeric()).collect();
+        let tmp_name = format!(".tmp_{}_{}_{}.{}", clean_crate, pid, clean_tid, ext);
+        let tmp_path = artifacts_dir.join(tmp_name);
+
+        let _ = fs::remove_file(&tmp_path);
+        if fs::hard_link(&obj_path, &tmp_path).is_err() {
+            reflink_or_copy(&obj_path, &tmp_path, false)?;
+        }
+        let _ = fs::rename(&tmp_path, &artifact_path);
+        let _ = fs::remove_file(&tmp_path);
+
         Ok(artifact_path)
     }
 }
