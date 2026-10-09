@@ -186,15 +186,22 @@ pub fn has_active_dependency(
 ) -> bool {
     let clean = dep_name.replace('-', "_");
     let check_dep = |alias: &str, d: &TomlDependency| -> bool {
-        let real_name = match d {
-            TomlDependency::Simple(_) => alias,
-            TomlDependency::Detailed(dt) => dt.package_name.as_deref().unwrap_or(alias),
+        let (real_name, has_custom_pkg) = match d {
+            TomlDependency::Simple(_) => (alias, false),
+            TomlDependency::Detailed(dt) => (
+                dt.package_name.as_deref().unwrap_or(alias),
+                dt.package_name.is_some(),
+            ),
         };
-        if alias == dep_name
-            || alias.replace('-', "_") == clean
-            || real_name == dep_name
-            || real_name.replace('-', "_") == clean
-        {
+        let name_matches = if has_custom_pkg {
+            real_name == dep_name || real_name.replace('-', "_") == clean
+        } else {
+            alias == dep_name
+                || alias.replace('-', "_") == clean
+                || real_name == dep_name
+                || real_name.replace('-', "_") == clean
+        };
+        if name_matches {
             let is_optional = match d {
                 TomlDependency::Simple(_) => false,
                 TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
@@ -273,14 +280,21 @@ pub fn has_active_dependency(
 pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: bool) -> bool {
     let clean = dep_name.replace('-', "_");
     let check_dep = |alias: &str, d: &TomlDependency| -> bool {
-        let real_name = match d {
-            TomlDependency::Simple(_) => alias,
-            TomlDependency::Detailed(dt) => dt.package_name.as_deref().unwrap_or(alias),
+        let (real_name, has_custom_pkg) = match d {
+            TomlDependency::Simple(_) => (alias, false),
+            TomlDependency::Detailed(dt) => (
+                dt.package_name.as_deref().unwrap_or(alias),
+                dt.package_name.is_some(),
+            ),
         };
-        alias == dep_name
-            || alias.replace('-', "_") == clean
-            || real_name == dep_name
-            || real_name.replace('-', "_") == clean
+        if has_custom_pkg {
+            real_name == dep_name || real_name.replace('-', "_") == clean
+        } else {
+            alias == dep_name
+                || alias.replace('-', "_") == clean
+                || real_name == dep_name
+                || real_name.replace('-', "_") == clean
+        }
     };
 
     for (alias, d) in &pkg_toml.dependencies {

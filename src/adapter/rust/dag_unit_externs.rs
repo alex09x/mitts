@@ -78,18 +78,25 @@ pub fn resolve_extern_crates(
                 artifact_path.clone()
             };
 
+            let mut add_extern = |name: &str, path: &PathBuf| {
+                let clean = name.replace('-', "_");
+                if !extern_crates.iter().any(|(n, _): &(String, PathBuf)| n == &clean) {
+                    extern_crates.push((clean, path.clone()));
+                }
+            };
+
             if matched_aliases.is_empty() {
-                extern_crates.push((dep_crate.to_string(), chosen_artifact.clone()));
+                add_extern(dep_crate, &chosen_artifact);
                 if dep_crate != norm_pkg {
-                    extern_crates.push((norm_pkg.clone(), chosen_artifact.clone()));
+                    add_extern(&norm_pkg, &chosen_artifact);
                 }
             } else {
                 for alias in matched_aliases {
-                    extern_crates.push((alias, chosen_artifact.clone()));
+                    add_extern(&alias, &chosen_artifact);
                 }
-                extern_crates.push((dep_crate.to_string(), chosen_artifact.clone()));
+                add_extern(dep_crate, &chosen_artifact);
                 if dep_crate != norm_pkg {
-                    extern_crates.push((norm_pkg.clone(), chosen_artifact));
+                    add_extern(&norm_pkg, &chosen_artifact);
                 }
             }
         }
