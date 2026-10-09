@@ -120,6 +120,13 @@ pub struct TomlPackage {
     pub license: Option<String>,
     #[serde(default, deserialize_with = "deserialize_maybe_bool_or_string")]
     pub readme: Option<String>,
+    #[serde(
+        default,
+        rename = "rust-version",
+        alias = "rust_version",
+        deserialize_with = "deserialize_maybe_inherited_string"
+    )]
+    pub rust_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

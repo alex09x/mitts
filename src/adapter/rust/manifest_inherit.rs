@@ -64,6 +64,14 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
                     pkg.version = Some(v.clone());
                 }
             }
+            if pkg.rust_version.is_none() {
+                if let Some(toml::Value::String(ref rv)) = ws_pkg
+                    .get("rust-version")
+                    .or_else(|| ws_pkg.get("rust_version"))
+                {
+                    pkg.rust_version = Some(rv.clone());
+                }
+            }
         }
     }
 

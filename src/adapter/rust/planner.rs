@@ -308,14 +308,42 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .extra_args
         .iter()
         .any(|a| a == "--workspace" || a == "--all");
+    let is_virtual_workspace = root_toml.workspace.is_some() && root_toml.package.is_none();
+    let default_members = root_toml
+        .workspace
+        .as_ref()
+        .map(|w| &w.default_members)
+        .filter(|dm| !dm.is_empty());
+
+    let is_selected_ws_member = |pkg_name: &str| -> bool {
+        if let Some(dm) = default_members {
+            for member_pat in dm {
+                let member_dir = if member_pat == "." {
+                    project_dir.to_path_buf()
+                } else {
+                    project_dir.join(member_pat)
+                };
+                if let Some((dir, _)) = workspace_manifests.get(pkg_name) {
+                    if dir == &member_dir || (member_pat == "." && dir == project_dir) {
+                        return true;
+                    }
+                }
+            }
+            false
+        } else {
+            workspace_manifests.contains_key(pkg_name)
+        }
+    };
+
     let mut root_unit_ids = Vec::new();
     for u in &units {
         let is_root_pkg = target_pkg == Some(&u.package_name)
             || (target_pkg.is_none()
-                && root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(&u.package_name));
+                && ((!is_virtual_workspace
+                    && root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(&u.package_name))
+                    || (is_virtual_workspace && is_selected_ws_member(&u.package_name))));
         if (opt.mode == crate::adapter::rust::types::BuildMode::Test && u.kind == "test")
-            || u.kind == "bin"
-            || (is_root_pkg && (u.kind == "lib" || u.kind == "proc-macro"))
+            || (is_root_pkg && (u.kind == "lib" || u.kind == "proc-macro" || u.kind == "bin"))
             || (has_all_ws && u.is_workspace)
         {
             root_unit_ids.push(u.unit_id());

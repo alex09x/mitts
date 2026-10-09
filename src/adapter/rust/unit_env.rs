@@ -83,7 +83,14 @@ pub fn compute_unit_rustc_env(
             );
             let authors = p.authors.as_deref().unwrap_or(&[]).join(":");
             env.insert("CARGO_PKG_AUTHORS".to_string(), authors);
+            if let Some(ref rv) = p.rust_version {
+                env.insert("CARGO_PKG_RUST_VERSION".to_string(), rv.clone());
+            }
         }
+    }
+
+    if unit.is_workspace {
+        env.insert("CARGO_PRIMARY_PACKAGE".to_string(), "1".to_string());
     }
 
     for feat in &unit.features {

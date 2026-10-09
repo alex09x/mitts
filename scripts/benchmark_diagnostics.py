@@ -12,6 +12,7 @@ from pathlib import Path
 
 ANSI_REGEX = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 DIAG_HEADER_RE = re.compile(r'^(warning|error)(?:\[([^\]]+)\])?:\s+(.*)$')
+SHORT_DIAG_RE = re.compile(r'^([^:\s]+):(\d+):(\d+):\s+(warning|error)(?:\[([^\]]+)\])?:\s+(.*)$')
 LOC_RE = re.compile(r'^\s+-->\s+([^:]+):(\d+):(\d+)')
 SUMMARY_RE = re.compile(r'^(warning|error):\s+.*(generated \d+ warning|could not compile|aborting due to|\d+ warnings? emitted)')
 MITTS_BANNER_RE = re.compile(r'^\[mitts::.*\]')
@@ -32,6 +33,30 @@ def extract_diagnostics_counter(stderr_text: str, ws_root: Path) -> collections.
     while i < n:
         line = lines[i].strip()
         if not line or MITTS_BANNER_RE.match(line) or SUMMARY_RE.match(line):
+            i += 1
+            continue
+
+        m_short = SHORT_DIAG_RE.match(line)
+        if m_short:
+            raw_file_str = m_short.group(1).strip()
+            line_num = int(m_short.group(2))
+            col_num = int(m_short.group(3))
+            level = m_short.group(4)
+            code = (m_short.group(5) or "").strip()
+            msg = m_short.group(6).strip()
+            if ': help:' in msg:
+                msg = msg.split(': help:', 1)[0].strip()
+
+            try:
+                raw_path = Path(raw_file_str)
+                if raw_path.is_absolute() and raw_path.is_relative_to(ws_root):
+                    rel_file = str(raw_path.relative_to(ws_root))
+                else:
+                    rel_file = raw_file_str
+            except Exception:
+                rel_file = raw_file_str
+
+            counter[(level, code, rel_file, line_num, col_num, msg)] += 1
             i += 1
             continue
 
