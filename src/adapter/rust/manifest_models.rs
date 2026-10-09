@@ -120,6 +120,8 @@ pub struct TomlPackage {
     pub links: Option<String>,
     #[serde(default)]
     pub autobins: Option<bool>,
+    #[serde(default)]
+    pub autotests: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_maybe_inherited_string")]
     pub description: Option<String>,
     #[serde(default, deserialize_with = "deserialize_maybe_inherited_string")]

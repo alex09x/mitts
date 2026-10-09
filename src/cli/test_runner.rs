@@ -196,6 +196,8 @@ pub fn execute_test_binaries(
             cmd.arg(extra);
         }
 
+        println!("     Running {}", bin_path.display());
+
         let status = match cmd.status() {
             Ok(st) => st,
             Err(err) => {

@@ -56,30 +56,40 @@ impl CargoToml {
             });
         }
 
-        if !self.test.is_empty() {
-            for t in &self.test {
-                let src = match t.path {
-                    Some(ref p) => pkg_dir.join(p),
-                    None => pkg_dir.join("tests").join(format!("{}.rs", t.name)),
-                };
-                if src.is_file() {
-                    targets.push(DiscoveredTarget {
-                        name: t.name.clone(),
-                        kind: "test".to_string(),
-                        src_path: src,
-                        edition: edition.clone(),
-                        crate_types: vec!["bin".to_string()],
-                        required_features: t.required_features.clone(),
-                    });
-                }
+        let mut explicit_test_paths = std::collections::HashSet::new();
+        for t in &self.test {
+            let src = match t.path {
+                Some(ref p) => pkg_dir.join(p),
+                None => pkg_dir.join("tests").join(format!("{}.rs", t.name)),
+            };
+            if src.is_file() {
+                explicit_test_paths.insert(src.clone());
+                targets.push(DiscoveredTarget {
+                    name: t.name.clone(),
+                    kind: "test".to_string(),
+                    src_path: src,
+                    edition: edition.clone(),
+                    crate_types: vec!["bin".to_string()],
+                    required_features: t.required_features.clone(),
+                });
             }
-        } else {
+        }
+
+        let autotests = self
+            .package
+            .as_ref()
+            .and_then(|p| p.autotests)
+            .unwrap_or(true);
+        if autotests {
             let tests_dir = pkg_dir.join("tests");
             if let Ok(entries) = fs::read_dir(&tests_dir) {
                 let mut test_files = Vec::new();
                 for entry in entries.flatten() {
                     let p = entry.path();
-                    if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    if p.is_file()
+                        && p.extension().and_then(|e| e.to_str()) == Some("rs")
+                        && !explicit_test_paths.contains(&p)
+                    {
                         test_files.push(p);
                     }
                 }
@@ -87,7 +97,7 @@ impl CargoToml {
                 for path in test_files {
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                         targets.push(DiscoveredTarget {
-                            name: format!("test_{}", stem),
+                            name: stem.to_string(),
                             kind: "test".to_string(),
                             src_path: path,
                             edition: edition.clone(),

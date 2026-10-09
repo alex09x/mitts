@@ -49,8 +49,8 @@ edition = "2021"
 
     let test_targets = cargo_toml.discover_test_targets(pkg_dir);
     let test_names: Vec<&str> = test_targets.iter().map(|t| t.name.as_str()).collect();
-    assert!(test_names.contains(&"test_integration_one"));
-    assert!(test_names.contains(&"test_integration_two"));
+    assert!(test_names.contains(&"integration_one"));
+    assert!(test_names.contains(&"integration_two"));
 }
 
 #[test]
