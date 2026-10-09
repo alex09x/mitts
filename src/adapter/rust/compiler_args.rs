@@ -253,12 +253,45 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             .unwrap_or(inv.out_dir)
             .to_path_buf()
     };
-    cmd.current_dir(cwd);
+    cmd.current_dir(&cwd);
 
     let unit_env =
         super::unit_env::compute_unit_rustc_env(inv.unit, inv.directives, inv.jobserver_auth);
     for (k, v) in &unit_env {
         cmd.env(k, v);
+    }
+    if is_test {
+        let profile_name = if inv.release { "release" } else { "debug" };
+        let profile_dir = if let Some(deps) = inv.deps_dir {
+            deps.parent().unwrap_or(deps).to_path_buf()
+        } else {
+            cwd.join("target").join(profile_name)
+        };
+        let pkg_dir = inv.unit.manifest_path.parent().unwrap_or(Path::new("."));
+        if let Ok(toml) = super::manifest::CargoToml::from_file(&inv.unit.manifest_path) {
+            for b in toml.discover_targets(pkg_dir) {
+                if b.kind == "bin" {
+                    let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
+                    cmd.env(var, profile_dir.join(&b.name));
+                }
+            }
+        }
+        if inv.unit.is_workspace {
+            if let Ok(root_toml) = super::manifest::CargoToml::from_file(&cwd.join("Cargo.toml")) {
+                for (_, member_dir) in root_toml.discover_workspace_members(&cwd) {
+                    if let Ok(m_toml) =
+                        super::manifest::CargoToml::from_file(&member_dir.join("Cargo.toml"))
+                    {
+                        for b in m_toml.discover_targets(&member_dir) {
+                            if b.kind == "bin" {
+                                let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
+                                cmd.env(var, profile_dir.join(&b.name));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     cmd.env("RUSTC", &compiler_bin);
     if let Some(toolchain_name) = compiler_bin
