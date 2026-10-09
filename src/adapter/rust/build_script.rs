@@ -109,9 +109,16 @@ pub fn execute_build_script(
                                     directives.out_dir = Some(out_dir.clone());
                                     directives.links =
                                         pkg_toml.package.as_ref().and_then(|p| p.links.clone());
+                                    let cached_out_str = cached_out_dir.to_string_lossy();
+                                    let out_str = out_dir.to_string_lossy();
                                     for search in &mut directives.link_searches {
-                                        if *search == cached_out_dir.to_string_lossy() {
-                                            *search = out_dir.to_string_lossy().to_string();
+                                        if search == &cached_out_str {
+                                            *search = out_str.to_string();
+                                        }
+                                    }
+                                    for val in directives.envs.values_mut() {
+                                        if val.contains(cached_out_str.as_ref()) {
+                                            *val = val.replace(cached_out_str.as_ref(), out_str.as_ref());
                                         }
                                     }
                                     return Ok(directives);
@@ -331,9 +338,16 @@ pub fn execute_build_script(
         let entry_dir = script_cas_dir.join(&exec_key);
         let cas_out = entry_dir.join("out");
         directives.out_dir = Some(cas_out.clone());
+        let out_str = out_dir.to_string_lossy();
+        let cas_out_str = cas_out.to_string_lossy();
         for search in &mut directives.link_searches {
-            if *search == out_dir.to_string_lossy() {
-                *search = cas_out.to_string_lossy().to_string();
+            if search == &out_str {
+                *search = cas_out_str.to_string();
+            }
+        }
+        for val in directives.envs.values_mut() {
+            if val.contains(out_str.as_ref()) {
+                *val = val.replace(out_str.as_ref(), cas_out_str.as_ref());
             }
         }
 
