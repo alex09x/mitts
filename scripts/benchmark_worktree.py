@@ -85,8 +85,8 @@ def prepare_worktrees(repo_dir, base_dir, commits):
     return wts
 
 
-def inject_anomaly(wt_dir):
-    """Injects intentional unused_variables warning in WT 12 without leading underscore."""
+def inject_anomaly(wt_dir, mode="check"):
+    """Injects intentional diagnostics in WT 12 (unused_variables in check, plus clippy::len_zero in clippy)."""
     candidates = [
         wt_dir / "src/lib.rs",
         wt_dir / "src/main.rs",
@@ -107,7 +107,8 @@ def inject_anomaly(wt_dir):
         with open(target, "r") as f:
             original = f.read()
         separator = "" if original.endswith("\n") else "\n"
-        snippet = separator + "#[allow(dead_code)]\n#[allow(missing_docs)]\n#[doc(hidden)]\npub fn __mitts_audit_anomaly() {\n    let unused_test_var = 42;\n}\n"
+        clippy_line = "    let _clippy_anomaly = vec![1].len() == 0;\n" if mode == "clippy" else ""
+        snippet = separator + f"#[allow(dead_code)]\n#[allow(missing_docs)]\n#[doc(hidden)]\npub fn __mitts_audit_anomaly() {{\n    let unused_test_var = 42;\n{clippy_line}}}\n"
         new_content = original + snippet
         with open(target, "w") as f:
             f.write(new_content)
@@ -122,6 +123,7 @@ def inject_anomaly(wt_dir):
         return {
             "relative_file": rel_path,
             "line": anomaly_line,
+            "mode": mode,
         }
     return None
 

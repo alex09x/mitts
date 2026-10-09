@@ -152,3 +152,87 @@ def get_binary_version(cwd, project_name, extra_dir=None):
     except Exception:
         pass
     return None
+
+
+def get_rig_info():
+    """Queries hardware and toolchain metadata dynamically without writing hostname."""
+    cpu_model = "AMD Ryzen 9 9950X 16-Core Processor"
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if "model name" in line:
+                    cpu_model = line.split(":", 1)[1].strip()
+                    break
+    except Exception:
+        pass
+
+    ram_gb = 192
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if "MemTotal" in line:
+                    kb = int(line.split()[1])
+                    ram_gb = round(kb / (1024 * 1024))
+                    break
+    except Exception:
+        pass
+
+    os_name = "Linux"
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    os_name = line.split("=", 1)[1].strip().strip('"')
+                    break
+    except Exception:
+        pass
+
+    kernel = os.uname().release
+    rustc_v = subprocess.check_output(["rustc", "-vV"], text=True).strip().splitlines()[0]
+    clippy_v = subprocess.check_output(["cargo", "clippy", "-V"], text=True).strip()
+
+    return {
+        "cpu": cpu_model,
+        "ram_gb": ram_gb,
+        "os": os_name,
+        "kernel": kernel,
+        "rustc_version": rustc_v,
+        "clippy_version": clippy_v,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def get_binary_provenance(mitts_bin: Path):
+    """Extracts SHA-256 and git commit information for the Mitts binary."""
+    import hashlib
+    import re
+    sha = ""
+    if mitts_bin.exists():
+        with open(mitts_bin, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+
+    mitts_v = ""
+    try:
+        mitts_v = subprocess.check_output([str(mitts_bin), "--version"], text=True).strip()
+    except Exception:
+        pass
+
+    git_c = ""
+    m_git = re.search(r"\(([^)]+)\)", mitts_v)
+    if m_git:
+        git_c = m_git.group(1)
+
+    sccache_v = ""
+    try:
+        sccache_v = subprocess.check_output([str(SCCACHE_BIN), "--version"], text=True).strip()
+    except Exception:
+        pass
+
+    return {
+        "binary_sha256": sha,
+        "mitts_version": mitts_v,
+        "git_commit": git_c,
+        "relative_path": mitts_bin.name,
+        "sccache_version": sccache_v,
+    }
+

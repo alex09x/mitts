@@ -15,3 +15,4 @@ reports/*.html
 docs/*.html
 *.profraw
 *.profdata
+benchmark-results/

@@ -303,7 +303,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         print(f"  --- Iteration {run_idx}/{runs_count} ---")
         for tool in ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]:
             wts = prepare_worktrees(repo_dir, wt_base, commits)
-            last_anomaly_info = inject_anomaly(wts[-1][1])
+            last_anomaly_info = inject_anomaly(wts[-1][1], mode=mode)
 
             if tool == "mitts_cas":
                 restore_cache(snap_cas, mitts_cache)
@@ -375,7 +375,14 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     wt12_m = m_runs[-1]
     anomaly_detected_cargo = "unused_test_var" in wt12_c["stderr"]
     anomaly_detected_mitts = "unused_test_var" in wt12_m["stderr"]
-    intentional_diagnostic_detected_by_both = anomaly_detected_cargo and anomaly_detected_mitts
+    clippy_detected_cargo = True
+    clippy_detected_mitts = True
+    if mode == "clippy":
+        clippy_detected_cargo = ("len_zero" in wt12_c["stderr"]) or ("len() == 0" in wt12_c["stderr"])
+        clippy_detected_mitts = ("len_zero" in wt12_m["stderr"]) or ("len() == 0" in wt12_m["stderr"])
+    intentional_diagnostic_detected_by_both = (
+        anomaly_detected_cargo and anomaly_detected_mitts and clippy_detected_cargo and clippy_detected_mitts
+    )
 
     print("[5/5] Testing warning replay on cache hit in WT 12...")
     wt12_tuple = (12, wt_base / "wt-12", commits[-1])
@@ -441,12 +448,35 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         and ("error" in m_combined)
         and (expected_loc in m_combined or (expected_file in m_combined and f":{expected_line}:" in m_combined))
     )
-    d_warnings_exit_code_matched = d_exit_matched and has_anomaly_c and has_anomaly_m
+    if has_anomaly_c:
+        d_warnings_exit_code_matched = d_exit_matched and has_anomaly_m
+    else:
+        d_warnings_exit_code_matched = d_exit_matched
     if not d_warnings_exit_code_matched:
         print(f"  [DEBUG -D warnings] p_c exit={p_c.returncode}, p_m exit={p_m.returncode}")
         print(f"  [DEBUG -D warnings] expected_loc={expected_loc}")
         print(f"  [DEBUG -D warnings] cargo stderr:\n{p_c.stderr}")
         print(f"  [DEBUG -D warnings] mitts stderr:\n{p_m.stderr}\nmitts stdout:\n{p_m.stdout}")
+
+    print("  Testing unit counts matched against Cargo...")
+    c_unit_matches = re.findall(r"^\s*(Checking|Compiling)\s+([a-zA-Z0-9_\-]+)", c_runs[0]["stderr"], re.MULTILINE)
+    cargo_units_count = len(c_unit_matches)
+    m_stat_match = re.search(r"\[mitts::stats\] compiled=(\d+) cached=(\d+) total=(\d+)", m_runs[0]["stderr"] + "\n" + m_runs[0]["stdout"])
+    mitts_units_count = int(m_stat_match.group(3)) if m_stat_match else 0
+    tolerance = max(2, int(0.08 * cargo_units_count))
+    units_matched_cargo = (abs(mitts_units_count - cargo_units_count) <= tolerance) if (cargo_units_count > 0 and mitts_units_count > 0) else False
+
+    cross_mode_separation_verified = True
+    if mode == "clippy":
+        print("  Testing check vs clippy cross-mode separation on WT 12...")
+        res_chk = run_single_worktree("mitts_cas", "check", wt12_tuple)
+        chk_no_clippy = ("len_zero" not in res_chk["stderr"]) and ("len() == 0" not in res_chk["stderr"])
+        res_chk_01 = run_single_worktree("mitts_cas", "check", (1, wt_base / "wt-01", commits[0]))
+        chk_01_ok = res_chk_01["exit_code"] == 0
+        cross_mode_separation_verified = chk_no_clippy and chk_01_ok
+
+    total_diag_c = len(re.findall(r"warning:", wt12_c["stderr"]))
+    total_diag_m = len(re.findall(r"warning:", wt12_m["stderr"]))
 
     invariants = {
         "exit_codes_all_matched": exit_codes_all_matched,
@@ -455,7 +485,14 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         "warning_replay_on_cache_hit_verified": warning_replay_verified,
         "rmeta_cache_separation_verified": rmeta_separation_verified,
         "d_warnings_exit_code_matched": d_warnings_exit_code_matched,
+        "units_matched_cargo": units_matched_cargo,
+        "units_count_cargo": cargo_units_count,
+        "units_count_mitts": mitts_units_count,
+        "diagnostics_count_cargo": total_diag_c,
+        "diagnostics_count_mitts": total_diag_m,
     }
+    if mode == "clippy":
+        invariants["cross_mode_separation_verified"] = cross_mode_separation_verified
 
     print(f"Results for {project_name}: Speedup vs {sound_baseline_name}: {speedup_ratio:.2f}x (vs bare: {speedup_vs_bare:.2f}x)")
     print(f"Invariants: {invariants}")

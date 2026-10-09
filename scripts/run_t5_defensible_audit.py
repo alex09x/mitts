@@ -1,0 +1,366 @@
+# Mitts Build — Rust-first build and package tooling with shared artifact cache
+# Copyright (c) 2026 Alexander Panasenko
+#
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+"""
+T5: Multi-Worktree Test Swarm Defensible Audit
+Measures test compilation throughput, execution wall-clock time, caching speedup,
+peak memory, disk footprint, and test result parity across 12 git worktrees on
+4 distinct commits on AMD Ryzen 9 9950X.
+"""
+
+import argparse
+import concurrent.futures
+import functools
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+from benchmark_common import (
+    get_binary_provenance,
+    get_rig_info,
+)
+from benchmark_worktree import (
+    clean_sccache,
+    get_disk_usage_mb,
+    prepare_worktrees,
+    restore_cache,
+    snapshot_cache,
+)
+
+print = functools.partial(print, flush=True)
+
+BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
+PROJECTS_DIR = BENCH_ROOT / "projects"
+SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
+MITTS_BIN = Path(os.environ.get("MITTS_BIN", BENCH_ROOT / "mitts-bin"))
+SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
+CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
+
+if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
+
+
+def inject_test_defect(wt_dir: Path):
+    candidates = [
+        wt_dir / "src/lib.rs",
+        wt_dir / "src/main.rs",
+        wt_dir / "crates/nu-protocol/src/lib.rs",
+        wt_dir / "crates/nu-utils/src/lib.rs",
+        wt_dir / "tokio/src/lib.rs",
+        wt_dir / "serde/src/lib.rs",
+        wt_dir / "crates/core/lib.rs",
+    ]
+    target = next((c for c in candidates if c.is_file()), None)
+    if not target:
+        for r, _, files in os.walk(wt_dir):
+            if "lib.rs" in files and ".git" not in r:
+                target = Path(r) / "lib.rs"
+                break
+    if target:
+        with open(target, "r") as f:
+            content = f.read()
+        snippet = "\n#[test]\nfn __intentional_test_failure() {\n    assert_eq!(2 + 2, 5, \"intentional test failure for audit\");\n}\n"
+        with open(target, "w") as f:
+            f.write(content + snippet)
+        return str(target.relative_to(wt_dir))
+    return None
+
+
+def parse_test_results(output: str):
+    matches = re.findall(
+        r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored",
+        output,
+    )
+    total_passed = sum(int(m[1]) for m in matches)
+    total_failed = sum(int(m[2]) for m in matches)
+    total_ignored = sum(int(m[3]) for m in matches)
+    return {
+        "binaries_count": len(matches),
+        "passed": total_passed,
+        "failed": total_failed,
+        "ignored": total_ignored,
+    }
+
+
+def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
+    i, wt_dir, commit = wt_tuple
+    env = os.environ.copy()
+    if CARGO_BIN_DIR not in env.get("PATH", ""):
+        env["PATH"] = f"{CARGO_BIN_DIR}:{env.get('PATH', '')}"
+
+    if tool == "mitts_cas":
+        cmd = [str(MITTS_BIN), "test"]
+    elif tool == "cargo_bare":
+        cmd = ["cargo", "test", "--tests"]
+    elif tool == "cargo_sccache":
+        cmd = ["cargo", "test", "--tests"]
+        env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
+    elif tool == "cargo_shared":
+        cmd = ["cargo", "test", "--tests"]
+        env["CARGO_TARGET_DIR"] = str(shared_target_dir)
+
+    start = time.perf_counter()
+    with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+        p = subprocess.Popen(cmd, cwd=wt_dir, env=env, stdout=out_f, stderr=err_f)
+        _, status, ru = os.wait4(p.pid, 0)
+        elapsed = time.perf_counter() - start
+        out_f.seek(0)
+        err_f.seek(0)
+        stdout = out_f.read().decode("utf-8", errors="replace")
+        stderr = err_f.read().decode("utf-8", errors="replace")
+
+    exit_code = os.waitstatus_to_exitcode(status) if hasattr(os, "waitstatus_to_exitcode") else (status >> 8)
+    test_stats = parse_test_results(stdout + "\n" + stderr)
+    return {
+        "wt_index": i,
+        "wall_sec": round(elapsed, 3),
+        "exit_code": exit_code,
+        "max_rss_mb": round(ru.ru_maxrss / 1024.0, 1),
+        "stdout": stdout,
+        "stderr": stderr,
+        "test_stats": test_stats,
+    }
+
+
+def run_test_swarm(tool, worktrees, shared_target_dir=None):
+    start = time.perf_counter()
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(worktrees)) as executor:
+        futs = {executor.submit(run_single_worktree, tool, wt, shared_target_dir): wt for wt in worktrees}
+        for fut in concurrent.futures.as_completed(futs):
+            try:
+                results.append(fut.result())
+            except Exception as e:
+                results.append({"wt_index": -1, "wall_sec": -1, "exit_code": -1, "max_rss_mb": 0, "stdout": "", "stderr": str(e), "test_stats": {}})
+    wall = round(time.perf_counter() - start, 3)
+    results.sort(key=lambda r: r["wt_index"])
+    return {"total_wall_s": wall, "results": results}
+
+
+def compute_stats(vals):
+    if not vals:
+        return {"median": 0.0, "iqr": 0.0, "stddev": 0.0}
+    s = sorted(vals)
+    n = len(s)
+    median = s[n // 2] if n % 2 == 1 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+    q1 = s[n // 4]
+    q3 = s[(3 * n) // 4]
+    iqr = q3 - q1
+    return {
+        "median": round(median, 3),
+        "q1": round(q1, 3),
+        "q3": round(q3, 3),
+        "iqr": round(iqr, 3),
+        "min": round(s[0], 3),
+        "max": round(s[-1], 3),
+    }
+
+
+def run_t5_project(project_name, runs_count=3):
+    print(f"\n=======================================================")
+    print(f"  Starting T5 Defensible Test Swarm: {project_name}")
+    print(f"=======================================================")
+
+    repo_dir = PROJECTS_DIR / project_name
+    if not repo_dir.exists():
+        raise RuntimeError(f"Project repository not found: {repo_dir}")
+
+    out = subprocess.check_output(["git", "log", "-n", "15", "--format=%H"], cwd=repo_dir, text=True)
+    commits_all = out.strip().splitlines()
+    c_head = commits_all[0]
+    c_1 = commits_all[1] if len(commits_all) > 1 else c_head
+    c_5 = commits_all[5] if len(commits_all) > 5 else commits_all[-1]
+    c_14 = commits_all[14] if len(commits_all) > 14 else commits_all[-1]
+    commits = [c_head] * 4 + [c_1] * 3 + [c_5] * 3 + [c_14] * 2
+
+    scratch_dir = BENCH_ROOT / f"scratch_t5_{project_name}"
+    wt_base = scratch_dir / "worktrees"
+    snap_cas = scratch_dir / "snap_cas"
+    snap_sccache = scratch_dir / "snap_sccache"
+    mitts_cache = Path.home() / ".cache" / "mitts"
+    sccache_dir = Path.home() / ".cache" / "sccache"
+
+    print("[1/5] Warming up Mitts CAS on WT-01...")
+    init_wts = prepare_worktrees(repo_dir, wt_base, commits)
+    if mitts_cache.exists():
+        shutil.rmtree(mitts_cache, ignore_errors=True)
+    clean_sccache(sccache_dir)
+
+    res_warm = run_single_worktree("mitts_cas", init_wts[0])
+    if res_warm["exit_code"] != 0:
+        print(f"WARN: Mitts warmup failed:\n{res_warm['stderr'][:500]}")
+    snapshot_cache(mitts_cache, snap_cas)
+
+    print("[2/5] Warming up sccache on WT-01...")
+    run_single_worktree("cargo_sccache", init_wts[0])
+    snapshot_cache(sccache_dir, snap_sccache)
+
+    tool_results = {
+        "mitts_cas": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
+        "cargo_bare": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
+        "cargo_sccache": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
+        "cargo_shared": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
+    }
+
+    baseline_cargo_res = None
+    last_mitts_res = None
+
+    print(f"[3/5] Executing {runs_count} iterations across 12 worktrees per tool...")
+    for run_idx in range(1, runs_count + 1):
+        print(f"  --- Iteration {run_idx}/{runs_count} ---")
+        for tool in ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]:
+            wts = prepare_worktrees(repo_dir, wt_base, commits)
+            inject_test_defect(wts[-1][1])
+
+            if tool == "mitts_cas":
+                restore_cache(snap_cas, mitts_cache)
+            elif tool == "cargo_sccache":
+                restore_cache(snap_sccache, sccache_dir)
+            elif tool == "cargo_shared":
+                st = SHARED_TARGET_ROOT / f"{project_name}_test"
+                if st.exists():
+                    shutil.rmtree(st, ignore_errors=True)
+                st.mkdir(parents=True, exist_ok=True)
+
+            shared_target = SHARED_TARGET_ROOT / f"{project_name}_test" if tool == "cargo_shared" else None
+            swarm_res = run_test_swarm(tool, wts, shared_target)
+            tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
+            tool_results[tool]["runs_data"].append(swarm_res)
+
+            if tool == "cargo_sccache":
+                disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts] + [sccache_dir])
+            elif tool == "mitts_cas":
+                cas_mb = get_disk_usage_mb([mitts_cache])
+                wt_mb = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
+                disk = cas_mb + wt_mb
+            else:
+                disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
+            tool_results[tool]["disk_mb"] = max(tool_results[tool]["disk_mb"], disk)
+
+            if tool == "cargo_bare" and baseline_cargo_res is None:
+                baseline_cargo_res = swarm_res
+            if tool == "mitts_cas":
+                last_mitts_res = swarm_res
+
+            print(f"    {tool:14s}: {swarm_res['total_wall_s']:6.2f}s | disk: {disk:6.1f}MB")
+
+    for tool, data in tool_results.items():
+        st = compute_stats(data["durations_s"])
+        data.update(st)
+
+    bare_med = tool_results["cargo_bare"]["median"]
+    scc_med = tool_results["cargo_sccache"]["median"]
+    mitts_med = tool_results["mitts_cas"]["median"]
+    sound_baseline_name = "cargo_sccache" if scc_med <= bare_med else "cargo_bare"
+    sound_baseline_val = min(bare_med, scc_med)
+    speedup_ratio = round(sound_baseline_val / max(mitts_med, 0.001), 2)
+    speedup_vs_bare = round(bare_med / max(mitts_med, 0.001), 2)
+
+    print("[4/5] Verifying strict T5 test swarm invariants...")
+    m_runs = last_mitts_res["results"]
+    c_runs = baseline_cargo_res["results"]
+
+    exit_codes_all_matched = (
+        all(m["exit_code"] == 0 for m in m_runs[:-1])
+        and all(c["exit_code"] == 0 for c in c_runs[:-1])
+        and (m_runs[-1]["exit_code"] != 0)
+        and (c_runs[-1]["exit_code"] != 0)
+    )
+
+    defect_m = "__intentional_test_failure" in (m_runs[-1]["stdout"] + m_runs[-1]["stderr"])
+    defect_c = "__intentional_test_failure" in (c_runs[-1]["stdout"] + c_runs[-1]["stderr"])
+    intentional_defect_caught_by_both = defect_m and defect_c
+
+    m_stats_clean = m_runs[0]["test_stats"]
+    c_stats_clean = c_runs[0]["test_stats"]
+    test_counts_match = (
+        (m_stats_clean.get("passed", 0) == c_stats_clean.get("passed", 0))
+        and (m_stats_clean.get("failed", 0) == c_stats_clean.get("failed", 0))
+        and (m_stats_clean.get("ignored", 0) == c_stats_clean.get("ignored", 0))
+    )
+
+    print("[5/5] Testing P0 invariant: fast-lock hit NEVER skips test execution...")
+    wt01_tuple = (1, wt_base / "wt-01", commits[0])
+    res_fl = run_single_worktree("mitts_cas", wt01_tuple)
+    fast_lock_executed_tests = (
+        (res_fl["exit_code"] == 0)
+        and (res_fl["test_stats"].get("passed", 0) == c_stats_clean.get("passed", 0))
+        and (res_fl["test_stats"].get("passed", 0) > 0)
+    )
+
+    for tool in tool_results:
+        tool_results[tool].pop("runs_data", None)
+
+    invariants = {
+        "exit_codes_all_matched": exit_codes_all_matched,
+        "intentional_defect_caught_by_both": intentional_defect_caught_by_both,
+        "test_counts_match": test_counts_match,
+        "tests_passed_count": m_stats_clean.get("passed", 0),
+        "fast_lock_never_skips_test_execution": fast_lock_executed_tests,
+    }
+
+    print(f"Results for {project_name}: Speedup vs {sound_baseline_name}: {speedup_ratio:.2f}x (vs bare: {speedup_vs_bare:.2f}x)")
+    print(f"Invariants: {invariants}")
+
+    return {
+        "mode": "test",
+        "worktrees_count": 12,
+        "commit_distribution": "4/3/3/2",
+        "runs": tool_results,
+        "speedup_vs_sound_baseline": {
+            "sound_baseline": sound_baseline_name,
+            "ratio": speedup_ratio,
+            "ratio_vs_bare": speedup_vs_bare,
+        },
+        "invariants": invariants,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="T5 Multi-Worktree Test Swarm Defensible Audit")
+    parser.add_argument("--projects", default="tokio,serde,ripgrep,nushell", help="Comma-separated project list")
+    parser.add_argument("--runs", type=int, default=3, help="Number of benchmark iterations")
+    parser.add_argument("--output", default=".mitts/benchmarks/results_t5_test_swarm_defensible.json", help="Output JSON path")
+    args = parser.parse_args()
+
+    rig = get_rig_info()
+    projects = [p.strip() for p in args.projects.split(",") if p.strip()]
+
+    final_report = {
+        "schema_version": "t5_test_swarm_v1",
+        "provenance": get_binary_provenance(MITTS_BIN),
+        "rig": rig,
+        "mode": "test",
+        "projects": {},
+    }
+
+    for proj in projects:
+        try:
+            res = run_t5_project(proj, runs_count=args.runs)
+            final_report["projects"][proj] = res
+        except Exception as e:
+            print(f"ERROR auditing project {proj}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    out_p = Path(args.output)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_p, "w") as f:
+        json.dump(final_report, f, indent=2)
+    print(f"\nDefensible T5 audit report saved to {out_p}")
+
+
+if __name__ == "__main__":
+    main()
