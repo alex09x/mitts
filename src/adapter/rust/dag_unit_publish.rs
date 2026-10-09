@@ -17,6 +17,21 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub(crate) fn unit_dest_binary(
+    unit: &PlannedCompilationUnit,
+    target_dir: &Path,
+    profile: &str,
+) -> PathBuf {
+    if unit.kind == "test" {
+        target_dir
+            .join(profile)
+            .join("deps")
+            .join(format!("{}-{}", unit.package_name, unit.target_name))
+    } else {
+        target_dir.join(profile).join(&unit.target_name)
+    }
+}
+
 pub(crate) struct PublishArgs<'a> {
     pub unit: &'a PlannedCompilationUnit,
     pub action_key: &'a str,
@@ -47,8 +62,13 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     let _ = crate::core::reflink_or_copy(bp, dest, true);
                 }
                 if let Ok((bin_hash, bin_size)) = ctx.cas.store_file(dest) {
-                    let rel = PathBuf::from(if ctx.opt.release { "release" } else { "debug" })
-                        .join(&unit.target_name);
+                    let rel = dest
+                        .strip_prefix(ctx.target_dir)
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|_| {
+                            PathBuf::from(if ctx.opt.release { "release" } else { "debug" })
+                                .join(&unit.target_name)
+                        });
                     cached_outputs.push(CachedOutput {
                         relative_path: rel,
                         cas_hash: bin_hash,

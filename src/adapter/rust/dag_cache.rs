@@ -204,7 +204,7 @@ pub fn try_restore_from_cache_with_directives(
 
         if is_bin {
             let profile_name = if ctx.opt.release { "release" } else { "debug" };
-            let dest_bin = ctx.target_dir.join(profile_name).join(&unit.target_name);
+            let dest_bin = super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name);
             for out in &entry.outputs {
                 if out.executable {
                     let rel_dest = ctx.target_dir.join(&out.relative_path);

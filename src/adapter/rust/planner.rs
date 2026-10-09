@@ -209,7 +209,6 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         if opt.mode == crate::adapter::BuildMode::Test && (*is_workspace || is_target_pkg) {
             let test_targets = pkg_toml.discover_test_targets(pkg_dir);
             targets.extend(test_targets);
-            targets.retain(|t| t.kind != "bin");
         }
         if !*is_workspace && !is_target_pkg {
             targets.retain(|t| t.kind != "bin" && t.kind != "test");
