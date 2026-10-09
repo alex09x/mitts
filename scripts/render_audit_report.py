@@ -166,6 +166,21 @@ def render_report():
     # Section 6: Invariants Status
     lines.append("## 6. Invariants and Correctness Status")
     lines.append("")
+    lines.append("### L5b Clippy Invariants")
+    lines.append("| Project | Exit Codes Matched | Diagnostic Parity | Intentional Caught | Warning Replay | -D Warnings Match | Units/Pkgs Matched | JSON Path |")
+    lines.append("|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---|")
+    if l5b_data:
+        for proj, pdata in l5b_data.get("projects", {}).items():
+            inv = pdata.get("invariants", {})
+            ec = "PASS" if inv.get("exit_codes_all_matched") else "FAIL"
+            dp = "PASS" if inv.get("diagnostics_matched_against_cargo") else "FAIL"
+            ic = "PASS" if inv.get("intentional_diagnostic_detected_by_both") else "FAIL"
+            wr = "PASS" if inv.get("warning_replay_on_cache_hit_verified") else "FAIL"
+            dw = "PASS" if inv.get("d_warnings_exit_code_matched") else "FAIL"
+            um = "PASS" if inv.get("units_matched_cargo") else "FAIL"
+            lines.append(f"| `{proj}` | {ec} | {dp} | {ic} | {wr} | {dw} | {um} | `projects.{proj}.invariants` |")
+    lines.append("")
+    lines.append("### T5 Test Swarm Invariants")
     lines.append("| Project | Exit Codes Matched | Defect Caught by Both | Test Counts Match | Fast-Lock Never Skips Tests | JSON Path |")
     lines.append("|:---|:---:|:---:|:---:|:---:|:---|")
 

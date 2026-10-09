@@ -463,13 +463,23 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         print(f"  [DEBUG -D warnings] cargo stderr:\n{p_c.stderr}")
         print(f"  [DEBUG -D warnings] mitts stderr:\n{p_m.stderr}\nmitts stdout:\n{p_m.stdout}")
 
-    print("  Testing unit counts matched against Cargo...")
+    print("  Testing unit counts and package parity matched against Cargo...")
     c_unit_matches = re.findall(r"^\s*(Checking|Compiling)\s+([a-zA-Z0-9_\-]+)", c_runs[0]["stderr"], re.MULTILINE)
     cargo_units_count = len(c_unit_matches)
+    cargo_pkgs = set(m[1] for m in c_unit_matches)
+
+    p_exp = subprocess.run([str(MITTS_BIN), "explain"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+    mitts_unit_matches = re.findall(r"^\s*\d+\.\s+([a-zA-Z0-9_\-]+)\s+v([^\s]+)\s+\[([^:]+):\s*([^\]]+)\]", p_exp.stdout, re.MULTILINE)
+    mitts_pkgs = set(m[0] for m in mitts_unit_matches)
+
     m_stat_match = re.search(r"\[mitts::stats\] compiled=(\d+) cached=(\d+) total=(\d+)", m_runs[0]["stderr"] + "\n" + m_runs[0]["stdout"])
-    mitts_units_count = int(m_stat_match.group(3)) if m_stat_match else 0
-    tolerance = max(2, int(0.08 * cargo_units_count))
-    units_matched_cargo = (abs(mitts_units_count - cargo_units_count) <= tolerance) if (cargo_units_count > 0 and mitts_units_count > 0) else False
+    mitts_units_count = int(m_stat_match.group(3)) if m_stat_match else len(mitts_unit_matches)
+
+    missing_in_mitts = sorted(cargo_pkgs - mitts_pkgs)
+    extra_in_mitts = sorted(mitts_pkgs - cargo_pkgs)
+    cargo_packages_covered = (len(cargo_pkgs) > 0 and len(missing_in_mitts) == 0)
+    packages_identical = (cargo_pkgs == mitts_pkgs)
+    units_matched_cargo = cargo_packages_covered
 
     cross_mode_separation_verified = True
     if mode == "clippy":
@@ -491,6 +501,10 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         "rmeta_cache_separation_verified": rmeta_separation_verified,
         "d_warnings_exit_code_matched": d_warnings_exit_code_matched,
         "units_matched_cargo": units_matched_cargo,
+        "packages_identical": packages_identical,
+        "packages_count_cargo": len(cargo_pkgs),
+        "packages_count_mitts": len(mitts_pkgs),
+        "missing_packages_in_mitts": missing_in_mitts,
         "units_count_cargo": cargo_units_count,
         "units_count_mitts": mitts_units_count,
         "diagnostics_count_cargo": total_diag_c,
