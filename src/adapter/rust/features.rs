@@ -146,12 +146,17 @@ pub fn resolve_package_features(
                                 dep_decls = collect_manifest_dependencies(ctx.toml, real_dep);
                             }
 
+                            let dep_prefix = format!("dep:{}", actual_dep);
+                            let real_prefix = format!("dep:{}", real_dep);
                             let is_dep_active = if is_weak {
                                 !dep_decls.is_empty()
                                     && (!is_optional_dep(&dep_decls)
-                                        || requested
-                                            .get(&id)
-                                            .is_some_and(|s| s.contains(actual_dep) || s.contains(real_dep)))
+                                        || requested.get(&id).is_some_and(|s| {
+                                            s.contains(actual_dep)
+                                                || s.contains(&dep_prefix)
+                                                || s.contains(real_dep)
+                                                || s.contains(&real_prefix)
+                                        }))
                             } else {
                                 resolve_dep_id_from_ctx(ctx, packages, real_dep)
                                     .is_some_and(|tid| active_packages.contains(&tid))
@@ -196,11 +201,11 @@ pub fn resolve_package_features(
                                 }
                             }
                         } else if let Some(dep_name) = sub.strip_prefix("dep:") {
-                            if requested.entry(id.clone()).or_default().insert(dep_name.to_string()) {
+                            if requested.entry(id.clone()).or_default().insert(sub.clone()) {
                                 changed = true;
                             }
-                            let norm = dep_name.replace('-', "_");
-                            if norm != dep_name {
+                            let norm = format!("dep:{}", dep_name.replace('-', "_"));
+                            if norm != *sub {
                                 requested.entry(id.clone()).or_default().insert(norm);
                             }
                             let deps = collect_manifest_dependencies(ctx.toml, dep_name);
@@ -243,7 +248,7 @@ pub fn resolve_package_features(
         let feats = requested.remove(&id).unwrap_or_default();
         let mut list: Vec<String> = Vec::new();
         for f in feats {
-            if f == "default" && !ctx.toml.features.contains_key("default") {
+            if f.starts_with("dep:") || (f == "default" && !ctx.toml.features.contains_key("default")) {
                 continue;
             }
             if ctx.toml.features.contains_key(&f)
