@@ -83,8 +83,9 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 ext,
             )?;
 
+            let file_name = lib_path.file_name().unwrap_or_default();
             cached_outputs.push(CachedOutput {
-                relative_path: PathBuf::from(format!("lib{}.{}", clean_crate, ext)),
+                relative_path: PathBuf::from(file_name),
                 cas_hash: hash.clone(),
                 file_size: size,
                 executable: false,
@@ -98,7 +99,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             let profile_name = if ctx.opt.release { "release" } else { "debug" };
             let deps_dir = ctx.target_dir.join(profile_name).join("deps");
             let _ = fs::create_dir_all(&deps_dir);
-            let dep_copy = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
+            let dep_copy = deps_dir.join(file_name);
             let _ = crate::core::reflink_or_copy(lib_path, &dep_copy, false);
         }
 
@@ -111,8 +112,9 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 action_key,
                 "rmeta",
             );
+            let file_name = mp.file_name().unwrap_or_default();
             cached_outputs.push(CachedOutput {
-                relative_path: PathBuf::from(format!("lib{}.rmeta", clean_crate)),
+                relative_path: PathBuf::from(file_name),
                 cas_hash: meta_hash,
                 file_size: meta_size,
                 executable: false,
@@ -120,7 +122,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             let profile_name = if ctx.opt.release { "release" } else { "debug" };
             let deps_dir = ctx.target_dir.join(profile_name).join("deps");
             let _ = fs::create_dir_all(&deps_dir);
-            let dep_copy = deps_dir.join(format!("lib{}.rmeta", clean_crate));
+            let dep_copy = deps_dir.join(file_name);
             let _ = crate::core::reflink_or_copy(mp, &dep_copy, false);
         }
     }

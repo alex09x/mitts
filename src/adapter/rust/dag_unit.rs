@@ -297,8 +297,10 @@ pub(crate) fn execute_unit(
                     ctx.completed_artifacts.lock().unwrap().insert(unit.unit_id(), named.clone());
                     cb(&unit.unit_id(), &named);
                 }
-                let dep_copy = deps_dir.join(format!("lib{}.rmeta", clean_crate));
-                let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+                if let Some(fname) = rmeta_path.file_name() {
+                    let dep_copy = deps_dir.join(fname);
+                    let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+                }
             }
         })?
     } else {
