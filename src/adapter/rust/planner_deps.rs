@@ -12,7 +12,7 @@ use super::lockfile::CargoLockPackage;
 use super::manifest::CargoToml;
 use super::package_selection::{has_active_dependency, parse_dep_spec};
 use super::types::PlannedCompilationUnit;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Resolves exact compilation unit dependencies matching library or proc-macro targets.
 pub fn resolve_unit_dependencies(
@@ -53,12 +53,23 @@ pub fn resolve_unit_dependencies(
         let pkg_toml_opt = CargoToml::from_file(&unit.manifest_path).ok();
         let is_test = unit.kind == "test";
 
+        let pkg_dir = unit.manifest_path.parent().unwrap_or(std::path::Path::new("."));
+        let has_build_script = pkg_toml_opt
+            .as_ref()
+            .map_or(false, |t| t.has_build_script(pkg_dir));
+
         let mut unit_deps = Vec::new();
         if let Some((pkg, _)) = pkg_match {
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
                 if let Some(ref toml) = pkg_toml_opt {
-                    if !has_active_dependency(toml, dep_name, &unit.features, is_test) {
+                    if !has_active_dependency(
+                        toml,
+                        dep_name,
+                        &unit.features,
+                        is_test,
+                        has_build_script,
+                    ) {
                         continue;
                     }
                 }
@@ -100,4 +111,35 @@ pub fn resolve_unit_dependencies(
         unit_deps.dedup();
         unit.dependencies = unit_deps;
     }
+}
+
+/// Prunes compilation units that are not reachable from root targets.
+pub fn prune_unreachable_units(
+    units: &mut Vec<PlannedCompilationUnit>,
+    root_unit_ids: &[String],
+) {
+    if root_unit_ids.is_empty() {
+        return;
+    }
+    let mut reachable = HashSet::new();
+    let mut to_visit = Vec::from(root_unit_ids);
+    let mut deps_by_unit = HashMap::new();
+
+    for unit in units.iter() {
+        deps_by_unit.insert(unit.unit_id(), unit.dependencies.clone());
+    }
+
+    while let Some(uid) = to_visit.pop() {
+        if reachable.insert(uid.clone()) {
+            if let Some(deps) = deps_by_unit.get(&uid) {
+                for dep in deps {
+                    if !reachable.contains(dep) {
+                        to_visit.push(dep.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    units.retain(|u| reachable.contains(&u.unit_id()));
 }

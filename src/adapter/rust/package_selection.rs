@@ -199,6 +199,7 @@ pub fn has_active_dependency(
     dep_name: &str,
     unit_features: &[String],
     is_test: bool,
+    has_build_script: bool,
 ) -> bool {
     let clean = dep_name.replace('-', "_");
     let check_dep = |alias: &str, d: &TomlDependency| -> bool {
@@ -257,6 +258,14 @@ pub fn has_active_dependency(
         }
     }
 
+    if has_build_script {
+        for (alias, d) in &pkg_toml.build_dependencies {
+            if check_dep(alias, d) {
+                return true;
+            }
+        }
+    }
+
     for (target_spec, target) in &pkg_toml.target {
         if is_target_cfg_incompatible_with_host(target_spec) {
             continue;
@@ -264,6 +273,13 @@ pub fn has_active_dependency(
         for (alias, d) in &target.dependencies {
             if check_dep(alias, d) {
                 return true;
+            }
+        }
+        if has_build_script {
+            for (alias, d) in &target.build_dependencies {
+                if check_dep(alias, d) {
+                    return true;
+                }
             }
         }
         if is_test {
@@ -363,33 +379,4 @@ pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: boo
     false
 }
 
-/// Prunes compilation units that are not reachable from root targets.
-pub fn prune_unreachable_units(
-    units: &mut Vec<crate::adapter::rust::types::PlannedCompilationUnit>,
-    root_unit_ids: &[String],
-) {
-    if root_unit_ids.is_empty() {
-        return;
-    }
-    let mut reachable = HashSet::new();
-    let mut to_visit = Vec::from(root_unit_ids);
-    let mut deps_by_unit = HashMap::new();
-
-    for unit in units.iter() {
-        deps_by_unit.insert(unit.unit_id(), unit.dependencies.clone());
-    }
-
-    while let Some(uid) = to_visit.pop() {
-        if reachable.insert(uid.clone()) {
-            if let Some(deps) = deps_by_unit.get(&uid) {
-                for dep in deps {
-                    if !reachable.contains(dep) {
-                        to_visit.push(dep.clone());
-                    }
-                }
-            }
-        }
-    }
-
-    units.retain(|u| reachable.contains(&u.unit_id()));
-}
+pub use super::planner_deps::prune_unreachable_units;
