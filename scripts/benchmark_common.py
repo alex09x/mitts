@@ -15,12 +15,12 @@ CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
     os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
 
-CANDIDATE_MITTS = [
-    Path("/home/user/mitts/target/release/mitts"),
-    Path.home() / "mitts/target/release/mitts",
-    Path("/home/user/mitts/target/release/mitts")
-]
-MITTS_BIN = next((p for p in CANDIDATE_MITTS if p.exists()), CANDIDATE_MITTS[0])
+MITTS_BIN = Path(
+    os.environ.get(
+        "MITTS_BIN",
+        shutil.which("mitts") or (Path.home() / "mitts/target/release/mitts")
+    )
+)
 SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
 
 
@@ -125,8 +125,8 @@ def get_binary_version(cwd, project_name, extra_dir=None):
         Path(cwd) / "target" / "debug" / project_name,
         Path(cwd) / ".mitts" / "target" / "debug" / "rg",
         Path(cwd) / "target" / "debug" / "rg",
-        Path("/home/user/mitts-benchmarks/shared_cargo_target") / project_name / "debug" / project_name,
-        Path("/home/user/mitts-benchmarks/shared_cargo_target") / project_name / "debug" / "rg",
+        Path(os.environ.get("SHARED_TARGET_ROOT", Path.home() / "mitts-benchmarks/shared_cargo_target")) / project_name / "debug" / project_name,
+        Path(os.environ.get("SHARED_TARGET_ROOT", Path.home() / "mitts-benchmarks/shared_cargo_target")) / project_name / "debug" / "rg",
     ]
     if extra_dir:
         candidates.extend([

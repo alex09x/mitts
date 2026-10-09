@@ -13,14 +13,15 @@ CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
     os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
 
-CANDIDATE_MITTS = [
-    Path("/home/user/mitts/target/release/mitts"),
-    Path("/home/user/mitts/target/release/mitts")
-]
-MITTS_BIN = next((p for p in CANDIDATE_MITTS if p.exists()), CANDIDATE_MITTS[0])
-SCCACHE_BIN = Path(shutil.which("sccache") or "/home/user/.cargo/bin/sccache")
-PROJECTS_DIR = Path("/home/user/mitts-benchmarks/projects")
-BENCH_ROOT = Path("/home/user/mitts-benchmarks")
+BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
+PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", BENCH_ROOT / "projects"))
+MITTS_BIN = Path(
+    os.environ.get(
+        "MITTS_BIN",
+        shutil.which("mitts") or (BENCH_ROOT / "mitts-bin")
+    )
+)
+SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
 
 def measure_command(cmd, cwd, env=None):
     if env is None:

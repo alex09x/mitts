@@ -83,13 +83,16 @@ pub fn compute_unit_rustc_env(
             );
             let authors = p.authors.as_deref().unwrap_or(&[]).join(":");
             env.insert("CARGO_PKG_AUTHORS".to_string(), authors);
-            if let Some(ref rv) = p.rust_version {
-                env.insert("CARGO_PKG_RUST_VERSION".to_string(), rv.clone());
-            }
+            let rv = p.rust_version.as_deref().unwrap_or("");
+            env.insert("CARGO_PKG_RUST_VERSION".to_string(), rv.to_string());
         }
+    } else {
+        env.insert("CARGO_PKG_RUST_VERSION".to_string(), String::new());
     }
 
-    if unit.is_workspace {
+    let is_primary = unit.env_vars.iter().any(|v| v == "CARGO_PRIMARY_PACKAGE=1" || v == "CARGO_PRIMARY_PACKAGE")
+        || (unit.is_workspace && !unit.env_vars.iter().any(|v| v == "CARGO_PRIMARY_PACKAGE=0"));
+    if is_primary {
         env.insert("CARGO_PRIMARY_PACKAGE".to_string(), "1".to_string());
     }
 

@@ -104,23 +104,27 @@ fn test_m8_inputs_home_configs_tmp_files_and_mitts_sources() {
     fs::write(pkg_dir.join("src/swap.swp"), "swap file").unwrap();
     fs::write(pkg_dir.join("src/Cargo.lock"), "lock inside src").unwrap();
 
-    // 2. Configure CARGO_HOME with config.toml and config without touching HOME
+    // 2. Configure CARGO_HOME with config without touching HOME
     let fake_cargo_home = root.join("fake_cargo_home");
     fs::create_dir_all(&fake_cargo_home).unwrap();
-    fs::write(fake_cargo_home.join("config.toml"), "[build]\njobs = 4\n").unwrap();
     fs::write(fake_cargo_home.join("config"), "[target]\n").unwrap();
 
     let old_cargo_home = std::env::var("CARGO_HOME").ok();
     std::env::set_var("CARGO_HOME", &fake_cargo_home);
 
     let inputs = hash_package_base_inputs(&pkg_dir, None, true).unwrap();
-    assert!(inputs
-        .iter()
-        .any(|(k, _)| k.contains("CARGO_HOME/config.toml")));
     assert!(inputs.iter().any(|(k, _)| k.contains("CARGO_HOME/config")));
     assert!(inputs.iter().any(|(k, _)| k == "src/lib.rs"));
     assert!(!inputs.iter().any(|(k, _)| k.ends_with(".tmp")));
     assert!(!inputs.iter().any(|(k, _)| k.ends_with(".swp")));
+
+    // When config is replaced by config.toml, config.toml is discovered
+    fs::remove_file(fake_cargo_home.join("config")).unwrap();
+    fs::write(fake_cargo_home.join("config.toml"), "[build]\njobs = 4\n").unwrap();
+    let inputs_toml = hash_package_base_inputs(&pkg_dir, None, true).unwrap();
+    assert!(inputs_toml
+        .iter()
+        .any(|(k, _)| k.contains("CARGO_HOME/config.toml")));
 
     if let Some(ch) = old_cargo_home {
         std::env::set_var("CARGO_HOME", ch);

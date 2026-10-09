@@ -27,7 +27,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         anyhow::bail!("Unsupported option: --config is not yet supported in mitts");
     }
 
-    let clean_crate = inv.unit.target_name.replace('-', "_");
+    let clean_crate = if inv.unit.kind == "test" && inv.unit.target_name.ends_with("_unit_test") {
+        inv.unit.package_name.replace('-', "_")
+    } else {
+        inv.unit.target_name.replace('-', "_")
+    };
     let edition = inv.unit.edition.as_deref().unwrap_or("2015");
     let short_key = if inv.action_key.len() > 16 {
         &inv.action_key[..16]

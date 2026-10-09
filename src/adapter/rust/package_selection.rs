@@ -50,16 +50,20 @@ pub fn select_transitive_packages<'a>(
     {
         for (name, (_member_dir, ws_toml)) in workspace_manifests {
             let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
-            if let Some(pkgs) = packages_by_name.get(name) {
-                if let Some(ver) = ws_version {
-                    if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
-                        root_pkgs.push(matching);
-                    } else if let Some(first) = pkgs.first() {
-                        root_pkgs.push(first);
-                    }
-                } else if let Some(first) = pkgs.first() {
-                    root_pkgs.push(first);
-                }
+            let pkgs = packages_by_name.get(name).ok_or_else(|| {
+                anyhow::anyhow!("Workspace member package '{name}' not found in Cargo.lock")
+            })?;
+            if let Some(ver) = ws_version {
+                let m = pkgs.iter().find(|p| p.version == ver).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Workspace member package '{name}' version {ver} not found in Cargo.lock"
+                    )
+                })?;
+                root_pkgs.push(m);
+            } else if pkgs.len() == 1 {
+                root_pkgs.push(pkgs[0]);
+            } else {
+                bail!("Ambiguous workspace member package '{name}' without version in Cargo.lock");
             }
         }
     } else {

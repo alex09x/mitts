@@ -48,7 +48,7 @@ impl CargoToml {
             .collect();
         for b in bin_targets {
             targets.push(DiscoveredTarget {
-                name: format!("{}_bin_test", b.name),
+                name: format!("{}_bin_test", b.name.replace('-', "_")),
                 kind: "test".to_string(),
                 src_path: b.src_path,
                 edition: b.edition,

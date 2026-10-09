@@ -317,13 +317,14 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let is_selected_ws_member = |pkg_name: &str| -> bool {
         if let Some(dm) = default_members {
             for member_pat in dm {
-                let member_dir = if member_pat == "." {
+                let clean_pat = member_pat.trim_start_matches("./").trim_end_matches('/');
+                let member_dir = if clean_pat == "." || clean_pat.is_empty() {
                     project_dir.to_path_buf()
                 } else {
-                    project_dir.join(member_pat)
+                    project_dir.join(clean_pat)
                 };
                 if let Some((dir, _)) = workspace_manifests.get(pkg_name) {
-                    if dir == &member_dir || (member_pat == "." && dir == project_dir) {
+                    if dir == &member_dir || (clean_pat == "." && dir == project_dir) {
                         return true;
                     }
                 }
@@ -334,13 +335,33 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         }
     };
 
+    if let Some(dm) = default_members {
+        if !workspace_manifests.keys().any(|k| is_selected_ws_member(k)) {
+            anyhow::bail!("No workspace members matched default-members: {:?}", dm);
+        }
+    }
+
+    let is_primary_pkg = |pkg_name: &str| -> bool {
+        if let Some(target) = target_pkg {
+            pkg_name == target
+        } else if has_all_ws {
+            workspace_manifests.contains_key(pkg_name)
+                || root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
+        } else if is_virtual_workspace || default_members.is_some() {
+            is_selected_ws_member(pkg_name)
+        } else {
+            root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(pkg_name)
+        }
+    };
+
+    for u in &mut units {
+        let prim = is_primary_pkg(&u.package_name);
+        u.env_vars.push(format!("CARGO_PRIMARY_PACKAGE={}", if prim { "1" } else { "0" }));
+    }
+
     let mut root_unit_ids = Vec::new();
     for u in &units {
-        let is_root_pkg = target_pkg == Some(&u.package_name)
-            || (target_pkg.is_none()
-                && ((!is_virtual_workspace
-                    && root_toml.package.as_ref().map(|p| p.name.as_str()) == Some(&u.package_name))
-                    || (is_virtual_workspace && is_selected_ws_member(&u.package_name))));
+        let is_root_pkg = is_primary_pkg(&u.package_name);
         if (opt.mode == crate::adapter::rust::types::BuildMode::Test && u.kind == "test")
             || (is_root_pkg && (u.kind == "lib" || u.kind == "proc-macro" || u.kind == "bin"))
             || (has_all_ws && u.is_workspace)

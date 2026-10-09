@@ -26,9 +26,9 @@ from benchmark_scenarios import (
     run_s5b_warm_swarm,
 )
 
-BENCH_ROOT = Path("/home/user/mitts-benchmarks")
-PROJECTS_DIR = BENCH_ROOT / "projects"
-SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
+BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
+PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", BENCH_ROOT / "projects"))
+SHARED_TARGET_ROOT = Path(os.environ.get("SHARED_TARGET_ROOT", BENCH_ROOT / "shared_cargo_target"))
 
 
 def parse_args():

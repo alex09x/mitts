@@ -78,8 +78,17 @@ pub fn resolve_extern_crates(
                 artifact_path.clone()
             };
 
+            let self_crate_name = if unit.kind == "test" && unit.target_name.ends_with("_unit_test") {
+                unit.package_name.replace('-', "_")
+            } else {
+                unit.target_name.replace('-', "_")
+            };
+
             let mut add_extern = |name: &str, path: &PathBuf| {
                 let clean = name.replace('-', "_");
+                if clean == self_crate_name {
+                    return;
+                }
                 if !extern_crates.iter().any(|(n, _): &(String, PathBuf)| n == &clean) {
                     extern_crates.push((clean, path.clone()));
                 }

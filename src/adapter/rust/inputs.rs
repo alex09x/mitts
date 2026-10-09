@@ -131,16 +131,6 @@ pub fn hash_package_base_inputs(
             lock_candidate = dir.parent();
         }
 
-        if let Some(root) = ws_root {
-            for clippy_name in &["clippy.toml", ".clippy.toml"] {
-                let cp = root.join(clippy_name);
-                if cp.is_file() {
-                    let hash = Sha256::digest_file(&cp)
-                        .with_context(|| format!("Failed to hash {:?}", cp))?;
-                    inputs.push((format!("workspace:{}", clippy_name), hash));
-                }
-            }
-        }
     }
 
     // 3. Applicable .cargo/config.toml or .cargo/config files
@@ -181,6 +171,51 @@ pub fn hash_package_base_inputs(
             }
         } else {
             cfg_p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "config.toml".to_string())
+        };
+        inputs.push((label, hash));
+    }
+
+    // 4. Applicable clippy.toml or .clippy.toml files
+    let mut clippy_file = None;
+    if let Ok(conf_dir) = std::env::var("CLIPPY_CONF_DIR") {
+        let p = Path::new(&conf_dir);
+        for name in &["clippy.toml", ".clippy.toml"] {
+            let candidate = p.join(name);
+            if candidate.is_file() {
+                clippy_file = Some(candidate);
+                break;
+            }
+        }
+    }
+    if clippy_file.is_none() {
+        let mut cur = Some(package_dir);
+        while let Some(dir) = cur {
+            for name in &["clippy.toml", ".clippy.toml"] {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    clippy_file = Some(candidate);
+                    break;
+                }
+            }
+            if clippy_file.is_some() {
+                break;
+            }
+            cur = dir.parent();
+        }
+    }
+    if let Some(cp) = clippy_file {
+        let hash = Sha256::digest_file(&cp)
+            .with_context(|| format!("Failed to hash clippy config {:?}", cp))?;
+        let label = if let Ok(rel) = cp.strip_prefix(package_dir) {
+            rel.display().to_string()
+        } else if let Some(ws) = ws_root {
+            if let Ok(rel) = cp.strip_prefix(ws) {
+                format!("workspace:{}", rel.display())
+            } else {
+                format!("clippy:{}", cp.display())
+            }
+        } else {
+            format!("clippy:{}", cp.display())
         };
         inputs.push((label, hash));
     }

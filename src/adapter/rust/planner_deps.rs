@@ -88,7 +88,11 @@ pub fn resolve_unit_dependencies(
             if let Some(self_lib_uid) =
                 lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone()))
             {
-                unit_deps.push(self_lib_uid.clone());
+                let is_self_lib_unit_test =
+                    unit.kind == "test" && unit.target_name.ends_with("_unit_test");
+                if !is_self_lib_unit_test {
+                    unit_deps.push(self_lib_uid.clone());
+                }
             }
         }
 
