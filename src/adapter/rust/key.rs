@@ -176,11 +176,7 @@ pub fn derive_unit_action_key_context(
             .get(&pkg_dir)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Missing base inputs for package {:?}", pkg_dir))?;
-        let ws_root = if unit.is_workspace {
-            Some(super::compiler::find_workspace_root(&unit.manifest_path))
-        } else {
-            None
-        };
+        let build_ws_root = explanation.manifest_path.parent().unwrap_or(Path::new("."));
         let inputs = base_inputs;
         let mut u_flags = compute_unit_flags_with_ws(
             unit,
@@ -188,7 +184,7 @@ pub fn derive_unit_action_key_context(
             &effective_flags,
             opt.mode,
             opt.release,
-            ws_root.as_deref(),
+            Some(build_ws_root),
         );
 
         if receives_target_rustflags(unit, explicit_target.as_deref()) {

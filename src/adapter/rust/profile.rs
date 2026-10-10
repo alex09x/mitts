@@ -53,22 +53,30 @@ pub fn resolve_unit_debuginfo(
 ) -> u32 {
     let effective_ws_root = ws_root
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| super::compiler_resolve::find_workspace_root(manifest_path));
+        .or_else(|| {
+            if is_workspace {
+                Some(super::compiler_resolve::find_workspace_root(manifest_path))
+            } else {
+                None
+            }
+        });
 
     let profile_name = if release { "release" } else { "dev" };
     let default_val = if release { 0 } else { 2 };
 
-    let cache = PROFILE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let loaded = {
+    let loaded = if let Some(ws) = &effective_ws_root {
+        let cache = PROFILE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
         let mut guard = cache.lock().unwrap();
-        if let Some(p) = guard.get(&effective_ws_root) {
+        if let Some(p) = guard.get(ws) {
             p.clone()
         } else {
-            let res = load_workspace_and_config_profiles(&effective_ws_root)
+            let res = load_workspace_and_config_profiles(ws)
                 .unwrap_or_else(|e| panic!("Failed to resolve profile configuration: {}", e));
-            guard.insert(effective_ws_root.clone(), res.clone());
+            guard.insert(ws.clone(), res.clone());
             res
         }
+    } else {
+        ResolvedProfiles::default()
     };
 
     // 1. Package-specific override: [profile.<profile>.package.<pkg_name>]
@@ -198,7 +206,7 @@ fn ingest_profiles_from_toml(
     if let Some(prof_table) = val.get("profile").and_then(|p| p.as_table()) {
         for (prof_name, prof_val) in prof_table {
             if let Some(tbl) = prof_val.as_table() {
-                if tbl.contains_key("inherits") {
+                if (prof_name == "dev" || prof_name == "release") && tbl.contains_key("inherits") {
                     anyhow::bail!(
                         "Unsupported feature: profile 'inherits' is not yet supported in {}",
                         source_path.display()

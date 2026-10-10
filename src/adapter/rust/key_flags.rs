@@ -203,13 +203,14 @@ pub fn compute_unit_flags_with_ws(
         }
     }
     u_flags.push("SCHEMA_VERSION=rust_key_v2".to_string());
+    let ws_for_profile = unit.workspace_root.as_deref().or(ws_root);
     let debuginfo = resolve_unit_debuginfo(
         &unit.manifest_path,
         &unit.package_name,
         unit.is_workspace,
         unit.for_host,
         release,
-        ws_root,
+        ws_for_profile,
     );
     if unit.for_host {
         u_flags.push("FOR_HOST=1".to_string());
