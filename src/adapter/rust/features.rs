@@ -136,14 +136,19 @@ pub fn resolve_package_features(
         }
     }
 
-    // Check workspace resolver: Resolver 1 unifies host and target features
+    // Check workspace resolver: Resolver 1 unifies host and target features.
+    // In addition, on native builds (!is_cross), Cargo unifies features across workspace packages.
     let is_resolver_1 = packages
         .iter()
         .find(|p| p.is_root)
         .or_else(|| packages.iter().find(|p| p.is_workspace))
         .is_some_and(|p| p.toml.effective_resolver() == "1");
 
-    if is_resolver_1 {
+    let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
+    let host_triple = crate::adapter::rust::compiler_resolve::resolve_host_triple();
+    let is_cross = explicit_target.as_ref().is_some_and(|t| t != host_triple);
+
+    if is_resolver_1 || !is_cross {
         for (pkg_id, feats) in &target_requested {
             host_requested.entry(pkg_id.clone()).or_default().extend(feats.iter().cloned());
         }
