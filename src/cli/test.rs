@@ -27,6 +27,10 @@ pub struct TestArgs {
     #[arg(short, long)]
     pub package: Option<String>,
 
+    /// Test all packages in the workspace
+    #[arg(long, visible_alias = "all")]
+    pub workspace: bool,
+
     /// Build and run tests in release mode
     #[arg(short, long)]
     pub release: bool,
@@ -153,6 +157,11 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         return crate::cli::coverage::handle_coverage(&cov_args);
     }
 
+    let mut extra_args = Vec::new();
+    if args.workspace {
+        extra_args.push("--workspace".to_string());
+    }
+
     let mut opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
         package: args.package.clone(),
@@ -161,7 +170,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         features: args.features.clone(),
         no_default_features: args.no_default_features,
         all_features: args.all_features,
-        extra_args: Vec::new(),
+        extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
         native: true,

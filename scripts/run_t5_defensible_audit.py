@@ -143,7 +143,7 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
     env["CARGO"] = str(cargo_bin)
 
     if tool == "mitts_cas":
-        cmd = [str(MITTS_BIN), "test"]
+        cmd = [str(MITTS_BIN), "test", "--workspace"]
     elif tool == "cargo_bare":
         cmd = ["cargo", "test", "--tests", "--workspace"]
     elif tool == "cargo_sccache":

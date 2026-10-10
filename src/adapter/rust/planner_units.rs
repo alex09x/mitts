@@ -33,7 +33,7 @@ pub fn build_planned_units(
         let is_target_pkg = opt.package.as_deref() == Some(&pkg.name);
         let is_primary = is_primary_pkg(&pkg.name);
         let mut targets = pkg_toml.discover_targets(pkg_dir);
-        if opt.mode == crate::adapter::BuildMode::Test && (*is_workspace || is_target_pkg) {
+        if opt.mode == crate::adapter::BuildMode::Test && (is_primary || is_target_pkg) {
             let test_targets = pkg_toml.discover_test_targets(pkg_dir);
             targets.extend(test_targets);
         }
