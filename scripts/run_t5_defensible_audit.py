@@ -134,7 +134,7 @@ def parse_sccache_stats(text: str):
     }
 
 
-def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
+def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True):
     i, wt_dir, commit = wt_tuple
     env = os.environ.copy()
     if CARGO_BIN_DIR not in env.get("PATH", ""):
@@ -142,15 +142,16 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
     cargo_bin = shutil.which("cargo") or (Path.home() / ".cargo/bin/cargo")
     env["CARGO"] = str(cargo_bin)
 
+    ws_args = ["--workspace"] if is_workspace else []
     if tool == "mitts_cas":
-        cmd = [str(MITTS_BIN), "test", "--workspace"]
+        cmd = [str(MITTS_BIN), "test"] + ws_args
     elif tool == "cargo_bare":
-        cmd = ["cargo", "test", "--tests", "--workspace"]
+        cmd = ["cargo", "test", "--tests"] + ws_args
     elif tool == "cargo_sccache":
-        cmd = ["cargo", "test", "--tests", "--workspace"]
+        cmd = ["cargo", "test", "--tests"] + ws_args
         env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
     elif tool == "cargo_shared":
-        cmd = ["cargo", "test", "--tests", "--workspace"]
+        cmd = ["cargo", "test", "--tests"] + ws_args
         env["CARGO_TARGET_DIR"] = str(shared_target_dir)
 
     start = time.perf_counter()
@@ -179,11 +180,11 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
     }
 
 
-def run_test_swarm(tool, worktrees, shared_target_dir=None):
+def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True):
     start = time.perf_counter()
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(worktrees)) as executor:
-        futs = {executor.submit(run_single_worktree, tool, wt, shared_target_dir): wt for wt in worktrees}
+        futs = {executor.submit(run_single_worktree, tool, wt, shared_target_dir, is_workspace): wt for wt in worktrees}
         for fut in concurrent.futures.as_completed(futs):
             try:
                 results.append(fut.result())
@@ -237,19 +238,21 @@ def run_t5_project(project_name, runs_count=5):
     mitts_cache = Path.home() / ".cache" / "mitts"
     sccache_dir = Path.home() / ".cache" / "sccache"
 
+    is_ws = (project_name != "ripgrep")
+
     print("[1/5] Warming up Mitts CAS on WT-01...")
     init_wts = prepare_worktrees(repo_dir, wt_base, commits)
     if mitts_cache.exists():
         shutil.rmtree(mitts_cache, ignore_errors=True)
     clean_sccache(sccache_dir)
 
-    res_warm = run_single_worktree("mitts_cas", init_wts[0])
+    res_warm = run_single_worktree("mitts_cas", init_wts[0], is_workspace=is_ws)
     if res_warm["exit_code"] != 0:
         print(f"WARN: Mitts warmup failed:\n{res_warm['stderr'][:500]}")
     snapshot_cache(mitts_cache, snap_cas)
 
     print("[2/5] Warming up sccache on WT-01...")
-    run_single_worktree("cargo_sccache", init_wts[0])
+    run_single_worktree("cargo_sccache", init_wts[0], is_workspace=is_ws)
     snapshot_cache(sccache_dir, snap_sccache)
 
     tool_results = {
@@ -259,7 +262,7 @@ def run_t5_project(project_name, runs_count=5):
         "cargo_shared": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
     }
 
-    baseline_cargo_res = None
+    last_cargo_res = None
     last_mitts_res = None
 
     print(f"[3/5] Executing {runs_count} iterations across 12 worktrees per tool...")
@@ -284,7 +287,7 @@ def run_t5_project(project_name, runs_count=5):
                 st.mkdir(parents=True, exist_ok=True)
 
             shared_target = SHARED_TARGET_ROOT / f"{project_name}_test" if tool == "cargo_shared" else None
-            swarm_res = run_test_swarm(tool, wts, shared_target)
+            swarm_res = run_test_swarm(tool, wts, shared_target, is_workspace=is_ws)
             tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
             tool_results[tool]["runs_data"].append(swarm_res)
 
@@ -324,8 +327,8 @@ def run_t5_project(project_name, runs_count=5):
                 disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
             tool_results[tool]["disk_mb"] = max(tool_results[tool]["disk_mb"], disk)
 
-            if tool == "cargo_bare" and baseline_cargo_res is None:
-                baseline_cargo_res = swarm_res
+            if tool == "cargo_bare":
+                last_cargo_res = swarm_res
             if tool == "mitts_cas":
                 last_mitts_res = swarm_res
 
@@ -356,7 +359,7 @@ def run_t5_project(project_name, runs_count=5):
 
     print("[4/5] Verifying strict T5 test swarm invariants...")
     m_runs = last_mitts_res["results"]
-    c_runs = baseline_cargo_res["results"]
+    c_runs = last_cargo_res["results"]
 
     exit_codes_all_matched = (
         all(m["exit_code"] == c["exit_code"] for m, c in zip(m_runs, c_runs))
@@ -372,7 +375,7 @@ def run_t5_project(project_name, runs_count=5):
 
     print("[5/5] Testing P0 invariant: fast-lock hit NEVER skips test execution...")
     wt01_tuple = (1, wt_base / "wt-01", commits[0])
-    res_fl = run_single_worktree("mitts_cas", wt01_tuple)
+    res_fl = run_single_worktree("mitts_cas", wt01_tuple, is_workspace=is_ws)
 
     if m_stats_clean.get("binaries_count", 0) > 0 and c_stats_clean.get("binaries_count", 0) > 0:
         test_counts_match = (
