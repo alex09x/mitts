@@ -448,18 +448,6 @@ def run_t5_project(project_name, runs_count=5):
             for idx, sr in enumerate(runs_d)
         ]
 
-    invariants = {
-        "exit_codes_all_matched": exit_codes_all_matched,
-        "intentional_defect_caught_by_both": intentional_defect_caught_by_both,
-        "test_counts_match": test_counts_match,
-        "tests_passed_count": m_stats_clean.get("passed", 0),
-        "fast_lock_never_skips_test_execution": fast_lock_executed_tests,
-        "mitts_test_stats": m_stats_clean,
-        "cargo_test_stats": c_stats_clean,
-        "fast_lock_test_stats": res_fl["test_stats"],
-        "fast_lock_exit_code": res_fl["exit_code"],
-    }
-
     print(f"Results for {project_name}: Speedup vs {sound_baseline_name}: {speedup_ratio:.2f}x (vs bare: {speedup_vs_bare:.2f}x)")
     print(f"Invariants: {invariants}")
 
