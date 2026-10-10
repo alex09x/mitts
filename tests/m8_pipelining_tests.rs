@@ -34,6 +34,7 @@ fn make_dummy_unit(name: &str, kind: &str) -> PlannedCompilationUnit {
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     }
 }
 

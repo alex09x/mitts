@@ -92,6 +92,7 @@ fn test_m8_key_triples_and_parallel_chunks() {
         edition: None,
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
     let pkg_dir = resolve_unit_pkg_dir(&unit);
     assert!(pkg_dir.ends_with("src"));
@@ -129,6 +130,7 @@ fn test_m8_compiler_non_semver_and_invocation() {
         edition: Some("2021".to_string()),
         features: vec!["std".to_string()],
         for_host: false,
+        workspace_root: None,
     };
 
     let out_dir = temp.path().join("out");
@@ -246,6 +248,7 @@ fn test_m8_dag_cache_progress_and_non_native() {
         edition: None,
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let restored = try_restore_from_cache(&unit, action_key, &ctx, false).unwrap();

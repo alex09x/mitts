@@ -52,6 +52,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         edition: Some("2021".into()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let invocation = RustcInvocation {
@@ -100,6 +101,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         edition: Some("2021".into()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let test_invocation = RustcInvocation {

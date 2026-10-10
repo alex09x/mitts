@@ -49,6 +49,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // 1. BuildMode::Check emits rmeta
@@ -152,6 +153,7 @@ fn test_m8_compiler_directives_and_error_handling() {
         edition: Some("2021".to_string()),
         features: vec!["foo".to_string()],
         for_host: false,
+        workspace_root: None,
     };
 
     let mut envs = HashMap::new();

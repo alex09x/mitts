@@ -77,6 +77,7 @@ fn test_m8_build_script_custom_path_and_disabled() {
         is_primary: false,
         edition: Some("2021".to_string()),
         for_host: false,
+        workspace_root: None,
     };
 
     let staging_dir = tmp.path().join("staging");
@@ -146,6 +147,7 @@ fn test_m8_build_script_nested_build_dir_fallback() {
         is_primary: false,
         edition: Some("2021".to_string()),
         for_host: false,
+        workspace_root: None,
     };
 
     let staging_dir = tmp.path().join("staging");

@@ -239,7 +239,8 @@ edition = "2021"
             edition: Some("2021".to_string()),
             features: Vec::new(),
             for_host: false,
-    },
+            workspace_root: None,
+        },
         PlannedCompilationUnit {
             package_id: "my-lib@0.1.0".to_string(),
             package_name: "my-lib".to_string(),
@@ -256,11 +257,12 @@ edition = "2021"
             edition: Some("2021".to_string()),
             features: Vec::new(),
             for_host: false,
-    },
+            workspace_root: None,
+        },
     ];
 
     let selected = vec![(&lockfile.packages[0], true)];
-    resolve_unit_dependencies(&mut units, &selected);
+    resolve_unit_dependencies(&mut units, &selected, None, std::path::Path::new(".")).unwrap();
 
     let unit_test = units
         .iter()

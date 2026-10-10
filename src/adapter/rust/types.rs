@@ -72,6 +72,8 @@ pub struct PlannedCompilationUnit {
     pub features: Vec<String>,
     #[serde(default)]
     pub for_host: bool,
+    #[serde(default)]
+    pub workspace_root: Option<PathBuf>,
 }
 
 impl PlannedCompilationUnit {

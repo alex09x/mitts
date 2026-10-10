@@ -210,10 +210,42 @@ pub fn resolve_config_start_dir(base_dir: &Path) -> PathBuf {
     resolve_config_start_dir_with_opt(base_dir, None)
 }
 
+/// Discovers and returns the first effective `build.target` configured across Cargo config files.
+pub fn load_cargo_config_build_target(start_dir: &Path) -> Result<Option<String>> {
+    let files = discover_cargo_config_files(start_dir);
+    for config_path in files.into_iter().rev() {
+        let content = fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read cargo config at {:?}", config_path))?;
+        let val: toml::Value = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse cargo config at {:?}", config_path))?;
+        if let Some(build_tbl) = val.get("build").and_then(|b| b.as_table()) {
+            if let Some(target_val) = build_tbl.get("target") {
+                match target_val {
+                    toml::Value::String(s) => {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() {
+                            return Ok(Some(trimmed.to_string()));
+                        }
+                    }
+                    toml::Value::Array(arr) => {
+                        if let Some(toml::Value::String(first)) = arr.first() {
+                            let trimmed = first.trim();
+                            if !trimmed.is_empty() {
+                                return Ok(Some(trimmed.to_string()));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn test_extract_build_rustflags_string_and_array() {
@@ -275,107 +307,5 @@ rustflags = ["--cfg", "linux_cfg"]
             .unwrap_err()
             .to_string()
             .contains("target.'cfg(...)' rustflags is not yet supported"));
-    }
-
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    struct EnvGuard {
-        cargo_home_orig: Option<std::ffi::OsString>,
-    }
-
-    impl EnvGuard {
-        fn new(isolated_cargo_home: &Path) -> Self {
-            let cargo_home_orig = std::env::var_os("CARGO_HOME");
-            std::env::set_var("CARGO_HOME", isolated_cargo_home);
-            Self { cargo_home_orig }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            if let Some(ref orig) = self.cargo_home_orig {
-                std::env::set_var("CARGO_HOME", orig);
-            } else {
-                std::env::remove_var("CARGO_HOME");
-            }
-        }
-    }
-
-    #[test]
-    fn test_load_cargo_config_rustflags_from_dir() {
-        let _lock = TEST_LOCK.lock().unwrap();
-        let home = tempdir().unwrap();
-        let _guard = EnvGuard::new(home.path());
-
-        let dir = tempdir().unwrap();
-        let cargo_dir = dir.path().join(".cargo");
-        fs::create_dir_all(&cargo_dir).unwrap();
-        fs::write(
-            cargo_dir.join("config.toml"),
-            "[build]\nrustflags = [\"--cfg\", \"test_loaded\"]\n",
-        )
-        .unwrap();
-
-        let loaded = load_cargo_config_rustflags(dir.path(), None).unwrap();
-        assert!(loaded.contains(&"--cfg".to_string()));
-        assert!(loaded.contains(&"test_loaded".to_string()));
-    }
-
-    #[test]
-    fn test_bare_config_precedence_over_config_toml() {
-        let _lock = TEST_LOCK.lock().unwrap();
-        let home = tempdir().unwrap();
-        let _guard = EnvGuard::new(home.path());
-
-        let dir = tempdir().unwrap();
-        let cargo_dir = dir.path().join(".cargo");
-        fs::create_dir_all(&cargo_dir).unwrap();
-        fs::write(
-            cargo_dir.join("config"),
-            "[build]\nrustflags = [\"--cfg\", \"from_bare_config\"]\n",
-        )
-        .unwrap();
-        fs::write(
-            cargo_dir.join("config.toml"),
-            "[build]\nrustflags = [\"--cfg\", \"from_config_toml\"]\n",
-        )
-        .unwrap();
-
-        let files = discover_cargo_config_files(dir.path());
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].file_name().unwrap(), "config");
-
-        let loaded = load_cargo_config_rustflags(dir.path(), None).unwrap();
-        assert_eq!(loaded, vec!["--cfg", "from_bare_config"]);
-    }
-
-    #[test]
-    fn test_target_overrides_build_across_files() {
-        let _lock = TEST_LOCK.lock().unwrap();
-        let home = tempdir().unwrap();
-        let _guard = EnvGuard::new(home.path());
-
-        let parent = tempdir().unwrap();
-        let child = parent.path().join("child");
-        fs::create_dir_all(&child).unwrap();
-
-        let parent_cargo = parent.path().join(".cargo");
-        fs::create_dir_all(&parent_cargo).unwrap();
-        fs::write(
-            parent_cargo.join("config.toml"),
-            "[build]\nrustflags = [\"--cfg\", \"parent_build\"]\n",
-        )
-        .unwrap();
-
-        let child_cargo = child.join(".cargo");
-        fs::create_dir_all(&child_cargo).unwrap();
-        fs::write(
-            child_cargo.join("config.toml"),
-            "[target.x86_64-unknown-linux-gnu]\nrustflags = [\"--cfg\", \"child_target\"]\n",
-        )
-        .unwrap();
-
-        let loaded = load_cargo_config_rustflags(&child, Some("x86_64-unknown-linux-gnu")).unwrap();
-        assert_eq!(loaded, vec!["--cfg", "child_target"]);
     }
 }

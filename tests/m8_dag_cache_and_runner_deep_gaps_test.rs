@@ -59,6 +59,7 @@ links = "native_zlib"
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let opt = RustBuildOptions {
@@ -258,6 +259,7 @@ fn test_m8_dag_cache_binary_restore_copy() {
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let opt = RustBuildOptions {

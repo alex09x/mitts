@@ -9,7 +9,7 @@
  */
 
 use crate::adapter::rust::lockfile::{CargoLock, CargoLockPackage};
-use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
+use crate::adapter::rust::manifest::CargoToml;
 use crate::adapter::rust::types::RustBuildOptions;
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
@@ -150,6 +150,8 @@ pub fn select_transitive_packages<'a>(
             selected_packages.push((pkg, is_ws));
 
             let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
+            let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
+            let start_dir = opt.start_dir.as_deref().unwrap_or(std::path::Path::new("."));
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
                 if is_target_incompatible_with_host(dep_name) {
@@ -160,7 +162,15 @@ pub fn select_transitive_packages<'a>(
                         || !ws_toml.build_dependencies.is_empty()
                         || !ws_toml.target.is_empty()
                         || (is_test && !ws_toml.dev_dependencies.is_empty());
-                    if has_manifest_deps && !is_declared_dependency(ws_toml, dep_name, is_test) {
+                    if has_manifest_deps
+                        && !is_declared_dependency(
+                            ws_toml,
+                            dep_name,
+                            is_test,
+                            explicit_target.as_deref(),
+                            start_dir,
+                        )?
+                    {
                         continue;
                     }
                 }
@@ -185,205 +195,8 @@ pub fn select_transitive_packages<'a>(
     Ok(selected_packages)
 }
 
-/// Parses a dependency specification from Cargo.lock into name and optional version.
-pub fn parse_dep_spec(spec: &str) -> (&str, Option<&str>) {
-    let mut parts = spec.split_whitespace();
-    let name = parts.next().unwrap_or(spec);
-    let version = parts.next();
-    (name, version)
-}
-
-/// Checks if a package manifest has an active dependency on `dep_name`,
-/// filtering out inactive optional dependencies and dev-dependencies for non-test units.
-pub fn has_active_dependency(
-    pkg_toml: &CargoToml,
-    dep_name: &str,
-    unit_features: &[String],
-    is_test: bool,
-    has_build_script: bool,
-) -> bool {
-    let clean = dep_name.replace('-', "_");
-    let check_dep = |alias: &str, d: &TomlDependency| -> bool {
-        let (real_name, has_custom_pkg) = match d {
-            TomlDependency::Simple(_) => (alias, false),
-            TomlDependency::Detailed(dt) => (
-                dt.package_name.as_deref().unwrap_or(alias),
-                dt.package_name.is_some(),
-            ),
-        };
-        let name_matches = if has_custom_pkg {
-            real_name == dep_name || real_name.replace('-', "_") == clean
-        } else {
-            alias == dep_name
-                || alias.replace('-', "_") == clean
-                || real_name == dep_name
-                || real_name.replace('-', "_") == clean
-        };
-        if name_matches {
-            let is_optional = match d {
-                TomlDependency::Simple(_) => false,
-                TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
-            };
-            if !is_optional {
-                return true;
-            }
-            if unit_features
-                .iter()
-                .any(|f| f == alias || f.replace('-', "_") == clean || f == real_name)
-            {
-                return true;
-            }
-            for f in unit_features {
-                if let Some(sub_feats) = pkg_toml.features.get(f) {
-                    for sub in sub_feats {
-                        let sub_dep = sub.strip_prefix("dep:").unwrap_or(sub);
-                        let sub_crate = sub_dep.split('/').next().unwrap_or(sub_dep);
-                        if sub_crate.ends_with('?') {
-                            continue;
-                        }
-                        let sub_clean = sub_crate.replace('-', "_");
-                        if sub_crate == alias || sub_clean == clean || sub_crate == real_name {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-        false
-    };
-
-    for (alias, d) in &pkg_toml.dependencies {
-        if check_dep(alias, d) {
-            return true;
-        }
-    }
-
-    if has_build_script {
-        for (alias, d) in &pkg_toml.build_dependencies {
-            if check_dep(alias, d) {
-                return true;
-            }
-        }
-    }
-
-    for (target_spec, target) in &pkg_toml.target {
-        let is_target_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, false).unwrap_or(false);
-        let is_host_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, true).unwrap_or(false);
-        if !is_target_incompat {
-            for (alias, d) in &target.dependencies {
-                if check_dep(alias, d) {
-                    return true;
-                }
-            }
-        }
-        if has_build_script && !is_host_incompat {
-            for (alias, d) in &target.build_dependencies {
-                if check_dep(alias, d) {
-                    return true;
-                }
-            }
-        }
-        if is_test && !is_target_incompat {
-            for (alias, d) in &target.dev_dependencies {
-                if check_dep(alias, d) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    if is_test {
-        for (alias, d) in &pkg_toml.dev_dependencies {
-            if check_dep(alias, d) {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// Checks if `dep_name` is declared in `[dependencies]`, `[build-dependencies]`,
-/// or `[target.*.dependencies]` (or `[dev-dependencies]` if `is_test` is true).
-pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: bool) -> bool {
-    let clean = dep_name.replace('-', "_");
-    let check_dep = |alias: &str, d: &TomlDependency| -> bool {
-        let (real_name, has_custom_pkg) = match d {
-            TomlDependency::Simple(_) => (alias, false),
-            TomlDependency::Detailed(dt) => (
-                dt.package_name.as_deref().unwrap_or(alias),
-                dt.package_name.is_some(),
-            ),
-        };
-        if has_custom_pkg {
-            real_name == dep_name || real_name.replace('-', "_") == clean
-        } else {
-            alias == dep_name
-                || alias.replace('-', "_") == clean
-                || real_name == dep_name
-                || real_name.replace('-', "_") == clean
-        }
-    };
-
-    for (alias, d) in &pkg_toml.dependencies {
-        if check_dep(alias, d) {
-            return true;
-        }
-    }
-
-    let build_disabled = matches!(
-        pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()),
-        Some(crate::adapter::rust::manifest::TomlBuild::Disabled(false))
-    );
-
-    if !build_disabled {
-        for (alias, d) in &pkg_toml.build_dependencies {
-            if check_dep(alias, d) {
-                return true;
-            }
-        }
-    }
-
-    for (target_spec, target) in &pkg_toml.target {
-        let is_target_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, false).unwrap_or(false);
-        let is_host_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, true).unwrap_or(false);
-        if !is_target_incompat {
-            for (alias, d) in &target.dependencies {
-                if check_dep(alias, d) {
-                    return true;
-                }
-            }
-        }
-        if !build_disabled && !is_host_incompat {
-            for (alias, d) in &target.build_dependencies {
-                if check_dep(alias, d) {
-                    return true;
-                }
-            }
-        }
-        if is_test && !is_target_incompat {
-            for (alias, d) in &target.dev_dependencies {
-                if check_dep(alias, d) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    if is_test {
-        for (alias, d) in &pkg_toml.dev_dependencies {
-            if check_dep(alias, d) {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
+pub use super::dependency_check::{
+    has_active_dependency, is_declared_dependency, parse_package_spec as parse_dep_spec,
+};
 pub use super::planner_deps::prune_unreachable_units;
+

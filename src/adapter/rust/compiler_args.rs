@@ -135,8 +135,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
 
     let debuginfo = crate::adapter::rust::key_flags::resolve_unit_debuginfo(
         &inv.unit.manifest_path,
+        &inv.unit.package_name,
+        inv.unit.is_workspace,
         inv.unit.for_host,
         inv.release,
+        inv.unit.workspace_root.as_deref(),
     );
     if inv.release {
         cmd.arg("-C").arg("opt-level=3");

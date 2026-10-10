@@ -155,15 +155,27 @@ tempfile = { version = "3.8", features = ["nitro"] }
     let target_spec = toml.target.get("cfg(all())").expect("cfg(all()) found");
     assert!(target_spec.dev_dependencies.contains_key("tempfile"));
 
-    let is_dep_in_test =
-        mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", true);
+    let is_dep_in_test = mitts::adapter::rust::package_selection::is_declared_dependency(
+        &toml,
+        "tempfile",
+        true,
+        None,
+        std::path::Path::new("."),
+    )
+    .unwrap();
     assert!(
         is_dep_in_test,
         "target dev-dependency must be recognized in test mode"
     );
 
-    let is_dep_in_build =
-        mitts::adapter::rust::package_selection::is_declared_dependency(&toml, "tempfile", false);
+    let is_dep_in_build = mitts::adapter::rust::package_selection::is_declared_dependency(
+        &toml,
+        "tempfile",
+        false,
+        None,
+        std::path::Path::new("."),
+    )
+    .unwrap();
     assert!(
         !is_dep_in_build,
         "target dev-dependency must not be recognized in non-test mode"
@@ -211,7 +223,7 @@ fn test_m8_build_disabled_ignores_build_dependencies() {
 
     let toml = CargoToml::from_file(&manifest_path).unwrap();
     assert!(
-        !is_declared_dependency(&toml, "rustc_version", false),
+        !is_declared_dependency(&toml, "rustc_version", false, None, std::path::Path::new(".")).unwrap(),
         "build_dependencies must be ignored when build = false"
     );
 }
@@ -221,12 +233,20 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
     use mitts::adapter::rust::key_flags::resolve_unit_debuginfo;
     use mitts::adapter::rust::target_filter::is_target_cfg_incompatible_with_target;
 
-    let res_target =
-        is_target_cfg_incompatible_with_target("cfg(target_os = \"nonexistent_os\")", false);
+    let res_target = is_target_cfg_incompatible_with_target(
+        "cfg(target_os = \"nonexistent_os\")",
+        false,
+        None,
+        std::path::Path::new("."),
+    );
     assert!(res_target.unwrap());
 
-    let res_host =
-        is_target_cfg_incompatible_with_target("cfg(target_os = \"nonexistent_os\")", true);
+    let res_host = is_target_cfg_incompatible_with_target(
+        "cfg(target_os = \"nonexistent_os\")",
+        true,
+        None,
+        std::path::Path::new("."),
+    );
     assert!(res_host.unwrap());
 
     let manifest_str = r#"
@@ -245,13 +265,27 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
     let manifest_path = dir.path().join("Cargo.toml");
     std::fs::write(&manifest_path, manifest_str).unwrap();
 
-    let dbg_target = resolve_unit_debuginfo(&manifest_path, false, false);
+    let dbg_target = resolve_unit_debuginfo(
+        &manifest_path,
+        "test-profile-pkg",
+        true,
+        false,
+        false,
+        Some(dir.path()),
+    );
     assert_eq!(
         dbg_target, 1,
         "target dev debuginfo should read [profile.dev].debug"
     );
 
-    let dbg_host = resolve_unit_debuginfo(&manifest_path, true, false);
+    let dbg_host = resolve_unit_debuginfo(
+        &manifest_path,
+        "test-profile-pkg",
+        true,
+        true,
+        false,
+        Some(dir.path()),
+    );
     assert_eq!(
         dbg_host, 0,
         "host dev debuginfo should read [profile.dev.build-override].debug"

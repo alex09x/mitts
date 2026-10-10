@@ -10,7 +10,7 @@
 
 use super::features_helpers::*;
 use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
-use crate::adapter::rust::types::RustBuildOptions;
+use crate::adapter::rust::types::{RustAdapterError, RustBuildOptions};
 use std::collections::{HashMap, HashSet};
 
 /// Context for resolving compile-time package features.
@@ -56,7 +56,7 @@ impl std::ops::Deref for ResolvedFeatures {
 pub fn resolve_package_features(
     packages: &[PackageFeatureContext],
     opt: &RustBuildOptions,
-) -> ResolvedFeatures {
+) -> Result<ResolvedFeatures, RustAdapterError> {
     let mut target_requested: HashMap<String, HashSet<String>> = HashMap::new();
     let mut host_requested: HashMap<String, HashSet<String>> = HashMap::new();
     let mut active_target_packages: HashSet<String> = HashSet::new();
@@ -113,7 +113,7 @@ pub fn resolve_package_features(
                 &mut target_requested,
                 &mut host_requested,
                 &mut changed,
-            );
+            )?;
         }
 
         // Propagate host graph
@@ -132,7 +132,7 @@ pub fn resolve_package_features(
                 &mut target_requested,
                 &mut host_requested,
                 &mut changed,
-            );
+            )?;
         }
     }
 
@@ -140,12 +140,12 @@ pub fn resolve_package_features(
     let target = finalize_feature_map(packages, target_requested, &active_target_packages);
     let host = finalize_feature_map(packages, host_requested, &active_host_packages);
 
-    ResolvedFeatures {
+    Ok(ResolvedFeatures {
         target,
         host,
         active_target_packages,
         active_host_packages,
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -159,7 +159,7 @@ fn propagate_package(
     target_req: &mut HashMap<String, HashSet<String>>,
     host_req: &mut HashMap<String, HashSet<String>>,
     changed: &mut bool,
-) {
+) -> Result<(), RustAdapterError> {
     let id = ctx.id();
     let is_test = opt.mode == crate::adapter::BuildMode::Test;
     let mut runtime_deps: Vec<(&String, &TomlDependency)> = ctx.toml.dependencies.iter().collect();
@@ -167,12 +167,16 @@ fn propagate_package(
     if is_test && ctx.is_workspace && !is_host_ctx {
         runtime_deps.extend(&ctx.toml.dev_dependencies);
     }
+    let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
+    let start_dir = opt.start_dir.as_deref().unwrap_or(std::path::Path::new("."));
+
     for (spec, t) in &ctx.toml.target {
         let target_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
             spec,
             is_host_ctx,
-        )
-        .unwrap_or(false);
+            explicit_target.as_deref(),
+            start_dir,
+        )?;
         if !target_incompat {
             runtime_deps.extend(&t.dependencies);
             if is_test && ctx.is_workspace && !is_host_ctx {
@@ -182,8 +186,9 @@ fn propagate_package(
         let host_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
             spec,
             true,
-        )
-        .unwrap_or(false);
+            explicit_target.as_deref(),
+            start_dir,
+        )?;
         if !host_incompat {
             build_deps.extend(&t.build_dependencies);
         }
@@ -223,7 +228,7 @@ fn propagate_package(
     let aliases = ctx.toml.dependency_aliases();
 
     for feat in &current_feats {
-        let deps = collect_manifest_dependencies(ctx.toml, feat);
+        let deps = collect_manifest_dependencies(ctx.toml, feat, explicit_target.as_deref(), start_dir)?;
         if is_optional_dep(&deps) {
             let is_build = ctx.toml.build_dependencies.contains_key(feat)
                 || ctx.toml.target.values().any(|t| t.build_dependencies.contains_key(feat));
@@ -244,9 +249,9 @@ fn propagate_package(
                     let dep_unweak = dep.strip_suffix('?').unwrap_or(dep);
                     let actual_dep = dep_unweak.strip_prefix("dep:").unwrap_or(dep_unweak);
                     let real_dep = aliases.alias_to_real.get(actual_dep).map(|s| s.as_str()).unwrap_or(actual_dep);
-                    let mut dep_decls = collect_manifest_dependencies(ctx.toml, actual_dep);
+                    let mut dep_decls = collect_manifest_dependencies(ctx.toml, actual_dep, explicit_target.as_deref(), start_dir)?;
                     if dep_decls.is_empty() {
-                        dep_decls = collect_manifest_dependencies(ctx.toml, real_dep);
+                        dep_decls = collect_manifest_dependencies(ctx.toml, real_dep, explicit_target.as_deref(), start_dir)?;
                     }
                     let is_build = ctx.toml.build_dependencies.contains_key(actual_dep)
                         || ctx.toml.build_dependencies.contains_key(real_dep)
@@ -307,14 +312,14 @@ fn propagate_package(
                         .is_some_and(|p| p.is_proc_macro());
                     let send_to_host = is_host_ctx || is_build || is_pm;
                     let (act, req) = if send_to_host { (&mut *active_host, &mut *host_req) } else { (&mut *active_target, &mut *target_req) };
-                    let deps = collect_manifest_dependencies(ctx.toml, dep_name);
+                    let deps = collect_manifest_dependencies(ctx.toml, dep_name, explicit_target.as_deref(), start_dir)?;
                     activate_manifest_dep(ctx, packages, dep_name, &deps, act, req, changed);
                 } else {
                     let this_req = if is_host_ctx { &mut *host_req } else { &mut *target_req };
                     if this_req.entry(id.clone()).or_default().insert(sub.clone()) {
                         *changed = true;
                     }
-                    let deps = collect_manifest_dependencies(ctx.toml, sub);
+                    let deps = collect_manifest_dependencies(ctx.toml, sub, explicit_target.as_deref(), start_dir)?;
                     if is_optional_dep(&deps) {
                         let is_build = ctx.toml.build_dependencies.contains_key(sub)
                             || ctx.toml.target.values().any(|t| t.build_dependencies.contains_key(sub));
@@ -329,6 +334,7 @@ fn propagate_package(
             }
         }
     }
+    Ok(())
 }
 
 fn finalize_feature_map(

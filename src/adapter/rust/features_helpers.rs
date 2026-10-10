@@ -11,7 +11,9 @@
 use super::features::PackageFeatureContext;
 use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
 use crate::adapter::rust::package_selection::parse_dep_spec;
+use crate::adapter::rust::types::RustAdapterError;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 pub fn is_implicit_feature(toml: &CargoToml, name: &str) -> bool {
     let (n1, n2) = (format!("dep:{}", name), format!("dep:{}", name.replace('-', "_")));
@@ -65,7 +67,9 @@ pub fn resolve_dep_id_from_ctx(
 pub fn collect_manifest_dependencies<'a>(
     toml: &'a CargoToml,
     name: &str,
-) -> Vec<&'a TomlDependency> {
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+) -> Result<Vec<&'a TomlDependency>, RustAdapterError> {
     let norm = name.replace('-', "_");
     let mut result = Vec::new();
     let mut add = |map: &'a HashMap<String, TomlDependency>| {
@@ -76,16 +80,26 @@ pub fn collect_manifest_dependencies<'a>(
     add(&toml.dependencies);
     add(&toml.build_dependencies);
     for (spec, t) in &toml.target {
-        let target_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(spec, false).unwrap_or(false);
+        let target_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+            spec,
+            false,
+            explicit_target,
+            start_dir,
+        )?;
         if !target_incompat {
             add(&t.dependencies);
         }
-        let host_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(spec, true).unwrap_or(false);
+        let host_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+            spec,
+            true,
+            explicit_target,
+            start_dir,
+        )?;
         if !host_incompat {
             add(&t.build_dependencies);
         }
     }
-    result
+    Ok(result)
 }
 
 pub fn activate_dep_instance(

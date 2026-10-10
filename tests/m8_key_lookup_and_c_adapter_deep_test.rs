@@ -125,6 +125,7 @@ edition = "2021"
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let unit_b = PlannedCompilationUnit {
@@ -143,6 +144,7 @@ edition = "2021"
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let plan = EffectivePlanExplanation {

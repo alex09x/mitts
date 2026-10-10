@@ -69,6 +69,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // Run 1: Cold execution
@@ -181,6 +182,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // Run 1: with MITTS_TEST_FEATURE=enabled
@@ -280,6 +282,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // Run 1: First build
@@ -380,6 +383,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // First build populates CAS and generates OUT_DIR/generated.rs
@@ -476,6 +480,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // First execution publishes with "alpha_content"
@@ -526,6 +531,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // Second execution with same mtime must detect different content hash and rerun
@@ -594,6 +600,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // Package B setup (same crate name/version, different tracked.txt content)
@@ -624,6 +631,7 @@ fn main() {
         env_vars: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // Step 1: Run A (cold)

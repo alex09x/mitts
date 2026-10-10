@@ -256,7 +256,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             dependencies: &pkg.dependencies,
         })
         .collect();
-    let package_features = resolve_package_features(&feature_inputs, opt);
+    let package_features = resolve_package_features(&feature_inputs, opt)?;
 
     // Pass 1: Build compilation units with assigned features (Resolver 2 decoupled host/target)
     let mut units = super::planner_units::build_planned_units(
@@ -265,10 +265,18 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         &package_features,
         opt,
         is_primary_pkg,
+        Some(project_dir),
     );
 
     // Pass 2: Resolve exact unit dependencies matching library or proc-macro targets
-    super::planner_deps::resolve_unit_dependencies(&mut units, &selected_packages);
+    let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
+    let start_dir = opt.start_dir.as_deref().unwrap_or(project_dir);
+    super::planner_deps::resolve_unit_dependencies(
+        &mut units,
+        &selected_packages,
+        explicit_target.as_deref(),
+        start_dir,
+    )?;
 
     // Prune compilation units not reachable from active root targets
     for u in &mut units {

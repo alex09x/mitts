@@ -79,6 +79,7 @@ fn test_m8_compute_unit_flags_comprehensive_env_macros() {
         is_primary: false,
         edition: Some("2021".to_string()),
         for_host: false,
+        workspace_root: None,
     };
 
     let flags = compute_unit_flags(&unit_bin, &pkg_dir, &[], BuildMode::Build);
@@ -145,6 +146,7 @@ fn test_m8_derive_unit_action_keys_cycle_fallback() {
         is_primary: false,
         edition: Some("2021".to_string()),
         for_host: false,
+        workspace_root: None,
     };
 
     let unit_b = PlannedCompilationUnit {
@@ -163,6 +165,7 @@ fn test_m8_derive_unit_action_keys_cycle_fallback() {
         is_primary: false,
         edition: Some("2021".to_string()),
         for_host: false,
+        workspace_root: None,
     };
 
     let explanation = EffectivePlanExplanation {

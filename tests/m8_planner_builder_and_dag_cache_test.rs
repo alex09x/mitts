@@ -76,6 +76,7 @@ edition = "2021"
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     // 1. is_cache_enabled: false -> returns false

@@ -8,125 +8,21 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-/// Checks whether a package is strictly exclusive to a foreign target platform.
-pub fn is_target_incompatible_with_host(dep_name: &str) -> bool {
-    #[cfg(not(target_os = "android"))]
-    if matches!(
-        dep_name,
-        "ndk-sys" | "ndk" | "android-activity" | "android_system_properties"
-    ) {
-        return true;
-    }
-    #[cfg(not(target_os = "redox"))]
-    if matches!(dep_name, "orbclient") {
-        return true;
-    }
-    #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
-    if matches!(
-        dep_name,
-        "web-sys"
-            | "js-sys"
-            | "wasm-bindgen"
-            | "wasm-bindgen-futures"
-            | "wasm-bindgen-test"
-            | "wasm-bindgen-test-macro"
-            | "wasm-bindgen-macro"
-            | "wasm-bindgen-shared"
-            | "wasm-bindgen-backend"
-    ) || dep_name.starts_with("wasm-bindgen-")
-    {
-        return true;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        if matches!(
-            dep_name,
-            "glutin_wgl_sys"
-                | "accesskit_windows"
-                | "windows"
-                | "windows-future"
-                | "windows-collections"
-                | "windows-numerics"
-                | "windows-threading"
-                | "schannel"
-                | "winreg"
-                | "ntapi"
-                | "crossterm_winapi"
-                | "anstyle-wincon"
-        ) || dep_name.starts_with("windows_")
-            || dep_name.starts_with("windows-")
-            || dep_name.starts_with("winapi")
-            || dep_name.starts_with("crossterm_win")
-        {
-            return true;
-        }
-    }
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    )))]
-    {
-        if matches!(
-            dep_name,
-            "accesskit_unix"
-                | "accesskit_atspi_common"
-                | "glutin_glx_sys"
-                | "calloop-wayland-source"
-                | "sctk-adwaita"
-                | "smithay-client-toolkit"
-                | "smithay-clipboard"
-                | "xkbcommon-dl"
-                | "x11-dl"
-                | "x11rb"
-                | "x11rb-protocol"
-        ) || dep_name.starts_with("wayland-")
-            || dep_name.starts_with("smithay-")
-        {
-            return true;
-        }
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-    {
-        if matches!(
-            dep_name,
-            "mach2"
-                | "core-foundation"
-                | "core-foundation-sys"
-                | "core-graphics"
-                | "core-graphics-types"
-                | "core-text"
-                | "core-audio"
-                | "core-audio-types"
-                | "security-framework"
-                | "security-framework-sys"
-                | "fsevent-sys"
-                | "kqueue"
-                | "kqueue-sys"
-                | "metal"
-                | "block2"
-                | "objc2"
-                | "dispatch"
-        ) || dep_name.starts_with("objc2-")
-            || dep_name.starts_with("apple-")
-        {
-            return true;
-        }
-    }
-    false
-}
+pub use super::target_incompatible::is_target_incompatible_with_host;
+
 
 /// Checks whether a target configuration spec (e.g. `'cfg(windows)'` or `cfg(target_env = "musl")`)
 /// or target triple is incompatible with the current compilation host.
 pub fn is_target_cfg_incompatible_with_host(target_spec: &str) -> bool {
-    is_target_cfg_incompatible_with_target(target_spec, false).unwrap_or(false)
+    is_target_cfg_incompatible_with_target(target_spec, false, None, std::path::Path::new("."))
+        .unwrap_or(false)
 }
 
 pub fn is_target_cfg_incompatible_with_target(
     target_spec: &str,
     for_host: bool,
+    explicit_target: Option<&str>,
+    start_dir: &std::path::Path,
 ) -> Result<bool, RustAdapterError> {
     let clean = target_spec
         .trim()
@@ -158,20 +54,25 @@ pub fn is_target_cfg_incompatible_with_target(
         return Ok(false);
     }
 
-    eval_cfg(clean, for_host).map(|res| !res)
+    eval_cfg(clean, for_host, explicit_target, start_dir).map(|res| !res)
 }
 
-fn eval_cfg(expr: &str, for_host: bool) -> Result<bool, RustAdapterError> {
+fn eval_cfg(
+    expr: &str,
+    for_host: bool,
+    explicit_target: Option<&str>,
+    start_dir: &std::path::Path,
+) -> Result<bool, RustAdapterError> {
     let expr = expr.trim();
     if let Some(inner) = expr.strip_prefix("cfg(").and_then(|s| s.strip_suffix(')')) {
-        return eval_cfg(inner, for_host);
+        return eval_cfg(inner, for_host, explicit_target, start_dir);
     }
     if let Some(inner) = expr.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
-        return eval_cfg(inner, for_host).map(|b| !b);
+        return eval_cfg(inner, for_host, explicit_target, start_dir).map(|b| !b);
     }
     if let Some(inner) = expr.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {
         for arg in split_cfg_args(inner) {
-            if eval_cfg(arg, for_host)? {
+            if eval_cfg(arg, for_host, explicit_target, start_dir)? {
                 return Ok(true);
             }
         }
@@ -179,13 +80,13 @@ fn eval_cfg(expr: &str, for_host: bool) -> Result<bool, RustAdapterError> {
     }
     if let Some(inner) = expr.strip_prefix("all(").and_then(|s| s.strip_suffix(')')) {
         for arg in split_cfg_args(inner) {
-            if !eval_cfg(arg, for_host)? {
+            if !eval_cfg(arg, for_host, explicit_target, start_dir)? {
                 return Ok(false);
             }
         }
         return Ok(true);
     }
-    eval_atom(expr, for_host)
+    eval_atom(expr, for_host, explicit_target, start_dir)
 }
 
 fn split_cfg_args(s: &str) -> Vec<&str> {
@@ -218,43 +119,69 @@ fn split_cfg_args(s: &str) -> Vec<&str> {
 }
 
 use super::types::RustAdapterError;
-use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
-static HOST_CFG_ATOMS: OnceLock<Result<HashSet<String>, String>> = OnceLock::new();
-static TARGET_CFG_ATOMS: OnceLock<Result<HashSet<String>, String>> = OnceLock::new();
-static EMPTY_ATOMS: OnceLock<HashSet<String>> = OnceLock::new();
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CfgCacheKey {
+    for_host: bool,
+    explicit_target: Option<String>,
+    start_dir: PathBuf,
+}
 
-pub fn get_cfg_atoms(for_host: bool) -> Result<&'static HashSet<String>, RustAdapterError> {
-    let lock = if for_host {
-        &HOST_CFG_ATOMS
-    } else {
-        &TARGET_CFG_ATOMS
+type CachedCfgResult = Result<Arc<HashSet<String>>, String>;
+type CfgCacheMap = HashMap<CfgCacheKey, CachedCfgResult>;
+
+static CFG_CACHE: OnceLock<Mutex<CfgCacheMap>> = OnceLock::new();
+
+pub fn get_cfg_atoms(
+    for_host: bool,
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+) -> Result<Arc<HashSet<String>>, RustAdapterError> {
+    let cache = CFG_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = CfgCacheKey {
+        for_host,
+        explicit_target: explicit_target.map(|s| s.to_string()),
+        start_dir: start_dir.to_path_buf(),
     };
-    let res = lock.get_or_init(|| discover_cfg_atoms(for_host));
+
+    let mut guard = cache.lock().unwrap();
+    if let Some(cached) = guard.get(&key) {
+        return match cached {
+            Ok(atoms) => Ok(Arc::clone(atoms)),
+            Err(err) => Err(RustAdapterError::MetadataFailed(err.clone())),
+        };
+    }
+
+    let res = discover_cfg_atoms(for_host, explicit_target, start_dir);
     match res {
-        Ok(atoms) => Ok(atoms),
-        Err(err) => Err(RustAdapterError::MetadataFailed(err.clone())),
+        Ok(atoms) => {
+            let arc = Arc::new(atoms);
+            guard.insert(key, Ok(Arc::clone(&arc)));
+            Ok(arc)
+        }
+        Err(err) => {
+            guard.insert(key, Err(err.clone()));
+            Err(RustAdapterError::MetadataFailed(err))
+        }
     }
 }
 
-pub fn get_host_cfg_atoms() -> &'static HashSet<String> {
-    get_cfg_atoms(true).unwrap_or_else(|_| EMPTY_ATOMS.get_or_init(HashSet::new))
-}
-
-fn discover_cfg_atoms(for_host: bool) -> Result<HashSet<String>, String> {
+fn discover_cfg_atoms(
+    for_host: bool,
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+) -> Result<HashSet<String>, String> {
     let rustc = crate::adapter::rust::compiler_resolve::resolve_rustc();
     let mut cmd = std::process::Command::new(&rustc);
     cmd.arg("--print").arg("cfg");
 
-    let explicit_target = if !for_host {
-        crate::adapter::rust::key_flags::resolve_explicit_target_from_args(&[])
-    } else {
-        None
-    };
-
-    if let Some(ref target) = explicit_target {
-        cmd.arg("--target").arg(target);
+    if !for_host {
+        if let Some(target) = explicit_target {
+            cmd.arg("--target").arg(target);
+        }
     }
 
     let output = cmd.output().map_err(|e| {
@@ -281,17 +208,32 @@ fn discover_cfg_atoms(for_host: bool) -> Result<HashSet<String>, String> {
         }
     }
 
-    if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
-        parse_cfg_from_iter(encoded.split('\x1f'), &mut atoms);
-    } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
-        parse_cfg_from_iter(flags.split_whitespace(), &mut atoms);
-    }
-
-    if let Ok(cfg_flags) = crate::adapter::rust::cargo_config::load_cargo_config_rustflags(
-        std::path::Path::new("."),
-        explicit_target.as_deref(),
-    ) {
-        parse_cfg_from_iter(cfg_flags.iter().map(|s| s.as_str()), &mut atoms);
+    // Rustflags precedence:
+    // When cross-compiling (explicit_target is Some), host units do NOT receive target rustflags!
+    if for_host && explicit_target.is_some() {
+        if let Ok(host_flags) = std::env::var("CARGO_HOST_RUSTFLAGS") {
+            parse_cfg_from_iter(host_flags.split_whitespace(), &mut atoms);
+        }
+    } else {
+        // Target units (or host units when native):
+        // 1. CARGO_ENCODED_RUSTFLAGS -> 2. RUSTFLAGS -> 3. Cargo config files
+        if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+            if !encoded.is_empty() {
+                parse_cfg_from_iter(encoded.split('\x1f'), &mut atoms);
+            }
+        } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
+            if !flags.trim().is_empty() {
+                parse_cfg_from_iter(flags.split_whitespace(), &mut atoms);
+            }
+        } else {
+            let config_dir = crate::adapter::rust::cargo_config::resolve_config_start_dir(start_dir);
+            let cfg_flags = crate::adapter::rust::cargo_config::load_cargo_config_rustflags(
+                &config_dir,
+                explicit_target,
+            )
+            .map_err(|e| format!("Failed to load cargo config rustflags: {}", e))?;
+            parse_cfg_from_iter(cfg_flags.iter().map(|s| s.as_str()), &mut atoms);
+        }
     }
 
     Ok(atoms)
@@ -310,9 +252,14 @@ fn parse_cfg_from_iter<'a>(iter: impl Iterator<Item = &'a str>, atoms: &mut Hash
     }
 }
 
-fn eval_atom(atom: &str, for_host: bool) -> Result<bool, RustAdapterError> {
+fn eval_atom(
+    atom: &str,
+    for_host: bool,
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+) -> Result<bool, RustAdapterError> {
     let atom = atom.trim();
-    let atoms = get_cfg_atoms(for_host)?;
+    let atoms = get_cfg_atoms(for_host, explicit_target, start_dir)?;
     if atoms.contains(atom) {
         return Ok(true);
     }
@@ -331,10 +278,14 @@ mod tests {
 
     #[test]
     fn test_eval_cfg_target_atoms() {
-        assert!(eval_atom("target_has_atomic = \"64\"", false).unwrap() || eval_atom("target_has_atomic = \"32\"", false).unwrap());
-        assert!(!eval_atom("target_os = \"nonexistent_os\"", false).unwrap());
+        assert!(
+            eval_atom("target_has_atomic = \"64\"", false, None, Path::new(".")).unwrap()
+                || eval_atom("target_has_atomic = \"32\"", false, None, Path::new(".")).unwrap()
+        );
+        assert!(!eval_atom("target_os = \"nonexistent_os\"", false, None, Path::new(".")).unwrap());
         assert!(!is_target_cfg_incompatible_with_host("cfg(any(unix, windows))"));
         assert!(is_target_cfg_incompatible_with_host("cfg(target_os = \"nonexistent_os\")"));
     }
 }
+
 

@@ -36,6 +36,7 @@ fn make_unit(pkg_dir: &Path) -> PlannedCompilationUnit {
         edition: Some("2021".to_string()),
         features: vec![],
         for_host: false,
+        workspace_root: None,
     }
 }
 

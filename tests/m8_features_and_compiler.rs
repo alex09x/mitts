@@ -49,7 +49,7 @@ extra_feat = ["dep:bar"]
 
     // 1. With default features
     let opt_default = RustBuildOptions::default();
-    let feats = resolve_package_features(&pkgs, &opt_default);
+    let feats = resolve_package_features(&pkgs, &opt_default).unwrap();
     let resolved = feats.get("my-crate@0.1.0").expect("crate features");
     assert!(resolved.contains(&"default".to_string()));
     assert!(resolved.contains(&"std".to_string()));
@@ -59,7 +59,7 @@ extra_feat = ["dep:bar"]
         all_features: true,
         ..Default::default()
     };
-    let feats_all = resolve_package_features(&pkgs, &opt_all);
+    let feats_all = resolve_package_features(&pkgs, &opt_all).unwrap();
     let resolved_all = feats_all.get("my-crate@0.1.0").expect("crate features");
     assert!(resolved_all.contains(&"extra_feat".to_string()));
 
@@ -68,7 +68,7 @@ extra_feat = ["dep:bar"]
         no_default_features: true,
         ..Default::default()
     };
-    let feats_no_def = resolve_package_features(&pkgs, &opt_no_def);
+    let feats_no_def = resolve_package_features(&pkgs, &opt_no_def).unwrap();
     assert!(feats_no_def
         .get("my-crate@0.1.0")
         .map(|f| f.is_empty())
@@ -153,6 +153,7 @@ fn test_m8_compiler_invocation_execution() {
         dependencies: Vec::new(),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let empty_feats = Vec::new();
@@ -253,7 +254,7 @@ build_mode = []
     ];
 
     let opt = RustBuildOptions::default();
-    let resolved = resolve_package_features(&pkgs, &opt);
+    let resolved = resolve_package_features(&pkgs, &opt).unwrap();
 
     assert!(resolved.active_target_packages.contains("worker@1.0.0"), "worker must be in target");
     assert!(resolved.active_target_packages.contains("dual_crate@2.0.0"), "dual_crate must be in target");

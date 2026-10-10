@@ -13,12 +13,15 @@ use super::manifest::CargoToml;
 use super::package_selection::{has_active_dependency, parse_dep_spec};
 use super::types::PlannedCompilationUnit;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 /// Resolves exact compilation unit dependencies matching library or proc-macro targets.
 pub fn resolve_unit_dependencies(
     units: &mut [PlannedCompilationUnit],
     selected_packages: &[(&CargoLockPackage, bool)],
-) {
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+) -> Result<(), crate::adapter::rust::types::RustAdapterError> {
     let mut lib_units_by_exact: HashMap<(String, String, bool), String> = HashMap::new();
     let mut lib_units_by_name: HashMap<(String, bool), Vec<(String, String)>> = HashMap::new();
     let mut proc_macro_names: HashSet<String> = HashSet::new();
@@ -74,7 +77,9 @@ pub fn resolve_unit_dependencies(
                         &unit.features,
                         is_test,
                         has_build_script,
-                    ) {
+                        explicit_target,
+                        start_dir,
+                    )? {
                         continue;
                     }
                 }
@@ -168,6 +173,7 @@ pub fn resolve_unit_dependencies(
         unit_deps.dedup();
         unit.dependencies = unit_deps;
     }
+    Ok(())
 }
 
 /// Prunes compilation units that are not reachable from root targets.

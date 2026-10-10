@@ -25,6 +25,7 @@ pub fn build_planned_units(
     package_features: &ResolvedFeatures,
     opt: &RustBuildOptions,
     is_primary_pkg: impl Fn(&str) -> bool,
+    ws_root: Option<&Path>,
 ) -> Vec<PlannedCompilationUnit> {
     let mut units = Vec::new();
 
@@ -80,6 +81,7 @@ pub fn build_planned_units(
                             *is_workspace,
                             has_untracked_env,
                             &env_vars,
+                            ws_root,
                         ));
                     }
                 }
@@ -107,6 +109,7 @@ pub fn build_planned_units(
                             *is_workspace,
                             has_untracked_env,
                             &env_vars,
+                            ws_root,
                         ));
                     }
                 }
@@ -131,6 +134,7 @@ pub fn build_planned_units(
                             *is_workspace,
                             has_untracked_env,
                             &env_vars,
+                            ws_root,
                         ));
                     }
                 }
@@ -153,6 +157,7 @@ pub fn build_planned_units(
                             *is_workspace,
                             has_untracked_env,
                             &env_vars,
+                            ws_root,
                         ));
                     }
                 }
@@ -185,6 +190,7 @@ fn create_unit(
     is_workspace: bool,
     has_untracked_env: bool,
     env_vars: &[String],
+    ws_root: Option<&Path>,
 ) -> PlannedCompilationUnit {
     let is_bin = target.kind == "bin";
     let has_mixed_or_native = target
@@ -246,5 +252,6 @@ fn create_unit(
             .or_else(|| pkg_toml.package.as_ref().and_then(|p| p.edition.clone())),
         features,
         for_host,
+        workspace_root: ws_root.map(|p| p.to_path_buf()),
     }
 }

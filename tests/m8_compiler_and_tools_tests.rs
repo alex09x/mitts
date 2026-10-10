@@ -91,6 +91,7 @@ fn test_m8_compiler_invocation_modes_and_args() {
         edition: Some("2021".to_string()),
         features: vec![],
         for_host: false,
+        workspace_root: None,
     };
 
     let extra_args = vec!["-C".to_string(), "opt-level=0".to_string()];
@@ -159,6 +160,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         edition: Some("2021".to_string()),
         features: vec![],
         for_host: false,
+        workspace_root: None,
     };
 
     let inv = RustcInvocation {

@@ -105,7 +105,7 @@ skipped = []
         ..Default::default()
     };
 
-    let resolved = resolve_package_features(&pkgs, &opt);
+    let resolved = resolve_package_features(&pkgs, &opt).unwrap();
 
     // root-app has default, std, gui
     let root_feats = resolved.get("root-app@0.1.0").unwrap();
@@ -197,7 +197,7 @@ unix_default = []
     ];
 
     let opt = RustBuildOptions::default();
-    let resolved = resolve_package_features(&pkgs, &opt);
+    let resolved = resolve_package_features(&pkgs, &opt).unwrap();
 
     // actual_lib has default-features = false, but feature_x is requested
     let actual_feats = resolved.get("actual_lib@2.0.0").unwrap();

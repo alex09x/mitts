@@ -119,6 +119,7 @@ fn main() {
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let extra_env = HashMap::new();
@@ -174,6 +175,7 @@ fn test_m8_execute_build_script_compilation_failure() {
         edition: Some("2021".to_string()),
         features: Vec::new(),
         for_host: false,
+        workspace_root: None,
     };
 
     let res = execute_build_script(&unit, &staging_dir, false, &[], None, &[], None);

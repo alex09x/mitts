@@ -114,7 +114,7 @@ libc = { version = "0.2", optional = true }
         all_features: true,
         ..Default::default()
     };
-    let feats_all = resolve_package_features(&packages, &opt_all);
+    let feats_all = resolve_package_features(&packages, &opt_all).unwrap();
     let feat_list = feats_all.get("feat_pkg@0.1.0").unwrap();
     assert!(feat_list.contains(&"extra".to_string()));
     assert!(feat_list.contains(&"custom".to_string()));
@@ -136,7 +136,7 @@ libc = { version = "0.2", optional = true }
         no_default_features: true,
         ..Default::default()
     };
-    let feats_inactive = resolve_package_features(&[ctx_inactive], &opt_single);
+    let feats_inactive = resolve_package_features(&[ctx_inactive], &opt_single).unwrap();
     let feat_inactive_list = feats_inactive.get("feat_pkg@0.1.0").unwrap();
     // Since serde is inactive and extra uses serde?/derive, serde is not activated
     assert!(!feat_inactive_list.contains(&"serde".to_string()));
