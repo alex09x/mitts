@@ -73,10 +73,17 @@ def generate_markdown(results_dir, output_report_path=None):
                 continue
             if status == "EXCLUDED_FROM_PUBLICATION":
                 runs = proj.get("runs", {})
-                m_mean = runs.get("mitts_cas", {}).get("mean_s", runs.get("mitts_cas", {}).get("median", 0.0))
-                b_mean = runs.get("cargo_bare", {}).get("mean_s", runs.get("cargo_bare", {}).get("median", 0.0))
-                s_mean = runs.get("cargo_sccache", {}).get("mean_s", runs.get("cargo_sccache", {}).get("median", 0.0))
-                lines.append(f"| {suite_name} | `{proj_name}` | {m_mean:.2f} | {b_mean:.2f} | {s_mean:.2f} | bare ({b_mean:.2f} с) | 0.55× | 0.61× | ⚠️ **EXCLUDED** (doctest overhead) |")
+                m_med = runs.get("mitts_cas", {}).get("median", 0.0)
+                b_med = runs.get("cargo_bare", {}).get("median", 0.0)
+                s_med = runs.get("cargo_sccache", {}).get("median", 0.0)
+                sound_label = "sccache" if s_med <= b_med else "bare"
+                sound_val = min(s_med, b_med)
+                ratio_sound = round(sound_val / max(m_med, 0.001), 2)
+                ratio_bare = round(b_med / max(m_med, 0.001), 2)
+                reason = proj.get("exclusion_reason", "причина не установлена")
+                lines.append(
+                    f"| {suite_name} | `{proj_name}` | {m_med:.2f} | {b_med:.2f} | {s_med:.2f} | {sound_label} ({sound_val:.2f} с) | {ratio_sound:.2f}× | {ratio_bare:.2f}× | ⚠️ **EXCLUDED** ({reason}) |"
+                )
                 continue
 
             runs = proj.get("runs", {})
@@ -84,13 +91,16 @@ def generate_markdown(results_dir, output_report_path=None):
             scc = runs.get("cargo_sccache", {})
             bare = runs.get("cargo_bare", {})
 
-            # Mean if present, else median
+            # Use MEDIANS for all durations to ensure ratio exactly matches table values
             def get_time(obj):
+                if "median" in obj:
+                    return obj["median"]
+                if "durations_s" in obj and obj["durations_s"]:
+                    import statistics
+                    return statistics.median(obj["durations_s"])
                 if "mean_s" in obj:
                     return obj["mean_s"]
-                if "durations_s" in obj and obj["durations_s"]:
-                    return sum(obj["durations_s"]) / len(obj["durations_s"])
-                return obj.get("median", 0.0)
+                return 0.0
 
             m_val = get_time(m_cas)
             s_val = get_time(scc)
