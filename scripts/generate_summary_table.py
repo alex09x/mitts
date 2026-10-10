@@ -102,9 +102,9 @@ def generate_markdown(results_dir, output_report_path=None):
                     return obj["mean_s"]
                 return 0.0
 
-            m_val = get_time(m_cas)
-            s_val = get_time(scc)
-            b_val = get_time(bare)
+            m_val = round(get_time(m_cas), 2)
+            s_val = round(get_time(scc), 2)
+            b_val = round(get_time(bare), 2)
 
             sp_info = proj.get("speedup_vs_sound_baseline", {})
             sound_base_name = sp_info.get("sound_baseline", "cargo_sccache" if s_val <= b_val else "cargo_bare")
