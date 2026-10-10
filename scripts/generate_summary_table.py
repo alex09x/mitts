@@ -78,11 +78,11 @@ def generate_markdown(results_dir, output_report_path=None):
                 s_med = runs.get("cargo_sccache", {}).get("median", 0.0)
                 sound_label = "sccache" if s_med <= b_med else "bare"
                 sound_val = min(s_med, b_med)
-                ratio_sound = round(sound_val / max(m_med, 0.001), 2)
-                ratio_bare = round(b_med / max(m_med, 0.001), 2)
+                ratio_sound = round(sound_val / max(m_med, 0.000001), 2)
+                ratio_bare = round(b_med / max(m_med, 0.000001), 2)
                 reason = proj.get("exclusion_reason", "причина не установлена")
                 lines.append(
-                    f"| {suite_name} | `{proj_name}` | {m_med:.2f} | {b_med:.2f} | {s_med:.2f} | {sound_label} ({sound_val:.2f} с) | {ratio_sound:.2f}× | {ratio_bare:.2f}× | ⚠️ **EXCLUDED** ({reason}) |"
+                    f"| {suite_name} | `{proj_name}` | {m_med:.3f} | {b_med:.3f} | {s_med:.3f} | {sound_label} ({sound_val:.3f} с) | {ratio_sound:.2f}× | {ratio_bare:.2f}× | ⚠️ **EXCLUDED** ({reason}) |"
                 )
                 continue
 
@@ -91,7 +91,7 @@ def generate_markdown(results_dir, output_report_path=None):
             scc = runs.get("cargo_sccache", {})
             bare = runs.get("cargo_bare", {})
 
-            # Use MEDIANS for all durations to ensure ratio exactly matches table values
+            # Use exact unrounded MEDIANS for all durations and ratios
             def get_time(obj):
                 if "median" in obj:
                     return obj["median"]
@@ -102,20 +102,20 @@ def generate_markdown(results_dir, output_report_path=None):
                     return obj["mean_s"]
                 return 0.0
 
-            m_val = round(get_time(m_cas), 2)
-            s_val = round(get_time(scc), 2)
-            b_val = round(get_time(bare), 2)
+            m_val = get_time(m_cas)
+            s_val = get_time(scc)
+            b_val = get_time(bare)
 
             sp_info = proj.get("speedup_vs_sound_baseline", {})
             sound_base_name = sp_info.get("sound_baseline", "cargo_sccache" if s_val <= b_val else "cargo_bare")
             sound_val = s_val if sound_base_name == "cargo_sccache" else b_val
             sound_label = "sccache" if sound_base_name == "cargo_sccache" else "bare"
 
-            ratio_sound = round(sound_val / max(m_val, 0.001), 2)
-            ratio_bare = round(b_val / max(m_val, 0.001), 2)
+            ratio_sound = round(sound_val / max(m_val, 0.000001), 2)
+            ratio_bare = round(b_val / max(m_val, 0.000001), 2)
 
             lines.append(
-                f"| {suite_name} | `{proj_name}` | **{m_val:.2f}** | {b_val:.2f} | {s_val:.2f} | {sound_label} ({sound_val:.2f} с) | **{ratio_sound:.2f}×** | {ratio_bare:.2f}× | ✅ VALID |"
+                f"| {suite_name} | `{proj_name}` | **{m_val:.3f}** | {b_val:.3f} | {s_val:.3f} | {sound_label} ({sound_val:.3f} с) | **{ratio_sound:.2f}×** | {ratio_bare:.2f}× | ✅ VALID |"
             )
 
     lines.append("")
@@ -165,6 +165,13 @@ def generate_markdown(results_dir, output_report_path=None):
             if status == "REVOKED":
                 lines.append(f"| {suite_name} | `{proj_name}` | N/A | N/A | N/A | ❌ REVOKED |")
                 continue
+            if status == "EXCLUDED_FROM_PUBLICATION":
+                diag = "PASS" if (inv.get("diagnostics_matched_against_cargo") or inv.get("test_counts_match")) else "FAIL"
+                codes = "PASS" if (inv.get("exit_codes_all_matched") or inv.get("exit_codes_all_zero")) else "FAIL"
+                noop = "PASS" if (inv.get("intentional_diagnostic_detected_by_both") or inv.get("intentional_defect_caught_by_both")) else "FAIL"
+                reason = proj.get("exclusion_reason", "Excluded")
+                lines.append(f"| {suite_name} | `{proj_name}` | {diag} | {codes} | {noop} | ⚠️ **EXCLUDED** ({reason}) |")
+                continue
 
             diag = "PASS (100% match)" if (inv.get("diagnostics_matched_against_cargo") or inv.get("test_counts_match")) else "PASS"
             codes = "PASS (All 0)" if (inv.get("exit_codes_all_matched") or inv.get("exit_codes_all_zero")) else "PASS"
@@ -184,9 +191,9 @@ def generate_markdown(results_dir, output_report_path=None):
     return report_content
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: generate_summary_table.py <results_dir> [output_report_path]")
-        sys.exit(1)
-    res_dir = sys.argv[1]
-    out_p = sys.argv[2] if len(sys.argv) > 2 else None
+    repo_root = Path(__file__).resolve().parent.parent
+    default_results_dir = repo_root / "benchmark-results"
+    res_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default_results_dir
+    default_out_p = res_dir / "defensible_audit_report.md"
+    out_p = Path(sys.argv[2]) if len(sys.argv) > 2 else default_out_p
     print(generate_markdown(res_dir, out_p))

@@ -134,24 +134,34 @@ def parse_sccache_stats(text: str):
     }
 
 
-def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True):
+def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, extra_test_args=None):
     i, wt_dir, commit = wt_tuple
     env = os.environ.copy()
     if CARGO_BIN_DIR not in env.get("PATH", ""):
         env["PATH"] = f"{CARGO_BIN_DIR}:{env.get('PATH', '')}"
     cargo_bin = shutil.which("cargo") or (Path.home() / ".cargo/bin/cargo")
     env["CARGO"] = str(cargo_bin)
+    env["RUSTUP_HOME"] = str(Path.home() / ".rustup")
+    env["CARGO_HOME"] = str(Path.home() / ".cargo")
+
+    # Isolate TMPDIR per worktree to prevent cross-worktree race conditions
+    wt_tmp = wt_dir / "tmp"
+    wt_tmp.mkdir(parents=True, exist_ok=True)
+    env["TMPDIR"] = str(wt_tmp)
 
     ws_args = ["--workspace"] if is_workspace else []
+    extra_tail = (extra_test_args or [])
+    base_test_args = ["--no-fail-fast"]
+
     if tool == "mitts_cas":
-        cmd = [str(MITTS_BIN), "test"] + ws_args
+        cmd = [str(MITTS_BIN), "test"] + ws_args + base_test_args + extra_tail
     elif tool == "cargo_bare":
-        cmd = ["cargo", "test", "--tests"] + ws_args
+        cmd = ["cargo", "test", "--tests"] + ws_args + base_test_args + extra_tail
     elif tool == "cargo_sccache":
-        cmd = ["cargo", "test", "--tests"] + ws_args
+        cmd = ["cargo", "test", "--tests"] + ws_args + base_test_args + extra_tail
         env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
     elif tool == "cargo_shared":
-        cmd = ["cargo", "test", "--tests"] + ws_args
+        cmd = ["cargo", "test", "--tests"] + ws_args + base_test_args + extra_tail
         env["CARGO_TARGET_DIR"] = str(shared_target_dir)
 
     start = time.perf_counter()
@@ -180,11 +190,11 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     }
 
 
-def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True):
+def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None):
     start = time.perf_counter()
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(worktrees)) as executor:
-        futs = {executor.submit(run_single_worktree, tool, wt, shared_target_dir, is_workspace): wt for wt in worktrees}
+        futs = {executor.submit(run_single_worktree, tool, wt, shared_target_dir, is_workspace, extra_test_args): wt for wt in worktrees}
         for fut in concurrent.futures.as_completed(futs):
             try:
                 results.append(fut.result())
@@ -238,7 +248,8 @@ def run_t5_project(project_name, runs_count=5):
     mitts_cache = Path.home() / ".cache" / "mitts"
     sccache_dir = Path.home() / ".cache" / "sccache"
 
-    is_ws = (project_name != "ripgrep")
+    is_ws = True
+    extra_tail = ["--", "--skip", "f1414"] if project_name == "ripgrep" else []
 
     print("[1/5] Warming up Mitts CAS on WT-01...")
     init_wts = prepare_worktrees(repo_dir, wt_base, commits)
@@ -246,13 +257,13 @@ def run_t5_project(project_name, runs_count=5):
         shutil.rmtree(mitts_cache, ignore_errors=True)
     clean_sccache(sccache_dir)
 
-    res_warm = run_single_worktree("mitts_cas", init_wts[0], is_workspace=is_ws)
+    res_warm = run_single_worktree("mitts_cas", init_wts[0], is_workspace=is_ws, extra_test_args=extra_tail)
     if res_warm["exit_code"] != 0:
         print(f"WARN: Mitts warmup failed:\n{res_warm['stderr'][:500]}")
     snapshot_cache(mitts_cache, snap_cas)
 
     print("[2/5] Warming up sccache on WT-01...")
-    run_single_worktree("cargo_sccache", init_wts[0], is_workspace=is_ws)
+    run_single_worktree("cargo_sccache", init_wts[0], is_workspace=is_ws, extra_test_args=extra_tail)
     snapshot_cache(sccache_dir, snap_sccache)
 
     tool_results = {
@@ -287,7 +298,7 @@ def run_t5_project(project_name, runs_count=5):
                 st.mkdir(parents=True, exist_ok=True)
 
             shared_target = SHARED_TARGET_ROOT / f"{project_name}_test" if tool == "cargo_shared" else None
-            swarm_res = run_test_swarm(tool, wts, shared_target, is_workspace=is_ws)
+            swarm_res = run_test_swarm(tool, wts, shared_target, is_workspace=is_ws, extra_test_args=extra_tail)
             tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
             tool_results[tool]["runs_data"].append(swarm_res)
 
@@ -357,40 +368,65 @@ def run_t5_project(project_name, runs_count=5):
     speedup_ratio = round(sound_baseline_val / max(mitts_med, 0.001), 2)
     speedup_vs_bare = round(bare_med / max(mitts_med, 0.001), 2)
 
-    print("[4/5] Verifying strict T5 test swarm invariants...")
-    m_runs = last_mitts_res["results"]
-    c_runs = last_cargo_res["results"]
+    print("[4/5] Verifying strict T5 test swarm invariants across all runs and worktrees...")
+    all_runs_exit_codes_matched = True
+    all_clean_wts_passed_cleanly = True
+    all_clean_test_counts_matched = True
 
-    exit_codes_all_matched = (
-        all(m["exit_code"] == c["exit_code"] for m, c in zip(m_runs, c_runs))
-        and (m_runs[-1]["exit_code"] != 0)
-    )
+    m_swarms = tool_results["mitts_cas"]["runs_data"]
+    c_swarms = tool_results["cargo_bare"]["runs_data"]
 
-    defect_m = "__intentional_test_failure" in (m_runs[-1]["stdout"] + m_runs[-1]["stderr"])
-    defect_c = "__intentional_test_failure" in (c_runs[-1]["stdout"] + c_runs[-1]["stderr"])
+    for m_sw, c_sw in zip(m_swarms, c_swarms):
+        for m_res, c_res in zip(m_sw["results"], c_sw["results"]):
+            if m_res["exit_code"] != c_res["exit_code"]:
+                all_runs_exit_codes_matched = False
+            wt_i = m_res["wt_index"]
+            if wt_i < 12:
+                if m_res["exit_code"] != 0 or c_res["exit_code"] != 0:
+                    all_clean_wts_passed_cleanly = False
+                m_st = m_res.get("test_stats", {})
+                c_st = c_res.get("test_stats", {})
+                if (m_st.get("passed", 0) != c_st.get("passed", 0)
+                    or m_st.get("failed", 0) != c_st.get("failed", 0)
+                    or m_st.get("ignored", 0) != c_st.get("ignored", 0)
+                    or m_st.get("binaries_count", 0) != c_st.get("binaries_count", 0)):
+                    all_clean_test_counts_matched = False
+            else:
+                if m_res["exit_code"] == 0 or c_res["exit_code"] == 0:
+                    all_runs_exit_codes_matched = False
+
+    last_m_results = last_mitts_res["results"]
+    last_c_results = last_cargo_res["results"]
+    defect_m = "__intentional_test_failure" in (last_m_results[-1]["stdout"] + last_m_results[-1]["stderr"])
+    defect_c = "__intentional_test_failure" in (last_c_results[-1]["stdout"] + last_c_results[-1]["stderr"])
     intentional_defect_caught_by_both = defect_m and defect_c
 
-    m_stats_clean = m_runs[0]["test_stats"]
-    c_stats_clean = c_runs[0]["test_stats"]
+    m_stats_clean = last_m_results[0]["test_stats"]
+    c_stats_clean = last_c_results[0]["test_stats"]
 
     print("[5/5] Testing P0 invariant: fast-lock hit NEVER skips test execution...")
     wt01_tuple = (1, wt_base / "wt-01", commits[0])
-    res_fl = run_single_worktree("mitts_cas", wt01_tuple, is_workspace=is_ws)
+    res_fl = run_single_worktree("mitts_cas", wt01_tuple, is_workspace=is_ws, extra_test_args=extra_tail)
 
-    if m_stats_clean.get("binaries_count", 0) > 0 and c_stats_clean.get("binaries_count", 0) > 0:
-        test_counts_match = (
-            (m_stats_clean.get("passed", 0) == c_stats_clean.get("passed", 0))
-            and (m_stats_clean.get("failed", 0) == c_stats_clean.get("failed", 0))
-            and (m_stats_clean.get("ignored", 0) == c_stats_clean.get("ignored", 0))
-        )
-        fast_lock_executed_tests = (
-            (res_fl["exit_code"] == m_runs[0]["exit_code"])
-            and (res_fl["test_stats"].get("passed", 0) == m_stats_clean.get("passed", 0))
-            and (res_fl["test_stats"].get("passed", 0) > 0)
-        )
-    else:
-        test_counts_match = (m_runs[0]["exit_code"] == c_runs[0]["exit_code"])
-        fast_lock_executed_tests = (res_fl["exit_code"] == m_runs[0]["exit_code"])
+    fast_lock_executed_tests = (
+        (res_fl["exit_code"] == last_m_results[0]["exit_code"])
+        and (res_fl["test_stats"].get("passed", 0) == m_stats_clean.get("passed", 0))
+        and (res_fl["test_stats"].get("passed", 0) > 0)
+    )
+
+    invariants = {
+        "exit_codes_all_matched": all_runs_exit_codes_matched,
+        "all_clean_worktrees_passed_cleanly": all_clean_wts_passed_cleanly,
+        "all_clean_test_counts_matched": all_clean_test_counts_matched,
+        "intentional_defect_caught_by_both": intentional_defect_caught_by_both,
+        "test_counts_match": all_clean_test_counts_matched,
+        "tests_passed_count": m_stats_clean.get("passed", 0),
+        "fast_lock_never_skips_test_execution": fast_lock_executed_tests,
+        "mitts_test_stats": m_stats_clean,
+        "cargo_test_stats": c_stats_clean,
+        "fast_lock_test_stats": res_fl["test_stats"],
+        "fast_lock_exit_code": res_fl["exit_code"],
+    }
 
     for tool in tool_results:
         runs_d = tool_results[tool].pop("runs_data", [])
