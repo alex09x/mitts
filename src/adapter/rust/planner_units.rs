@@ -63,12 +63,13 @@ pub fn build_planned_units(
 
             if is_pm {
                 if in_host || is_primary {
-                    let feats = package_features
-                        .host
-                        .get(&pkg_id)
-                        .or_else(|| package_features.host.get(&pkg.name))
-                        .cloned()
-                        .unwrap_or_default();
+                    let feats = if in_host {
+                        package_features.host.get(&pkg_id).or_else(|| package_features.host.get(&pkg.name))
+                    } else {
+                        package_features.target.get(&pkg_id).or_else(|| package_features.target.get(&pkg.name))
+                    }
+                    .cloned()
+                    .unwrap_or_default();
                     if target_features_satisfied(&target, &feats, opt) {
                         units.push(create_unit(
                             pkg,
@@ -76,7 +77,7 @@ pub fn build_planned_units(
                             pkg_toml,
                             &target,
                             &pkg_id,
-                            true,
+                            in_host,
                             feats,
                             *is_workspace,
                             has_untracked_env,
@@ -144,13 +145,7 @@ pub fn build_planned_units(
                     ));
                 }
 
-                let explicit_target = super::key_flags::resolve_explicit_target(opt);
-                let is_cross = explicit_target
-                    .as_deref()
-                    .is_some_and(|t| t != super::compiler_resolve::resolve_host_triple());
-                let needs_separate_host_unit = is_cross || !in_target || target_feats != host_feats;
-
-                if in_host && needs_separate_host_unit && target_features_satisfied(&target, &host_feats, opt) {
+                if in_host && target_features_satisfied(&target, &host_feats, opt) {
                     units.push(create_unit(
                         pkg,
                         pkg_dir,

@@ -73,7 +73,6 @@ pub fn resolve_package_features_with_resolver(
     // 1. Initial feature requests from root packages and CLI options
     for ctx in packages {
         let id = ctx.id();
-        let is_pm = ctx.is_proc_macro();
         if ctx.is_root {
             active_target_packages.insert(id.clone());
             let target_set = target_requested.entry(id.clone()).or_default();
@@ -85,18 +84,10 @@ pub fn resolve_package_features_with_resolver(
             if !opt.no_default_features && ctx.toml.features.contains_key("default") {
                 target_set.insert("default".to_string());
             }
-            if is_pm {
-                active_host_packages.insert(id.clone());
-                host_requested.insert(id.clone(), target_set.clone());
-            }
         } else if opt.all_features && ctx.is_workspace {
             active_target_packages.insert(id.clone());
             let target_set = target_requested.entry(id.clone()).or_default();
             target_set.extend(ctx.toml.features.keys().cloned());
-            if is_pm {
-                active_host_packages.insert(id.clone());
-                host_requested.insert(id, target_set.clone());
-            }
         }
     }
 
