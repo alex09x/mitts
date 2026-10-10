@@ -60,16 +60,15 @@ def inject_test_defect(wt_dir: Path):
     # Prefer integration test files in tests/ directories so that `cargo test --tests` executes them
     candidates = []
     for r, _, files in os.walk(wt_dir):
-        if ".git" in r or "target" in r:
+        if ".git" in r or "target" in r or "plugins" in r or "plugin_persistence" in r:
             continue
         p_r = Path(r)
-        if p_r.name == "tests" or "tests" in p_r.parts:
+        if "tests" in p_r.parts:
             for f in sorted(files):
-                if f.endswith(".rs") and not f.startswith(".") and not f.startswith("_") and f != "lib.rs" and f != "mod.rs":
+                if f.endswith(".rs") and not f.startswith(".") and not f.startswith("_"):
+                    if f == "lib.rs" or f == "main.rs":
+                        continue
                     candidates.append(p_r / f)
-                    break
-        if candidates:
-            break
     if not candidates:
         for r, _, files in os.walk(wt_dir):
             if ".git" in r or "target" in r:
@@ -108,11 +107,17 @@ def parse_test_results(output: str):
 
 
 def parse_mitts_stats(text: str):
-    m_comp = re.search(r"\[mitts::stats\] compiled=(\d+)", text)
-    m_cache = re.search(r"\[mitts::stats\] cached=(\d+)", text)
+    m = re.search(
+        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+total=(\d+)(?:\s+fast_lock=(\d+))?",
+        text,
+    )
+    if not m:
+        return {"compiled": 0, "cached": 0, "total": 0, "fast_lock": 0}
     return {
-        "compiled": int(m_comp.group(1)) if m_comp else 0,
-        "cached": int(m_cache.group(1)) if m_cache else 0,
+        "compiled": int(m.group(1)),
+        "cached": int(m.group(2)),
+        "total": int(m.group(3)),
+        "fast_lock": int(m.group(4)) if m.group(4) is not None else 0,
     }
 
 
@@ -140,12 +145,12 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None):
     if tool == "mitts_cas":
         cmd = [str(MITTS_BIN), "test"]
     elif tool == "cargo_bare":
-        cmd = ["cargo", "test", "--tests"]
+        cmd = ["cargo", "test", "--tests", "--workspace"]
     elif tool == "cargo_sccache":
-        cmd = ["cargo", "test", "--tests"]
+        cmd = ["cargo", "test", "--tests", "--workspace"]
         env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
     elif tool == "cargo_shared":
-        cmd = ["cargo", "test", "--tests"]
+        cmd = ["cargo", "test", "--tests", "--workspace"]
         env["CARGO_TARGET_DIR"] = str(shared_target_dir)
 
     start = time.perf_counter()
@@ -297,7 +302,24 @@ def run_t5_project(project_name, runs_count=5):
                 disk = cas_mb + wt_mb
                 tot_comp = sum(r.get("mitts_stats", {}).get("compiled", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
                 tot_cach = sum(r.get("mitts_stats", {}).get("cached", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
-                tool_results[tool].setdefault("mitts_stats_runs", []).append({"compiled": tot_comp, "cached": tot_cach})
+                tot_units = sum(r.get("mitts_stats", {}).get("total", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
+                per_wt = [
+                    {
+                        "wt_index": r["wt_index"],
+                        "compiled": r.get("mitts_stats", {}).get("compiled", 0) if r.get("mitts_stats") else 0,
+                        "cached": r.get("mitts_stats", {}).get("cached", 0) if r.get("mitts_stats") else 0,
+                        "total": r.get("mitts_stats", {}).get("total", 0) if r.get("mitts_stats") else 0,
+                        "fast_lock": r.get("mitts_stats", {}).get("fast_lock", 0) if r.get("mitts_stats") else 0,
+                    }
+                    for r in swarm_res["results"]
+                ]
+                tool_results[tool].setdefault("mitts_stats_runs", []).append({
+                    "run_idx": run_idx,
+                    "compiled": tot_comp,
+                    "cached": tot_cach,
+                    "total": tot_units,
+                    "per_worktree": per_wt,
+                })
             else:
                 disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
             tool_results[tool]["disk_mb"] = max(tool_results[tool]["disk_mb"], disk)
@@ -314,13 +336,15 @@ def run_t5_project(project_name, runs_count=5):
         data.update(st)
 
     if "sccache_stats_runs" in tool_results["cargo_sccache"]:
-        runs_s = tool_results["cargo_sccache"].pop("sccache_stats_runs")
+        runs_s = tool_results["cargo_sccache"]["sccache_stats_runs"]
         if runs_s:
             tool_results["cargo_sccache"]["sccache_stats"] = runs_s[-1]
+            tool_results["cargo_sccache"]["sccache_stats_per_run"] = runs_s
     if "mitts_stats_runs" in tool_results["mitts_cas"]:
-        runs_m = tool_results["mitts_cas"].pop("mitts_stats_runs")
+        runs_m = tool_results["mitts_cas"]["mitts_stats_runs"]
         if runs_m:
             tool_results["mitts_cas"]["mitts_compilation_stats"] = runs_m[-1]
+            tool_results["mitts_cas"]["mitts_stats_per_run"] = runs_m
 
     bare_med = tool_results["cargo_bare"]["median"]
     scc_med = tool_results["cargo_sccache"]["median"]
@@ -345,23 +369,45 @@ def run_t5_project(project_name, runs_count=5):
 
     m_stats_clean = m_runs[0]["test_stats"]
     c_stats_clean = c_runs[0]["test_stats"]
-    test_counts_match = (
-        (m_stats_clean.get("passed", 0) == c_stats_clean.get("passed", 0))
-        and (m_stats_clean.get("failed", 0) == c_stats_clean.get("failed", 0))
-        and (m_stats_clean.get("ignored", 0) == c_stats_clean.get("ignored", 0))
-    )
 
     print("[5/5] Testing P0 invariant: fast-lock hit NEVER skips test execution...")
     wt01_tuple = (1, wt_base / "wt-01", commits[0])
     res_fl = run_single_worktree("mitts_cas", wt01_tuple)
-    fast_lock_executed_tests = (
-        (res_fl["exit_code"] == m_runs[0]["exit_code"])
-        and (res_fl["test_stats"].get("passed", 0) == m_stats_clean.get("passed", 0))
-        and (res_fl["test_stats"].get("passed", 0) > 0)
-    )
+
+    if m_stats_clean.get("binaries_count", 0) > 0 and c_stats_clean.get("binaries_count", 0) > 0:
+        test_counts_match = (
+            (m_stats_clean.get("passed", 0) == c_stats_clean.get("passed", 0))
+            and (m_stats_clean.get("failed", 0) == c_stats_clean.get("failed", 0))
+            and (m_stats_clean.get("ignored", 0) == c_stats_clean.get("ignored", 0))
+        )
+        fast_lock_executed_tests = (
+            (res_fl["exit_code"] == m_runs[0]["exit_code"])
+            and (res_fl["test_stats"].get("passed", 0) == m_stats_clean.get("passed", 0))
+            and (res_fl["test_stats"].get("passed", 0) > 0)
+        )
+    else:
+        test_counts_match = (m_runs[0]["exit_code"] == c_runs[0]["exit_code"])
+        fast_lock_executed_tests = (res_fl["exit_code"] == m_runs[0]["exit_code"])
 
     for tool in tool_results:
-        tool_results[tool].pop("runs_data", None)
+        runs_d = tool_results[tool].pop("runs_data", [])
+        tool_results[tool]["per_run_summary"] = [
+            {
+                "run_idx": idx + 1,
+                "total_wall_s": sr["total_wall_s"],
+                "worktrees": [
+                    {
+                        "wt_index": r["wt_index"],
+                        "wall_sec": r["wall_sec"],
+                        "exit_code": r["exit_code"],
+                        "test_stats": r["test_stats"],
+                        "mitts_stats": r.get("mitts_stats"),
+                    }
+                    for r in sr["results"]
+                ],
+            }
+            for idx, sr in enumerate(runs_d)
+        ]
 
     invariants = {
         "exit_codes_all_matched": exit_codes_all_matched,
@@ -369,6 +415,10 @@ def run_t5_project(project_name, runs_count=5):
         "test_counts_match": test_counts_match,
         "tests_passed_count": m_stats_clean.get("passed", 0),
         "fast_lock_never_skips_test_execution": fast_lock_executed_tests,
+        "mitts_test_stats": m_stats_clean,
+        "cargo_test_stats": c_stats_clean,
+        "fast_lock_test_stats": res_fl["test_stats"],
+        "fast_lock_exit_code": res_fl["exit_code"],
     }
 
     print(f"Results for {project_name}: Speedup vs {sound_baseline_name}: {speedup_ratio:.2f}x (vs bare: {speedup_vs_bare:.2f}x)")

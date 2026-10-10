@@ -154,6 +154,8 @@ pub fn execute_test_binaries(
     }
 
     println!();
+    let mut failure_code: Option<i32> = None;
+    let mut failed_harness: Option<String> = None;
     for (desc, bin_path, env) in &mut binaries.test_binaries {
         let abs_bin = if bin_path.is_absolute() {
             bin_path.clone()
@@ -206,18 +208,27 @@ pub fn execute_test_binaries(
             Ok(st) => st,
             Err(err) => {
                 eprintln!("mitts error executing {}: {}", bin_path.display(), err);
-                return 101;
+                if failure_code.is_none() {
+                    failure_code = Some(101);
+                    failed_harness = Some(desc.clone());
+                }
+                continue;
             }
         };
 
-        if !status.success() {
-            let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-            Ui::finish_failed(profile, &dur, &format!("Test harness failed: {}", desc));
-            return 101;
+        if !status.success() && failure_code.is_none() {
+            failure_code = Some(status.code().unwrap_or(101));
+            failed_harness = Some(desc.clone());
         }
     }
 
     let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
+    if let Some(code) = failure_code {
+        let desc = failed_harness.unwrap_or_else(|| "test".to_string());
+        Ui::finish_failed(profile, &dur, &format!("Test harness failed: {}", desc));
+        return code;
+    }
+
     Ui::stage_start("🧪", &format!("Completed tests [{}]", profile));
     Ui::finish(
         profile,

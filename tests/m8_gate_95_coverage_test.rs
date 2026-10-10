@@ -189,6 +189,7 @@ fn test_m8_compiler_test_no_dest_and_non_semver() {
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     let inv = RustcInvocation {

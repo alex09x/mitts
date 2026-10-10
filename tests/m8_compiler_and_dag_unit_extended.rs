@@ -64,6 +64,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         is_workspace: true,
         is_primary: false,
         edition: Some("2021".to_string()),
+        for_host: false,
     };
 
     let inv = RustcInvocation {
@@ -125,6 +126,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         is_workspace: true,
         is_primary: false,
         edition: Some("2021".to_string()),
+        for_host: true,
     };
 
     let inv_pm = RustcInvocation {

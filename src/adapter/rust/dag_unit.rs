@@ -42,17 +42,7 @@ pub(crate) fn execute_unit(
     let mut staging_dir_holder: Option<PathBuf> = None;
 
     if has_build {
-        let tid: String = format!("{:?}", thread::current().id())
-            .chars()
-            .filter(|c| c.is_alphanumeric())
-            .collect();
-        let staging_dir = ctx.cas.root().join("tmp").join(format!(
-            "stage_{}_{}_{}",
-            clean_crate,
-            std::process::id(),
-            tid
-        ));
-        fs::create_dir_all(&staging_dir)?;
+        let staging_dir = create_staging_dir(ctx.cas.root(), &clean_crate)?;
 
         let extern_crates = super::dag_unit_externs::resolve_extern_crates(
             unit,
@@ -63,9 +53,10 @@ pub(crate) fn execute_unit(
         {
             let all_meta = ctx.dep_build_metadata.lock().unwrap();
             for dep_id in &unit.dependencies {
-                let dep_pkg = dep_id.split("::").next().unwrap_or(dep_id);
+                let clean_dep_id = dep_id.strip_suffix(":host").unwrap_or(dep_id);
+                let dep_pkg = clean_dep_id.split("::").next().unwrap_or(clean_dep_id);
                 let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
-                for key in [dep_id.as_str(), pkg_name_only] {
+                for key in [dep_id.as_str(), clean_dep_id, pkg_name_only] {
                     if let Some(vars) = all_meta.get(key) {
                         build_dep_env.extend(vars.clone());
                     }
@@ -164,17 +155,24 @@ pub(crate) fn execute_unit(
         action_key.to_string()
     };
 
-    // 1. Check Action Cache (read phase)
-    if try_restore_from_cache_with_directives(
-        unit,
-        &effective_action_key,
-        ctx,
-        is_executable,
-        current_directives.as_ref(),
-    )? {
-        if let Some(ref p) = staging_dir_holder {
-            let _ = fs::remove_dir_all(p);
+    let try_restore = |ctx: &ExecutionContext| -> Result<bool> {
+        if try_restore_from_cache_with_directives(
+            unit,
+            &effective_action_key,
+            ctx,
+            is_executable,
+            current_directives.as_ref(),
+        )? {
+            if let Some(ref p) = staging_dir_holder {
+                let _ = fs::remove_dir_all(p);
+            }
+            return Ok(true);
         }
+        Ok(false)
+    };
+
+    // 1. Check Action Cache (read phase)
+    if try_restore(ctx)? {
         return Ok(UnitExecutionStatus::Success);
     }
 
@@ -189,16 +187,7 @@ pub(crate) fn execute_unit(
     };
 
     // Double-checked locking: re-check action cache in case a concurrent process just compiled it
-    if try_restore_from_cache_with_directives(
-        unit,
-        &effective_action_key,
-        ctx,
-        is_executable,
-        current_directives.as_ref(),
-    )? {
-        if let Some(ref p) = staging_dir_holder {
-            let _ = fs::remove_dir_all(p);
-        }
+    if try_restore(ctx)? {
         return Ok(UnitExecutionStatus::Success);
     }
 
@@ -230,18 +219,7 @@ pub(crate) fn execute_unit(
     // Staging directory for build isolation
     let staging_dir = match staging_dir_holder {
         Some(s) => s,
-        None => {
-            let pid = std::process::id();
-            let thread_id = format!("{:?}", thread::current().id());
-            let clean_tid: String = thread_id.chars().filter(|c| c.is_alphanumeric()).collect();
-            let s = ctx
-                .cas
-                .root()
-                .join("tmp")
-                .join(format!("stage_{}_{}_{}", clean_crate, pid, clean_tid));
-            fs::create_dir_all(&s)?;
-            s
-        }
+        None => create_staging_dir(ctx.cas.root(), &clean_crate)?,
     };
 
     // Gather dependencies' CAS artifact paths for --extern, resolving any Cargo package rename aliases
@@ -397,10 +375,7 @@ pub(crate) fn execute_unit(
         outputs: action_outputs,
         args: Vec::new(),
         env: {
-            let mut env = HashMap::from([
-                ("CARGO_PKG_NAME".into(), unit.package_name.clone()),
-                ("CARGO_PKG_VERSION".into(), unit.version.clone()),
-            ]);
+            let mut env = HashMap::from([("CARGO_PKG_NAME".into(), unit.package_name.clone()), ("CARGO_PKG_VERSION".into(), unit.version.clone())]);
             if let Some(p) = unit.manifest_path.parent() {
                 env.insert("CARGO_MANIFEST_DIR".into(), p.to_string_lossy().into());
             }
@@ -414,4 +389,11 @@ pub(crate) fn execute_unit(
     }
 
     Ok(UnitExecutionStatus::Success)
+}
+
+fn create_staging_dir(cas_root: &std::path::Path, clean_crate: &str) -> Result<PathBuf> {
+    let tid: String = format!("{:?}", thread::current().id()).chars().filter(|c| c.is_alphanumeric()).collect();
+    let s = cas_root.join("tmp").join(format!("stage_{clean_crate}_{}_{tid}", std::process::id()));
+    fs::create_dir_all(&s)?;
+    Ok(s)
 }

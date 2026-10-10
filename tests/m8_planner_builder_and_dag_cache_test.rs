@@ -75,6 +75,7 @@ edition = "2021"
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     // 1. is_cache_enabled: false -> returns false

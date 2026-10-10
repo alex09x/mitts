@@ -8,16 +8,13 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::env_macro::discover_package_env_macros;
 use super::features::{resolve_package_features, PackageFeatureContext};
 use super::fetcher::{CrateFetcher, FetchOptions};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::CargoToml;
 use super::package_selection::{prune_unreachable_units, select_transitive_packages};
 use super::source_lookup::find_crate_source_dir;
-use super::types::{
-    EffectivePlanExplanation, EnvMacroDiscovery, PlannedCompilationUnit, RustBuildOptions,
-};
+use super::types::{EffectivePlanExplanation, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use crate::core::source_store::SourceStore;
 use anyhow::{Context, Result};
@@ -261,104 +258,14 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .collect();
     let package_features = resolve_package_features(&feature_inputs, opt);
 
-    // Pass 1: Build compilation units with assigned features
-    let mut units = Vec::new();
-    for (pkg, is_workspace, pkg_dir, pkg_toml) in &resolved_packages {
-        let is_local = *is_workspace || path_dependencies.contains_key(&pkg.name);
-        let is_target_pkg = opt.package.as_deref() == Some(&pkg.name);
-        let mut targets = pkg_toml.discover_targets(pkg_dir);
-        if opt.mode == crate::adapter::BuildMode::Test && (*is_workspace || is_target_pkg) {
-            let test_targets = pkg_toml.discover_test_targets(pkg_dir);
-            targets.extend(test_targets);
-        }
-        if !*is_workspace && !is_target_pkg {
-            targets.retain(|t| t.kind != "bin" && t.kind != "test");
-        }
-        let (env_discovery, env_vars) = if is_local {
-            discover_package_env_macros(pkg_dir)
-        } else {
-            (EnvMacroDiscovery::Tracked(Vec::new()), Vec::new())
-        };
-        let has_untracked_env = matches!(env_discovery, EnvMacroDiscovery::UntrackedDynamic);
-        let pkg_id = format!("{}@{}", pkg.name, pkg.version);
-        let features = package_features
-            .get(&pkg_id)
-            .or_else(|| package_features.get(&pkg.name))
-            .cloned()
-            .unwrap_or_default();
-
-        targets.retain(|t| {
-            if let Some(ref req_feats) = t.required_features {
-                req_feats
-                    .iter()
-                    .all(|req| features.contains(req) || opt.features.contains(req))
-            } else {
-                true
-            }
-        });
-
-        for target in targets {
-            let is_bin = target.kind == "bin";
-            let has_mixed_or_native = target
-                .crate_types
-                .iter()
-                .any(|k| matches!(k.as_str(), "cdylib" | "dylib" | "staticlib"));
-
-            let (kind_str, eligibility) = if has_untracked_env {
-                (
-                    target.kind.clone(),
-                    "Uncached (contains untracked dynamic env!/option_env! macro)".to_string(),
-                )
-            } else if has_mixed_or_native {
-                (
-                    target.crate_types.join(","),
-                    "Uncached (contains native/dynamic library crate types; outside initial M2 pure rlib subset)".to_string(),
-                )
-            } else if target.kind == "test" {
-                (
-                    "test".to_string(),
-                    "Uncached in M1 (eligible for M2 test binary artifact cache)".to_string(),
-                )
-            } else if is_bin {
-                (
-                    "bin".to_string(),
-                    if *is_workspace {
-                        "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
-                    } else {
-                        "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
-                    },
-                )
-            } else {
-                (
-                    target.kind.clone(),
-                    if *is_workspace {
-                        "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
-                    } else {
-                        "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
-                    },
-                )
-            };
-
-            units.push(PlannedCompilationUnit {
-                package_id: pkg_id.clone(),
-                package_name: pkg.name.clone(),
-                version: pkg.version.clone(),
-                target_name: target.name,
-                kind: kind_str,
-                src_path: target.src_path,
-                manifest_path: pkg_dir.join("Cargo.toml"),
-                cache_eligibility: eligibility,
-                is_workspace: *is_workspace,
-                is_primary: false,
-                env_vars: env_vars.clone(),
-                dependencies: Vec::new(), // Populated in Pass 2
-                edition: target
-                    .edition
-                    .or_else(|| pkg_toml.package.as_ref().and_then(|p| p.edition.clone())),
-                features: features.clone(),
-            });
-        }
-    }
+    // Pass 1: Build compilation units with assigned features (Resolver 2 decoupled host/target)
+    let mut units = super::planner_units::build_planned_units(
+        &resolved_packages,
+        &path_dependencies,
+        &package_features,
+        opt,
+        is_primary_pkg,
+    );
 
     // Pass 2: Resolve exact unit dependencies matching library or proc-macro targets
     super::planner_deps::resolve_unit_dependencies(&mut units, &selected_packages);

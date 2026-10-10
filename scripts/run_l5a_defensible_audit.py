@@ -508,12 +508,10 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
                 kind = norm_kind(k_raw)
                 src_path = a["target"].get("src_path", "")
                 src_kind = get_source_kind(src_path)
-                is_tgt = a["profile"].get("debuginfo") == 2
+                for_host = (a["profile"].get("debuginfo") == 0)
                 feats = tuple(sorted(f for f in a.get("features", []) if not f.startswith("dep:")))
-                u_key = (pkg_name, version, src_kind, tgt_name, kind)
-                cargo_all_compiled_features.setdefault(u_key, set()).add(feats)
-                if u_key not in cargo_target_units or is_tgt:
-                    cargo_target_units[u_key] = feats
+                u_key = (pkg_name, version, src_kind, tgt_name, kind, for_host)
+                cargo_target_units[u_key] = feats
     except Exception as e:
         print(f"  [ERROR parsing cargo artifacts] {e}")
 
@@ -530,8 +528,9 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
             src_kind = get_source_kind(src_path)
             tgt_name = u["target_name"]
             kind = norm_kind(u["kind"])
+            for_host = bool(u.get("for_host", False))
             feats = tuple(sorted(f for f in u.get("features", []) if not f.startswith("dep:")))
-            mitts_units_map[(pkg_name, version, src_kind, tgt_name, kind)] = feats
+            mitts_units_map[(pkg_name, version, src_kind, tgt_name, kind, for_host)] = feats
     except Exception as e:
         print(f"  [ERROR parsing mitts explain] {e}")
 
@@ -550,8 +549,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     for k in sorted(cargo_unit_keys & mitts_unit_keys):
         cf = cargo_target_units[k]
         mf = mitts_units_map[k]
-        all_cf = cargo_all_compiled_features.get(k, {cf})
-        if mf not in all_cf and cf != mf:
+        if cf != mf:
             feature_discrepancies.append({
                 "unit": list(k),
                 "cargo_features": list(cf),

@@ -135,6 +135,9 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
 
     if inv.release {
         cmd.arg("-C").arg("opt-level=3");
+    } else if inv.unit.for_host {
+        cmd.arg("-C").arg("debuginfo=0");
+        cmd.arg("-C").arg("embed-bitcode=no");
     } else {
         cmd.arg("-C").arg("debuginfo=2");
         cmd.arg("-C").arg("embed-bitcode=no");

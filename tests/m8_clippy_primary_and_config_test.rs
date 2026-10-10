@@ -238,7 +238,8 @@ edition = "2021"
             dependencies: Vec::new(),
             edition: Some("2021".to_string()),
             features: Vec::new(),
-        },
+            for_host: false,
+    },
         PlannedCompilationUnit {
             package_id: "my-lib@0.1.0".to_string(),
             package_name: "my-lib".to_string(),
@@ -254,7 +255,8 @@ edition = "2021"
             dependencies: Vec::new(),
             edition: Some("2021".to_string()),
             features: Vec::new(),
-        },
+            for_host: false,
+    },
     ];
 
     let selected = vec![(&lockfile.packages[0], true)];

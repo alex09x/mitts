@@ -76,6 +76,7 @@ fn main() {
         dependencies: Vec::new(),
         edition: Some("2021".into()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let staging = root.join("staging");

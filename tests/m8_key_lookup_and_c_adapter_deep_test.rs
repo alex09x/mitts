@@ -124,6 +124,7 @@ edition = "2021"
         dependencies: vec!["cyclic_b@0.1.0::lib:cyclic_b".to_string()],
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let unit_b = PlannedCompilationUnit {
@@ -141,6 +142,7 @@ edition = "2021"
         dependencies: vec!["cyclic_a@0.1.0::lib:cyclic_a".to_string()],
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let plan = EffectivePlanExplanation {

@@ -191,6 +191,7 @@ fn test_m8_key_target_triple_and_pkg_dir() {
         dependencies: vec![],
         edition: Some("2021".to_string()),
         features: vec![],
+        for_host: false,
     };
     let resolved_dir = resolve_unit_pkg_dir(&unit);
     assert_eq!(resolved_dir, temp_dir.path());

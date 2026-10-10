@@ -33,6 +33,7 @@ fn make_dummy_unit(name: &str, kind: &str) -> PlannedCompilationUnit {
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     }
 }
 

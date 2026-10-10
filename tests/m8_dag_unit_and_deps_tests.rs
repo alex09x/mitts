@@ -29,6 +29,7 @@ fn make_unit(pkg: &str, target: &str, kind: &str, deps: Vec<String>) -> PlannedC
         dependencies: deps,
         edition: Some("2021".to_string()),
         features: vec![],
+        for_host: false,
     }
 }
 

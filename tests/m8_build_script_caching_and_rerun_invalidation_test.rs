@@ -68,6 +68,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // Run 1: Cold execution
@@ -179,6 +180,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // Run 1: with MITTS_TEST_FEATURE=enabled
@@ -277,6 +279,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // Run 1: First build
@@ -376,6 +379,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // First build populates CAS and generates OUT_DIR/generated.rs
@@ -471,6 +475,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // First execution publishes with "alpha_content"
@@ -520,6 +525,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // Second execution with same mtime must detect different content hash and rerun
@@ -587,6 +593,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // Package B setup (same crate name/version, different tracked.txt content)
@@ -616,6 +623,7 @@ fn main() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     // Step 1: Run A (cold)

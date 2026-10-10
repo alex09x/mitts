@@ -19,27 +19,32 @@ pub fn resolve_unit_dependencies(
     units: &mut [PlannedCompilationUnit],
     selected_packages: &[(&CargoLockPackage, bool)],
 ) {
-    let mut lib_units_by_exact = HashMap::new();
-    let mut lib_units_by_name: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut lib_units_by_exact: HashMap<(String, String, bool), String> = HashMap::new();
+    let mut lib_units_by_name: HashMap<(String, bool), Vec<(String, String)>> = HashMap::new();
+    let mut proc_macro_names: HashSet<String> = HashSet::new();
 
     for unit in units.iter() {
+        if unit.kind == "proc-macro" {
+            proc_macro_names.insert(unit.package_name.clone());
+            proc_macro_names.insert(unit.package_name.replace('-', "_"));
+        }
         if unit.kind != "bin" && unit.kind != "test" {
             let uid = unit.unit_id();
             lib_units_by_exact.insert(
-                (unit.package_name.clone(), unit.version.clone()),
+                (unit.package_name.clone(), unit.version.clone(), unit.for_host),
                 uid.clone(),
             );
             lib_units_by_exact.insert(
-                (unit.package_name.replace('-', "_"), unit.version.clone()),
+                (unit.package_name.replace('-', "_"), unit.version.clone(), unit.for_host),
                 uid.clone(),
             );
 
             lib_units_by_name
-                .entry(unit.package_name.clone())
+                .entry((unit.package_name.clone(), unit.for_host))
                 .or_default()
                 .push((unit.version.clone(), uid.clone()));
             lib_units_by_name
-                .entry(unit.package_name.replace('-', "_"))
+                .entry((unit.package_name.replace('-', "_"), unit.for_host))
                 .or_default()
                 .push((unit.version.clone(), uid));
         }
@@ -73,16 +78,29 @@ pub fn resolve_unit_dependencies(
                         continue;
                     }
                 }
+
+                let is_build_dep = pkg_toml_opt.as_ref().is_some_and(|t| {
+                    t.build_dependencies.contains_key(dep_name)
+                        || t.build_dependencies.contains_key(&dep_name.replace('-', "_"))
+                        || t.target.values().any(|ts| {
+                            ts.build_dependencies.contains_key(dep_name)
+                                || ts.build_dependencies.contains_key(&dep_name.replace('-', "_"))
+                        })
+                });
+                let is_pm = proc_macro_names.contains(dep_name)
+                    || proc_macro_names.contains(&dep_name.replace('-', "_"));
+                let dep_for_host = unit.for_host || is_build_dep || is_pm;
+
                 let resolved_dep_uid = if let Some(ver) = dep_ver {
                     lib_units_by_exact
-                        .get(&(dep_name.to_string(), ver.to_string()))
+                        .get(&(dep_name.to_string(), ver.to_string(), dep_for_host))
                         .or_else(|| {
-                            lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string()))
+                            lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string(), dep_for_host))
                         })
                         .cloned()
                 } else if let Some(candidates) = lib_units_by_name
-                    .get(dep_name)
-                    .or_else(|| lib_units_by_name.get(&dep_name.replace('-', "_")))
+                    .get(&(dep_name.to_string(), dep_for_host))
+                    .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), dep_for_host)))
                 {
                     candidates.first().map(|(_, uid)| uid.clone())
                 } else {
@@ -96,13 +114,14 @@ pub fn resolve_unit_dependencies(
         }
 
         if unit.kind == "bin" || unit.kind == "test" {
-            if let Some(self_lib_uid) =
-                lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone()))
-            {
+            let self_lib_uid = lib_units_by_exact
+                .get(&(unit.package_name.clone(), unit.version.clone(), false))
+                .or_else(|| lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone(), true)));
+            if let Some(uid) = self_lib_uid {
                 let is_self_lib_unit_test =
                     unit.kind == "test" && unit.target_name.ends_with("_unit_test");
                 if !is_self_lib_unit_test {
-                    unit_deps.push(self_lib_uid.clone());
+                    unit_deps.push(uid.clone());
                 }
             }
         }

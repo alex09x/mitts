@@ -207,47 +207,48 @@ static HOST_CFG_ATOMS: OnceLock<HashSet<String>> = OnceLock::new();
 
 pub fn get_host_cfg_atoms() -> &'static HashSet<String> {
     HOST_CFG_ATOMS.get_or_init(|| {
-        let mut atoms = HashSet::new();
-        if let Ok(output) = std::process::Command::new("rustc")
-            .arg("--print")
-            .arg("cfg")
-            .output()
-        {
-            if output.status.success() {
-                if let Ok(text) = std::str::from_utf8(&output.stdout) {
-                    for line in text.lines() {
-                        let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            atoms.insert(trimmed.to_string());
-                        }
-                    }
-                }
+        let rustc = crate::adapter::rust::compiler_resolve::resolve_rustc();
+        let mut cmd = std::process::Command::new(rustc);
+        cmd.arg("--print").arg("cfg");
+        if let Ok(target) = std::env::var("CARGO_BUILD_TARGET") {
+            if !target.is_empty() {
+                cmd.arg("--target").arg(target);
+            }
+        } else if let Ok(target) = std::env::var("TARGET") {
+            if !target.is_empty() {
+                cmd.arg("--target").arg(target);
             }
         }
-        if atoms.is_empty() {
-            #[cfg(unix)]
-            atoms.insert("unix".to_string());
-            #[cfg(windows)]
-            atoms.insert("windows".to_string());
-            #[cfg(target_os = "linux")]
-            atoms.insert("target_os=\"linux\"".to_string());
-            #[cfg(target_os = "macos")]
-            atoms.insert("target_os=\"macos\"".to_string());
-            #[cfg(target_os = "windows")]
-            atoms.insert("target_os=\"windows\"".to_string());
-            #[cfg(target_arch = "x86_64")]
-            atoms.insert("target_arch=\"x86_64\"".to_string());
-            #[cfg(target_arch = "aarch64")]
-            atoms.insert("target_arch=\"aarch64\"".to_string());
-            #[cfg(target_pointer_width = "64")]
-            atoms.insert("target_pointer_width=\"64\"".to_string());
-            #[cfg(target_pointer_width = "32")]
-            atoms.insert("target_pointer_width=\"32\"".to_string());
-            atoms.insert("target_has_atomic=\"8\"".to_string());
-            atoms.insert("target_has_atomic=\"16\"".to_string());
-            atoms.insert("target_has_atomic=\"32\"".to_string());
-            atoms.insert("target_has_atomic=\"64\"".to_string());
-            atoms.insert("target_has_atomic=\"ptr\"".to_string());
+        let output = cmd
+            .output()
+            .expect("Failed to execute rustc to discover cfg atoms");
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            panic!(
+                "rustc --print cfg failed with exit code {:?}:\n{}",
+                output.status.code(),
+                err
+            );
+        }
+        let text = std::str::from_utf8(&output.stdout).expect("rustc cfg output not valid utf8");
+        let mut atoms = HashSet::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                atoms.insert(trimmed.to_string());
+            }
+        }
+        if let Ok(flags) = std::env::var("RUSTFLAGS") {
+            let mut iter = flags.split_whitespace();
+            while let Some(arg) = iter.next() {
+                if arg == "--cfg" {
+                    if let Some(val) = iter.next() {
+                        atoms.insert(val.to_string());
+                    }
+                } else if let Some(val) = arg.strip_prefix("--cfg=") {
+                    atoms.insert(val.to_string());
+                }
+            }
         }
         atoms
     })

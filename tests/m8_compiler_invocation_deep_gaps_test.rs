@@ -60,6 +60,7 @@ fn test_m8_compiler_invocation_test_mode_and_dest_binary() {
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let inv = RustcInvocation {
@@ -118,6 +119,7 @@ fn test_m8_compiler_store_source_fallback() {
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let inv = RustcInvocation {

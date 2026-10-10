@@ -241,6 +241,7 @@ fn test_m8_fail_closed_unhashable_tracked_input() {
         dependencies: Vec::new(),
         edition: None,
         features: Vec::new(),
+        for_host: false,
     };
 
     // Attempting to extract tracked extra inputs must FAIL (fail-closed, not dropping file silently)

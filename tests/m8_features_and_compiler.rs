@@ -152,6 +152,7 @@ fn test_m8_compiler_invocation_execution() {
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     let empty_feats = Vec::new();

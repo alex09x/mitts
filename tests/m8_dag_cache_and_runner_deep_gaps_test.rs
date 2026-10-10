@@ -58,6 +58,7 @@ links = "native_zlib"
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let opt = RustBuildOptions {
@@ -256,6 +257,7 @@ fn test_m8_dag_cache_binary_restore_copy() {
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let opt = RustBuildOptions {

@@ -25,10 +25,11 @@ pub fn resolve_extern_crates(
 
     for dep_id in &unit.dependencies {
         if let Some(artifact_path) = completed.get(dep_id) {
-            let dep_pkg = dep_id.split("::").next().unwrap_or(dep_id);
+            let clean_dep_id = dep_id.strip_suffix(":host").unwrap_or(dep_id);
+            let dep_pkg = clean_dep_id.split("::").next().unwrap_or(clean_dep_id);
             let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
             let dep_version = dep_pkg.split('@').nth(1);
-            let dep_crate = if let Some(rest) = dep_id.rsplit(':').next() {
+            let dep_crate = if let Some(rest) = clean_dep_id.rsplit(':').next() {
                 rest
             } else {
                 pkg_name_only

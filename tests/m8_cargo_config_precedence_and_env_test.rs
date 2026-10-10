@@ -280,6 +280,7 @@ fn test_compiler_args_fails_closed_on_config_cli_arg() {
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     let inv = RustcInvocation {

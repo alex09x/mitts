@@ -29,6 +29,7 @@ fn make_unit_for_build_script(pkg_dir: &std::path::Path) -> PlannedCompilationUn
         dependencies: vec![],
         edition: Some("2021".to_string()),
         features: vec!["custom_feat".to_string()],
+        for_host: false,
     }
 }
 

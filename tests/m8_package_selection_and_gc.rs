@@ -189,6 +189,7 @@ fn test_m8_package_selection_target_cfg_filtering_and_pruning() {
             .collect(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let u1 = make_unit("rg", "bin", vec!["grep"]);

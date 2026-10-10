@@ -220,6 +220,7 @@ mod tests {
             dependencies: Vec::new(),
             edition: Some("2021".to_string()),
             features: Vec::new(),
+            for_host: false,
         };
         let u2 = PlannedCompilationUnit {
             package_id: "pkg2".to_string(),
@@ -236,6 +237,7 @@ mod tests {
             dependencies: vec![u1.unit_id()],
             edition: Some("2021".to_string()),
             features: Vec::new(),
+            for_host: false,
         };
 
         let explanation = EffectivePlanExplanation {

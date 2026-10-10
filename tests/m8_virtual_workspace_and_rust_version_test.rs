@@ -190,6 +190,7 @@ description = "Demo package for MSRV check"
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: vec!["default".to_string()],
+        for_host: false,
     };
 
     let env_ws = compute_unit_rustc_env(&unit_ws, None, None);

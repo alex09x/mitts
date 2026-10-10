@@ -8,8 +8,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use super::features_helpers::*;
 use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
-use crate::adapter::rust::package_selection::parse_dep_spec;
 use crate::adapter::rust::types::RustBuildOptions;
 use std::collections::{HashMap, HashSet};
 
@@ -27,23 +27,53 @@ impl<'a> PackageFeatureContext<'a> {
     pub fn id(&self) -> String {
         format!("{}@{}", self.name, self.version)
     }
+
+    pub fn is_proc_macro(&self) -> bool {
+        self.toml.lib.as_ref().is_some_and(|l| {
+            l.proc_macro == Some(true) || l.crate_type.iter().any(|k| k == "proc-macro")
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedFeatures {
+    pub target: HashMap<String, Vec<String>>,
+    pub host: HashMap<String, Vec<String>>,
+    pub active_target_packages: HashSet<String>,
+    pub active_host_packages: HashSet<String>,
+}
+
+impl std::ops::Deref for ResolvedFeatures {
+    type Target = HashMap<String, Vec<String>>;
+    fn deref(&self) -> &Self::Target {
+        &self.target
+    }
 }
 
 /// Resolves effective compile-time features for all selected packages.
-/// Unifies explicit features from dependents, default features, and workspace flags.
+/// Unifies explicit features from dependents, default features, and workspace flags,
+/// decoupling host (build-dependencies/proc-macros) and target feature sets (Resolver 2).
 pub fn resolve_package_features(
     packages: &[PackageFeatureContext],
     opt: &RustBuildOptions,
-) -> HashMap<String, Vec<String>> {
-    let mut requested: HashMap<String, HashSet<String>> = HashMap::new();
-    let mut active_packages: HashSet<String> = HashSet::new();
+) -> ResolvedFeatures {
+    let mut target_requested: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut host_requested: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut active_target_packages: HashSet<String> = HashSet::new();
+    let mut active_host_packages: HashSet<String> = HashSet::new();
 
     // 1. Initial feature requests from root packages and CLI options
     for ctx in packages {
         let id = ctx.id();
+        let is_pm = ctx.is_proc_macro();
         if ctx.is_root {
-            active_packages.insert(id.clone());
-            let set = requested.entry(id.clone()).or_default();
+            let (active_set, req_map) = if is_pm {
+                (&mut active_host_packages, &mut host_requested)
+            } else {
+                (&mut active_target_packages, &mut target_requested)
+            };
+            active_set.insert(id.clone());
+            let set = req_map.entry(id.clone()).or_default();
             if opt.all_features {
                 set.extend(ctx.toml.features.keys().cloned());
             } else {
@@ -53,8 +83,13 @@ pub fn resolve_package_features(
                 set.insert("default".to_string());
             }
         } else if opt.all_features && ctx.is_workspace {
-            active_packages.insert(id.clone());
-            requested.entry(id).or_default().extend(ctx.toml.features.keys().cloned());
+            let (active_set, req_map) = if is_pm {
+                (&mut active_host_packages, &mut host_requested)
+            } else {
+                (&mut active_target_packages, &mut target_requested)
+            };
+            active_set.insert(id.clone());
+            req_map.entry(id).or_default().extend(ctx.toml.features.keys().cloned());
         }
     }
 
@@ -62,186 +97,233 @@ pub fn resolve_package_features(
     let mut changed = true;
     while changed {
         changed = false;
+        // Propagate target graph
         for ctx in packages {
             let id = ctx.id();
-            if !active_packages.contains(&id) {
+            if !active_target_packages.contains(&id) {
                 continue;
             }
+            propagate_package(
+                ctx,
+                packages,
+                opt,
+                false,
+                &mut active_target_packages,
+                &mut active_host_packages,
+                &mut target_requested,
+                &mut host_requested,
+                &mut changed,
+            );
+        }
 
-            let is_test = opt.mode == crate::adapter::BuildMode::Test;
-            let mut manifest_deps: Vec<(&String, &TomlDependency)> = ctx
-                .toml
-                .dependencies
-                .iter()
-                .chain(&ctx.toml.build_dependencies)
-                .collect();
-            if is_test && ctx.is_workspace {
-                manifest_deps.extend(&ctx.toml.dev_dependencies);
+        // Propagate host graph
+        for ctx in packages {
+            let id = ctx.id();
+            if !active_host_packages.contains(&id) {
+                continue;
             }
-            for (spec, t) in &ctx.toml.target {
-                if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec)
-                {
-                    manifest_deps.extend(&t.dependencies);
-                    manifest_deps.extend(&t.build_dependencies);
-                    if is_test && ctx.is_workspace {
-                        manifest_deps.extend(&t.dev_dependencies);
+            propagate_package(
+                ctx,
+                packages,
+                opt,
+                true,
+                &mut active_target_packages,
+                &mut active_host_packages,
+                &mut target_requested,
+                &mut host_requested,
+                &mut changed,
+            );
+        }
+    }
+
+    // 3. Build finalized feature maps
+    let target = finalize_feature_map(packages, target_requested, &active_target_packages);
+    let host = finalize_feature_map(packages, host_requested, &active_host_packages);
+
+    ResolvedFeatures {
+        target,
+        host,
+        active_target_packages,
+        active_host_packages,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn propagate_package(
+    ctx: &PackageFeatureContext,
+    packages: &[PackageFeatureContext],
+    opt: &RustBuildOptions,
+    is_host_ctx: bool,
+    active_target: &mut HashSet<String>,
+    active_host: &mut HashSet<String>,
+    target_req: &mut HashMap<String, HashSet<String>>,
+    host_req: &mut HashMap<String, HashSet<String>>,
+    changed: &mut bool,
+) {
+    let id = ctx.id();
+    let is_test = opt.mode == crate::adapter::BuildMode::Test;
+    let mut runtime_deps: Vec<(&String, &TomlDependency)> = ctx.toml.dependencies.iter().collect();
+    let mut build_deps: Vec<(&String, &TomlDependency)> = ctx.toml.build_dependencies.iter().collect();
+    if is_test && ctx.is_workspace && !is_host_ctx {
+        runtime_deps.extend(&ctx.toml.dev_dependencies);
+    }
+    for (spec, t) in &ctx.toml.target {
+        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
+            runtime_deps.extend(&t.dependencies);
+            build_deps.extend(&t.build_dependencies);
+            if is_test && ctx.is_workspace && !is_host_ctx {
+                runtime_deps.extend(&t.dev_dependencies);
+            }
+        }
+    }
+
+    // (A) Activate non-optional dependencies
+    for (dep_key, dep) in runtime_deps {
+        let is_opt = match dep {
+            TomlDependency::Simple(_) => false,
+            TomlDependency::Detailed(d) => d.optional.unwrap_or(false),
+        };
+        if !is_opt {
+            let target_is_pm = resolve_dep_id_from_ctx(ctx, packages, dep_key)
+                .and_then(|tid| packages.iter().find(|p| p.id() == tid))
+                .is_some_and(|p| p.is_proc_macro());
+            if is_host_ctx || target_is_pm {
+                activate_dep_instance(ctx, packages, dep_key, dep, active_host, host_req, changed);
+            } else {
+                activate_dep_instance(ctx, packages, dep_key, dep, active_target, target_req, changed);
+            }
+        }
+    }
+
+    for (dep_key, dep) in build_deps {
+        let is_opt = match dep {
+            TomlDependency::Simple(_) => false,
+            TomlDependency::Detailed(d) => d.optional.unwrap_or(false),
+        };
+        if !is_opt {
+            activate_dep_instance(ctx, packages, dep_key, dep, active_host, host_req, changed);
+        }
+    }
+
+    // (B) Expand active features
+    let req_map = if is_host_ctx { &*host_req } else { &*target_req };
+    let current_feats = req_map.get(&id).cloned().unwrap_or_default();
+    let aliases = ctx.toml.dependency_aliases();
+
+    for feat in &current_feats {
+        let deps = collect_manifest_dependencies(ctx.toml, feat);
+        if is_optional_dep(&deps) {
+            let is_build = ctx.toml.build_dependencies.contains_key(feat)
+                || ctx.toml.target.values().any(|t| t.build_dependencies.contains_key(feat));
+            let is_pm = resolve_dep_id_from_ctx(ctx, packages, feat)
+                .and_then(|tid| packages.iter().find(|p| p.id() == tid))
+                .is_some_and(|p| p.is_proc_macro());
+            if is_host_ctx || is_build || is_pm {
+                activate_manifest_dep(ctx, packages, feat, &deps, active_host, host_req, changed);
+            } else {
+                activate_manifest_dep(ctx, packages, feat, &deps, active_target, target_req, changed);
+            }
+        }
+
+        if let Some(sub_feats) = ctx.toml.features.get(feat) {
+            for sub in sub_feats {
+                if let Some((dep, dep_feat)) = sub.split_once('/') {
+                    let is_weak = dep.ends_with('?');
+                    let dep_unweak = dep.strip_suffix('?').unwrap_or(dep);
+                    let actual_dep = dep_unweak.strip_prefix("dep:").unwrap_or(dep_unweak);
+                    let real_dep = aliases.alias_to_real.get(actual_dep).map(|s| s.as_str()).unwrap_or(actual_dep);
+                    let mut dep_decls = collect_manifest_dependencies(ctx.toml, actual_dep);
+                    if dep_decls.is_empty() {
+                        dep_decls = collect_manifest_dependencies(ctx.toml, real_dep);
                     }
-                }
-            }
+                    let is_build = ctx.toml.build_dependencies.contains_key(actual_dep)
+                        || ctx.toml.build_dependencies.contains_key(real_dep)
+                        || ctx.toml.target.values().any(|t| t.build_dependencies.contains_key(actual_dep) || t.build_dependencies.contains_key(real_dep));
+                    let is_pm = resolve_dep_id_from_ctx(ctx, packages, real_dep)
+                        .and_then(|tid| packages.iter().find(|p| p.id() == tid))
+                        .is_some_and(|p| p.is_proc_macro());
+                    let send_to_host = is_host_ctx || is_build || is_pm;
 
-            // (A) Activate non-optional dependencies
-            for (dep_key, dep) in manifest_deps {
-                let is_optional = match dep {
-                    TomlDependency::Simple(_) => false,
-                    TomlDependency::Detailed(d) => d.optional.unwrap_or(false),
-                };
-                if !is_optional {
-                    activate_dep_instance(
-                        ctx,
-                        packages,
-                        dep_key,
-                        dep,
-                        &mut active_packages,
-                        &mut requested,
-                        &mut changed,
-                    );
-                }
-            }
+                    let dep_prefix = format!("dep:{}", actual_dep);
+                    let real_prefix = format!("dep:{}", real_dep);
+                    let active_set = if send_to_host { &*active_host } else { &*active_target };
+                    let cur_req = if is_host_ctx { &*host_req } else { &*target_req };
+                    let is_dep_active = if is_weak {
+                        !dep_decls.is_empty() && (!is_optional_dep(&dep_decls) || cur_req.get(&id).is_some_and(|s| {
+                            s.contains(actual_dep) || s.contains(&dep_prefix) || s.contains(real_dep) || s.contains(&real_prefix)
+                        }))
+                    } else {
+                        resolve_dep_id_from_ctx(ctx, packages, real_dep).is_some_and(|tid| active_set.contains(&tid))
+                    };
 
-            // (B) Expand active features
-            let current_feats = requested.get(&id).cloned().unwrap_or_default();
-            let aliases = ctx.toml.dependency_aliases();
-
-            for feat in &current_feats {
-                // If feat is an implicit optional dependency feature, activate it
-                let deps = collect_manifest_dependencies(ctx.toml, feat);
-                if is_optional_dep(&deps) {
-                    activate_manifest_dep(
-                        ctx,
-                        packages,
-                        feat,
-                        &deps,
-                        &mut active_packages,
-                        &mut requested,
-                        &mut changed,
-                    );
-                }
-
-                // If feat is declared in [features]
-                if let Some(sub_feats) = ctx.toml.features.get(feat) {
-                    for sub in sub_feats {
-                        if let Some((dep, dep_feat)) = sub.split_once('/') {
-                            let is_weak = dep.ends_with('?');
-                            let dep_unweak = dep.strip_suffix('?').unwrap_or(dep);
-                            let actual_dep = dep_unweak.strip_prefix("dep:").unwrap_or(dep_unweak);
-                            let real_dep = aliases
-                                .alias_to_real
-                                .get(actual_dep)
-                                .map(|s| s.as_str())
-                                .unwrap_or(actual_dep);
-
-                            let mut dep_decls =
-                                collect_manifest_dependencies(ctx.toml, actual_dep);
-                            if dep_decls.is_empty() {
-                                dep_decls = collect_manifest_dependencies(ctx.toml, real_dep);
-                            }
-
-                            let dep_prefix = format!("dep:{}", actual_dep);
-                            let real_prefix = format!("dep:{}", real_dep);
-                            let is_dep_active = if is_weak {
-                                !dep_decls.is_empty()
-                                    && (!is_optional_dep(&dep_decls)
-                                        || requested.get(&id).is_some_and(|s| {
-                                            s.contains(actual_dep)
-                                                || s.contains(&dep_prefix)
-                                                || s.contains(real_dep)
-                                                || s.contains(&real_prefix)
-                                        }))
-                            } else {
-                                resolve_dep_id_from_ctx(ctx, packages, real_dep)
-                                    .is_some_and(|tid| active_packages.contains(&tid))
-                            };
-
-                            if is_weak {
-                                if !is_dep_active {
-                                    continue;
-                                }
-                            } else {
-                                if !dep_decls.is_empty() {
-                                    activate_manifest_dep(
-                                        ctx,
-                                        packages,
-                                        actual_dep,
-                                        &dep_decls,
-                                        &mut active_packages,
-                                        &mut requested,
-                                        &mut changed,
-                                    );
-                                }
-                                if (ctx.toml.features.contains_key(actual_dep)
-                                    || is_optional_dep(&dep_decls))
-                                    && requested
-                                        .entry(id.clone())
-                                        .or_default()
-                                        .insert(actual_dep.to_string())
-                                {
-                                    changed = true;
-                                }
-                            }
-
-                            if let Some(target_id) =
-                                resolve_dep_id_from_ctx(ctx, packages, real_dep)
-                            {
-                                if requested
-                                    .entry(target_id)
-                                    .or_default()
-                                    .insert(dep_feat.to_string())
-                                {
-                                    changed = true;
-                                }
-                            }
-                        } else if let Some(dep_name) = sub.strip_prefix("dep:") {
-                            if requested.entry(id.clone()).or_default().insert(sub.clone()) {
-                                changed = true;
-                            }
-                            let norm = format!("dep:{}", dep_name.replace('-', "_"));
-                            if norm != *sub {
-                                requested.entry(id.clone()).or_default().insert(norm);
-                            }
-                            let deps = collect_manifest_dependencies(ctx.toml, dep_name);
-                            activate_manifest_dep(
-                                ctx,
-                                packages,
-                                dep_name,
-                                &deps,
-                                &mut active_packages,
-                                &mut requested,
-                                &mut changed,
-                            );
-                        } else {
-                            if requested.entry(id.clone()).or_default().insert(sub.clone()) {
-                                changed = true;
-                            }
-                            let deps = collect_manifest_dependencies(ctx.toml, sub);
-                            if is_optional_dep(&deps) {
-                                activate_manifest_dep(
-                                    ctx,
-                                    packages,
-                                    sub,
-                                    &deps,
-                                    &mut active_packages,
-                                    &mut requested,
-                                    &mut changed,
-                                );
-                            }
+                    if is_weak {
+                        if !is_dep_active {
+                            continue;
                         }
+                    } else {
+                        if !dep_decls.is_empty() {
+                            let (act, req) = if send_to_host { (&mut *active_host, &mut *host_req) } else { (&mut *active_target, &mut *target_req) };
+                            activate_manifest_dep(ctx, packages, actual_dep, &dep_decls, act, req, changed);
+                        }
+                        let this_req = if is_host_ctx { &mut *host_req } else { &mut *target_req };
+                        if (ctx.toml.features.contains_key(actual_dep) || is_optional_dep(&dep_decls))
+                            && this_req.entry(id.clone()).or_default().insert(actual_dep.to_string())
+                        {
+                            *changed = true;
+                        }
+                    }
+
+                    if let Some(target_id) = resolve_dep_id_from_ctx(ctx, packages, real_dep) {
+                        let dst_req = if send_to_host { &mut *host_req } else { &mut *target_req };
+                        if dst_req.entry(target_id).or_default().insert(dep_feat.to_string()) {
+                            *changed = true;
+                        }
+                    }
+                } else if let Some(dep_name) = sub.strip_prefix("dep:") {
+                    let this_req = if is_host_ctx { &mut *host_req } else { &mut *target_req };
+                    if this_req.entry(id.clone()).or_default().insert(sub.clone()) {
+                        *changed = true;
+                    }
+                    let norm = format!("dep:{}", dep_name.replace('-', "_"));
+                    if norm != *sub {
+                        this_req.entry(id.clone()).or_default().insert(norm);
+                    }
+                    let is_build = ctx.toml.build_dependencies.contains_key(dep_name)
+                        || ctx.toml.target.values().any(|t| t.build_dependencies.contains_key(dep_name));
+                    let is_pm = resolve_dep_id_from_ctx(ctx, packages, dep_name)
+                        .and_then(|tid| packages.iter().find(|p| p.id() == tid))
+                        .is_some_and(|p| p.is_proc_macro());
+                    let send_to_host = is_host_ctx || is_build || is_pm;
+                    let (act, req) = if send_to_host { (&mut *active_host, &mut *host_req) } else { (&mut *active_target, &mut *target_req) };
+                    let deps = collect_manifest_dependencies(ctx.toml, dep_name);
+                    activate_manifest_dep(ctx, packages, dep_name, &deps, act, req, changed);
+                } else {
+                    let this_req = if is_host_ctx { &mut *host_req } else { &mut *target_req };
+                    if this_req.entry(id.clone()).or_default().insert(sub.clone()) {
+                        *changed = true;
+                    }
+                    let deps = collect_manifest_dependencies(ctx.toml, sub);
+                    if is_optional_dep(&deps) {
+                        let is_build = ctx.toml.build_dependencies.contains_key(sub)
+                            || ctx.toml.target.values().any(|t| t.build_dependencies.contains_key(sub));
+                        let is_pm = resolve_dep_id_from_ctx(ctx, packages, sub)
+                            .and_then(|tid| packages.iter().find(|p| p.id() == tid))
+                            .is_some_and(|p| p.is_proc_macro());
+                        let send_to_host = is_host_ctx || is_build || is_pm;
+                        let (act, req) = if send_to_host { (&mut *active_host, &mut *host_req) } else { (&mut *active_target, &mut *target_req) };
+                        activate_manifest_dep(ctx, packages, sub, &deps, act, req, changed);
                     }
                 }
             }
         }
     }
+}
 
-    // 3. Return sorted and deduplicated feature lists per package
+fn finalize_feature_map(
+    packages: &[PackageFeatureContext],
+    mut requested: HashMap<String, HashSet<String>>,
+    _active_packages: &HashSet<String>,
+) -> HashMap<String, Vec<String>> {
     let mut result = HashMap::new();
     for ctx in packages {
         let id = ctx.id();
@@ -263,137 +345,4 @@ pub fn resolve_package_features(
         result.entry(ctx.name.to_string()).or_insert(list);
     }
     result
-}
-
-fn is_implicit_feature(toml: &CargoToml, name: &str) -> bool {
-    let (n1, n2) = (format!("dep:{}", name), format!("dep:{}", name.replace('-', "_")));
-    !toml.features.values().any(|sf| sf.iter().any(|s| s == &n1 || s == &n2))
-}
-
-fn activate_dep_instance(
-    ctx: &PackageFeatureContext,
-    packages: &[PackageFeatureContext],
-    dep_name: &str,
-    dep: &TomlDependency,
-    active_packages: &mut HashSet<String>,
-    requested: &mut HashMap<String, HashSet<String>>,
-    changed: &mut bool,
-) {
-    let aliases = ctx.toml.dependency_aliases();
-    let real_name = match dep {
-        TomlDependency::Simple(_) => aliases
-            .alias_to_real
-            .get(dep_name)
-            .map(|s| s.as_str())
-            .unwrap_or(dep_name),
-        TomlDependency::Detailed(d) => d.package_name.as_deref().unwrap_or_else(|| {
-            aliases
-                .alias_to_real
-                .get(dep_name)
-                .map(|s| s.as_str())
-                .unwrap_or(dep_name)
-        }),
-    };
-    let (feats, default_feats) = match dep {
-        TomlDependency::Simple(_) => (Vec::new(), true),
-        TomlDependency::Detailed(d) => (
-            d.features.clone().unwrap_or_default(),
-            d.default_features.unwrap_or(true),
-        ),
-    };
-
-    if let Some(target_id) = resolve_dep_id_from_ctx(ctx, packages, real_name) {
-        if active_packages.insert(target_id.clone()) {
-            *changed = true;
-        }
-        let set = requested.entry(target_id).or_default();
-        if default_feats && set.insert("default".to_string()) {
-            *changed = true;
-        }
-        for f in feats {
-            if set.insert(f) {
-                *changed = true;
-            }
-        }
-    }
-}
-
-fn resolve_dep_id_from_ctx(
-    ctx: &PackageFeatureContext,
-    packages: &[PackageFeatureContext],
-    dep_name: &str,
-) -> Option<String> {
-    let clean = dep_name.replace('-', "_");
-    let req_ver = ctx.dependencies.iter().find(|s| {
-        let (name, _) = parse_dep_spec(s);
-        name == dep_name || name.replace('-', "_") == clean
-    }).and_then(|s| parse_dep_spec(s).1);
-    resolve_dep_id(packages, dep_name, req_ver)
-}
-
-fn collect_manifest_dependencies<'a>(
-    toml: &'a CargoToml,
-    name: &str,
-) -> Vec<&'a TomlDependency> {
-    let norm = name.replace('-', "_");
-    let mut result = Vec::new();
-    let mut add = |map: &'a HashMap<String, TomlDependency>| {
-        if let Some(d) = map.get(name).or_else(|| map.get(&norm)) {
-            result.push(d);
-        }
-    };
-    add(&toml.dependencies);
-    add(&toml.build_dependencies);
-    for (spec, t) in &toml.target {
-        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
-            add(&t.dependencies);
-            add(&t.build_dependencies);
-        }
-    }
-    result
-}
-
-fn is_optional_dep(deps: &[&TomlDependency]) -> bool {
-    deps.iter().any(|d| match d {
-        TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
-        _ => false,
-    })
-}
-
-fn is_any_optional_dep(toml: &CargoToml, name: &str) -> bool {
-    let norm = name.replace('-', "_");
-    let check = |map: &HashMap<String, TomlDependency>| {
-        map.get(name).or_else(|| map.get(&norm)).is_some_and(|d| match d {
-            TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
-            _ => false,
-        })
-    };
-    check(&toml.dependencies)
-        || check(&toml.build_dependencies)
-        || toml.target.values().any(|t| check(&t.dependencies) || check(&t.build_dependencies))
-}
-
-fn activate_manifest_dep(
-    ctx: &PackageFeatureContext,
-    packages: &[PackageFeatureContext],
-    dep_name: &str,
-    deps: &[&TomlDependency],
-    active_packages: &mut HashSet<String>,
-    requested: &mut HashMap<String, HashSet<String>>,
-    changed: &mut bool,
-) {
-    for d in deps {
-        activate_dep_instance(ctx, packages, dep_name, d, active_packages, requested, changed);
-    }
-}
-
-fn resolve_dep_id(
-    packages: &[PackageFeatureContext],
-    dep: &str,
-    ver: Option<&str>,
-) -> Option<String> {
-    let clean = dep.replace('-', "_");
-    let m = |c: &PackageFeatureContext| c.name == dep || c.name.replace('-', "_") == clean;
-    ver.and_then(|v| packages.iter().find(|c| m(c) && c.version == v).map(|c| c.id()))
-        .or_else(|| packages.iter().find(|c| m(c)).map(|c| c.id()))
 }

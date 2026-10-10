@@ -59,6 +59,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     let proc_inv = RustcInvocation {
@@ -95,6 +96,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
     let bin_inv = RustcInvocation {
         unit: &bin_unit,
@@ -223,6 +225,7 @@ fn test_m8_build_script_execution_disabled_nested_and_nonsemver() {
         cache_eligibility: "cacheable".to_string(),
         env_vars: Vec::new(),
         features: Vec::new(),
+        for_host: false,
     };
 
     let dir = execute_build_script(&unit, &staging_dir, false, &[], None, &[], None).unwrap();

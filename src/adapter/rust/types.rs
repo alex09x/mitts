@@ -63,11 +63,17 @@ pub struct PlannedCompilationUnit {
     pub edition: Option<String>,
     #[serde(default)]
     pub features: Vec<String>,
+    #[serde(default)]
+    pub for_host: bool,
 }
 
 impl PlannedCompilationUnit {
     pub fn unit_id(&self) -> String {
-        format!("{}::{}:{}", self.package_id, self.kind, self.target_name)
+        if self.for_host {
+            format!("{}::{}:{}:host", self.package_id, self.kind, self.target_name)
+        } else {
+            format!("{}::{}:{}", self.package_id, self.kind, self.target_name)
+        }
     }
 }
 

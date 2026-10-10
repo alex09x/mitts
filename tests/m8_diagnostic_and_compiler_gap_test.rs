@@ -137,6 +137,7 @@ fn test_m8_compiler_invocation_non_semver_and_options() {
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let inv = RustcInvocation {

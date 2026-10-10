@@ -108,6 +108,7 @@ fn main() {
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
         features: Vec::new(),
+        for_host: false,
     };
 
     let target_dir = root.join("target");

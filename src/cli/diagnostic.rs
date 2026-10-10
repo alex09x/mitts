@@ -202,7 +202,8 @@ fn split_unit_sections(stderr: &str) -> Vec<(String, Option<String>, Option<Stri
 }
 
 fn parse_unit_id(unit_id: &str) -> (String, String, String, String) {
-    let (pkg_ver, target_part) = unit_id.split_once("::").unwrap_or((unit_id, "lib:"));
+    let clean_id = unit_id.strip_suffix(":host").unwrap_or(unit_id);
+    let (pkg_ver, target_part) = clean_id.split_once("::").unwrap_or((clean_id, "lib:"));
     let (pkg, ver) = pkg_ver.split_once('@').unwrap_or((pkg_ver, ""));
     let (kind, target) = target_part.split_once(':').unwrap_or((target_part, pkg));
     (
