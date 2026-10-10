@@ -111,13 +111,8 @@ def generate_markdown(results_dir, output_report_path=None):
             sound_val = s_val if sound_base_name == "cargo_sccache" else b_val
             sound_label = "sccache" if sound_base_name == "cargo_sccache" else "bare"
 
-            ratio_sound = sp_info.get("ratio")
-            if ratio_sound is None and m_val > 0:
-                ratio_sound = sound_val / m_val
-
-            ratio_bare = sp_info.get("ratio_vs_bare")
-            if ratio_bare is None and m_val > 0:
-                ratio_bare = b_val / m_val
+            ratio_sound = round(sound_val / max(m_val, 0.001), 2)
+            ratio_bare = round(b_val / max(m_val, 0.001), 2)
 
             lines.append(
                 f"| {suite_name} | `{proj_name}` | **{m_val:.2f}** | {b_val:.2f} | {s_val:.2f} | {sound_label} ({sound_val:.2f} с) | **{ratio_sound:.2f}×** | {ratio_bare:.2f}× | ✅ VALID |"
