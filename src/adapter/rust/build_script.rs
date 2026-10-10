@@ -111,16 +111,7 @@ pub fn execute_build_script(
                                         pkg_toml.package.as_ref().and_then(|p| p.links.clone());
                                     let cached_out_str = cached_out_dir.to_string_lossy();
                                     let out_str = out_dir.to_string_lossy();
-                                    for search in &mut directives.link_searches {
-                                        if search == &cached_out_str {
-                                            *search = out_str.to_string();
-                                        }
-                                    }
-                                    for val in directives.envs.values_mut() {
-                                        if val.contains(cached_out_str.as_ref()) {
-                                            *val = val.replace(cached_out_str.as_ref(), out_str.as_ref());
-                                        }
-                                    }
+                                    remap_out_dir(&mut directives, &cached_out_str, &out_str);
                                     return Ok(directives);
                                 }
                             }
@@ -315,15 +306,11 @@ pub fn execute_build_script(
         } else {
             pkg_dir.join(file_rel)
         };
-        if let Ok(hash) = Sha256::digest_path_recursive(&fpath) {
-            directives
-                .rerun_if_changed_hashes
-                .insert(file_rel.clone(), hash);
-        } else {
-            directives
-                .rerun_if_changed_hashes
-                .insert(file_rel.clone(), "<missing>".to_string());
-        }
+        let hash =
+            Sha256::digest_path_recursive(&fpath).unwrap_or_else(|_| "<missing>".to_string());
+        directives
+            .rerun_if_changed_hashes
+            .insert(file_rel.clone(), hash);
     }
 
     // Publish to CAS metadata and output directory atomically in a single execution entry
@@ -337,19 +324,8 @@ pub fn execute_build_script(
         );
         let entry_dir = script_cas_dir.join(&exec_key);
         let cas_out = entry_dir.join("out");
-        directives.out_dir = Some(cas_out.clone());
         let out_str = out_dir.to_string_lossy();
         let cas_out_str = cas_out.to_string_lossy();
-        for search in &mut directives.link_searches {
-            if search == &out_str {
-                *search = cas_out_str.to_string();
-            }
-        }
-        for val in directives.envs.values_mut() {
-            if val.contains(out_str.as_ref()) {
-                *val = val.replace(out_str.as_ref(), cas_out_str.as_ref());
-            }
-        }
 
         if !entry_dir.exists() {
             let _ = fs::create_dir_all(&script_cas_dir);
@@ -367,7 +343,10 @@ pub fn execute_build_script(
                 }
                 if ok {
                     let _ = fs::write(tmp_entry_dir.join(".last_used"), b"");
-                    if let Ok(toml_str) = toml::to_string(&directives) {
+                    let mut cas_d = directives.clone();
+                    cas_d.out_dir = Some(cas_out.clone());
+                    remap_out_dir(&mut cas_d, &out_str, &cas_out_str);
+                    if let Ok(toml_str) = toml::to_string(&cas_d) {
                         if fs::write(tmp_entry_dir.join("meta.toml"), toml_str).is_ok() {
                             if fs::rename(&tmp_entry_dir, &entry_dir).is_err() {
                                 let _ = fs::remove_dir_all(&tmp_entry_dir);
@@ -383,7 +362,25 @@ pub fn execute_build_script(
                 }
             }
         }
+
+        if cas_out.is_dir() {
+            directives.out_dir = Some(cas_out.clone());
+            remap_out_dir(&mut directives, &out_str, &cas_out_str);
+        }
     }
 
     Ok(directives)
+}
+
+fn remap_out_dir(directives: &mut BuildScriptDirectives, from: &str, to: &str) {
+    for s in &mut directives.link_searches {
+        if s == from {
+            *s = to.to_string();
+        }
+    }
+    for val in directives.envs.values_mut() {
+        if val.contains(from) {
+            *val = val.replace(from, to);
+        }
+    }
 }
