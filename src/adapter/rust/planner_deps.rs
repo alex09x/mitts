@@ -81,26 +81,72 @@ pub fn resolve_unit_dependencies(
 
                 let is_pm = proc_macro_names.contains(dep_name)
                     || proc_macro_names.contains(&dep_name.replace('-', "_"));
-                let dep_for_host = is_pm || unit.for_host;
 
-                let resolved_dep_uid = if let Some(ver) = dep_ver {
-                    lib_units_by_exact
-                        .get(&(dep_name.to_string(), ver.to_string(), dep_for_host))
-                        .or_else(|| {
-                            lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string(), dep_for_host))
+                let is_build_dep = has_build_script && pkg_toml_opt.as_ref().is_some_and(|t| {
+                    t.build_dependencies.contains_key(dep_name)
+                        || t.build_dependencies.contains_key(&dep_name.replace('-', "_"))
+                        || t.target.values().any(|ts| {
+                            ts.build_dependencies.contains_key(dep_name)
+                                || ts.build_dependencies.contains_key(&dep_name.replace('-', "_"))
                         })
-                        .cloned()
-                } else if let Some(candidates) = lib_units_by_name
-                    .get(&(dep_name.to_string(), dep_for_host))
-                    .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), dep_for_host)))
-                {
-                    candidates.first().map(|(_, uid)| uid.clone())
-                } else {
-                    None
+                });
+
+                let is_runtime_dep = pkg_toml_opt.as_ref().is_none_or(|t| {
+                    t.dependencies.contains_key(dep_name)
+                        || t.dependencies.contains_key(&dep_name.replace('-', "_"))
+                        || t.target.values().any(|ts| {
+                            ts.dependencies.contains_key(dep_name)
+                                || ts.dependencies.contains_key(&dep_name.replace('-', "_"))
+                        })
+                        || (is_test && (t.dev_dependencies.contains_key(dep_name)
+                            || t.dev_dependencies.contains_key(&dep_name.replace('-', "_"))
+                            || t.target.values().any(|ts| {
+                                ts.dev_dependencies.contains_key(dep_name)
+                                    || ts.dev_dependencies.contains_key(&dep_name.replace('-', "_"))
+                            })))
+                });
+
+                let resolve_dep = |for_host: bool| -> Option<String> {
+                    if let Some(ver) = dep_ver {
+                        lib_units_by_exact
+                            .get(&(dep_name.to_string(), ver.to_string(), for_host))
+                            .or_else(|| {
+                                lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string(), for_host))
+                            })
+                            .cloned()
+                    } else if let Some(candidates) = lib_units_by_name
+                        .get(&(dep_name.to_string(), for_host))
+                        .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), for_host)))
+                    {
+                        candidates.first().map(|(_, uid)| uid.clone())
+                    } else {
+                        None
+                    }
                 };
 
-                if let Some(dep_uid) = resolved_dep_uid {
-                    unit_deps.push(dep_uid);
+                if unit.for_host || is_pm {
+                    if let Some(dep_uid) = resolve_dep(true) {
+                        unit_deps.push(dep_uid);
+                    }
+                } else {
+                    let mut matched = false;
+                    if is_runtime_dep {
+                        if let Some(dep_uid) = resolve_dep(false) {
+                            unit_deps.push(dep_uid);
+                            matched = true;
+                        }
+                    }
+                    if is_build_dep {
+                        if let Some(dep_uid) = resolve_dep(true) {
+                            unit_deps.push(dep_uid);
+                            matched = true;
+                        }
+                    }
+                    if !matched {
+                        if let Some(dep_uid) = resolve_dep(false).or_else(|| resolve_dep(true)) {
+                            unit_deps.push(dep_uid);
+                        }
+                    }
                 }
             }
         }
