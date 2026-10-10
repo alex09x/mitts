@@ -183,3 +183,80 @@ fn test_m8_compiler_invocation_execution() {
     assert_eq!(res.exit_code, 0);
     assert!(res.primary_output.is_some());
 }
+
+#[test]
+fn test_m8_features_dual_compiled_host_and_target() {
+    let root_str = r#"
+[package]
+name = "root"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+worker = { version = "1.0", default-features = false }
+"#;
+    let worker_str = r#"
+[package]
+name = "worker"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+dual_crate = { version = "2.0", default-features = false }
+
+[build-dependencies]
+dual_crate = { version = "2.0", default-features = false, features = ["build_mode"] }
+"#;
+    let dual_str = r#"
+[package]
+name = "dual_crate"
+version = "2.0.0"
+edition = "2021"
+
+[features]
+build_mode = []
+"#;
+
+    let root_toml = CargoToml::parse(root_str).unwrap();
+    let worker_toml = CargoToml::parse(worker_str).unwrap();
+    let dual_toml = CargoToml::parse(dual_str).unwrap();
+
+    let root_deps = vec!["worker 1.0.0".to_string()];
+    let worker_deps = vec!["dual_crate 2.0.0".to_string()];
+    let dual_deps = Vec::new();
+
+    let pkgs = vec![
+        PackageFeatureContext {
+            name: "root",
+            version: "0.1.0",
+            is_workspace: true,
+            is_root: true,
+            toml: &root_toml,
+            dependencies: &root_deps,
+        },
+        PackageFeatureContext {
+            name: "worker",
+            version: "1.0.0",
+            is_workspace: false,
+            is_root: false,
+            toml: &worker_toml,
+            dependencies: &worker_deps,
+        },
+        PackageFeatureContext {
+            name: "dual_crate",
+            version: "2.0.0",
+            is_workspace: false,
+            is_root: false,
+            toml: &dual_toml,
+            dependencies: &dual_deps,
+        },
+    ];
+
+    let opt = RustBuildOptions::default();
+    let resolved = resolve_package_features(&pkgs, &opt);
+
+    assert!(resolved.active_target_packages.contains("worker@1.0.0"), "worker must be in target");
+    assert!(resolved.active_target_packages.contains("dual_crate@2.0.0"), "dual_crate must be in target");
+    assert!(resolved.active_host_packages.contains("dual_crate@2.0.0"), "dual_crate must be in host");
+}
+

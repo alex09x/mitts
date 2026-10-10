@@ -79,17 +79,9 @@ pub fn resolve_unit_dependencies(
                     }
                 }
 
-                let is_build_dep = pkg_toml_opt.as_ref().is_some_and(|t| {
-                    t.build_dependencies.contains_key(dep_name)
-                        || t.build_dependencies.contains_key(&dep_name.replace('-', "_"))
-                        || t.target.values().any(|ts| {
-                            ts.build_dependencies.contains_key(dep_name)
-                                || ts.build_dependencies.contains_key(&dep_name.replace('-', "_"))
-                        })
-                });
                 let is_pm = proc_macro_names.contains(dep_name)
                     || proc_macro_names.contains(&dep_name.replace('-', "_"));
-                let dep_for_host = unit.for_host || is_build_dep || is_pm;
+                let dep_for_host = is_pm || unit.for_host;
 
                 let resolved_dep_uid = if let Some(ver) = dep_ver {
                     lib_units_by_exact
