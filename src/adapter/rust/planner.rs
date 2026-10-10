@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::features::{resolve_package_features, PackageFeatureContext};
+use super::features::{resolve_package_features_with_resolver, PackageFeatureContext};
 use super::fetcher::{CrateFetcher, FetchOptions};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::CargoToml;
@@ -256,7 +256,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             dependencies: &pkg.dependencies,
         })
         .collect();
-    let package_features = resolve_package_features(&feature_inputs, opt)?;
+    let ws_resolver = root_toml.effective_resolver();
+    let package_features =
+        resolve_package_features_with_resolver(&feature_inputs, opt, Some(ws_resolver))?;
 
     // Pass 1: Build compilation units with assigned features (Resolver 2 decoupled host/target)
     let mut units = super::planner_units::build_planned_units(

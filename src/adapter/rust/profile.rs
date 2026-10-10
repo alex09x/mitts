@@ -50,7 +50,7 @@ pub fn resolve_unit_debuginfo(
     for_host: bool,
     release: bool,
     ws_root: Option<&Path>,
-) -> u32 {
+) -> anyhow::Result<u32> {
     let effective_ws_root = ws_root
         .map(|p| p.to_path_buf())
         .or_else(|| {
@@ -70,8 +70,7 @@ pub fn resolve_unit_debuginfo(
         if let Some(p) = guard.get(ws) {
             p.clone()
         } else {
-            let res = load_workspace_and_config_profiles(ws)
-                .unwrap_or_else(|e| panic!("Failed to resolve profile configuration: {}", e));
+            let res = load_workspace_and_config_profiles(ws)?;
             guard.insert(ws.clone(), res.clone());
             res
         }
@@ -91,7 +90,7 @@ pub fn resolve_unit_debuginfo(
         })
     {
         if let Some(dbg) = pkg_tbl.get("debug") {
-            return parse_debug_value(dbg, default_val);
+            return Ok(parse_debug_value(dbg, default_val));
         }
     }
 
@@ -100,7 +99,7 @@ pub fn resolve_unit_debuginfo(
     if !is_workspace {
         if let Some(wild_tbl) = loaded.wildcard_overrides.get(profile_name) {
             if let Some(dbg) = wild_tbl.get("debug") {
-                return parse_debug_value(dbg, default_val);
+                return Ok(parse_debug_value(dbg, default_val));
             }
         }
     }
@@ -109,10 +108,10 @@ pub fn resolve_unit_debuginfo(
     if for_host {
         if let Some(bo) = loaded.build_overrides.get(profile_name) {
             if let Some(dbg) = bo.get("debug") {
-                return parse_debug_value(dbg, 0);
+                return Ok(parse_debug_value(dbg, 0));
             }
         }
-        return 0;
+        return Ok(0);
     }
 
     // 4. Target units: CARGO_PROFILE_<PROFILE>_DEBUG environment variable
@@ -125,10 +124,10 @@ pub fn resolve_unit_debuginfo(
         let trimmed = env_val.trim();
         if !trimmed.is_empty() {
             if let Ok(toml_val) = trimmed.parse::<toml::Value>() {
-                return parse_debug_value(&toml_val, default_val);
+                return Ok(parse_debug_value(&toml_val, default_val));
             }
             if let Some(num) = parse_debug_str(trimmed) {
-                return num;
+                return Ok(num);
             }
         }
     }
@@ -136,11 +135,11 @@ pub fn resolve_unit_debuginfo(
     // 5. Top-level profile: [profile.<profile>]
     if let Some(prof_tbl) = loaded.profiles.get(profile_name) {
         if let Some(dbg) = prof_tbl.get("debug") {
-            return parse_debug_value(dbg, default_val);
+            return Ok(parse_debug_value(dbg, default_val));
         }
     }
 
-    default_val
+    Ok(default_val)
 }
 
 pub fn parse_debug_str(s: &str) -> Option<u32> {

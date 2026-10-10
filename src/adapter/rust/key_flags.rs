@@ -158,7 +158,7 @@ pub fn compute_unit_flags_with_ws(
     mode: BuildMode,
     release: bool,
     ws_root: Option<&Path>,
-) -> Vec<String> {
+) -> anyhow::Result<Vec<String>> {
     let mut u_flags = effective_flags.to_vec();
     if unit.is_workspace {
         let reads_manifest_dir = unit.env_vars.iter().any(|v| v == "CARGO_MANIFEST_DIR")
@@ -211,7 +211,7 @@ pub fn compute_unit_flags_with_ws(
         unit.for_host,
         release,
         ws_for_profile,
-    );
+    )?;
     if unit.for_host {
         u_flags.push("FOR_HOST=1".to_string());
     } else {
@@ -291,7 +291,7 @@ pub fn compute_unit_flags_with_ws(
         };
         u_flags.push(entry);
     }
-    u_flags
+    Ok(u_flags)
 }
 
 pub fn compute_unit_flags(
@@ -300,7 +300,7 @@ pub fn compute_unit_flags(
     effective_flags: &[String],
     mode: BuildMode,
 ) -> Vec<String> {
-    compute_unit_flags_with_ws(unit, pkg_dir, effective_flags, mode, false, None)
+    compute_unit_flags_with_ws(unit, pkg_dir, effective_flags, mode, false, None).unwrap_or_default()
 }
 
 pub use super::profile::resolve_unit_debuginfo;

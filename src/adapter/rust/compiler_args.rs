@@ -147,7 +147,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.unit.for_host,
         inv.release,
         inv.unit.workspace_root.as_deref(),
-    );
+    )?;
     if inv.release {
         cmd.arg("-C").arg("opt-level=3");
     }
@@ -322,10 +322,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             for flag in flags.split_whitespace() {
                 cmd.arg(flag);
             }
-        } else if let Ok(config_flags) = super::cargo_config::load_cargo_config_rustflags(
-            &config_start_dir,
-            explicit_target.as_deref(),
-        ) {
+        } else {
+            let config_flags = super::cargo_config::load_cargo_config_rustflags(
+                &config_start_dir,
+                explicit_target.as_deref(),
+            )?;
             for flag in config_flags {
                 cmd.arg(flag);
             }

@@ -57,6 +57,14 @@ pub fn resolve_package_features(
     packages: &[PackageFeatureContext],
     opt: &RustBuildOptions,
 ) -> Result<ResolvedFeatures, RustAdapterError> {
+    resolve_package_features_with_resolver(packages, opt, None)
+}
+
+pub fn resolve_package_features_with_resolver(
+    packages: &[PackageFeatureContext],
+    opt: &RustBuildOptions,
+    ws_resolver: Option<&str>,
+) -> Result<ResolvedFeatures, RustAdapterError> {
     let mut target_requested: HashMap<String, HashSet<String>> = HashMap::new();
     let mut host_requested: HashMap<String, HashSet<String>> = HashMap::new();
     let mut active_target_packages: HashSet<String> = HashSet::new();
@@ -67,29 +75,28 @@ pub fn resolve_package_features(
         let id = ctx.id();
         let is_pm = ctx.is_proc_macro();
         if ctx.is_root {
-            let (active_set, req_map) = if is_pm {
-                (&mut active_host_packages, &mut host_requested)
-            } else {
-                (&mut active_target_packages, &mut target_requested)
-            };
-            active_set.insert(id.clone());
-            let set = req_map.entry(id.clone()).or_default();
+            active_target_packages.insert(id.clone());
+            let target_set = target_requested.entry(id.clone()).or_default();
             if opt.all_features {
-                set.extend(ctx.toml.features.keys().cloned());
+                target_set.extend(ctx.toml.features.keys().cloned());
             } else {
-                set.extend(opt.features.iter().cloned());
+                target_set.extend(opt.features.iter().cloned());
             }
             if !opt.no_default_features && ctx.toml.features.contains_key("default") {
-                set.insert("default".to_string());
+                target_set.insert("default".to_string());
+            }
+            if is_pm {
+                active_host_packages.insert(id.clone());
+                host_requested.insert(id.clone(), target_set.clone());
             }
         } else if opt.all_features && ctx.is_workspace {
-            let (active_set, req_map) = if is_pm {
-                (&mut active_host_packages, &mut host_requested)
-            } else {
-                (&mut active_target_packages, &mut target_requested)
-            };
-            active_set.insert(id.clone());
-            req_map.entry(id).or_default().extend(ctx.toml.features.keys().cloned());
+            active_target_packages.insert(id.clone());
+            let target_set = target_requested.entry(id.clone()).or_default();
+            target_set.extend(ctx.toml.features.keys().cloned());
+            if is_pm {
+                active_host_packages.insert(id.clone());
+                host_requested.insert(id, target_set.clone());
+            }
         }
     }
 
@@ -137,18 +144,17 @@ pub fn resolve_package_features(
     }
 
     // Check workspace resolver: Resolver 1 unifies host and target features.
-    // In addition, on native builds (!is_cross), Cargo unifies features across workspace packages.
-    let is_resolver_1 = packages
-        .iter()
-        .find(|p| p.is_root)
-        .or_else(|| packages.iter().find(|p| p.is_workspace))
-        .is_some_and(|p| p.toml.effective_resolver() == "1");
+    let is_resolver_1 = ws_resolver.map_or_else(
+        || {
+            packages
+                .iter()
+                .find(|p| p.toml.workspace.is_some() || p.is_root)
+                .is_some_and(|p| p.toml.effective_resolver() == "1")
+        },
+        |r| r == "1",
+    );
 
-    let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
-    let host_triple = crate::adapter::rust::compiler_resolve::resolve_host_triple();
-    let is_cross = explicit_target.as_ref().is_some_and(|t| t != host_triple);
-
-    if is_resolver_1 || !is_cross {
+    if is_resolver_1 {
         for (pkg_id, feats) in &target_requested {
             host_requested.entry(pkg_id.clone()).or_default().extend(feats.iter().cloned());
         }

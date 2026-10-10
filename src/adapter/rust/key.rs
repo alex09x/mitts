@@ -185,7 +185,7 @@ pub fn derive_unit_action_key_context(
             opt.mode,
             opt.release,
             Some(build_ws_root),
-        );
+        )?;
 
         if receives_target_rustflags(unit, explicit_target.as_deref()) {
             for rf in &effective_target_rustflags {

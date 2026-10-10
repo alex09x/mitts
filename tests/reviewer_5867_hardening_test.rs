@@ -285,7 +285,7 @@ fn test_5c_profile_precedence_and_deep_merging() {
         true, // for_host
         false,
         Some(ws_dir.path()),
-    );
+    ).unwrap();
     assert_eq!(
         dbg_syn_host, 2,
         "package.syn debug = 2 must take precedence over build-override for host unit"
@@ -299,7 +299,7 @@ fn test_5c_profile_precedence_and_deep_merging() {
         true, // for_host
         false,
         Some(ws_dir.path()),
-    );
+    ).unwrap();
     assert_eq!(
         dbg_gen_host, 0,
         "generic host unit without package override must match build-override"
@@ -313,7 +313,7 @@ fn test_5c_profile_precedence_and_deep_merging() {
         false,
         false,
         Some(ws_dir.path()),
-    );
+    ).unwrap();
     assert_eq!(
         dbg_app, 1,
         "Workspace member must retain debug = 1 merged from Cargo.toml"

@@ -272,7 +272,7 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
         false,
         false,
         Some(dir.path()),
-    );
+    ).unwrap();
     assert_eq!(
         dbg_target, 1,
         "target dev debuginfo should read [profile.dev].debug"
@@ -285,7 +285,7 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
         true,
         false,
         Some(dir.path()),
-    );
+    ).unwrap();
     assert_eq!(
         dbg_host, 0,
         "host dev debuginfo should read [profile.dev.build-override].debug"
