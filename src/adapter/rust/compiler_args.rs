@@ -350,6 +350,9 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     }
 
     for arg in inv.extra_compiler_args {
+        if arg == "--workspace" || arg == "--all" {
+            continue;
+        }
         cmd.arg(arg);
     }
 
