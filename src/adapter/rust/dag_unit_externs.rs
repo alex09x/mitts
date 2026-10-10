@@ -50,7 +50,15 @@ pub fn resolve_extern_crates_with_target(
     });
 
     for dep_id in &sorted_deps {
-        if let Some(artifact_path) = completed.get(dep_id) {
+        let fallback_id = if dep_id.ends_with(":host") {
+            dep_id.strip_suffix(":host").map(|s| s.to_string())
+        } else {
+            Some(format!("{}:host", dep_id))
+        };
+        if let Some(artifact_path) = completed
+            .get(dep_id)
+            .or_else(|| fallback_id.as_ref().and_then(|f| completed.get(f)))
+        {
             let clean_dep_id = dep_id.strip_suffix(":host").unwrap_or(dep_id);
             let dep_pkg = clean_dep_id.split("::").next().unwrap_or(clean_dep_id);
             let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);

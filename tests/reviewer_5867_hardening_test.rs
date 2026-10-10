@@ -11,15 +11,21 @@
 use mitts::adapter::rust::key_flags::{
     receives_target_rustflags, resolve_explicit_target_from_args_and_dir,
 };
-use mitts::adapter::rust::manifest::CargoToml;
 use mitts::adapter::rust::profile::resolve_unit_debuginfo;
 use mitts::adapter::rust::target_filter::is_target_cfg_incompatible_with_target;
 use mitts::adapter::rust::types::{PlannedCompilationUnit, RustAdapterError};
+use mitts::adapter::rust::RustcInvocation;
+use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
+use std::sync::Mutex;
 use tempfile::tempdir;
+
+static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_7a_fail_closed_on_broken_rustc() {
+    let _lock = TEST_ENV_LOCK.lock().unwrap();
     let dir = tempdir().unwrap();
     let old_rustc = std::env::var_os("RUSTC");
     std::env::set_var("RUSTC", "/nonexistent_rustc_binary_for_test");
@@ -55,6 +61,7 @@ fn test_7a_fail_closed_on_broken_rustc() {
 
 #[test]
 fn test_7b_target_resolution_precedence_and_no_target_env() {
+    let _lock = TEST_ENV_LOCK.lock().unwrap();
     let dir = tempdir().unwrap();
     let cargo_dir = dir.path().join(".cargo");
     fs::create_dir_all(&cargo_dir).unwrap();
@@ -143,7 +150,98 @@ fn test_7c_rustflags_host_isolation_under_cross_compilation() {
 }
 
 #[test]
-fn test_7d_profile_debuginfo_package_and_wildcard_overrides() {
+fn test_5a_build_target_in_config_passes_target_to_rustc() {
+    let dir = tempdir().unwrap();
+    let cargo_dir = dir.path().join(".cargo");
+    fs::create_dir_all(&cargo_dir).unwrap();
+    fs::write(
+        cargo_dir.join("config.toml"),
+        "[build]\ntarget = \"x86_64-unknown-linux-musl\"\n",
+    )
+    .unwrap();
+
+    let manifest_path = dir.path().join("Cargo.toml");
+    let src_dir = dir.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let src_path = src_dir.join("lib.rs");
+    fs::write(&src_path, "pub fn hello() {}\n").unwrap();
+    fs::write(
+        &manifest_path,
+        "[package]\nname = \"test_pkg\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+
+    let unit = PlannedCompilationUnit {
+        package_id: "test_pkg@0.1.0".to_string(),
+        package_name: "test_pkg".to_string(),
+        target_name: "test_pkg".to_string(),
+        kind: "lib".to_string(),
+        manifest_path: manifest_path.clone(),
+        src_path: src_path.clone(),
+        workspace_root: Some(dir.path().to_path_buf()),
+        for_host: false,
+        ..Default::default()
+    };
+
+    let out_dir = dir.path().join("target/out");
+    let inv = RustcInvocation {
+        unit: &unit,
+        action_key: "test_action_key_1234567890",
+        out_dir: &out_dir,
+        dest_binary: None,
+        extern_crates: &[],
+        release: false,
+        features: &[],
+        directives: None,
+        mode: mitts::adapter::BuildMode::Build,
+        extra_compiler_args: &[],
+        jobserver_auth: None,
+        deps_dir: None,
+    };
+
+    let (cmd, _, _) = mitts::adapter::rust::compiler_args::build_compiler_command(&inv).unwrap();
+    let args: Vec<String> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+
+    let target_idx = args.iter().position(|a| a == "--target");
+    assert!(
+        target_idx.is_some(),
+        "Rustc command must contain --target when build.target is set in config: args = {:?}",
+        args
+    );
+    assert_eq!(
+        args.get(target_idx.unwrap() + 1).map(|s| s.as_str()),
+        Some("x86_64-unknown-linux-musl"),
+        "Target value must match build.target from config"
+    );
+
+    // Host unit (for_host = true) must NOT receive --target
+    let host_unit = PlannedCompilationUnit {
+        for_host: true,
+        kind: "proc-macro".to_string(),
+        ..unit.clone()
+    };
+    let host_inv = RustcInvocation {
+        unit: &host_unit,
+        ..inv
+    };
+    let (host_cmd, _, _) =
+        mitts::adapter::rust::compiler_args::build_compiler_command(&host_inv).unwrap();
+    let host_args: Vec<String> = host_cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    assert!(
+        !host_args.iter().any(|a| a == "--target"),
+        "Host unit must NOT receive --target from config: host_args = {:?}",
+        host_args
+    );
+}
+
+#[test]
+fn test_5c_profile_precedence_and_deep_merging() {
     let ws_dir = tempdir().unwrap();
     let ws_manifest = ws_dir.path().join("Cargo.toml");
     let ws_toml = r#"
@@ -151,18 +249,24 @@ fn test_7d_profile_debuginfo_package_and_wildcard_overrides() {
         members = ["app"]
 
         [profile.dev]
+        debug = 1
+        opt-level = 0
+
+        [profile.dev.package.syn]
         debug = 2
 
-        [profile.dev.package."*"]
-        debug = 1
-
-        [profile.dev.package.special_dep]
-        debug = 0
-
         [profile.dev.build-override]
-        debug = 1
+        debug = 0
     "#;
     fs::write(&ws_manifest, ws_toml).unwrap();
+
+    let cargo_dir = ws_dir.path().join(".cargo");
+    fs::create_dir_all(&cargo_dir).unwrap();
+    fs::write(
+        cargo_dir.join("config.toml"),
+        "[profile.dev]\nopt-level = 1\n",
+    )
+    .unwrap();
 
     let app_dir = ws_dir.path().join("app");
     fs::create_dir_all(&app_dir).unwrap();
@@ -173,118 +277,104 @@ fn test_7d_profile_debuginfo_package_and_wildcard_overrides() {
     )
     .unwrap();
 
-    // Dependency located in isolated directory with its own irrelevant [profile]
-    let dep_dir = tempdir().unwrap();
-    let dep_manifest = dep_dir.path().join("Cargo.toml");
-    fs::write(
-        &dep_manifest,
-        "[package]\nname = \"special_dep\"\nversion = \"0.1.0\"\n[profile.dev]\ndebug = 2\n",
-    )
-    .unwrap();
-
-    // 1. Dependency with specific override: special_dep -> 0
-    let dbg_special = resolve_unit_debuginfo(
-        &dep_manifest,
-        "special_dep",
+    // 1. Host unit of 'syn' must match [profile.dev.package.syn].debug = 2 (overriding build-override!)
+    let dbg_syn_host = resolve_unit_debuginfo(
+        &app_manifest,
+        "syn",
         false,
-        false,
+        true, // for_host
         false,
         Some(ws_dir.path()),
     );
     assert_eq!(
-        dbg_special, 0,
-        "special_dep must match [profile.dev.package.special_dep].debug = 0"
+        dbg_syn_host, 2,
+        "package.syn debug = 2 must take precedence over build-override for host unit"
     );
 
-    // 2. Normal dependency matches wildcard "*": generic_dep -> 1
-    let dbg_wildcard = resolve_unit_debuginfo(
-        &dep_manifest,
-        "generic_dep",
+    // 2. Generic host unit matches build-override: debug = 0
+    let dbg_gen_host = resolve_unit_debuginfo(
+        &app_manifest,
+        "generic_macro",
         false,
-        false,
+        true, // for_host
         false,
         Some(ws_dir.path()),
     );
     assert_eq!(
-        dbg_wildcard, 1,
-        "generic_dep must match [profile.dev.package.'*'].debug = 1"
+        dbg_gen_host, 0,
+        "generic host unit without package override must match build-override"
     );
 
-    // 3. Host unit matches build-override: host -> 1
-    let dbg_host = resolve_unit_debuginfo(
+    // 3. Merged top-level profile dev still has debug = 1 (not lost by config opt-level = 1)
+    let dbg_app = resolve_unit_debuginfo(
         &app_manifest,
         "app",
-        true,
-        true,
+        true, // is_workspace
+        false,
         false,
         Some(ws_dir.path()),
     );
     assert_eq!(
-        dbg_host, 1,
-        "host unit must match [profile.dev.build-override].debug = 1"
+        dbg_app, 1,
+        "Workspace member must retain debug = 1 merged from Cargo.toml"
     );
 }
 
 #[test]
-fn test_7e_b37f4e0_regression_host_deps_for_build_script() {
+fn test_5d_b37f4e0_regression_host_vs_target_extern_crates() {
+    use mitts::adapter::rust::dag_unit_externs::{
+        resolve_extern_crates, resolve_extern_crates_for_build_script,
+    };
+
     let dir = tempdir().unwrap();
     let manifest_path = dir.path().join("Cargo.toml");
     let toml_str = r#"
         [package]
-        name = "pkg_with_build"
+        name = "dual_dep_pkg"
         version = "0.1.0"
         edition = "2021"
 
         [dependencies]
-        common = "1.0"
+        shared_dep = "1.0"
 
         [build-dependencies]
-        codegen_helper = "2.0"
+        shared_dep = "1.0"
     "#;
     fs::write(&manifest_path, toml_str).unwrap();
-    let toml = CargoToml::from_file(&manifest_path).unwrap();
 
-    // Target unit should have common but NOT build-dep codegen_helper
-    let target_has_common = mitts::adapter::rust::dependency_check::has_active_dependency(
-        &toml,
-        "common",
-        &[],
-        false,
-        false,
-        None,
-        dir.path(),
-    )
-    .unwrap();
-    assert!(target_has_common);
+    let unit = PlannedCompilationUnit {
+        package_id: "dual_dep_pkg@0.1.0".to_string(),
+        package_name: "dual_dep_pkg".to_string(),
+        target_name: "dual_dep_pkg".to_string(),
+        manifest_path: manifest_path.clone(),
+        dependencies: vec![
+            "shared_dep@1.0.0::lib:shared_dep".to_string(),
+            "shared_dep@1.0.0::lib:shared_dep:host".to_string(),
+        ],
+        for_host: false,
+        ..Default::default()
+    };
 
-    let target_has_codegen = mitts::adapter::rust::dependency_check::has_active_dependency(
-        &toml,
-        "codegen_helper",
-        &[],
-        false,
-        false,
-        None,
-        dir.path(),
-    )
-    .unwrap();
-    assert!(
-        !target_has_codegen,
-        "Target unit without build script must not have build dependencies"
+    let host_artifact = PathBuf::from("/artifacts/host/libshared_dep.rlib");
+    let target_artifact = PathBuf::from("/artifacts/target/libshared_dep.rlib");
+
+    let mut completed = HashMap::new();
+    completed.insert("shared_dep@1.0.0::lib:shared_dep".to_string(), target_artifact.clone());
+    completed.insert("shared_dep@1.0.0::lib:shared_dep:host".to_string(), host_artifact.clone());
+
+    // 1. Build script (always for host) must resolve the host artifact (:host)
+    let build_externs = resolve_extern_crates_for_build_script(&unit, &completed);
+    assert_eq!(
+        build_externs,
+        vec![("shared_dep".to_string(), host_artifact.clone())],
+        "Build script must receive :host artifact when both copies exist"
     );
 
-    // Build script unit (has_build_script = true) DOES activate codegen_helper
-    let build_has_codegen = mitts::adapter::rust::dependency_check::has_active_dependency(
-        &toml,
-        "codegen_helper",
-        &[],
-        false,
-        true,
-        None,
-        dir.path(),
-    )
-    .unwrap();
-    assert!(
-        build_has_codegen,
-        "Build script unit must activate build dependencies"
+    // 2. Normal target unit (for_host = false) must resolve the target artifact
+    let target_externs = resolve_extern_crates(&unit, &completed);
+    assert_eq!(
+        target_externs,
+        vec![("shared_dep".to_string(), target_artifact)],
+        "Target unit must receive target artifact when both copies exist"
     );
 }

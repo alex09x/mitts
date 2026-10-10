@@ -115,51 +115,55 @@ pub fn build_planned_units(
                 }
             } else {
                 // Library target (kind == "lib", "rlib", etc.)
-                if in_target {
-                    let feats = package_features
-                        .target
-                        .get(&pkg_id)
-                        .or_else(|| package_features.target.get(&pkg.name))
-                        .cloned()
-                        .unwrap_or_default();
-                    if target_features_satisfied(&target, &feats, opt) {
-                        units.push(create_unit(
-                            pkg,
-                            pkg_dir,
-                            pkg_toml,
-                            &target,
-                            &pkg_id,
-                            false,
-                            feats,
-                            *is_workspace,
-                            has_untracked_env,
-                            &env_vars,
-                            ws_root,
-                        ));
-                    }
+                let target_feats = package_features
+                    .target
+                    .get(&pkg_id)
+                    .or_else(|| package_features.target.get(&pkg.name))
+                    .cloned()
+                    .unwrap_or_default();
+                let host_feats = package_features
+                    .host
+                    .get(&pkg_id)
+                    .or_else(|| package_features.host.get(&pkg.name))
+                    .cloned()
+                    .unwrap_or_default();
+
+                if in_target && target_features_satisfied(&target, &target_feats, opt) {
+                    units.push(create_unit(
+                        pkg,
+                        pkg_dir,
+                        pkg_toml,
+                        &target,
+                        &pkg_id,
+                        false,
+                        target_feats.clone(),
+                        *is_workspace,
+                        has_untracked_env,
+                        &env_vars,
+                        ws_root,
+                    ));
                 }
-                if in_host {
-                    let feats = package_features
-                        .host
-                        .get(&pkg_id)
-                        .or_else(|| package_features.host.get(&pkg.name))
-                        .cloned()
-                        .unwrap_or_default();
-                    if target_features_satisfied(&target, &feats, opt) {
-                        units.push(create_unit(
-                            pkg,
-                            pkg_dir,
-                            pkg_toml,
-                            &target,
-                            &pkg_id,
-                            true,
-                            feats,
-                            *is_workspace,
-                            has_untracked_env,
-                            &env_vars,
-                            ws_root,
-                        ));
-                    }
+
+                let explicit_target = super::key_flags::resolve_explicit_target(opt);
+                let is_cross = explicit_target
+                    .as_deref()
+                    .is_some_and(|t| t != super::compiler_resolve::resolve_host_triple());
+                let needs_separate_host_unit = is_cross || !in_target || target_feats != host_feats;
+
+                if in_host && needs_separate_host_unit && target_features_satisfied(&target, &host_feats, opt) {
+                    units.push(create_unit(
+                        pkg,
+                        pkg_dir,
+                        pkg_toml,
+                        &target,
+                        &pkg_id,
+                        true,
+                        host_feats,
+                        *is_workspace,
+                        has_untracked_env,
+                        &env_vars,
+                        ws_root,
+                    ));
                 }
             }
         }

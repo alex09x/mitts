@@ -31,27 +31,12 @@ pub fn is_target_cfg_incompatible_with_target(
         .trim();
 
     if !clean.starts_with("cfg(") {
-        #[cfg(not(target_os = "windows"))]
-        if clean.contains("windows") || clean.contains("msvc") || clean.contains("win32") {
-            return Ok(true);
-        }
-        #[cfg(not(target_os = "linux"))]
-        if clean.contains("linux") || clean.contains("android") {
-            return Ok(true);
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-        if clean.contains("apple") || clean.contains("darwin") || clean.contains("ios") {
-            return Ok(true);
-        }
-        #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
-        if clean.contains("wasm32") || clean.contains("wasm64") {
-            return Ok(true);
-        }
-        #[cfg(not(target_env = "musl"))]
-        if clean.contains("musl") {
-            return Ok(true);
-        }
-        return Ok(false);
+        let active_triple = if for_host {
+            super::compiler_resolve::resolve_host_triple()
+        } else {
+            explicit_target.unwrap_or_else(|| super::compiler_resolve::resolve_host_triple())
+        };
+        return Ok(clean != active_triple);
     }
 
     eval_cfg(clean, for_host, explicit_target, start_dir).map(|res| !res)

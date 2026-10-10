@@ -118,10 +118,18 @@ pub fn resolve_unit_dependencies(
                             .or_else(|| {
                                 lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string(), for_host))
                             })
+                            .or_else(|| {
+                                lib_units_by_exact.get(&(dep_name.to_string(), ver.to_string(), !for_host))
+                            })
+                            .or_else(|| {
+                                lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string(), !for_host))
+                            })
                             .cloned()
                     } else if let Some(candidates) = lib_units_by_name
                         .get(&(dep_name.to_string(), for_host))
                         .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), for_host)))
+                        .or_else(|| lib_units_by_name.get(&(dep_name.to_string(), !for_host)))
+                        .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), !for_host)))
                     {
                         candidates.first().map(|(_, uid)| uid.clone())
                     } else {

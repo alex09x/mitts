@@ -26,6 +26,13 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     {
         anyhow::bail!("Unsupported option: --config is not yet supported in mitts");
     }
+    if inv
+        .extra_compiler_args
+        .iter()
+        .any(|a| a == "--profile" || a.starts_with("--profile="))
+    {
+        anyhow::bail!("Unsupported option: --profile is not yet supported in mitts");
+    }
 
     let clean_crate = if inv.unit.kind == "test" && inv.unit.target_name.ends_with("_unit_test") {
         inv.unit.package_name.replace('-', "_")
@@ -273,37 +280,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.env(k, v);
     }
     if is_test {
-        let profile_name = if inv.release { "release" } else { "debug" };
-        let profile_dir = if let Some(deps) = inv.deps_dir {
-            deps.parent().unwrap_or(deps).to_path_buf()
-        } else {
-            cwd.join("target").join(profile_name)
-        };
-        let pkg_dir = inv.unit.manifest_path.parent().unwrap_or(Path::new("."));
-        if let Ok(toml) = super::manifest::CargoToml::from_file(&inv.unit.manifest_path) {
-            for b in toml.discover_targets(pkg_dir) {
-                if b.kind == "bin" {
-                    let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
-                    cmd.env(var, profile_dir.join(&b.name));
-                }
-            }
-        }
-        if inv.unit.is_workspace {
-            if let Ok(root_toml) = super::manifest::CargoToml::from_file(&cwd.join("Cargo.toml")) {
-                for (_, member_dir) in root_toml.discover_workspace_members(&cwd) {
-                    if let Ok(m_toml) =
-                        super::manifest::CargoToml::from_file(&member_dir.join("Cargo.toml"))
-                    {
-                        for b in m_toml.discover_targets(&member_dir) {
-                            if b.kind == "bin" {
-                                let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
-                                cmd.env(var, profile_dir.join(&b.name));
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        super::unit_env::apply_test_binary_env(&mut cmd, inv.unit, &cwd, inv.deps_dir, inv.release);
     }
     cmd.env("RUSTC", &compiler_bin);
     if let Some(toolchain_name) = compiler_bin
@@ -319,8 +296,22 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         }
     }
 
-    let explicit_target =
-        super::key_flags::resolve_explicit_target_from_args(inv.extra_compiler_args);
+    let base_dir = if let Some(ws) = &inv.unit.workspace_root {
+        ws.clone()
+    } else if inv.unit.is_workspace {
+        find_workspace_root(&inv.unit.manifest_path)
+    } else {
+        inv.unit
+            .manifest_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .to_path_buf()
+    };
+    let config_start_dir = super::cargo_config::resolve_config_start_dir(&base_dir);
+    let explicit_target = super::key_flags::resolve_explicit_target_from_args_and_dir(
+        inv.extra_compiler_args,
+        &config_start_dir,
+    );
 
     if super::key_flags::receives_target_rustflags(inv.unit, explicit_target.as_deref()) {
         if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
@@ -331,31 +322,48 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             for flag in flags.split_whitespace() {
                 cmd.arg(flag);
             }
-        } else {
-            let base_dir = if inv.unit.is_workspace {
-                find_workspace_root(&inv.unit.manifest_path)
-            } else {
-                inv.unit
-                    .manifest_path
-                    .parent()
-                    .unwrap_or(Path::new("."))
-                    .to_path_buf()
-            };
-            let config_start_dir = super::cargo_config::resolve_config_start_dir(&base_dir);
-            if let Ok(config_flags) = super::cargo_config::load_cargo_config_rustflags(
-                &config_start_dir,
-                explicit_target.as_deref(),
-            ) {
-                for flag in config_flags {
-                    cmd.arg(flag);
-                }
+        } else if let Ok(config_flags) = super::cargo_config::load_cargo_config_rustflags(
+            &config_start_dir,
+            explicit_target.as_deref(),
+        ) {
+            for flag in config_flags {
+                cmd.arg(flag);
             }
         }
     }
 
+    let is_host_unit = inv.unit.for_host
+        || inv.unit.kind == "proc-macro"
+        || inv.unit.kind == "custom-build"
+        || inv.unit.kind == "build-script";
+    let has_cli_target = inv
+        .extra_compiler_args
+        .iter()
+        .any(|a| a == "--target" || a.starts_with("--target="));
+
+    if !is_host_unit && !has_cli_target {
+        if let Some(target) = &explicit_target {
+            cmd.arg("--target").arg(target);
+        }
+    }
+
+    let mut skip_next = false;
     for arg in inv.extra_compiler_args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
         if arg == "--workspace" || arg == "--all" {
             continue;
+        }
+        if is_host_unit {
+            if arg == "--target" {
+                skip_next = true;
+                continue;
+            }
+            if arg.starts_with("--target=") {
+                continue;
+            }
         }
         cmd.arg(arg);
     }

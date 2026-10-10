@@ -136,6 +136,22 @@ pub fn resolve_package_features(
         }
     }
 
+    // Check workspace resolver: Resolver 1 unifies host and target features
+    let is_resolver_1 = packages
+        .iter()
+        .find(|p| p.is_root)
+        .or_else(|| packages.iter().find(|p| p.is_workspace))
+        .is_some_and(|p| p.toml.effective_resolver() == "1");
+
+    if is_resolver_1 {
+        for (pkg_id, feats) in &target_requested {
+            host_requested.entry(pkg_id.clone()).or_default().extend(feats.iter().cloned());
+        }
+        for (pkg_id, feats) in &host_requested {
+            target_requested.entry(pkg_id.clone()).or_default().extend(feats.iter().cloned());
+        }
+    }
+
     // 3. Build finalized feature maps
     let target = finalize_feature_map(packages, target_requested, &active_target_packages);
     let host = finalize_feature_map(packages, host_requested, &active_host_packages);

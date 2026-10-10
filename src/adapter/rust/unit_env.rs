@@ -124,3 +124,42 @@ pub fn unit_has_build_script(unit: &PlannedCompilationUnit) -> bool {
         _ => pkg_dir.join("build.rs").is_file() || pkg_dir.join("build").join("build.rs").is_file(),
     }
 }
+
+/// Applies CARGO_BIN_EXE_<name> environment variables for integration test binaries.
+pub fn apply_test_binary_env(
+    cmd: &mut std::process::Command,
+    unit: &PlannedCompilationUnit,
+    cwd: &Path,
+    deps_dir: Option<&Path>,
+    release: bool,
+) {
+    let profile_name = if release { "release" } else { "debug" };
+    let profile_dir = if let Some(deps) = deps_dir {
+        deps.parent().unwrap_or(deps).to_path_buf()
+    } else {
+        cwd.join("target").join(profile_name)
+    };
+    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    if let Ok(toml) = CargoToml::from_file(&unit.manifest_path) {
+        for b in toml.discover_targets(pkg_dir) {
+            if b.kind == "bin" {
+                let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
+                cmd.env(var, profile_dir.join(&b.name));
+            }
+        }
+    }
+    if unit.is_workspace {
+        if let Ok(root_toml) = CargoToml::from_file(&cwd.join("Cargo.toml")) {
+            for (_, member_dir) in root_toml.discover_workspace_members(cwd) {
+                if let Ok(m_toml) = CargoToml::from_file(&member_dir.join("Cargo.toml")) {
+                    for b in m_toml.discover_targets(&member_dir) {
+                        if b.kind == "bin" {
+                            let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
+                            cmd.env(var, profile_dir.join(&b.name));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

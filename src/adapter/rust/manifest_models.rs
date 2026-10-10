@@ -143,6 +143,8 @@ pub struct TomlPackage {
         deserialize_with = "deserialize_maybe_inherited_string"
     )]
     pub rust_version: Option<String>,
+    #[serde(default)]
+    pub resolver: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -165,6 +167,8 @@ pub struct TomlWorkspace {
     pub dependencies: HashMap<String, TomlDependency>,
     #[serde(default)]
     pub lints: Option<toml::Value>,
+    #[serde(default)]
+    pub resolver: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

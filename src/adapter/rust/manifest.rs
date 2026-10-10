@@ -59,6 +59,26 @@ impl CargoToml {
         super::manifest_inherit::resolve_inherited_workspace_fields(self, path);
     }
 
+    /// Returns the effective Cargo feature resolver version ("1" or "2").
+    pub fn effective_resolver(&self) -> &str {
+        if let Some(ref ws) = self.workspace {
+            if let Some(ref r) = ws.resolver {
+                return r.as_str();
+            }
+        }
+        if let Some(ref pkg) = self.package {
+            if let Some(ref r) = pkg.resolver {
+                return r.as_str();
+            }
+            if let Some(ref ed) = pkg.edition {
+                if ed == "2021" || ed == "2024" {
+                    return "2";
+                }
+            }
+        }
+        "1"
+    }
+
     /// Checks if this package defines or defaults to a build script.
     pub fn has_build_script(&self, pkg_dir: &Path) -> bool {
         if let Some(ref pkg) = self.package {
