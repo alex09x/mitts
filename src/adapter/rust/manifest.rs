@@ -79,6 +79,34 @@ impl CargoToml {
         "1"
     }
 
+    /// Climbs parent directories to find an enclosing workspace root Cargo.toml.
+    pub fn find_workspace_root(manifest_path: &Path) -> Option<(PathBuf, CargoToml)> {
+        let mut cur = manifest_path.parent().and_then(|p| p.parent());
+        while let Some(dir) = cur {
+            let candidate = dir.join("Cargo.toml");
+            if candidate.is_file() {
+                if let Ok(toml) = CargoToml::from_file(&candidate) {
+                    if toml.workspace.is_some() {
+                        return Some((candidate, toml));
+                    }
+                }
+            }
+            cur = dir.parent();
+        }
+        None
+    }
+
+    /// Returns the effective Cargo feature resolver, climbing to the workspace root if needed.
+    pub fn effective_resolver_for_manifest(manifest_path: &Path, manifest: &CargoToml) -> String {
+        if manifest.workspace.is_some() {
+            return manifest.effective_resolver().to_string();
+        }
+        if let Some((_, ws_toml)) = CargoToml::find_workspace_root(manifest_path) {
+            return ws_toml.effective_resolver().to_string();
+        }
+        manifest.effective_resolver().to_string()
+    }
+
     /// Checks if this package defines or defaults to a build script.
     pub fn has_build_script(&self, pkg_dir: &Path) -> bool {
         if let Some(ref pkg) = self.package {

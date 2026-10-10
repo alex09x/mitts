@@ -212,13 +212,21 @@ pub fn execute_test_binaries(
                     failure_code = Some(101);
                     failed_harness = Some(desc.clone());
                 }
+                if !args.no_fail_fast {
+                    break;
+                }
                 continue;
             }
         };
 
-        if !status.success() && failure_code.is_none() {
-            failure_code = Some(status.code().unwrap_or(101));
-            failed_harness = Some(desc.clone());
+        if !status.success() {
+            if failure_code.is_none() {
+                failure_code = Some(status.code().unwrap_or(101));
+                failed_harness = Some(desc.clone());
+            }
+            if !args.no_fail_fast {
+                break;
+            }
         }
     }
 

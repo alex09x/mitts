@@ -99,7 +99,7 @@ fn test_m8_key_triples_and_parallel_chunks() {
 
     // 7. compute_unit_flags with env vars
     std::env::set_var("CUSTOM_SET_VAR", "present_value");
-    let flags = compute_unit_flags(&unit, &pkg_dir, &[], BuildMode::Build);
+    let flags = compute_unit_flags(&unit, &pkg_dir, &[], BuildMode::Build).unwrap();
     assert!(flags
         .iter()
         .any(|f| f == "ENV_MACRO:CUSTOM_SET_VAR=present_value"));

@@ -256,9 +256,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             dependencies: &pkg.dependencies,
         })
         .collect();
-    let ws_resolver = root_toml.effective_resolver();
+    let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml);
     let package_features =
-        resolve_package_features_with_resolver(&feature_inputs, opt, Some(ws_resolver))?;
+        resolve_package_features_with_resolver(&feature_inputs, opt, Some(&ws_resolver))?;
 
     // Pass 1: Build compilation units with assigned features (Resolver 2 decoupled host/target)
     let mut units = super::planner_units::build_planned_units(

@@ -82,7 +82,7 @@ fn test_m8_compute_unit_flags_comprehensive_env_macros() {
         workspace_root: None,
     };
 
-    let flags = compute_unit_flags(&unit_bin, &pkg_dir, &[], BuildMode::Build);
+    let flags = compute_unit_flags(&unit_bin, &pkg_dir, &[], BuildMode::Build).unwrap();
     assert!(flags.iter().any(|f| f.contains("CARGO_MANIFEST_DIR=")));
     assert!(flags.iter().any(|f| f.contains("MODE=Build")));
     assert!(flags
@@ -110,7 +110,7 @@ fn test_m8_compute_unit_flags_comprehensive_env_macros() {
     // Test non-bin unit CARGO_BIN_NAME=<unset>
     let mut unit_lib = unit_bin.clone();
     unit_lib.kind = "lib".to_string();
-    let flags_lib = compute_unit_flags(&unit_lib, &pkg_dir, &[], BuildMode::Build);
+    let flags_lib = compute_unit_flags(&unit_lib, &pkg_dir, &[], BuildMode::Build).unwrap();
     assert!(flags_lib
         .iter()
         .any(|f| f.contains("ENV_MACRO:CARGO_BIN_NAME=<unset>")));

@@ -148,6 +148,7 @@ fn test_m8_cli_test_no_tests_and_no_run() {
         verbose: 0,
         config: Vec::new(),
         workspace: false,
+        no_fail_fast: false,
         test_args: Vec::new(),
     };
     assert_eq!(handle_test(&test_args), 0);

@@ -79,6 +79,10 @@ pub struct TestArgs {
     #[arg(long, action = clap::ArgAction::Append)]
     pub config: Vec<String>,
 
+    /// Run all tests regardless of failure (default is fail-fast)
+    #[arg(long)]
+    pub no_fail_fast: bool,
+
     /// Arguments passed to the test binary runner (e.g. -- --nocapture)
     #[arg(last = true)]
     pub test_args: Vec<String>,

@@ -299,8 +299,8 @@ pub fn compute_unit_flags(
     pkg_dir: &Path,
     effective_flags: &[String],
     mode: BuildMode,
-) -> Vec<String> {
-    compute_unit_flags_with_ws(unit, pkg_dir, effective_flags, mode, false, None).unwrap_or_default()
+) -> anyhow::Result<Vec<String>> {
+    compute_unit_flags_with_ws(unit, pkg_dir, effective_flags, mode, false, None)
 }
 
 pub use super::profile::resolve_unit_debuginfo;
