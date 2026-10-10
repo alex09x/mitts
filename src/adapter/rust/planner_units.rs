@@ -84,11 +84,15 @@ pub fn build_planned_units(
                     }
                 }
             } else if is_executable {
-                if in_target {
-                    let feats = package_features
-                        .target
+                let is_pm_pkg = pkg_toml.lib.as_ref().is_some_and(|l| {
+                    l.proc_macro == Some(true) || l.crate_type.iter().any(|k| k == "proc-macro")
+                });
+                let unit_in_scope = if is_pm_pkg { in_host || is_primary } else { in_target };
+                if unit_in_scope {
+                    let feat_map = if is_pm_pkg { &package_features.host } else { &package_features.target };
+                    let feats = feat_map
                         .get(&pkg_id)
-                        .or_else(|| package_features.target.get(&pkg.name))
+                        .or_else(|| feat_map.get(&pkg.name))
                         .cloned()
                         .unwrap_or_default();
                     if target_features_satisfied(&target, &feats, opt) {
@@ -98,7 +102,7 @@ pub fn build_planned_units(
                             pkg_toml,
                             &target,
                             &pkg_id,
-                            false,
+                            is_pm_pkg,
                             feats,
                             *is_workspace,
                             has_untracked_env,
