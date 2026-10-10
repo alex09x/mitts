@@ -133,15 +133,16 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.arg("--out-dir").arg(inv.out_dir);
     }
 
+    let debuginfo = crate::adapter::rust::key_flags::resolve_unit_debuginfo(
+        &inv.unit.manifest_path,
+        inv.unit.for_host,
+        inv.release,
+    );
     if inv.release {
         cmd.arg("-C").arg("opt-level=3");
-    } else if inv.unit.for_host {
-        cmd.arg("-C").arg("debuginfo=0");
-        cmd.arg("-C").arg("embed-bitcode=no");
-    } else {
-        cmd.arg("-C").arg("debuginfo=2");
-        cmd.arg("-C").arg("embed-bitcode=no");
     }
+    cmd.arg("-C").arg(format!("debuginfo={}", debuginfo));
+    cmd.arg("-C").arg("embed-bitcode=no");
 
     if !inv.unit.is_workspace {
         cmd.arg("--cap-lints").arg("allow");

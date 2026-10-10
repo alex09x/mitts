@@ -37,6 +37,13 @@ pub enum RustAdapterError {
         help("Check the compiler diagnostic output above for details.")
     )]
     CargoFailed(i32),
+
+    #[error("Metadata or compiler query failed: {0}")]
+    #[diagnostic(
+        code(mitts::rust::metadata_failed),
+        help("Ensure the Rust toolchain is properly installed and reachable.")
+    )]
+    MetadataFailed(String),
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -215,3 +215,45 @@ fn test_m8_build_disabled_ignores_build_dependencies() {
         "build_dependencies must be ignored when build = false"
     );
 }
+
+#[test]
+fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
+    use mitts::adapter::rust::key_flags::resolve_unit_debuginfo;
+    use mitts::adapter::rust::target_filter::is_target_cfg_incompatible_with_target;
+
+    let res_target =
+        is_target_cfg_incompatible_with_target("cfg(target_os = \"nonexistent_os\")", false);
+    assert!(res_target.unwrap());
+
+    let res_host =
+        is_target_cfg_incompatible_with_target("cfg(target_os = \"nonexistent_os\")", true);
+    assert!(res_host.unwrap());
+
+    let manifest_str = r#"
+        [package]
+        name = "test-profile-pkg"
+        version = "0.1.0"
+        edition = "2021"
+
+        [profile.dev]
+        debug = 1
+
+        [profile.dev.build-override]
+        debug = 0
+    "#;
+    let dir = tempfile::tempdir().unwrap();
+    let manifest_path = dir.path().join("Cargo.toml");
+    std::fs::write(&manifest_path, manifest_str).unwrap();
+
+    let dbg_target = resolve_unit_debuginfo(&manifest_path, false, false);
+    assert_eq!(
+        dbg_target, 1,
+        "target dev debuginfo should read [profile.dev].debug"
+    );
+
+    let dbg_host = resolve_unit_debuginfo(&manifest_path, true, false);
+    assert_eq!(
+        dbg_host, 0,
+        "host dev debuginfo should read [profile.dev.build-override].debug"
+    );
+}

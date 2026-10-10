@@ -187,6 +187,7 @@ pub fn derive_unit_action_key_context(
             &pkg_dir,
             &effective_flags,
             opt.mode,
+            opt.release,
             ws_root.as_deref(),
         );
 

@@ -168,12 +168,24 @@ fn propagate_package(
         runtime_deps.extend(&ctx.toml.dev_dependencies);
     }
     for (spec, t) in &ctx.toml.target {
-        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
+        let target_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+            spec,
+            is_host_ctx,
+        )
+        .unwrap_or(false);
+        if !target_incompat {
             runtime_deps.extend(&t.dependencies);
-            build_deps.extend(&t.build_dependencies);
             if is_test && ctx.is_workspace && !is_host_ctx {
                 runtime_deps.extend(&t.dev_dependencies);
             }
+        }
+        let host_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+            spec,
+            true,
+        )
+        .unwrap_or(false);
+        if !host_incompat {
+            build_deps.extend(&t.build_dependencies);
         }
     }
 

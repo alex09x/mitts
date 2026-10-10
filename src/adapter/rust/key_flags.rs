@@ -10,8 +10,9 @@
 
 use super::types::{BuildMode, PlannedCompilationUnit, RustBuildOptions};
 use crate::core::action::ToolchainInfo;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 static CLIPPY_VERSION: OnceLock<String> = OnceLock::new();
 
@@ -142,6 +143,7 @@ pub fn compute_unit_flags_with_ws(
     pkg_dir: &Path,
     effective_flags: &[String],
     mode: BuildMode,
+    release: bool,
     ws_root: Option<&Path>,
 ) -> Vec<String> {
     let mut u_flags = effective_flags.to_vec();
@@ -188,13 +190,13 @@ pub fn compute_unit_flags_with_ws(
         }
     }
     u_flags.push("SCHEMA_VERSION=rust_key_v2".to_string());
+    let debuginfo = resolve_unit_debuginfo(&unit.manifest_path, unit.for_host, release);
     if unit.for_host {
         u_flags.push("FOR_HOST=1".to_string());
-        u_flags.push("DEBUGINFO=0".to_string());
     } else {
         u_flags.push("FOR_HOST=0".to_string());
-        u_flags.push("DEBUGINFO=2".to_string());
     }
+    u_flags.push(format!("DEBUGINFO={}", debuginfo));
     u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
     u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
     u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));
@@ -277,5 +279,76 @@ pub fn compute_unit_flags(
     effective_flags: &[String],
     mode: BuildMode,
 ) -> Vec<String> {
-    compute_unit_flags_with_ws(unit, pkg_dir, effective_flags, mode, None)
+    compute_unit_flags_with_ws(unit, pkg_dir, effective_flags, mode, false, None)
+}
+
+static PROFILE_CACHE: OnceLock<Mutex<HashMap<PathBuf, HashMap<String, toml::Value>>>> =
+    OnceLock::new();
+
+pub fn resolve_unit_debuginfo(manifest_path: &Path, for_host: bool, release: bool) -> u32 {
+    let ws_root = super::compiler_resolve::find_workspace_root(manifest_path);
+    let cache = PROFILE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+    let profiles = {
+        let mut guard = cache.lock().unwrap();
+        if let Some(p) = guard.get(&ws_root) {
+            p.clone()
+        } else {
+            let loaded = load_workspace_profiles(&ws_root);
+            guard.insert(ws_root.clone(), loaded.clone());
+            loaded
+        }
+    };
+
+    let profile_name = if release { "release" } else { "dev" };
+    let profile_val = profiles.get(profile_name);
+
+    if for_host {
+        if let Some(bo) = profile_val.and_then(|p| p.get("build-override")) {
+            if let Some(dbg) = bo.get("debug") {
+                return parse_debug_value(dbg, 0);
+            }
+        }
+        0
+    } else {
+        let default_val = if release { 0 } else { 2 };
+        if let Some(p) = profile_val {
+            if let Some(dbg) = p.get("debug") {
+                return parse_debug_value(dbg, default_val);
+            }
+        }
+        default_val
+    }
+}
+
+fn parse_debug_value(val: &toml::Value, default_val: u32) -> u32 {
+    match val {
+        toml::Value::Boolean(b) => {
+            if *b {
+                2
+            } else {
+                0
+            }
+        }
+        toml::Value::Integer(i) => (*i).clamp(0, 2) as u32,
+        toml::Value::String(s) => match s.as_str() {
+            "none" | "0" => 0,
+            "limited" | "line-tables-only" | "1" => 1,
+            "full" | "2" => 2,
+            _ => default_val,
+        },
+        _ => default_val,
+    }
+}
+
+fn load_workspace_profiles(ws_root: &Path) -> HashMap<String, toml::Value> {
+    let toml_path = ws_root.join("Cargo.toml");
+    if let Ok(content) = std::fs::read_to_string(&toml_path) {
+        if let Ok(val) = content.parse::<toml::Value>() {
+            if let Some(table) = val.get("profile").and_then(|p| p.as_table()) {
+                return table.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            }
+        }
+    }
+    HashMap::new()
 }

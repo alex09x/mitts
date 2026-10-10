@@ -16,7 +16,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub use crate::adapter::rust::target_filter::{
-    is_target_cfg_incompatible_with_host, is_target_incompatible_with_host,
+    is_target_cfg_incompatible_with_host, is_target_cfg_incompatible_with_target,
+    is_target_incompatible_with_host,
 };
 
 /// Selects root packages and performs graph traversal to collect all reachable packages.
@@ -267,22 +268,25 @@ pub fn has_active_dependency(
     }
 
     for (target_spec, target) in &pkg_toml.target {
-        if is_target_cfg_incompatible_with_host(target_spec) {
-            continue;
-        }
-        for (alias, d) in &target.dependencies {
-            if check_dep(alias, d) {
-                return true;
+        let is_target_incompat =
+            is_target_cfg_incompatible_with_target(target_spec, false).unwrap_or(false);
+        let is_host_incompat =
+            is_target_cfg_incompatible_with_target(target_spec, true).unwrap_or(false);
+        if !is_target_incompat {
+            for (alias, d) in &target.dependencies {
+                if check_dep(alias, d) {
+                    return true;
+                }
             }
         }
-        if has_build_script {
+        if has_build_script && !is_host_incompat {
             for (alias, d) in &target.build_dependencies {
                 if check_dep(alias, d) {
                     return true;
                 }
             }
         }
-        if is_test {
+        if is_test && !is_target_incompat {
             for (alias, d) in &target.dev_dependencies {
                 if check_dep(alias, d) {
                     return true;
@@ -344,22 +348,25 @@ pub fn is_declared_dependency(pkg_toml: &CargoToml, dep_name: &str, is_test: boo
     }
 
     for (target_spec, target) in &pkg_toml.target {
-        if is_target_cfg_incompatible_with_host(target_spec) {
-            continue;
-        }
-        for (alias, d) in &target.dependencies {
-            if check_dep(alias, d) {
-                return true;
+        let is_target_incompat =
+            is_target_cfg_incompatible_with_target(target_spec, false).unwrap_or(false);
+        let is_host_incompat =
+            is_target_cfg_incompatible_with_target(target_spec, true).unwrap_or(false);
+        if !is_target_incompat {
+            for (alias, d) in &target.dependencies {
+                if check_dep(alias, d) {
+                    return true;
+                }
             }
         }
-        if !build_disabled {
+        if !build_disabled && !is_host_incompat {
             for (alias, d) in &target.build_dependencies {
                 if check_dep(alias, d) {
                     return true;
                 }
             }
         }
-        if is_test {
+        if is_test && !is_target_incompat {
             for (alias, d) in &target.dev_dependencies {
                 if check_dep(alias, d) {
                     return true;

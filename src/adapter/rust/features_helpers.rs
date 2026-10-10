@@ -76,8 +76,12 @@ pub fn collect_manifest_dependencies<'a>(
     add(&toml.dependencies);
     add(&toml.build_dependencies);
     for (spec, t) in &toml.target {
-        if !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_host(spec) {
+        let target_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(spec, false).unwrap_or(false);
+        if !target_incompat {
             add(&t.dependencies);
+        }
+        let host_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(spec, true).unwrap_or(false);
+        if !host_incompat {
             add(&t.build_dependencies);
         }
     }
