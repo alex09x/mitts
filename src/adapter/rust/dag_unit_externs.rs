@@ -18,12 +18,38 @@ pub fn resolve_extern_crates(
     unit: &PlannedCompilationUnit,
     completed: &HashMap<String, PathBuf>,
 ) -> Vec<(String, PathBuf)> {
+    resolve_extern_crates_with_target(unit, completed, unit.for_host)
+}
+
+/// Resolves the `--extern` dependencies specifically for a build script (always for host).
+pub fn resolve_extern_crates_for_build_script(
+    unit: &PlannedCompilationUnit,
+    completed: &HashMap<String, PathBuf>,
+) -> Vec<(String, PathBuf)> {
+    resolve_extern_crates_with_target(unit, completed, true)
+}
+
+pub fn resolve_extern_crates_with_target(
+    unit: &PlannedCompilationUnit,
+    completed: &HashMap<String, PathBuf>,
+    for_host: bool,
+) -> Vec<(String, PathBuf)> {
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
     let aliases = pkg_toml.dependency_aliases();
 
     let mut extern_crates = Vec::new();
 
-    for dep_id in &unit.dependencies {
+    let mut sorted_deps = unit.dependencies.clone();
+    sorted_deps.sort_by_key(|dep_id| {
+        let is_host_dep = dep_id.ends_with(":host");
+        if for_host {
+            if is_host_dep { 0 } else { 1 }
+        } else {
+            if !is_host_dep { 0 } else { 1 }
+        }
+    });
+
+    for dep_id in &sorted_deps {
         if let Some(artifact_path) = completed.get(dep_id) {
             let clean_dep_id = dep_id.strip_suffix(":host").unwrap_or(dep_id);
             let dep_pkg = clean_dep_id.split("::").next().unwrap_or(clean_dep_id);

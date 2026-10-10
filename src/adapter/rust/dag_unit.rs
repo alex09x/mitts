@@ -44,7 +44,7 @@ pub(crate) fn execute_unit(
     if has_build {
         let staging_dir = create_staging_dir(ctx.cas.root(), &clean_crate)?;
 
-        let extern_crates = super::dag_unit_externs::resolve_extern_crates(
+        let extern_crates = super::dag_unit_externs::resolve_extern_crates_for_build_script(
             unit,
             &ctx.completed_artifacts.lock().unwrap(),
         );
