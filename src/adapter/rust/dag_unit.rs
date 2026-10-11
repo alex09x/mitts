@@ -206,6 +206,7 @@ pub(crate) fn execute_unit(
         extra_compiler_args: &ctx.opt.extra_args,
         jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
         deps_dir: Some(deps_dir),
+        target_dir: Some(ctx.target_dir),
     };
 
     let output = if let Some(cb) = ctx.on_metadata_ready {

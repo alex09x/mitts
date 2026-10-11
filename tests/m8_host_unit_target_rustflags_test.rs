@@ -218,6 +218,7 @@ rustflags = ["--cfg", "native_flag_v1"]
         extra_compiler_args: &opt_native.extra_args,
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let (cmd_pm_nat, _, _) = build_compiler_command(&inv_pm_nat).unwrap();
     let args_pm_nat: Vec<String> = cmd_pm_nat
@@ -330,6 +331,7 @@ rustflags = ["--cfg", "target_flag_v1"]
         extra_compiler_args: &opt_cross.extra_args,
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let (cmd_pm_cross_v1, _, _) = build_compiler_command(&inv_pm_cross_v1).unwrap();
     let args_pm_cross_v1: Vec<String> = cmd_pm_cross_v1
@@ -356,6 +358,7 @@ rustflags = ["--cfg", "target_flag_v1"]
         extra_compiler_args: &opt_cross.extra_args,
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let (cmd_lib_cross_v1, _, _) = build_compiler_command(&inv_lib_cross_v1).unwrap();
     let args_lib_cross_v1: Vec<String> = cmd_lib_cross_v1
@@ -467,6 +470,7 @@ rustflags = ["--cfg", "target_flag_v2"]
         extra_compiler_args: &opt_cross.extra_args,
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let (cmd_pm_cross_v2, _, _) = build_compiler_command(&inv_pm_cross_v2).unwrap();
     let args_pm_cross_v2: Vec<String> = cmd_pm_cross_v2
@@ -491,6 +495,7 @@ rustflags = ["--cfg", "target_flag_v2"]
         extra_compiler_args: &opt_cross.extra_args,
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let (cmd_lib_cross_v2, _, _) = build_compiler_command(&inv_lib_cross_v2).unwrap();
     let args_lib_cross_v2: Vec<String> = cmd_lib_cross_v2

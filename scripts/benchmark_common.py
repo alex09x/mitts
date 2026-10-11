@@ -242,3 +242,33 @@ def get_binary_provenance(mitts_bin: Path):
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
+
+def get_filesystem_type(path: Path) -> str:
+    """Returns the filesystem type (e.g. ext4, xfs, apfs) for the given path."""
+    p = Path(path).resolve()
+    while not p.exists() and p.parent != p:
+        p = p.parent
+    try:
+        res = subprocess.check_output(
+            ["stat", "-f", "-c", "%T", str(p)],
+            text=True,
+            stderr=subprocess.DEVNULL
+        ).strip()
+        if res:
+            return res
+    except Exception:
+        pass
+    try:
+        lines = subprocess.check_output(
+            ["df", "-T", str(p)],
+            text=True,
+            stderr=subprocess.DEVNULL
+        ).strip().splitlines()
+        if len(lines) > 1:
+            parts = lines[1].split()
+            if len(parts) > 1:
+                return parts[1]
+    except Exception:
+        pass
+    return "unknown"
+

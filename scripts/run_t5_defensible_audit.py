@@ -27,8 +27,10 @@ import tempfile
 import time
 from pathlib import Path
 
+import hashlib
 from benchmark_common import (
     get_binary_provenance,
+    get_filesystem_type,
     get_rig_info,
 )
 from benchmark_worktree import (
@@ -42,6 +44,24 @@ from benchmark_worktree import (
 print = functools.partial(print, flush=True)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_PATH = Path(__file__).resolve()
+SCRIPT_SHA256 = (
+    hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest()
+    if SCRIPT_PATH.exists()
+    else ""
+)
+
+
+def get_provenance_info(mitts_cache=None, worktree_dir=None):
+    prov = get_binary_provenance(MITTS_BIN)
+    prov["script_sha256"] = SCRIPT_SHA256
+    prov["script_name"] = SCRIPT_PATH.name
+    if mitts_cache:
+        prov["cache_filesystem"] = get_filesystem_type(Path(mitts_cache))
+    if worktree_dir:
+        prov["worktree_filesystem"] = get_filesystem_type(Path(worktree_dir))
+    return prov
+
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
 DEFAULT_RESULTS_DIR = Path(
     os.environ.get("BENCHMARK_OUTPUT_DIR", BENCH_ROOT / "benchmark-results")
@@ -520,7 +540,7 @@ def run_t5_project(project_name, runs_count=5):
     return {
         "mode": "test",
         "worktrees_count": 12,
-        "provenance": get_binary_provenance(MITTS_BIN),
+        "provenance": get_provenance_info(mitts_cache, wts[0]["dir"] if wts else None),
         "commit_distribution": "4/3/3/2",
         "runs": tool_results,
         "speedup_vs_sound_baseline": {
@@ -546,7 +566,7 @@ def main():
 
     final_report = {
         "schema_version": "t5_test_swarm_v1",
-        "provenance": get_binary_provenance(MITTS_BIN),
+        "provenance": get_provenance_info(),
         "rig": rig,
         "mode": "test",
         "projects": {},
@@ -571,7 +591,7 @@ def main():
                 "mode": "test",
                 "status": "FAIL",
                 "error": str(e),
-                "provenance": get_binary_provenance(MITTS_BIN),
+                "provenance": get_provenance_info(),
                 "invariants": {
                     "exit_codes_all_matched": False,
                     "intentional_defect_caught_by_both": False,

@@ -199,6 +199,7 @@ edition = "2021"
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     let res = invocation.execute();

@@ -76,6 +76,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let _ = proc_inv.execute();
 
@@ -113,6 +114,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let _ = bin_inv.execute();
 
@@ -130,6 +132,7 @@ fn test_m8_compiler_clippy_driver_and_modes() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
     let _ = check_inv.execute();
 }

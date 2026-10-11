@@ -85,6 +85,7 @@ fn test_m8_compiler_proc_macro_and_check_modes() {
         extra_compiler_args: &["-v".to_string()],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     assert!(invocation.release);
@@ -138,6 +139,7 @@ fn test_m8_compiler_workspace_check_mode_and_nonsemver() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     let res = invocation.execute().unwrap();
@@ -189,6 +191,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     let res = invocation.execute().unwrap();

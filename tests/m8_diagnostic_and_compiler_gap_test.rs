@@ -154,6 +154,7 @@ fn test_m8_compiler_invocation_non_semver_and_options() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     let res = inv.execute().unwrap();

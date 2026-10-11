@@ -10,7 +10,7 @@
 
 use anyhow::{bail, Context, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -146,29 +146,43 @@ pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Helper to verify that a path resides within any of the provided allowed root directories,
-/// comparing by canonical prefix.
-pub fn is_path_under_roots(path: &Path, allowed_roots: &[&Path]) -> bool {
-    let canonical = path.canonicalize().unwrap_or_else(|_| {
-        if path.is_absolute() {
+/// Canonicalizes a path for directory containment checks. If the path does not exist yet
+/// (e.g. a destination artifact before creation), canonicalizes its parent directory and joins
+/// the file name. This resolves symlinks (such as macOS /tmp -> /private/tmp) and parent traversals (..)
+/// while avoiding false containment matches on unresolved non-existent paths.
+fn canonicalize_for_containment(path: &Path) -> PathBuf {
+    if let Ok(c) = path.canonicalize() {
+        c
+    } else if let Some(parent) = path.parent() {
+        if let Ok(c_parent) = parent.canonicalize() {
+            if let Some(file_name) = path.file_name() {
+                c_parent.join(file_name)
+            } else {
+                c_parent
+            }
+        } else if path.is_absolute() {
             path.to_path_buf()
         } else {
             std::env::current_dir()
                 .map(|cwd| cwd.join(path))
                 .unwrap_or_else(|_| path.to_path_buf())
         }
-    });
+    } else if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    }
+}
+
+/// Helper to verify that a path resides within any of the provided allowed root directories,
+/// comparing by canonical prefix.
+pub fn is_path_under_roots(path: &Path, allowed_roots: &[&Path]) -> bool {
+    let canonical = canonicalize_for_containment(path);
 
     for root in allowed_roots {
-        let canonical_root = root.canonicalize().unwrap_or_else(|_| {
-            if root.is_absolute() {
-                root.to_path_buf()
-            } else {
-                std::env::current_dir()
-                    .map(|cwd| cwd.join(root))
-                    .unwrap_or_else(|_| root.to_path_buf())
-            }
-        });
+        let canonical_root = canonicalize_for_containment(root);
         if canonical.starts_with(&canonical_root) {
             return true;
         }
@@ -201,7 +215,8 @@ pub fn link_intra_workspace(
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        if let (Ok(src_meta), Ok(dst_meta)) = (fs::symlink_metadata(src), fs::symlink_metadata(dst)) {
+        if let (Ok(src_meta), Ok(dst_meta)) = (fs::symlink_metadata(src), fs::symlink_metadata(dst))
+        {
             if src_meta.dev() == dst_meta.dev() && src_meta.ino() == dst_meta.ino() {
                 return Ok(());
             }

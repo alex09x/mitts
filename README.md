@@ -80,6 +80,11 @@ store safely.
   parallelism for all Mitts processes on the machine.
 - **Safe sharing.** Store objects are immutable, verified by hash before use and
   restored by reflink or copy. Never hardlinked into a writable workspace.
+- **Zero-copy workspace staging.** Intra-workspace library aliases, secondary binaries,
+  and atomic unit staging use intra-workspace hardlinks and rename promotion without
+  copying bytes. When `MITTS_CACHE_DIR` and the workspace `target/` reside on the same
+  filesystem volume, staging promotions are instantaneous; across separate mounts, they
+  transparently fall back to safe copying.
 - **A no-op fast path.** An unchanged workspace skips planning and keying.
 - **One CLI.** `build`, `run`, `check`, `clippy`, `fmt`, `test` (with doctests),
   `coverage`, `explain`, `fetch`, `gc`, `clean`.
@@ -238,6 +243,9 @@ Mitts is pre-release. Know these before you rely on it:
 - **Unsupported Cargo features fail loudly.** For example `--profile`, globs
   with wildcards in intermediate directories in `workspace.members`. Mitts
   reports them instead of guessing.
+- **Same-filesystem zero-copy.** Zero-copy unit promotion from staging requires
+  `MITTS_CACHE_DIR` and the workspace `target/` directory to reside on the same
+  filesystem mount. Crossing filesystem boundaries safely falls back to standard copy.
 
 **Don't use Mitts yet** if you need Windows, cross-compilation, a team cache, or
 a stable release. Cargo, optionally with sccache, is the safe choice there.

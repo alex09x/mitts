@@ -191,6 +191,7 @@ fn test_5a_build_target_in_config_passes_target_to_rustc() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     let (cmd, _, _) = mitts::adapter::rust::compiler_args::build_compiler_command(&inv).unwrap();

@@ -34,7 +34,11 @@ fn test_intra_workspace_hardlink_basic_and_inode_match() {
         use std::os::unix::fs::MetadataExt;
         let src_meta = fs::metadata(&src).unwrap();
         let dst_meta = fs::metadata(&dst).unwrap();
-        assert_eq!(src_meta.ino(), dst_meta.ino(), "Hardlinked files must share the same inode");
+        assert_eq!(
+            src_meta.ino(),
+            dst_meta.ino(),
+            "Hardlinked files must share the same inode"
+        );
         assert_eq!(src_meta.nlink(), 2, "nlink must be 2 after hardlink");
     }
 }
@@ -67,8 +71,16 @@ fn test_intra_workspace_hardlink_chaining_and_cas_isolation() {
         let alias1_meta = fs::metadata(&alias1).unwrap();
         let alias2_meta = fs::metadata(&alias2).unwrap();
         assert_eq!(src_meta.ino(), alias1_meta.ino());
-        assert_eq!(src_meta.ino(), alias2_meta.ino(), "Chained aliases must share the same inode");
-        assert_eq!(src_meta.nlink(), 3, "Chained hardlinks must yield nlink == 3");
+        assert_eq!(
+            src_meta.ino(),
+            alias2_meta.ino(),
+            "Chained aliases must share the same inode"
+        );
+        assert_eq!(
+            src_meta.nlink(),
+            3,
+            "Chained hardlinks must yield nlink == 3"
+        );
     }
 
     // 3. Fast-path: repeated link to already identical inode must be a no-op
@@ -124,7 +136,10 @@ fn test_intra_workspace_rebuild_cas_isolation() {
     let (hash_v1, _) = cas.store_file(&dest).unwrap();
     let obj_path_v1 = cas.object_path(&hash_v1);
     assert!(obj_path_v1.is_file());
-    assert_eq!(fs::read(&obj_path_v1).unwrap(), b"compiled binary v1 content");
+    assert_eq!(
+        fs::read(&obj_path_v1).unwrap(),
+        b"compiled binary v1 content"
+    );
 
     // Link alt_path
     link_intra_workspace(&dest, &alt_path, &[&target_debug], true).unwrap();
@@ -134,7 +149,10 @@ fn test_intra_workspace_rebuild_cas_isolation() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        assert_eq!(fs::metadata(&dest).unwrap().ino(), fs::metadata(&alt_path).unwrap().ino());
+        assert_eq!(
+            fs::metadata(&dest).unwrap().ino(),
+            fs::metadata(&alt_path).unwrap().ino()
+        );
     }
 
     // 2. Modified source build: compile binary v2
@@ -154,13 +172,22 @@ fn test_intra_workspace_rebuild_cas_isolation() {
     link_intra_workspace(&dest, &alt_path, &[&target_debug], true).unwrap();
 
     // 3. Verifications
-    assert_eq!(fs::read(&dest).unwrap(), b"compiled binary v2 updated content");
-    assert_eq!(fs::read(&alt_path).unwrap(), b"compiled binary v2 updated content");
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        b"compiled binary v2 updated content"
+    );
+    assert_eq!(
+        fs::read(&alt_path).unwrap(),
+        b"compiled binary v2 updated content"
+    );
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        assert_eq!(fs::metadata(&dest).unwrap().ino(), fs::metadata(&alt_path).unwrap().ino());
+        assert_eq!(
+            fs::metadata(&dest).unwrap().ino(),
+            fs::metadata(&alt_path).unwrap().ino()
+        );
     }
 
     // Crucial check: verify CAS object v1 was NOT mutated or truncated!
@@ -493,8 +520,14 @@ version = "0.1.0"
     let (_plan2, res2) = build(&opt).expect("Build lib v2 (cache hit) must succeed");
     assert!(res2.success);
 
-    assert!(unhashed_rlib.is_file(), "unhashed rlib must exist after restore");
-    assert!(hashed_rlib.is_file(), "hashed rlib must exist after restore");
+    assert!(
+        unhashed_rlib.is_file(),
+        "unhashed rlib must exist after restore"
+    );
+    assert!(
+        hashed_rlib.is_file(),
+        "hashed rlib must exist after restore"
+    );
 
     #[cfg(unix)]
     {
@@ -594,4 +627,62 @@ fn test_intra_workspace_cas_isolation_with_writable_permissions_and_artifacts() 
     }
 }
 
+#[test]
+fn test_intra_workspace_symlink_root_and_traversal_containment() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
 
+    let target_dir = root.join("workspace").join("target");
+    fs::create_dir_all(&target_dir).unwrap();
+
+    let src = target_dir.join("original.rlib");
+    fs::write(&src, b"library bytes").unwrap();
+
+    // 1. Non-existent dst reached through a symlink to target directory
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        use std::os::unix::fs::MetadataExt;
+
+        let symlink_root = root.join("symlink_ws");
+        symlink(&target_dir, &symlink_root).unwrap();
+
+        // dst does NOT exist yet, and is accessed through the symlink root
+        let symlinked_dst = symlink_root.join("linked_alias.rlib");
+        assert!(!symlinked_dst.exists());
+
+        // link_intra_workspace with allowed_roots = [&target_dir]
+        // canonicalize_for_containment must resolve symlink_root's parent to target_dir and allow hardlink
+        link_intra_workspace(&src, &symlinked_dst, &[&target_dir], false).unwrap();
+        assert!(symlinked_dst.is_file());
+
+        let src_meta = fs::metadata(&src).unwrap();
+        let dst_meta = fs::metadata(&symlinked_dst).unwrap();
+        assert_eq!(
+            src_meta.ino(),
+            dst_meta.ino(),
+            "Non-existent dst under symlinked root must be hardlinked"
+        );
+    }
+
+    // 2. Traversal attempt out of target_dir: target/../outside/bad.rlib
+    let outside_dir = root.join("outside");
+    fs::create_dir_all(&outside_dir).unwrap();
+    let outside_dst = target_dir.join("..").join("outside").join("bad.rlib");
+
+    // Must NOT be hardlinked since canonical parent resolves to outside_dir
+    link_intra_workspace(&src, &outside_dst, &[&target_dir], false).unwrap();
+    assert!(outside_dst.is_file());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let src_meta = fs::metadata(&src).unwrap();
+        let out_meta = fs::metadata(&outside_dst).unwrap();
+        assert_ne!(
+            src_meta.ino(),
+            out_meta.ino(),
+            "Path traversing out of target_dir via .. must NOT be hardlinked"
+        );
+    }
+}

@@ -30,6 +30,7 @@ pub struct RustcInvocation<'a> {
     pub extra_compiler_args: &'a [String],
     pub jobserver_auth: Option<&'a str>,
     pub deps_dir: Option<&'a Path>,
+    pub target_dir: Option<&'a Path>,
 }
 
 impl<'a> RustcInvocation<'a> {
@@ -80,13 +81,12 @@ impl<'a> RustcInvocation<'a> {
                     if bin_path.is_file() {
                         let _ = dest.parent().map(fs::create_dir_all);
                         if fs::rename(&bin_path, dest).is_err() {
-                            let parent = dest.parent().unwrap_or(dest);
-                            let _ = crate::core::link_intra_workspace(
-                                &bin_path,
-                                dest,
-                                &[self.out_dir, parent],
-                                true,
-                            );
+                            let mut roots = vec![self.out_dir];
+                            if let Some(td) = self.target_dir {
+                                roots.push(td);
+                            }
+                            let _ =
+                                crate::core::link_intra_workspace(&bin_path, dest, &roots, true);
                         }
                     }
                     primary_output = Some(dest.to_path_buf());

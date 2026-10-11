@@ -83,7 +83,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 }
                 let alt_path = dest.parent().unwrap_or(dest).join(&clean_crate);
                 if alt_path != *dest {
-                    let _ = crate::core::link_intra_workspace(dest, &alt_path, &[ctx.target_dir], true);
+                    let _ =
+                        crate::core::link_intra_workspace(dest, &alt_path, &[ctx.target_dir], true);
                 }
                 action_outputs.push(dest.to_path_buf());
             }

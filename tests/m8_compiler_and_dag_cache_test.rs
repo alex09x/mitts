@@ -68,6 +68,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     let res = invocation.execute();
@@ -117,6 +118,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         extra_compiler_args: &[],
         jobserver_auth: None,
         deps_dir: None,
+        target_dir: None,
     };
 
     let test_res = test_invocation.execute();

@@ -314,7 +314,17 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         }
     }
 
-    // 3. Clean global cache if requested
+    // 3. Clean stray atomic link temporary files in target
+    let target_root = if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
+        std::path::PathBuf::from(cargo_td)
+    } else {
+        project_dir.join("target")
+    };
+    if target_root.exists() {
+        clean_stray_tmp_links(&target_root);
+    }
+
+    // 4. Clean global cache if requested
     if args.cache {
         let cas = match args.cache_dir {
             Some(ref cd) => ContentAddressedStore::new(cd.join("cas")),
@@ -344,4 +354,19 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         &format!("workspace: {}", project_dir.display()),
     );
     0
+}
+
+fn clean_stray_tmp_links(dir: &std::path::Path) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                clean_stray_tmp_links(&path);
+            } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with('.') && name.contains(".tmp_link.") {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+    }
 }
