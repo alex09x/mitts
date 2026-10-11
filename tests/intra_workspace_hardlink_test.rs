@@ -727,3 +727,44 @@ fn test_intra_workspace_outside_symlink_leaf_containment() {
         );
     }
 }
+
+#[test]
+fn test_intra_workspace_src_symlink_safety() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    let target_dir = root.join("workspace").join("target");
+    fs::create_dir_all(&target_dir).unwrap();
+
+    let real_file = target_dir.join("real_artifact.rlib");
+    fs::write(&real_file, b"real bytes").unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        use std::os::unix::fs::MetadataExt;
+
+        // src is a symlink pointing to real_file
+        let src_symlink = target_dir.join("symlink_src.rlib");
+        symlink(&real_file, &src_symlink).unwrap();
+
+        let dst = target_dir.join("dst_from_symlink.rlib");
+
+        // When src is a symlink, hardlink must NOT be created to the symlink itself;
+        // link_intra_workspace safely falls back to reflink_or_copy.
+        link_intra_workspace(&src_symlink, &dst, &[&target_dir], false).unwrap();
+        assert!(dst.is_file());
+
+        let symlink_meta = fs::symlink_metadata(&src_symlink).unwrap();
+        let dst_meta = fs::symlink_metadata(&dst).unwrap();
+        assert_ne!(
+            symlink_meta.ino(),
+            dst_meta.ino(),
+            "dst must not share inode with src symlink"
+        );
+        assert!(
+            !dst_meta.file_type().is_symlink(),
+            "dst must be a regular copied file, not a symlink"
+        );
+    }
+}

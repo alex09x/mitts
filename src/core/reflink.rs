@@ -248,7 +248,13 @@ pub fn link_intra_workspace(
 
     #[cfg(unix)]
     {
-        if is_path_under_roots(src, allowed_roots) && is_path_under_roots(dst, allowed_roots) {
+        let src_is_regular_file = fs::symlink_metadata(src)
+            .map(|m| m.file_type().is_file())
+            .unwrap_or(false);
+        if src_is_regular_file
+            && is_path_under_roots(src, allowed_roots)
+            && is_path_under_roots(dst, allowed_roots)
+        {
             let _ = fs::remove_file(&tmp_dst);
             if fs::hard_link(src, &tmp_dst).is_ok() {
                 hardlink_succeeded = true;

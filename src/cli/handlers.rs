@@ -380,17 +380,7 @@ fn is_stray_tmp_link_file(entry: &std::fs::DirEntry) -> bool {
     let parts: Vec<&str> = name.rsplitn(3, '.').collect();
     if parts.len() >= 2 {
         if let Ok(pid) = parts[1].parse::<u32>() {
-            if is_pid_stale(pid) {
-                return true;
-            }
-        }
-    }
-    // Stale fallback: file modified more than 10 minutes ago
-    if let Ok(meta) = entry.metadata() {
-        if let Ok(modified) = meta.modified() {
-            if let Ok(elapsed) = modified.elapsed() {
-                return elapsed > std::time::Duration::from_secs(600);
-            }
+            return is_pid_stale(pid);
         }
     }
     false

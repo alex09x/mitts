@@ -80,7 +80,8 @@ store safely.
   parallelism for all Mitts processes on the machine.
 - **Safe sharing.** Store objects are immutable, verified by hash before use and
   restored by reflink or copy. Never hardlinked into a writable workspace; hardlinks
-  occur strictly between files within `target/`.
+  occur only between Mitts' own build outputs (per-unit staging and `target/`), never
+  with store objects.
 - **Zero-copy workspace staging.** Intra-workspace library aliases, secondary binaries,
   and atomic unit staging use intra-workspace hardlinks and rename promotion without
   copying bytes. When `MITTS_CACHE_DIR` and the workspace `target/` reside on the same
