@@ -883,6 +883,24 @@ def main():
             "wt03_12_compiled": other_after_comp,
             "wt03_12_raw_results": res_other_after_wt02["results"],
         },
+        "invariants": {
+            "l2a_pure_noop_subsecond": all(
+                r["exit_code"] == 0 and r["mitts_stats"].get("fast_lock") == 1 and r["wall_sec"] < 1.0
+                for r in l2a_mitts_runs[-1]["results"]
+            ),
+            "l2b_isolated_planning_fast": (
+                res_m_test_par["wall_sec"] < 1.0
+                and all(r["exit_code"] == 0 for r in res_m_test_par["results"])
+            ),
+            "l3a_leaf_compiles_single_unit": l3a_invariant_passed,
+            "l3b_sibling_wt_recompiles_zero": (wt_other_l3b_compiled == 0),
+            "l3c_cas_zero_mutation_and_immutable": (
+                cas_audit_l3c.get("immutable", False)
+                and cas_audit_l3c.get("mutated", -1) == 0
+                and cas_audit_l3c.get("added", -1) == 0
+                and l3c_hit
+            ),
+        },
     }
 
     out_file = DEFAULT_RESULTS_DIR / "results_l2_l3_defensible_audit.json"
