@@ -16,6 +16,10 @@ import subprocess
 import time
 from pathlib import Path
 
+CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
+if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
+
 SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
 
 
@@ -51,6 +55,8 @@ def prepare_worktrees(repo_dir, base_dir, commits):
     Creates fresh git worktrees and touches files to assert mtimes
     are strictly newer than previous snapshots.
     """
+    base_dir = Path(base_dir).resolve()
+    repo_dir = Path(repo_dir).resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "worktree", "prune"], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     wts = []
@@ -61,6 +67,7 @@ def prepare_worktrees(repo_dir, base_dir, commits):
         wt_dir = base_dir / f"wt-{i:02d}"
         if wt_dir.exists():
             subprocess.run(["git", "worktree", "remove", "--force", str(wt_dir)], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["chmod", "-R", "u+rwx", str(wt_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             shutil.rmtree(wt_dir, ignore_errors=True)
         subprocess.run(["git", "worktree", "prune"], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "worktree", "add", "-f", "-d", str(wt_dir), commit], cwd=repo_dir, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
