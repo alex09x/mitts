@@ -321,6 +321,11 @@ pub(crate) fn execute_unit(
             .lock()
             .unwrap()
             .push(output.stderr.clone());
+        if unit.is_workspace && output.success {
+            if let Some(ref cb) = ctx.opt.progress {
+                cb.0(BuildProgressEvent::CompilerMessage(output.stderr.clone()));
+            }
+        }
         if !output.success {
             if let Some(ref cb) = ctx.opt.progress {
                 cb.0(BuildProgressEvent::CompilerMessage(format!(

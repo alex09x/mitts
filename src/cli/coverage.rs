@@ -257,14 +257,16 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         std::collections::HashMap::new();
 
     if let Ok(root_toml) = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest) {
-        let members = root_toml.discover_workspace_members(&root_dir);
-        for (pkg_name, pkg_dir) in members {
-            let member_manifest = pkg_dir.join("Cargo.toml");
-            if let Ok(toml) = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
-            {
-                let test_targets = toml.discover_test_targets(&pkg_dir);
-                for tt in test_targets {
-                    target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
+        if let Ok(members) = root_toml.discover_workspace_members(&root_dir) {
+            for (pkg_name, pkg_dir) in members {
+                let member_manifest = pkg_dir.join("Cargo.toml");
+                if let Ok(toml) =
+                    crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
+                {
+                    let test_targets = toml.discover_test_targets(&pkg_dir);
+                    for tt in test_targets {
+                        target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
+                    }
                 }
             }
         }

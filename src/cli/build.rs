@@ -67,16 +67,36 @@ pub fn create_progress_callback(progress: Option<indicatif::ProgressBar>) -> Bui
         }
         BuildProgressEvent::CompilerMessage(rendered) => {
             if let Some(ref pb) = progress_clone {
-                pb.println(rendered);
+                if pb.is_hidden() {
+                    if rendered.ends_with('\n') {
+                        eprint!("{}", rendered);
+                    } else {
+                        eprintln!("{}", rendered);
+                    }
+                } else {
+                    pb.println(rendered);
+                }
+            } else if rendered.ends_with('\n') {
+                eprint!("{}", rendered);
             } else {
-                println!("{}", rendered);
+                eprintln!("{}", rendered);
             }
         }
         BuildProgressEvent::Diagnostic(line) => {
             if let Some(ref pb) = progress_clone {
-                pb.println(line);
+                if pb.is_hidden() {
+                    if line.ends_with('\n') {
+                        eprint!("{}", line);
+                    } else {
+                        eprintln!("{}", line);
+                    }
+                } else {
+                    pb.println(line);
+                }
+            } else if line.ends_with('\n') {
+                eprint!("{}", line);
             } else {
-                println!("{}", line);
+                eprintln!("{}", line);
             }
         }
     }))

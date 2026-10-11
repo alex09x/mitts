@@ -115,7 +115,13 @@ pub fn handle_fmt(args: &FmtArgs) -> i32 {
         }
     };
 
-    let members = root_toml.discover_workspace_members(project_dir);
+    let members = match root_toml.discover_workspace_members(project_dir) {
+        Ok(m) => m,
+        Err(err) => {
+            Ui::report_error(&err);
+            return 1;
+        }
+    };
     let mut edition_groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for (name, member_dir) in &members {

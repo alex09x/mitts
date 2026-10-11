@@ -132,7 +132,7 @@ members = ["crates/*"]
     fs::write(crate_a.join("src").join("lib.rs"), "pub fn a() {}").unwrap();
 
     let toml = CargoToml::from_file(&ws_toml).unwrap();
-    let members = toml.discover_workspace_members(root_dir);
+    let members = toml.discover_workspace_members(root_dir).unwrap();
     assert_eq!(members.len(), 1);
     assert_eq!(members[0].0, "pkg_a");
 }

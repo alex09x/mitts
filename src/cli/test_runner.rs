@@ -66,16 +66,18 @@ pub fn discover_test_binaries(
     let mut declared_bin_names: HashSet<String> = HashSet::new();
 
     if let Ok(root_toml) = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest) {
-        let members = root_toml.discover_workspace_members(root_dir);
-        for (_pkg_name, pkg_dir) in members {
-            let member_manifest = pkg_dir.join("Cargo.toml");
-            if let Ok(toml) = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
-            {
-                let test_targets = toml.discover_test_targets(&pkg_dir);
-                manifest_test_target_count += test_targets.len();
-                for t in toml.discover_targets(&pkg_dir) {
-                    if t.kind == "bin" {
-                        declared_bin_names.insert(t.name);
+        if let Ok(members) = root_toml.discover_workspace_members(root_dir) {
+            for (_pkg_name, pkg_dir) in members {
+                let member_manifest = pkg_dir.join("Cargo.toml");
+                if let Ok(toml) =
+                    crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
+                {
+                    let test_targets = toml.discover_test_targets(&pkg_dir);
+                    manifest_test_target_count += test_targets.len();
+                    for t in toml.discover_targets(&pkg_dir) {
+                        if t.kind == "bin" {
+                            declared_bin_names.insert(t.name);
+                        }
                     }
                 }
             }

@@ -9,6 +9,7 @@
 #
 
 import argparse
+import collections
 import hashlib
 import os
 from pathlib import Path
@@ -61,10 +62,10 @@ def compute_file_sha256(path: Path) -> str:
 
 def extract_diagnostics(output: str):
     """
-    Extracts structured diagnostics: (kind, file, line, col)
+    Extracts structured diagnostics: (kind, file, line, col) as collections.Counter
     """
     pattern = re.compile(r"warning: (.*?)\n\s+--> (.*?):(\d+):(\d+)", re.MULTILINE)
-    diags = set()
+    diags = collections.Counter()
     for m in pattern.finditer(output):
         msg = m.group(1)
         file_path = m.group(2).replace("\\", "/")
@@ -84,7 +85,7 @@ def extract_diagnostics(output: str):
         else:
             kind = msg.split(":")[0].strip()
 
-        diags.add((kind, file_path, line_num, col_num))
+        diags[(kind, file_path, line_num, col_num)] += 1
     return diags
 
 
@@ -224,19 +225,31 @@ def main():
         all_passed = False
 
     # Check mode diagnostics parity
-    chk_diag_match = (c_chk_diags == m_chk_diags and len(c_chk_diags) > 0)
-    print(f"  [{'MATCH' if chk_diag_match else 'MISMATCH'}] Check diagnostics exact match ({len(c_chk_diags)} diagnostics):")
-    for d in sorted(c_chk_diags):
-        print(f"    - {d[0]} at {d[1]}:{d[2]}:{d[3]}")
+    chk_diag_match = (c_chk_diags == m_chk_diags and sum(c_chk_diags.values()) > 0)
+    print(f"  [{'MATCH' if chk_diag_match else 'MISMATCH'}] Check diagnostics exact match ({sum(c_chk_diags.values())} diagnostics):")
+    for d, count in sorted(c_chk_diags.items()):
+        print(f"    - {d[0]} at {d[1]}:{d[2]}:{d[3]} (count={count})")
     if not chk_diag_match:
+        diff_c = c_chk_diags - m_chk_diags
+        diff_m = m_chk_diags - c_chk_diags
+        if diff_c:
+            print(f"    Cargo extra: {dict(diff_c)}")
+        if diff_m:
+            print(f"    Mitts extra: {dict(diff_m)}")
         all_passed = False
 
     # Clippy mode diagnostics parity
-    clp_diag_match = (c_clp_diags == m_clp_diags and len(c_clp_diags) > 0)
-    print(f"  [{'MATCH' if clp_diag_match else 'MISMATCH'}] Clippy diagnostics exact match ({len(c_clp_diags)} diagnostics):")
-    for d in sorted(c_clp_diags):
-        print(f"    - {d[0]} at {d[1]}:{d[2]}:{d[3]}")
+    clp_diag_match = (c_clp_diags == m_clp_diags and sum(c_clp_diags.values()) > 0)
+    print(f"  [{'MATCH' if clp_diag_match else 'MISMATCH'}] Clippy diagnostics exact match ({sum(c_clp_diags.values())} diagnostics):")
+    for d, count in sorted(c_clp_diags.items()):
+        print(f"    - {d[0]} at {d[1]}:{d[2]}:{d[3]} (count={count})")
     if not clp_diag_match:
+        diff_c = c_clp_diags - m_clp_diags
+        diff_m = m_clp_diags - c_clp_diags
+        if diff_c:
+            print(f"    Cargo extra: {dict(diff_c)}")
+        if diff_m:
+            print(f"    Mitts extra: {dict(diff_m)}")
         all_passed = False
 
     if not all_passed:

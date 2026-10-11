@@ -124,17 +124,22 @@ impl CargoToml {
     }
 
     /// Discovers all workspace member directories declared in this manifest.
-    pub fn discover_workspace_members(&self, root_dir: &Path) -> Vec<(String, PathBuf)> {
+    pub fn discover_workspace_members(&self, root_dir: &Path) -> Result<Vec<(String, PathBuf)>> {
         let mut members = Vec::new();
 
         if let Some(ref ws) = self.workspace {
+            for ex in &ws.exclude {
+                validate_workspace_pattern(ex)?;
+            }
             for pattern in &ws.members {
-                if let Err(e) = validate_workspace_pattern(pattern) {
-                    panic!("unsupported pattern in workspace.members: {}", e);
-                }
+                validate_workspace_pattern(pattern)?;
                 if pattern == "." {
-                    if let Some(ref pkg) = self.package {
-                        members.push((pkg.name.clone(), root_dir.to_path_buf()));
+                    let rel = Path::new(".");
+                    let is_excluded = ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
+                    if !is_excluded {
+                        if let Some(ref pkg) = self.package {
+                            members.push((pkg.name.clone(), root_dir.to_path_buf()));
+                        }
                     }
                 } else if pattern.contains('*') {
                     let pattern_path = Path::new(pattern);
@@ -147,15 +152,20 @@ impl CargoToml {
                             let candidate_dir = entry.path();
                             if candidate_dir.is_dir() {
                                 if let Ok(rel) = candidate_dir.strip_prefix(root_dir) {
-                                    if matches_path_pattern(pattern, rel) {
+                                    let is_excluded =
+                                        ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
+                                    if !is_excluded && matches_path_pattern(pattern, rel) {
                                         let candidate_manifest = candidate_dir.join("Cargo.toml");
                                         if candidate_manifest.is_file() {
-                                            if let Ok(toml) =
-                                                CargoToml::from_file(&candidate_manifest)
-                                            {
-                                                if let Some(pkg) = toml.package {
-                                                    members.push((pkg.name, candidate_dir));
-                                                }
+                                            let toml = CargoToml::from_file(&candidate_manifest)
+                                                .with_context(|| {
+                                                    format!(
+                                                        "Failed to parse workspace member manifest at {:?}",
+                                                        candidate_manifest
+                                                    )
+                                                })?;
+                                            if let Some(pkg) = toml.package {
+                                                members.push((pkg.name, candidate_dir));
                                             }
                                         }
                                     }
@@ -164,10 +174,19 @@ impl CargoToml {
                         }
                     }
                 } else {
-                    let member_dir = root_dir.join(pattern);
-                    let candidate_manifest = member_dir.join("Cargo.toml");
-                    if candidate_manifest.is_file() {
-                        if let Ok(toml) = CargoToml::from_file(&candidate_manifest) {
+                    let rel = Path::new(pattern);
+                    let is_excluded = ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
+                    if !is_excluded {
+                        let member_dir = root_dir.join(pattern);
+                        let candidate_manifest = member_dir.join("Cargo.toml");
+                        if candidate_manifest.is_file() {
+                            let toml =
+                                CargoToml::from_file(&candidate_manifest).with_context(|| {
+                                    format!(
+                                        "Failed to parse workspace member manifest at {:?}",
+                                        candidate_manifest
+                                    )
+                                })?;
                             if let Some(pkg) = toml.package {
                                 members.push((pkg.name, member_dir));
                             }
@@ -179,14 +198,20 @@ impl CargoToml {
             members.push((pkg.name.clone(), root_dir.to_path_buf()));
         }
 
-        // Ensure root package is included if it defines [package]
+        // Ensure root package is included if it defines [package] and is not excluded
         if let Some(ref pkg) = self.package {
-            if !members.iter().any(|(n, _)| n == &pkg.name) {
+            let rel = Path::new(".");
+            let is_excluded = self
+                .workspace
+                .as_ref()
+                .map(|ws| ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel)))
+                .unwrap_or(false);
+            if !is_excluded && !members.iter().any(|(n, _)| n == &pkg.name) {
                 members.push((pkg.name.clone(), root_dir.to_path_buf()));
             }
         }
 
-        members
+        Ok(members)
     }
 }
 

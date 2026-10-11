@@ -31,13 +31,14 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let root_toml = CargoToml::from_file(&manifest_path)
         .with_context(|| format!("Failed to parse root manifest at {manifest_path:?}"))?;
 
-    let members = root_toml.discover_workspace_members(project_dir);
+    let members = root_toml.discover_workspace_members(project_dir)?;
     let mut workspace_manifests: HashMap<String, (PathBuf, CargoToml)> = HashMap::new();
     for (name, member_dir) in &members {
         let m_path = member_dir.join("Cargo.toml");
-        if let Ok(toml) = CargoToml::from_file(&m_path) {
-            workspace_manifests.insert(name.clone(), (member_dir.clone(), toml));
-        }
+        let toml = CargoToml::from_file(&m_path).with_context(|| {
+            format!("Failed to parse workspace member manifest at {:?}", m_path)
+        })?;
+        workspace_manifests.insert(name.clone(), (member_dir.clone(), toml));
     }
 
     let mut path_dependencies: HashMap<String, (PathBuf, CargoToml)> = HashMap::new();

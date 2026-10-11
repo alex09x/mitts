@@ -263,7 +263,7 @@ members = [".", "crates/*", "extra/nested"]
     )
     .unwrap();
 
-    let members = ws_toml.discover_workspace_members(root);
+    let members = ws_toml.discover_workspace_members(root).unwrap();
     assert!(members.iter().any(|(n, _)| n == "ws-root"));
     assert!(members.iter().any(|(n, _)| n == "child1"));
     assert!(members.iter().any(|(n, _)| n == "nested-pkg"));

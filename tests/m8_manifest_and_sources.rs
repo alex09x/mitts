@@ -212,7 +212,7 @@ path = "tests/integ.rs"
     assert!(test_targets.iter().any(|t| t.name == "integ_test"));
 
     // 3. Discover workspace members
-    let members = manifest.discover_workspace_members(pkg_dir);
+    let members = manifest.discover_workspace_members(pkg_dir).unwrap();
     let member_names: Vec<_> = members.iter().map(|(n, _)| n.as_str()).collect();
     assert!(member_names.contains(&"child1"));
     assert!(member_names.contains(&"subpkg"));

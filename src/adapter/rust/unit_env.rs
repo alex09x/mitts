@@ -150,12 +150,14 @@ pub fn apply_test_binary_env(
     }
     if unit.is_workspace {
         if let Ok(root_toml) = CargoToml::from_file(&cwd.join("Cargo.toml")) {
-            for (_, member_dir) in root_toml.discover_workspace_members(cwd) {
-                if let Ok(m_toml) = CargoToml::from_file(&member_dir.join("Cargo.toml")) {
-                    for b in m_toml.discover_targets(&member_dir) {
-                        if b.kind == "bin" {
-                            let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
-                            cmd.env(var, profile_dir.join(&b.name));
+            if let Ok(members) = root_toml.discover_workspace_members(cwd) {
+                for (_, member_dir) in members {
+                    if let Ok(m_toml) = CargoToml::from_file(&member_dir.join("Cargo.toml")) {
+                        for b in m_toml.discover_targets(&member_dir) {
+                            if b.kind == "bin" {
+                                let var = format!("CARGO_BIN_EXE_{}", b.name.replace('-', "_"));
+                                cmd.env(var, profile_dir.join(&b.name));
+                            }
                         }
                     }
                 }

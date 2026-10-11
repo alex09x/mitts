@@ -131,7 +131,7 @@ members = ["member_a"]
     )
     .unwrap();
 
-    let members = ws_toml.discover_workspace_members(root);
+    let members = ws_toml.discover_workspace_members(root).unwrap();
     assert_eq!(members.len(), 1);
     assert_eq!(members[0].0, "member_a");
 }

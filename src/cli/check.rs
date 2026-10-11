@@ -136,14 +136,34 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
             }
             BuildProgressEvent::CompilerMessage(rendered) => {
                 if let Some(ref pb) = progress_clone {
-                    pb.println(rendered);
+                    if pb.is_hidden() {
+                        if rendered.ends_with('\n') {
+                            eprint!("{}", rendered);
+                        } else {
+                            eprintln!("{}", rendered);
+                        }
+                    } else {
+                        pb.println(rendered);
+                    }
+                } else if rendered.ends_with('\n') {
+                    eprint!("{}", rendered);
                 } else {
                     eprintln!("{}", rendered);
                 }
             }
             BuildProgressEvent::Diagnostic(line) => {
                 if let Some(ref pb) = progress_clone {
-                    pb.println(line);
+                    if pb.is_hidden() {
+                        if line.ends_with('\n') {
+                            eprint!("{}", line);
+                        } else {
+                            eprintln!("{}", line);
+                        }
+                    } else {
+                        pb.println(line);
+                    }
+                } else if line.ends_with('\n') {
+                    eprint!("{}", line);
                 } else {
                     eprintln!("{}", line);
                 }
@@ -161,7 +181,7 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         Ok((plan, result)) => {
             let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
             if result.success {
-                if !result.stderr.is_empty() {
+                if opt.progress.is_none() && !result.stderr.is_empty() {
                     if result.stderr.ends_with('\n') {
                         eprint!("{}", result.stderr);
                     } else {
