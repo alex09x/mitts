@@ -205,15 +205,18 @@ pub fn doctest_for_lib(
         while let Some(arg) = it.next() {
             if arg == "-L" {
                 if let Some(val) = it.next() {
-                    native_search.push(val.clone());
+                    if !native_search.contains(val) {
+                        native_search.push(val.clone());
+                    }
                 }
             } else if let Some(val) = arg.strip_prefix("-L") {
-                native_search.push(val.to_string());
+                let val_str = val.to_string();
+                if !native_search.contains(&val_str) {
+                    native_search.push(val_str);
+                }
             }
         }
     }
-    native_search.sort();
-    native_search.dedup();
 
     Ok(Some(DoctestInvocation {
         crate_name,
