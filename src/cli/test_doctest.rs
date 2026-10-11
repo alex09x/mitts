@@ -80,8 +80,8 @@ pub fn doctest_command(rustdoc: &Path, inv: &DoctestInvocation, args: &TestArgs)
     for check_cfg in &inv.check_cfgs {
         cmd.arg("--check-cfg").arg(check_cfg);
     }
-    for arg in &inv.link_args {
-        cmd.arg(arg);
+    for dir in &inv.native_search {
+        cmd.arg("-L").arg(dir);
     }
     if let Ok(flags) = std::env::var("RUSTDOCFLAGS") {
         for arg in flags.split_whitespace() {

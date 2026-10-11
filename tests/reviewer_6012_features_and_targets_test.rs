@@ -373,3 +373,42 @@ fn test_explicit_test_flag_runs_target_with_test_false() {
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].name, "custom");
 }
+
+#[test]
+fn test_doctest_command_native_search_link_args() {
+    use mitts::adapter::rust::doctest::DoctestInvocation;
+    use mitts::cli::test::TestArgs;
+    use mitts::cli::test_doctest::doctest_command;
+    use std::path::{Path, PathBuf};
+
+    let inv = DoctestInvocation {
+        crate_name: "my_lib".to_string(),
+        crate_type: "lib".to_string(),
+        src_path: PathBuf::from("src/lib.rs"),
+        package_dir: PathBuf::from("/pkg"),
+        edition: "2021".to_string(),
+        search_dirs: vec![PathBuf::from("/target/deps")],
+        native_search: vec!["native=/custom/native/dir".to_string()],
+        ..Default::default()
+    };
+    let test_args = TestArgs::default();
+    let rustdoc = Path::new("rustdoc");
+    let cmd = doctest_command(rustdoc, &inv, &test_args);
+    let args: Vec<String> = cmd
+        .get_args()
+        .map(|s| s.to_string_lossy().to_string())
+        .collect();
+
+    // Check that search_dirs has dependency= prefix
+    assert!(
+        args.contains(&"dependency=/target/deps".to_string()),
+        "extern search dirs must have dependency= prefix: {:?}",
+        args
+    );
+    // Check that native_search keeps kind prefix native=
+    assert!(
+        args.contains(&"native=/custom/native/dir".to_string()),
+        "native search dirs must preserve kind prefix: {:?}",
+        args
+    );
+}

@@ -39,8 +39,8 @@ pub struct DoctestInvocation {
     /// `-L dependency=` directories holding the externs (for transitive crate lookup).
     pub search_dirs: Vec<PathBuf>,
     pub env: HashMap<String, String>,
-    /// Link arguments from build scripts (e.g. -L native=, -l).
-    pub link_args: Vec<String>,
+    /// Native link-search directories from build scripts (e.g. `native=/path` or `/path`).
+    pub native_search: Vec<String>,
     /// Planned library dependencies that have no built artifact in the plan.
     pub missing: Vec<String>,
     /// False when the library has no unit-test target, so dev-dependencies could not be resolved.
@@ -153,7 +153,7 @@ pub fn doctest_for_lib(
         }
     }
 
-    let mut search_dirs: BTreeSet<PathBuf> = externs
+    let search_dirs: BTreeSet<PathBuf> = externs
         .iter()
         .filter_map(|(_, p)| p.parent().map(Path::to_path_buf))
         .collect();
@@ -197,20 +197,23 @@ pub fn doctest_for_lib(
     }
 
     // In Cargo, rustdoc receives -L (link-search) directories from all build scripts
-    // (compilation.native_dirs), but does NOT receive -l (link-lib) or -C link-arg.
+    // (compilation.native_dirs), preserving any kind prefix (e.g. native=/path),
+    // but does NOT receive -l (link-lib) or -C link-arg.
+    let mut native_search = Vec::new();
     for args in unit_link_args.values() {
         let mut it = args.iter();
         while let Some(arg) = it.next() {
             if arg == "-L" {
                 if let Some(val) = it.next() {
-                    search_dirs.insert(PathBuf::from(val));
+                    native_search.push(val.clone());
                 }
             } else if let Some(val) = arg.strip_prefix("-L") {
-                search_dirs.insert(PathBuf::from(val));
+                native_search.push(val.to_string());
             }
         }
     }
-    let link_args = Vec::new();
+    native_search.sort();
+    native_search.dedup();
 
     Ok(Some(DoctestInvocation {
         crate_name,
@@ -224,7 +227,7 @@ pub fn doctest_for_lib(
         externs,
         search_dirs: search_dirs.into_iter().collect(),
         env,
-        link_args,
+        native_search,
         missing,
         dev_deps_resolved,
     }))
