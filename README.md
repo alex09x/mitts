@@ -78,10 +78,12 @@ store safely.
 - **Concurrent builds cooperate.** Per-key locks: two terminals or worktrees
   that need the same dependency compile it once. One jobserver bounds
   parallelism for all Mitts processes on the machine.
-- **Safe sharing.** Store objects are immutable, verified by hash before use and
-  restored by reflink or copy. Never hardlinked into a writable workspace; hardlinks
-  occur only between Mitts' own build outputs (per-unit staging and `target/`), never
-  with store objects.
+- **Safe sharing.** Store objects are immutable, verified by hash before use. Artifacts
+  are restored via CoW reflink where supported. On non-CoW filesystems (such as ext4),
+  artifacts may be restored via safe read-only hardlinks (`MITTS_CAS_HARDLINK=1`) where
+  permissions are restricted to `0444`/`0555` and workspace overwrites occur via atomic rename,
+  or via isolated copies (default fallback). Direct in-place mutation of shared artifacts is
+  strictly forbidden.
 - **Zero-copy workspace staging.** Intra-workspace library aliases, secondary binaries,
   and atomic unit staging use intra-workspace hardlinks and rename promotion without
   copying bytes. When `MITTS_CACHE_DIR` and the workspace `target/` reside on the same
@@ -312,7 +314,7 @@ eligible for the cache.
 - A cache hit needs complete, tracked inputs. Unknown inputs are treated as
   changed.
 - Shared artifacts are immutable and verified before use. Mutable state stays
-  in each workspace. No hardlinks to writable files, no timestamp tricks.
+  in each workspace. No writable hardlinks into workspaces, no timestamp tricks; hardlinks are permitted only when strictly read-only (`0444`/`0555`) with atomic replacement.
 - Cleanup never touches artifacts of an active build.
 
 Contributor and agent rules: [AGENTS.md](AGENTS.md).

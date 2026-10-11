@@ -19,7 +19,7 @@ const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS
 #[command(version = MITTS_VERSION)]
 #[command(
     about = "Rust-first build and package tooling with a shared artifact cache",
-    after_help = "Diagnostic Environment Variables:\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks"
+    after_help = "Diagnostic Environment Variables:\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_CAS_HARDLINK=1  (Experimental) Enable safe read-only hardlinks from CAS on non-CoW filesystems (ext4)"
 )]
 pub struct Cli {
     #[command(subcommand)]
