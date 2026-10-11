@@ -322,10 +322,10 @@ def benchmark_filesystem(target_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Measure raw disk & filesystem performance")
-    parser.add_argument("--paths", default="/home/alex09x/disk_bench_tmp,/solana_data/mitts-bench/disk_bench_tmp",
-                        help="Comma-separated target paths to benchmark")
-    parser.add_argument("--output", default="benchmark-results/disk_performance_ram11.json",
-                        help="Output JSON file path")
+    parser.add_argument("--paths", required=True,
+                        help="Comma-separated target directory paths to benchmark")
+    parser.add_argument("--output", default="benchmark-results/disk_performance.json",
+                        help="Output JSON file path (default: benchmark-results/disk_performance.json)")
     args = parser.parse_args()
 
     results = {}
