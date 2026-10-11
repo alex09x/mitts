@@ -686,3 +686,44 @@ fn test_intra_workspace_symlink_root_and_traversal_containment() {
         );
     }
 }
+
+#[test]
+fn test_intra_workspace_outside_symlink_leaf_containment() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    let target_dir = root.join("workspace").join("target");
+    fs::create_dir_all(&target_dir).unwrap();
+
+    let src = target_dir.join("original.rlib");
+    fs::write(&src, b"library bytes").unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        use std::os::unix::fs::MetadataExt;
+
+        let outside_dir = root.join("outside");
+        fs::create_dir_all(&outside_dir).unwrap();
+
+        // Create a symlink outside target_dir pointing to a file inside target_dir
+        let target_dummy = target_dir.join("dummy_target.rlib");
+        fs::write(&target_dummy, b"dummy").unwrap();
+
+        let outside_symlink = outside_dir.join("evil_leaf_symlink.rlib");
+        symlink(&target_dummy, &outside_symlink).unwrap();
+
+        // dst is outside_symlink. Even though its symlink target is inside target_dir,
+        // the leaf physically resides in outside_dir.
+        // canonicalize_leaf_containment must NOT follow the leaf symlink into target_dir.
+        link_intra_workspace(&src, &outside_symlink, &[&target_dir], false).unwrap();
+
+        let src_meta = fs::metadata(&src).unwrap();
+        let symlink_meta = fs::metadata(&outside_symlink).unwrap();
+        assert_ne!(
+            src_meta.ino(),
+            symlink_meta.ino(),
+            "dst residing outside target_dir must NOT be hardlinked even if it symlinks into target_dir"
+        );
+    }
+}

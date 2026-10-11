@@ -146,43 +146,50 @@ pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Canonicalizes a path for directory containment checks. If the path does not exist yet
-/// (e.g. a destination artifact before creation), canonicalizes its parent directory and joins
-/// the file name. This resolves symlinks (such as macOS /tmp -> /private/tmp) and parent traversals (..)
-/// while avoiding false containment matches on unresolved non-existent paths.
-fn canonicalize_for_containment(path: &Path) -> PathBuf {
-    if let Ok(c) = path.canonicalize() {
-        c
-    } else if let Some(parent) = path.parent() {
+/// Canonicalizes a candidate path for directory containment checks without dereferencing
+/// leaf symlinks. Canonicalizes the parent directory and joins the leaf file name,
+/// ensuring that containment is evaluated based on where the entry physically resides
+/// rather than where a destination symlink might point.
+fn canonicalize_leaf_containment(path: &Path) -> PathBuf {
+    if let Some(parent) = path.parent() {
         if let Ok(c_parent) = parent.canonicalize() {
             if let Some(file_name) = path.file_name() {
-                c_parent.join(file_name)
-            } else {
-                c_parent
+                return c_parent.join(file_name);
             }
-        } else if path.is_absolute() {
+            return c_parent;
+        }
+    }
+    path.canonicalize().unwrap_or_else(|_| {
+        if path.is_absolute() {
             path.to_path_buf()
         } else {
             std::env::current_dir()
                 .map(|cwd| cwd.join(path))
                 .unwrap_or_else(|_| path.to_path_buf())
         }
-    } else if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map(|cwd| cwd.join(path))
-            .unwrap_or_else(|_| path.to_path_buf())
-    }
+    })
+}
+
+/// Canonicalizes a directory root for containment checks.
+fn canonicalize_root(root: &Path) -> PathBuf {
+    root.canonicalize().unwrap_or_else(|_| {
+        if root.is_absolute() {
+            root.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(root))
+                .unwrap_or_else(|_| root.to_path_buf())
+        }
+    })
 }
 
 /// Helper to verify that a path resides within any of the provided allowed root directories,
 /// comparing by canonical prefix.
 pub fn is_path_under_roots(path: &Path, allowed_roots: &[&Path]) -> bool {
-    let canonical = canonicalize_for_containment(path);
+    let canonical = canonicalize_leaf_containment(path);
 
     for root in allowed_roots {
-        let canonical_root = canonicalize_for_containment(root);
+        let canonical_root = canonicalize_root(root);
         if canonical.starts_with(&canonical_root) {
             return true;
         }

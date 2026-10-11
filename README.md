@@ -79,12 +79,13 @@ store safely.
   that need the same dependency compile it once. One jobserver bounds
   parallelism for all Mitts processes on the machine.
 - **Safe sharing.** Store objects are immutable, verified by hash before use and
-  restored by reflink or copy. Never hardlinked into a writable workspace.
+  restored by reflink or copy. Never hardlinked into a writable workspace; hardlinks
+  occur strictly between files within `target/`.
 - **Zero-copy workspace staging.** Intra-workspace library aliases, secondary binaries,
   and atomic unit staging use intra-workspace hardlinks and rename promotion without
   copying bytes. When `MITTS_CACHE_DIR` and the workspace `target/` reside on the same
-  filesystem volume, staging promotions are instantaneous; across separate mounts, they
-  transparently fall back to safe copying.
+  filesystem volume, staging promotions operate without copying bytes; across separate
+  mounts, they transparently fall back to safe copying.
 - **A no-op fast path.** An unchanged workspace skips planning and keying.
 - **One CLI.** `build`, `run`, `check`, `clippy`, `fmt`, `test` (with doctests),
   `coverage`, `explain`, `fetch`, `gc`, `clean`.

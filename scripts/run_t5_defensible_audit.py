@@ -43,23 +43,67 @@ from benchmark_worktree import (
 
 print = functools.partial(print, flush=True)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPT_PATH = Path(__file__).resolve()
-SCRIPT_SHA256 = (
-    hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest()
-    if SCRIPT_PATH.exists()
-    else ""
-)
+def check_same_device(path_a, path_b):
+    if not path_a or not path_b:
+        return None
+    try:
+        pa = Path(path_a).resolve()
+        while not pa.exists() and pa.parent != pa:
+            pa = pa.parent
+        pb = Path(path_b).resolve()
+        while not pb.exists() and pb.parent != pb:
+            pb = pb.parent
+        return os.stat(pa).st_dev == os.stat(pb).st_dev
+    except Exception:
+        return None
+
+
+def get_scripts_provenance():
+    scripts_dir = Path(__file__).resolve().parent
+    script_shas = {}
+    for name in ["run_t5_defensible_audit.py", "benchmark_worktree.py", "benchmark_common.py"]:
+        p = scripts_dir / name
+        if p.exists():
+            script_shas[name] = hashlib.sha256(p.read_bytes()).hexdigest()
+
+    combined = hashlib.sha256(
+        "".join(f"{k}:{v}" for k, v in sorted(script_shas.items())).encode("utf-8")
+    ).hexdigest()
+
+    git_head = ""
+    scripts_dirty = False
+    try:
+        git_head = subprocess.check_output(
+            ["git", "-C", str(scripts_dir), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL
+        ).strip()
+        status = subprocess.check_output(
+            ["git", "-C", str(scripts_dir), "status", "--porcelain", "."],
+            text=True,
+            stderr=subprocess.DEVNULL
+        ).strip()
+        scripts_dirty = bool(status)
+    except Exception:
+        pass
+
+    return {
+        "combined_sha256": combined,
+        "scripts": script_shas,
+        "git_commit": git_head,
+        "scripts_dirty": scripts_dirty,
+    }
 
 
 def get_provenance_info(mitts_cache=None, worktree_dir=None):
     prov = get_binary_provenance(MITTS_BIN)
-    prov["script_sha256"] = SCRIPT_SHA256
-    prov["script_name"] = SCRIPT_PATH.name
+    prov["scripts_provenance"] = get_scripts_provenance()
     if mitts_cache:
         prov["cache_filesystem"] = get_filesystem_type(Path(mitts_cache))
     if worktree_dir:
         prov["worktree_filesystem"] = get_filesystem_type(Path(worktree_dir))
+    if mitts_cache and worktree_dir:
+        prov["same_device"] = check_same_device(mitts_cache, worktree_dir)
     return prov
 
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))

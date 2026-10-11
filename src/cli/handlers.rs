@@ -314,14 +314,9 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         }
     }
 
-    // 3. Clean stray atomic link temporary files in target
-    let target_root = if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
-        std::path::PathBuf::from(cargo_td)
-    } else {
-        project_dir.join("target")
-    };
-    if target_root.exists() {
-        clean_stray_tmp_links(&target_root);
+    // 3. Clean stray atomic link temporary files in mitts directory (e.g. remaining profile)
+    if mitts_dir.exists() {
+        clean_stray_tmp_links(&mitts_dir);
     }
 
     // 4. Clean global cache if requested
@@ -356,15 +351,59 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     0
 }
 
+fn is_pid_stale(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        unsafe {
+            if libc::kill(pid as libc::pid_t, 0) == -1 {
+                return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+            }
+        }
+        false
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+fn is_stray_tmp_link_file(entry: &std::fs::DirEntry) -> bool {
+    let file_name = entry.file_name();
+    let Some(name) = file_name.to_str() else {
+        return false;
+    };
+    if !name.starts_with('.') || !name.contains(".tmp_link.") {
+        return false;
+    }
+    // Expected format: .{artifact}.tmp_link.{pid}.{counter}
+    let parts: Vec<&str> = name.rsplitn(3, '.').collect();
+    if parts.len() >= 2 {
+        if let Ok(pid) = parts[1].parse::<u32>() {
+            if is_pid_stale(pid) {
+                return true;
+            }
+        }
+    }
+    // Stale fallback: file modified more than 10 minutes ago
+    if let Ok(meta) = entry.metadata() {
+        if let Ok(modified) = meta.modified() {
+            if let Ok(elapsed) = modified.elapsed() {
+                return elapsed > std::time::Duration::from_secs(600);
+            }
+        }
+    }
+    false
+}
+
 fn clean_stray_tmp_links(dir: &std::path::Path) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                clean_stray_tmp_links(&path);
-            } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with('.') && name.contains(".tmp_link.") {
-                    let _ = std::fs::remove_file(&path);
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_dir() {
+                    clean_stray_tmp_links(&entry.path());
+                } else if ft.is_file() && is_stray_tmp_link_file(&entry) {
+                    let _ = std::fs::remove_file(entry.path());
                 }
             }
         }
