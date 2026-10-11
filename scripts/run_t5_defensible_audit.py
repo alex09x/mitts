@@ -270,16 +270,6 @@ def parse_phase_breakdown(text: str, elapsed: float, tool: str):
                     "publish_sum_s": float(m_sum.group(3)),
                     "rustc_sum_s": float(m_sum.group(4)),
                 }
-            m_agg = re.search(
-                r"\[mitts::aggregate_cpu\]\s+restore_cpu_s=([\d\.]+)\s+publish_cpu_s=([\d\.]+)\s+rustc_cpu_s=([\d\.]+)",
-                text,
-            )
-            if m_agg:
-                res["aggregate_cpu_s"] = {
-                    "restore_cpu_s": float(m_agg.group(1)),
-                    "publish_cpu_s": float(m_agg.group(2)),
-                    "rustc_cpu_s": float(m_agg.group(3)),
-                }
             return res
 
     # Cargo fallback for cargo_bare, cargo_sccache, cargo_shared
@@ -366,6 +356,50 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     }
 
 
+def get_current_dirty_mb():
+    try:
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if line.startswith("Dirty:"):
+                    return round(int(line.split()[1]) / 1024.0, 1)
+    except Exception:
+        pass
+    return 0.0
+
+
+def sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0):
+    try:
+        subprocess.run(["sync"], check=True)
+    except Exception:
+        pass
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        d_mb = get_current_dirty_mb()
+        if d_mb <= max_dirty_mb:
+            return d_mb
+        time.sleep(0.5)
+    return get_current_dirty_mb()
+
+
+def get_device_sectors_written(target_path):
+    try:
+        src = subprocess.check_output(
+            ["findmnt", "-no", "SOURCE", "--target", str(target_path)],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        real_src = os.path.realpath(src)
+        dev_name = os.path.basename(real_src)
+        stat_file = f"/sys/class/block/{dev_name}/stat"
+        if os.path.exists(stat_file):
+            with open(stat_file, "r") as f:
+                fields = f.read().split()
+            return dev_name, int(fields[6])
+    except Exception:
+        pass
+    return None, None
+
+
 class SystemPressureSampler:
     def __init__(self, interval_s=0.5):
         self.interval_s = interval_s
@@ -441,6 +475,10 @@ class SystemPressureSampler:
 
 
 def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None):
+    target_path = worktrees[0][1] if worktrees else Path.cwd()
+    dirty_start_mb = sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
+    dev_name, sec_before = get_device_sectors_written(target_path)
+
     start = time.perf_counter()
     sampler = SystemPressureSampler(interval_s=0.5)
     sampler.start()
@@ -454,8 +492,44 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
                 results.append({"wt_index": -1, "wall_sec": -1, "exit_code": -1, "max_rss_mb": 0, "stdout": "", "stderr": str(e), "test_stats": {}})
     pressure = sampler.stop()
     wall = round(time.perf_counter() - start, 3)
+
+    dirty_end_mb = get_current_dirty_mb()
+    _, sec_after_swarm = get_device_sectors_written(target_path)
+
+    # Flush trailing dirty pages to capture complete disk write volume
+    sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
+    _, sec_after_sync = get_device_sectors_written(target_path)
+
+    sec_written_swarm = (sec_after_swarm - sec_before) if (sec_before is not None and sec_after_swarm is not None) else 0
+    sec_written_total = (sec_after_sync - sec_before) if (sec_before is not None and sec_after_sync is not None) else 0
+
+    bytes_written_swarm = sec_written_swarm * 512
+    bytes_written_total = sec_written_total * 512
+
+    device_io = {
+        "device": dev_name,
+        "sectors_written_swarm": sec_written_swarm,
+        "bytes_written_swarm": bytes_written_swarm,
+        "mb_written_swarm": round(bytes_written_swarm / (1024.0 * 1024.0), 1),
+        "sectors_written_total": sec_written_total,
+        "bytes_written_total": bytes_written_total,
+        "mb_written_total": round(bytes_written_total / (1024.0 * 1024.0), 1),
+    }
+
+    pressure["dirty_at_start_mb"] = dirty_start_mb
+    pressure["dirty_at_end_mb"] = dirty_end_mb
+    pressure["device"] = dev_name
+    pressure["device_sectors_written"] = sec_written_total
+    pressure["device_bytes_written"] = bytes_written_total
+    pressure["device_mb_written"] = round(bytes_written_total / (1024.0 * 1024.0), 1)
+
     results.sort(key=lambda r: r["wt_index"])
-    return {"total_wall_s": wall, "results": results, "system_pressure": pressure}
+    return {
+        "total_wall_s": wall,
+        "results": results,
+        "system_pressure": pressure,
+        "device_io": device_io,
+    }
 
 
 def compute_stats(vals):
@@ -563,6 +637,7 @@ def run_t5_project(project_name, runs_count=5):
             tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
             tool_results[tool]["runs_data"].append(swarm_res)
             tool_results[tool].setdefault("system_pressure_runs", []).append(swarm_res.get("system_pressure", {}))
+            tool_results[tool].setdefault("device_io_runs", []).append(swarm_res.get("device_io", {}))
 
             if tool == "cargo_sccache":
                 disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts] + [sccache_dir])
@@ -608,12 +683,21 @@ def run_t5_project(project_name, runs_count=5):
                 last_mitts_res = swarm_res
 
             press = swarm_res.get("system_pressure", {})
-            press_str = f" | dirty: {press.get('max_dirty_mb', 0):.0f}MB | io_some: {press.get('max_io_some_avg10', 0):.2f}" if press else ""
+            press_str = (
+                f" | start_dirty: {press.get('dirty_at_start_mb', 0):.0f}MB"
+                f" | dev_wr: {press.get('device_mb_written', 0):.0f}MB"
+                f" | avg_dirty: {press.get('avg_dirty_mb', 0):.0f}MB"
+                f" | avg_io: {press.get('avg_io_some_avg10', 0):.2f}"
+                if press else ""
+            )
             print(f"    {tool:14s}: {swarm_res['total_wall_s']:6.2f}s | disk: {disk:6.1f}MB{press_str}")
 
     for tool, data in tool_results.items():
         st = compute_stats(data["durations_s"])
         data.update(st)
+        dev_wrs = [p.get("device_mb_written", 0.0) for p in data.get("system_pressure_runs", [])]
+        if dev_wrs:
+            data["device_mb_written_stats"] = compute_stats(dev_wrs)
 
     if "sccache_stats_runs" in tool_results["cargo_sccache"]:
         runs_s = tool_results["cargo_sccache"]["sccache_stats_runs"]

@@ -125,12 +125,6 @@ pub fn print_timings(compile_wall: Duration, test_exec_wall: Duration, total_wal
         pub_ns as f64 / 1_000_000_000.0,
         rustc_ns as f64 / 1_000_000_000.0
     );
-    eprintln!(
-        "[mitts::aggregate_cpu] restore_cpu_s={:.3} publish_cpu_s={:.3} rustc_cpu_s={:.3}",
-        rest_ns as f64 / 1_000_000_000.0,
-        pub_ns as f64 / 1_000_000_000.0,
-        rustc_ns as f64 / 1_000_000_000.0
-    );
 }
 
 #[cfg(test)]
