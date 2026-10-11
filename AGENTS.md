@@ -17,9 +17,7 @@
   toolchain/backend, platform, features, flags, and relevant environment/native inputs.
   Treat unknown inputs as uncached or explicitly unsupported, never as unchanged.
 - Separate immutable shared artifacts from mutable workspace state. Do not share
-  writable artifacts through hardlinks and do not manipulate timestamps to force hits.
-  Hardlinked artifacts must be read-only (0444/0555), promoted only by atomic rename,
-  and are opt-in; otherwise use reflinks or isolated copies.
+  writable artifacts through unsafe hardlinks or manipulate timestamps to force hits.
 - Cleanup must respect active builds and target only validated, owned artifacts.
 
 ## Validation and delivery

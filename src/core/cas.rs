@@ -211,7 +211,7 @@ impl ContentAddressedStore {
             bail!("CAS object corrupted (integrity hash mismatch): {}", hash);
         }
 
-        crate::core::reflink::restore_cas_object(&obj_path, dest_path, executable)?;
+        reflink_or_copy(&obj_path, dest_path, executable)?;
         Ok(())
     }
 
