@@ -599,8 +599,11 @@ def main():
         if candidates:
             mpsc_test_file = candidates[0]
 
+    import uuid
+    run_uid = uuid.uuid4().hex[:6]
+
     original_test_content = mpsc_test_file.read_text()
-    mutation_probe = "\n\n#[test]\nfn __mitts_l3a_probe_test() {\n    assert_eq!(\"probe_l3a\", \"probe_l3a\");\n}\n"
+    mutation_probe = f"\n\n#[test]\nfn __mitts_l3a_probe_test_{run_uid}() {{\n    assert_eq!(\"probe_l3a\", \"probe_l3a\");\n}}\n"
 
     try:
         mpsc_test_file.write_text(original_test_content + mutation_probe)
@@ -656,7 +659,7 @@ def main():
             mpsc_mod_file = candidates[0]
 
     original_mod_content = mpsc_mod_file.read_text()
-    mod_probe = "\n\n#[doc(hidden)]\npub fn __mitts_l3b_probe_func() -> usize {\n    42\n}\n"
+    mod_probe = f"\n\n#[doc(hidden)]\npub fn __mitts_l3b_probe_func_{run_uid}() -> usize {{\n    42\n}}\n"
 
     cas_before = snapshot_cas_objects(mitts_cache)
     print(f"  CAS snapshot before L3b: {len(cas_before)} objects tracked")
