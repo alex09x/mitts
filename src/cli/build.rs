@@ -275,6 +275,8 @@ mod tests {
         let plan_fast = BuildPlan {
             actions: vec![make_action("root-bin", ActionKind::CompileBin)],
             target_directory: PathBuf::from("/target"),
+            artifacts: Default::default(),
+            unit_cfgs: Default::default(),
         };
         let res_fast = ActionResult {
             action_id: "fast-lock-hit".to_string(),
@@ -326,6 +328,8 @@ mod tests {
                 make_action("root", ActionKind::CompileBin),
             ],
             target_directory: PathBuf::from("/target"),
+            artifacts: Default::default(),
+            unit_cfgs: Default::default(),
         };
         assert_eq!(
             render_build_result(&plan_many, &res_exec, "dev", now, false),
@@ -341,6 +345,8 @@ mod tests {
                 make_action("dep4", ActionKind::CompileRlib),
             ],
             target_directory: PathBuf::from("/target"),
+            artifacts: Default::default(),
+            unit_cfgs: Default::default(),
         };
         assert_eq!(
             render_build_result(&plan_libs, &res_exec, "dev", now, false),

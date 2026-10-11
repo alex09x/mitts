@@ -37,24 +37,14 @@ pub fn build_planned_units(
         if opt.mode == crate::adapter::BuildMode::Test && (is_primary || is_target_pkg) {
             let mut test_targets = pkg_toml.discover_test_targets(pkg_dir);
             if opt.doc_only {
-                test_targets.clear();
-            } else if opt.lib_only {
-                test_targets.retain(|t| t.name.ends_with("_unit_test"));
-            } else if !opt.test_targets.is_empty() {
-                test_targets.retain(|t| opt.test_targets.contains(&t.name));
-            } else if opt.all_tests {
-                test_targets
-                    .retain(|t| !t.name.ends_with("_unit_test") && !t.name.ends_with("_bin_test"));
-            } else if !opt.bin_targets.is_empty() {
                 test_targets.retain(|t| {
-                    if let Some(bin_name) = t.name.strip_suffix("_bin_test") {
-                        opt.bin_targets.iter().any(|b| b == bin_name)
-                    } else {
-                        false
-                    }
+                    t.test_role.as_ref().map_or_else(
+                        || t.name.ends_with("_unit_test"),
+                        |r| *r == super::manifest_models::TestRole::LibUnit,
+                    )
                 });
-            } else if opt.all_bins {
-                test_targets.retain(|t| t.name.ends_with("_bin_test"));
+            } else {
+                super::test_selection::select_test_targets(&mut test_targets, opt);
             }
             targets.extend(test_targets);
         }

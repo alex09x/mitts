@@ -99,6 +99,7 @@ links = "native_zlib"
         on_metadata_ready: None,
         compiled_actions: None,
         cached_actions: None,
+        completed_cfgs: None,
     };
 
     let action_key = "test_missing_cas_key";
@@ -216,6 +217,7 @@ links = "native_zlib"
         on_metadata_ready: None,
         compiled_actions: None,
         cached_actions: None,
+        completed_cfgs: None,
     };
 
     let restored_with_meta = try_restore_from_cache(&unit, action_key, &ctx2, false).unwrap();
@@ -299,6 +301,7 @@ fn test_m8_dag_cache_binary_restore_copy() {
         on_metadata_ready: None,
         compiled_actions: None,
         cached_actions: None,
+        completed_cfgs: None,
     };
 
     let (bin_hash, bin_size) = ctx.cas.store_bytes(b"mock executable content").unwrap();

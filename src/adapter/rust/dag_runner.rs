@@ -45,6 +45,8 @@ pub fn run_native_dag_build(
 
     let completed_artifacts: Arc<Mutex<HashMap<String, PathBuf>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    let completed_cfgs: Arc<Mutex<HashMap<String, Vec<String>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let recorded_actions: Arc<Mutex<Vec<Action>>> = Arc::new(Mutex::new(Vec::new()));
     let compiler_messages: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let any_missed: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
@@ -137,6 +139,7 @@ pub fn run_native_dag_build(
             let cas = cas.clone();
             let ac = ac.clone();
             let completed_artifacts = Arc::clone(&completed_artifacts);
+            let completed_cfgs = Arc::clone(&completed_cfgs);
             let recorded_actions = Arc::clone(&recorded_actions);
             let compiler_messages = Arc::clone(&compiler_messages);
             let any_missed = Arc::clone(&any_missed);
@@ -171,6 +174,7 @@ pub fn run_native_dag_build(
                     on_metadata_ready: Some(on_metadata_ready),
                     compiled_actions: Some(&compiled_actions),
                     cached_actions: Some(&cached_actions),
+                    completed_cfgs: Some(&completed_cfgs),
                 };
 
                 struct WorkGuard<'a> {
@@ -325,6 +329,8 @@ pub fn run_native_dag_build(
             BuildPlan {
                 actions: recorded_actions.lock().unwrap().clone(),
                 target_directory: target_dir,
+                artifacts: snapshot_map(&completed_artifacts),
+                unit_cfgs: snapshot_map(&completed_cfgs),
             },
             result,
         ));
@@ -361,7 +367,21 @@ pub fn run_native_dag_build(
         BuildPlan {
             actions,
             target_directory: target_dir,
+            artifacts: snapshot_map(&completed_artifacts),
+            unit_cfgs: snapshot_map(&completed_cfgs),
         },
         result,
     ))
+}
+
+/// Snapshots a thread-safe unit map for post-build consumers (e.g. doctests).
+fn snapshot_map<T: Clone>(
+    completed: &Mutex<HashMap<String, T>>,
+) -> std::collections::BTreeMap<String, T> {
+    completed
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }

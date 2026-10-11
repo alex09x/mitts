@@ -55,7 +55,7 @@ pub fn compute_unit_rustc_env(
     env.insert("CARGO_PKG_VERSION_PATCH".to_string(), patch);
     env.insert("CARGO_PKG_VERSION_PRE".to_string(), pre);
     env.insert("CARGO_CRATE_NAME".to_string(), unit.target_name.clone());
-    if matches!(unit.kind.as_str(), "bin" | "test" | "custom-test") {
+    if unit.kind == "bin" {
         env.insert("CARGO_BIN_NAME".to_string(), unit.target_name.clone());
     }
 

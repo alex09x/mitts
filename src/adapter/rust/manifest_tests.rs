@@ -9,7 +9,7 @@
  */
 
 use super::manifest::CargoToml;
-use super::manifest_models::DiscoveredTarget;
+use super::manifest_models::{DiscoveredTarget, TestRole};
 use std::fs;
 use std::path::Path;
 
@@ -31,7 +31,7 @@ impl CargoToml {
         };
         let lib_has_test = self.lib.as_ref().and_then(|l| l.test).unwrap_or(true);
         let lib_has_harness = self.lib.as_ref().and_then(|l| l.harness).unwrap_or(true);
-        if lib_src.is_file() && lib_has_test && lib_has_harness {
+        if lib_src.is_file() && lib_has_test {
             targets.push(DiscoveredTarget {
                 name: format!("{}_unit_test", pkg_name.replace('-', "_")),
                 kind: "test".to_string(),
@@ -39,7 +39,8 @@ impl CargoToml {
                 edition: edition.clone(),
                 crate_types: vec!["bin".to_string()],
                 required_features: None,
-                harness: true,
+                harness: lib_has_harness,
+                test_role: Some(TestRole::LibUnit),
             });
         }
 
@@ -64,6 +65,7 @@ impl CargoToml {
                     crate_types: vec!["bin".to_string()],
                     required_features: b.required_features,
                     harness: b.harness,
+                    test_role: Some(TestRole::BinUnit(b.name.clone())),
                 });
             }
         }
@@ -87,6 +89,7 @@ impl CargoToml {
                     crate_types: vec!["bin".to_string()],
                     required_features: t.required_features.clone(),
                     harness: t.harness.unwrap_or(true),
+                    test_role: Some(TestRole::Integration),
                 });
             }
         }
@@ -123,6 +126,7 @@ impl CargoToml {
                             crate_types: vec!["bin".to_string()],
                             required_features: None,
                             harness: true,
+                            test_role: Some(TestRole::Integration),
                         });
                     }
                 }
@@ -156,6 +160,7 @@ impl CargoToml {
                 crate_types: vec!["lib".to_string()],
                 required_features: None,
                 harness: true,
+                test_role: None,
             })
         } else {
             None

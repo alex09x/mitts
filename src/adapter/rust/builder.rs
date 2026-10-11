@@ -141,6 +141,8 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                 let plan = BuildPlan {
                     actions,
                     target_directory: target_dir,
+                    artifacts: Default::default(),
+                    unit_cfgs: Default::default(),
                 };
                 let result = ActionResult {
                     action_id: "fast-lock-hit".to_string(),

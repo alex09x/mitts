@@ -98,6 +98,7 @@ edition = "2021"
         on_metadata_ready: None,
         compiled_actions: None,
         cached_actions: None,
+        completed_cfgs: None,
     };
     assert!(!try_restore_from_cache(&unit, "key1", &ctx_no_cache, true).unwrap());
 

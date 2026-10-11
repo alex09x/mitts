@@ -227,6 +227,28 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         doc_only: args.doc,
     };
 
+    let root_manifest = opt
+        .manifest_path
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
+    let root_dir = {
+        let p = root_manifest
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        if p.as_os_str().is_empty() {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        } else {
+            std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+        }
+    };
+
+    if let Err(err) =
+        crate::adapter::rust::test_selection::validate_test_options(&opt, &root_manifest, &root_dir)
+    {
+        eprintln!("error: {:#}", err);
+        return 101;
+    }
+
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
@@ -262,21 +284,6 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         Ui::finish_failed(profile, &dur, "compilation errors");
         return result.exit_code;
     }
-
-    let root_manifest = opt
-        .manifest_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
-    let root_dir = {
-        let p = root_manifest
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        if p.as_os_str().is_empty() {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        } else {
-            std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
-        }
-    };
 
     let mut exit_code = 0;
     if !args.doc {

@@ -18,7 +18,7 @@ use super::types::{EffectivePlanExplanation, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use crate::core::source_store::SourceStore;
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Derives the effective build plan and compilation units natively without invoking Cargo.
@@ -290,28 +290,19 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         u.is_primary = prim;
     }
 
-    let mut dev_dep_pkg_names = HashSet::new();
-    if opt.mode == crate::adapter::rust::types::BuildMode::Test {
-        for (pkg, _is_ws, _, toml) in &resolved_packages {
-            if is_primary_pkg(&pkg.name) {
-                dev_dep_pkg_names.extend(toml.dev_dependencies.keys().cloned());
-                for t in toml.target.values() {
-                    dev_dep_pkg_names.extend(t.dev_dependencies.keys().cloned());
-                }
-            }
-        }
-    }
-
     let mut root_unit_ids = Vec::new();
     for u in &units {
         let is_root_pkg = is_primary_pkg(&u.package_name);
-        let is_dev_dep = dev_dep_pkg_names.contains(&u.package_name)
-            || dev_dep_pkg_names.contains(&u.package_name.replace('-', "_"));
-        if (opt.mode == crate::adapter::rust::types::BuildMode::Test
-            && (u.kind == "test"
-                || u.kind == "custom-test"
-                || (is_dev_dep && (u.kind == "lib" || u.kind == "proc-macro"))))
-            || (is_root_pkg && (u.kind == "lib" || u.kind == "proc-macro" || u.kind == "bin"))
+        if opt.mode == crate::adapter::rust::types::BuildMode::Test {
+            if opt.doc_only {
+                if is_root_pkg && (u.kind == "test" || u.kind == "custom-test") {
+                    root_unit_ids.extend(u.dependencies.clone());
+                }
+            } else if u.kind == "test" || u.kind == "custom-test" {
+                root_unit_ids.push(u.unit_id());
+            }
+        }
+        if (is_root_pkg && (u.kind == "lib" || u.kind == "proc-macro" || u.kind == "bin"))
             || (has_all_ws && u.is_workspace)
         {
             root_unit_ids.push(u.unit_id());
@@ -319,6 +310,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
     if root_unit_ids.is_empty() {
         root_unit_ids.extend(units.iter().filter(|u| u.is_workspace).map(|u| u.unit_id()));
+    }
+    if opt.doc_only {
+        units.retain(|u| u.kind != "test" && u.kind != "custom-test");
     }
     prune_unreachable_units(&mut units, &root_unit_ids);
 

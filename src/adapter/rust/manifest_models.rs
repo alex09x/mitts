@@ -233,8 +233,20 @@ pub struct DependencyAliases {
     pub real_to_aliases: HashMap<String, Vec<(String, Option<String>)>>,
 }
 
-/// A discovered compile target within a package.
+/// Role of a discovered test target, distinguishing lib/bin unit tests from integration tests
+/// without relying on name heuristics.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestRole {
+    /// The library compiled as a unit test (<pkg>_unit_test).
+    LibUnit,
+    /// A binary compiled as a unit test (<bin>_bin_test), carrying the original bin name.
+    BinUnit(String),
+    /// An integration test ([[test]] or tests/*.rs).
+    Integration,
+}
+
+/// A discovered compile target within a package.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DiscoveredTarget {
     pub name: String,
     pub kind: String, // "lib", "bin", "proc-macro", "test"
@@ -243,4 +255,5 @@ pub struct DiscoveredTarget {
     pub crate_types: Vec<String>,
     pub required_features: Option<Vec<String>>,
     pub harness: bool,
+    pub test_role: Option<TestRole>,
 }

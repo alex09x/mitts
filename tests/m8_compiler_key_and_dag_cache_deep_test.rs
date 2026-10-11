@@ -230,6 +230,7 @@ fn test_m8_dag_cache_progress_and_non_native() {
         on_metadata_ready: None,
         compiled_actions: None,
         cached_actions: None,
+        completed_cfgs: None,
     };
 
     let unit = PlannedCompilationUnit {

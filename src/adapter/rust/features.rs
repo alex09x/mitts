@@ -84,7 +84,7 @@ pub fn resolve_package_features_with_resolver(
             if !opt.no_default_features && ctx.toml.features.contains_key("default") {
                 target_set.insert("default".to_string());
             }
-        } else if opt.all_features && ctx.is_workspace {
+        } else if opt.all_features && ctx.is_workspace && opt.package.is_none() {
             active_target_packages.insert(id.clone());
             let target_set = target_requested.entry(id.clone()).or_default();
             target_set.extend(ctx.toml.features.keys().cloned());
@@ -189,7 +189,7 @@ fn propagate_package(
     let mut runtime_deps: Vec<(&String, &TomlDependency)> = ctx.toml.dependencies.iter().collect();
     let mut build_deps: Vec<(&String, &TomlDependency)> =
         ctx.toml.build_dependencies.iter().collect();
-    if is_test && ctx.is_workspace && !is_host_ctx {
+    if is_test && ctx.is_root && !is_host_ctx {
         runtime_deps.extend(&ctx.toml.dev_dependencies);
     }
     let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
@@ -208,7 +208,7 @@ fn propagate_package(
             )?;
         if !target_incompat {
             runtime_deps.extend(&t.dependencies);
-            if is_test && ctx.is_workspace && !is_host_ctx {
+            if is_test && ctx.is_root && !is_host_ctx {
                 runtime_deps.extend(&t.dev_dependencies);
             }
         }

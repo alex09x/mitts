@@ -9,7 +9,7 @@
  */
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 /// Distinct type of compilation/build action.
@@ -55,8 +55,16 @@ pub struct ActionResult {
 }
 
 /// Full execution plan composed of ordered actions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BuildPlan {
     pub actions: Vec<Action>,
     pub target_directory: PathBuf,
+    /// Linkable artifact per action id, exactly as dependents consume it
+    /// (e.g. the `.rlib`/proc-macro library passed via `--extern`).
+    /// Empty when the adapter does not track it (e.g. fast-lock hits).
+    #[serde(default)]
+    pub artifacts: BTreeMap<String, PathBuf>,
+    /// Build cfgs / directives per action id (e.g. rustc-cfg from build scripts).
+    #[serde(default)]
+    pub unit_cfgs: BTreeMap<String, Vec<String>>,
 }

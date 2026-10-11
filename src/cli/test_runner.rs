@@ -91,26 +91,7 @@ pub fn discover_test_binaries(
                 )
             })?;
         let mut test_targets = toml.discover_test_targets(&pkg_dir);
-        if opt.doc_only {
-            test_targets.clear();
-        } else if opt.lib_only {
-            test_targets.retain(|t| t.name.ends_with("_unit_test"));
-        } else if !opt.test_targets.is_empty() {
-            test_targets.retain(|t| opt.test_targets.contains(&t.name));
-        } else if opt.all_tests {
-            test_targets
-                .retain(|t| !t.name.ends_with("_unit_test") && !t.name.ends_with("_bin_test"));
-        } else if !opt.bin_targets.is_empty() {
-            test_targets.retain(|t| {
-                if let Some(bin_name) = t.name.strip_suffix("_bin_test") {
-                    opt.bin_targets.iter().any(|b| b == bin_name)
-                } else {
-                    false
-                }
-            });
-        } else if opt.all_bins {
-            test_targets.retain(|t| t.name.ends_with("_bin_test"));
-        }
+        crate::adapter::rust::test_selection::select_test_targets(&mut test_targets, opt);
         manifest_test_target_count += test_targets.len();
         for t in toml.discover_targets(&pkg_dir) {
             if t.kind == "bin" {
