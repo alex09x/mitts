@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>Build work, accounted for.</b><br>
-  A Rust-first build system with a shared, content-addressed artifact cache and explicit input tracking.
+  A Rust-first build system with a machine-wide, content-addressed artifact cache
+  and explicit input tracking. It reads your existing <code>Cargo.toml</code> and <code>Cargo.lock</code>.
 </p>
 
 <p align="center">
@@ -17,30 +18,99 @@
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
 </p>
 
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="docs/architecture.md">Protocol</a> ·
+  <a href="#limitations">Limitations</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
+
 ---
 
-Mitts reads your existing `Cargo.toml` and `Cargo.lock`, plans the compilation
-itself, and invokes `rustc` directly. Every compile action gets a key derived
-from all of its inputs. The output is stored once in a machine-wide immutable
-store and restored into each workspace that needs it, across projects,
-worktrees and branches.
+Mitts plans a Cargo workspace itself and invokes `rustc` directly. Every
+compile action gets a key derived from all of its inputs. The output is stored
+once in a machine-wide immutable store and restored into every workspace that
+needs it, across projects, worktrees and branches.
 
 If an input cannot be accounted for, the action is rebuilt, not guessed.
 
-## Why
+## The problem
 
-- **Rebuild only what changed.** Switching branches, reverting a commit or
-  opening another worktree reuses every unit whose inputs match.
-- **Store each artifact once.** Dependencies compiled for one project are
-  reused by the next one with the same inputs.
-- **Stay compatible with Cargo.** No new manifest, no second lockfile. A project
-  built with Mitts still builds with `cargo build` in CI.
-- **Correctness first.** A cache hit requires a complete, tracked set of
-  inputs. Unknown inputs are treated as changed.
+Cargo's build cache lives in each workspace's `target/` directory. Anything
+that creates a new `target/` starts from zero:
 
-Performance numbers are published only with a reproducible methodology. The
-benchmark study is in progress; until it is published, Mitts makes no
-speedup or disk-saving claims.
+- a second checkout or `git worktree` of the same repository,
+- switching to a branch that changes `Cargo.lock`, then switching back,
+- another project that depends on the same crates with the same features,
+- parallel coding agents, each working in its own worktree.
+
+The same `serde`, `syn` or `tokio` gets compiled again and again, and every copy
+takes disk space.
+
+The usual workarounds have sharp edges:
+
+- **A shared `CARGO_TARGET_DIR`** serializes builds behind one lock, and
+  projects with different feature sets overwrite each other's artifacts.
+- **A compiler wrapper such as sccache** sees one `rustc` call at a time. Its
+  key depends on absolute paths unless they are normalized, and crates that
+  invoke the linker (`bin`, `proc-macro`, `dylib`) are not cached. Cargo still
+  plans the build and runs every build script.
+
+Mitts takes a different route: it replaces Cargo's executor, not the compiler.
+It sees the whole unit graph, so it can key each unit by its dependencies' keys,
+cache linking units and build script runs, and let several builds share one
+store safely.
+
+## Highlights
+
+- **Reuse across workspaces.** One store per machine. A dependency compiled for
+  one checkout is restored into the next one with the same inputs.
+- **Complete keys.** Toolchain, target, profile, flags, features, source
+  contents, dependency keys and tracked environment. Unknown inputs mean a
+  rebuild.
+- **Cargo stays the contract.** No new manifest, no second lockfile. The same
+  project still builds with `cargo build` in CI, and Cargo and rust-analyzer
+  keep working next to Mitts.
+- **Linking units and build scripts are cached.** Binaries, tests, proc macros
+  and build-script executions are keyed and stored, not only `rlib`s.
+- **Concurrent builds cooperate.** Per-key locks: two terminals or worktrees
+  that need the same dependency compile it once. One jobserver bounds
+  parallelism for all Mitts processes on the machine.
+- **Safe sharing.** Store objects are immutable, verified by hash before use and
+  restored by reflink or copy. Never hardlinked into a writable workspace.
+- **A no-op fast path.** An unchanged workspace skips planning and keying.
+- **One CLI.** `build`, `run`, `check`, `clippy`, `fmt`, `test` (with doctests),
+  `coverage`, `explain`, `fetch`, `gc`, `clean`.
+
+## Quick start
+
+Mitts is not published yet. Build it from source with a recent stable Rust:
+
+```sh
+git clone https://github.com/alex09x/mitts
+cd mitts
+cargo install --path .
+```
+
+Then run it inside any Cargo workspace:
+
+```sh
+mitts build                  # compile into target/mitts/
+mitts build --release
+mitts run                    # build and run a binary
+mitts test                   # unit, integration and doc tests
+mitts test --tests -p foo    # Cargo-style target selection
+mitts check | clippy | fmt | coverage
+mitts explain                # the plan, units and why each is cached or not
+mitts fetch                  # prefetch dependencies into the source store
+mitts gc                     # prune the shared store within quotas
+mitts clean                  # remove this workspace's Mitts artifacts
+```
+
+Mitts writes only to `target/mitts/` in the workspace and to its shared cache
+(`$MITTS_CACHE_DIR`, else `$XDG_CACHE_HOME/mitts`, else `~/.cache/mitts`).
 
 ## How it works
 
@@ -51,73 +121,186 @@ Cargo.toml + Cargo.lock
  resolve ─── reuse Cargo.lock, or resolve against the crates.io sparse index
         │
         ▼
- fetch ───── download .crate archives in parallel into the global source store
+ fetch ───── download .crate archives in parallel, verify, unpack once per machine
         │
         ▼
- plan ────── compilation units: lib / bin / build script / proc macro / test
-        │
+ plan ────── compilation units: lib · bin · test · build script · proc macro
+        │    with features, targets and dependency edges (Cargo's resolver rules)
         ▼
  key ─────── SHA-256 over toolchain, target, profile, flags, features,
         │    source contents, dependency keys and tracked environment
         ▼
- execute ─── parallel DAG of direct rustc calls
-             hit  → restore from the store (reflink or copy)
-             miss → compile, verify, publish atomically to the store
+ execute ─── parallel DAG of direct rustc calls, pipelined on .rmeta
+             hit  → verify and restore from the store (reflink or copy)
+             miss → lock the key, compile, publish atomically to the store
 ```
 
-The full protocol — key derivation, locking, build scripts, the no-op fast
-path, storage layout and garbage collection — is described in
+A unit's key includes its dependencies' **keys**, not their output bytes, so a
+change anywhere below a unit changes its key. Build scripts run in a staging
+directory; their directives (`rustc-cfg`, `rustc-link-*`, `rustc-env`, …) enter
+the key of the unit they configure, and their `rerun-if-*` declarations decide
+when a cached run can be reused.
+
+After a successful build Mitts records a snapshot of the workspace. If nothing
+in it changed, the next build skips straight to the result. Any mismatch falls
+back to the full keyed build, so the fast path never skips work the protocol
+would do.
+
+The full protocol — key derivation, locking, build scripts, the fast path,
+store layout and garbage collection — is in
 [docs/architecture.md](docs/architecture.md).
 
-## Usage
+## Architecture
 
-Mitts is not published yet. Build it from source:
+Mitts is a language-neutral core with language adapters on top. The core knows
+nothing about Cargo; the Rust adapter turns a Cargo workspace into keyed
+actions.
 
-```sh
-cargo install --path .
+```
+                 ┌──────────────────────────────────────────────┐
+  mitts CLI ───▶ │ Rust adapter                                 │
+  (src/cli)      │ manifest · resolver · fetcher · features     │
+                 │ planner · keys · DAG runner · build scripts  │
+                 ├──────────────────────────────────────────────┤
+                 │ C/C++ adapter (experimental, Mitts.toml)     │
+                 └──────────────────────┬───────────────────────┘
+                                        │ actions + keys
+                 ┌──────────────────────▼───────────────────────┐
+                 │ Core                                         │
+                 │ content-addressed store · action cache       │
+                 │ key locks · jobserver · fast path · GC       │
+                 └──────────────────────────────────────────────┘
 ```
 
-Then run it inside any Cargo workspace:
+| Path | What lives there |
+| --- | --- |
+| `src/cli/` | Command handlers: `build`, `test`, `clippy`, `explain`, … |
+| `src/adapter/rust/` | Cargo semantics: manifests, lockfile, sparse index, feature resolution, unit planning, action keys, the DAG runner, build scripts, doctests |
+| `src/adapter/c/` | Experimental C/C++ adapter on the same store |
+| `src/core/` | Language-neutral store (`cas.rs`), action cache, locks, jobserver, fast path (`build_lock*.rs`), GC, reflinks |
+| `docs/` | [Protocol](docs/architecture.md), [design decisions](docs/decisions), [scenarios](docs/scenarios) |
+| `tests/` | Integration tests, including Cargo-parity and cache-invalidation tests |
+| `scripts/` | Benchmark and audit harness |
+| `fixtures/` | Minimal Rust and C projects used by tests |
 
-```sh
-mitts build              # compile into target/mitts/
-mitts build --release
-mitts run                # build and run a binary
-mitts check | clippy | fmt | test | coverage
-mitts explain            # show the plan, units and cache eligibility
-mitts fetch              # prefetch dependencies into the source store
-mitts gc                 # prune the shared store within quotas
-mitts clean              # remove workspace artifacts
-```
+## What invalidates the cache
 
-Mitts writes only to `target/mitts/` in the workspace and to its shared cache
-(`$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` or `~/.cache/mitts`). Ordinary
-Cargo and rust-analyzer keep working side by side.
+A cache hit requires every input below to match. If Mitts cannot see an
+input, it does not reuse the result.
+
+| Input | Tracked as |
+| --- | --- |
+| Toolchain | `rustc -vV` output |
+| Target and profile | target triple, profile settings, `RUSTFLAGS` and Cargo config rustflags |
+| Features | the unit's resolved feature set (resolver 1 or 2, as Cargo would) |
+| Sources | content hashes of the package files and every file rustc reports reading (`include_str!`, `include_bytes!`, modules) |
+| Dependencies | the action keys of all dependency units |
+| Environment | `CARGO_*`, `RUST_*`, wrappers, and every variable read through `env!` / `option_env!`, with `<unset>` recorded explicitly |
+| Cargo configuration | the `.cargo/config(.toml)` files Cargo would read |
+| Build scripts | their directives, `OUT_DIR`, and the content of `rerun-if-changed` paths and values of `rerun-if-env-changed` variables |
+
+## Comparison
+
+A qualitative comparison of how each tool reuses work. It is not a
+performance claim.
+
+| | Cargo | Cargo + sccache | Mitts |
+| --- | --- | --- | --- |
+| Reads `Cargo.toml` / `Cargo.lock` as is | yes | yes | yes |
+| Reuse across workspaces and worktrees | no (per `target/`) | yes, per `rustc` call | yes, per unit |
+| Key depends on the checkout path | — | yes, unless normalized | no for registry crates; for workspace crates only when not eligible |
+| Caches `bin`, test and `proc-macro` units | — | no | yes |
+| Caches build-script runs | no | no | yes |
+| Concurrent builds of one dependency | wait on the `target/` lock | both may compile on a miss | one compiles, the other reuses |
+| Remote / team cache | no | yes (S3, GCS, Redis, …) | planned |
+| Windows | yes | yes | no |
+
+Bazel and Buck2 solve a larger problem — hermetic, multi-language builds with
+remote execution — but require their own build files instead of `Cargo.toml`.
+
+## Limitations
+
+Mitts is pre-release. Know these before you rely on it:
+
+- **Linux and macOS only.** Locks and the jobserver are POSIX.
+- **Host target only.** Cross-compilation is not supported yet.
+- **No remote cache yet.** The store is per machine.
+- **Some units are never cached:** crates of type `cdylib`, `dylib` or
+  `staticlib`, and crates whose `env!` reads cannot be tracked. They always
+  build; they are reported by `mitts explain`.
+- **Workspace crates across checkouts.** Your own crates are reused across
+  worktrees only when their key can be made path-independent (no
+  `CARGO_MANIFEST_DIR` reads, no build script, only known-pure proc macros).
+  Otherwise the key includes the absolute path.
+- **Build scripts are not sandboxed.** A script that reads files or variables it
+  did not declare with `rerun-if-*` can produce a stale result — exactly as with
+  Cargo.
+- **Unsupported Cargo features fail loudly.** For example `--profile`, globs
+  with wildcards in intermediate directories in `workspace.members`. Mitts
+  reports them instead of guessing.
+
+**Don't use Mitts yet** if you need Windows, cross-compilation, a team cache, or
+a stable release. Cargo, optionally with sccache, is the safe choice there.
+
+## Performance
+
+Performance numbers are published only with a reproducible methodology: fixed
+hardware, cold, warm and changed-input runs, several worktrees, the stronger of
+plain Cargo and sccache as the baseline, and parity checks on diagnostics,
+exit codes and test results. The study is in progress
+([ROADMAP M8](ROADMAP.md)). Until it is published, Mitts makes no speedup or
+disk-saving claims.
 
 ## Status
 
 | Area | State |
 | --- | --- |
-| Cargo.toml / Cargo.lock reading, sparse-index resolution | done |
+| `Cargo.toml` / `Cargo.lock` reading, sparse-index resolution | done |
+| Feature resolution (resolver 1 and 2) | done |
 | Parallel fetcher and global source store | done |
 | Native DAG runner, pipelined `rustc`, jobserver | done |
 | Content-addressed store and action cache | done |
 | Build script execution and caching | done |
-| No-op fast path (`FastBuildLock`) | done |
-| `check`, `clippy`, `fmt`, `test`, `coverage` | done |
+| No-op fast path | done |
+| `check`, `clippy`, `fmt`, `test` (incl. doctests), `coverage` | done |
 | Conservative GC with quotas | done |
 | C/C++ adapter on the same store | experimental |
-| Path-independent keys for workspace crates | in progress |
+| Path-independent keys for workspace crates | partial |
 | Reproducible benchmark study | in progress |
 | Remote / team cache | planned |
-| Windows | not supported |
+| Windows, cross-compilation | not supported |
 
-Details and the full milestone history: [ROADMAP.md](ROADMAP.md).
+Milestones and evidence: [ROADMAP.md](ROADMAP.md).
+
+## FAQ
+
+**Does Mitts replace Cargo?**
+It replaces Cargo's build executor. Manifests, lockfiles and the registry stay
+Cargo's. You can switch back to `cargo build` at any time.
+
+**Can I use it in CI?**
+You can, but the store is local to the machine today. CI benefits once the
+remote cache lands. Until then, keep CI on Cargo.
+
+**Will it fight with rust-analyzer or `cargo build`?**
+No. Mitts never writes into `target/debug` or `target/release`; everything goes
+to `target/mitts/`.
+
+**Where is the cache and how do I clear it?**
+`$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` or `~/.cache/mitts`. Use
+`mitts gc` to prune within quotas; deleting the directory is also safe when no
+build is running.
+
+**Why was a unit not cached?**
+Run `mitts explain`. It lists every unit and the reason it is or is not
+eligible for the cache.
 
 ## Design rules
 
 - Keep build and cache orchestration language-neutral. Language semantics live
   in adapters; Rust is the first one.
+- A cache hit needs complete, tracked inputs. Unknown inputs are treated as
+  changed.
 - Shared artifacts are immutable and verified before use. Mutable state stays
   in each workspace. No hardlinks to writable files, no timestamp tricks.
 - Cleanup never touches artifacts of an active build.
