@@ -9,6 +9,7 @@
 #
 
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -50,6 +51,43 @@ def sanitize_paths(text: str) -> str:
     return text.replace(home, "~")
 
 
+def compute_file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def extract_diagnostics(output: str):
+    """
+    Extracts structured diagnostics: (kind, file, line, col)
+    """
+    pattern = re.compile(r"warning: (.*?)\n\s+--> (.*?):(\d+):(\d+)", re.MULTILINE)
+    diags = set()
+    for m in pattern.finditer(output):
+        msg = m.group(1)
+        file_path = m.group(2).replace("\\", "/")
+        line_num = int(m.group(3))
+        col_num = int(m.group(4))
+
+        # Normalize relative file path
+        if "tokio-macros" in file_path:
+            file_path = "tokio-macros" + file_path.split("tokio-macros")[-1]
+
+        if "unused variable" in msg:
+            kind = "unused_variables"
+        elif "writing `&Vec`" in msg or "ptr_arg" in msg:
+            kind = "clippy::ptr_arg"
+        elif "length comparison to zero" in msg or "len_zero" in msg:
+            kind = "clippy::len_zero"
+        else:
+            kind = msg.split(":")[0].strip()
+
+        diags.add((kind, file_path, line_num, col_num))
+    return diags
+
+
 def main():
     parser = argparse.ArgumentParser(description="Verify diagnostic parity for tokio-macros between Cargo and Mitts")
     parser.add_argument("--project-dir", type=Path, default=find_default_project_dir(), help="Path to tokio repository")
@@ -76,6 +114,11 @@ def main():
     if cargo_bin_dir not in env.get("PATH", ""):
         env["PATH"] = f"{cargo_bin_dir}:{env.get('PATH', '')}"
 
+    # Mitts provenance
+    mitts_ver = subprocess.run([str(mitts_bin), "--version"], capture_output=True, text=True).stdout.strip()
+    mitts_sha256 = compute_file_sha256(mitts_bin)
+    cargo_ver = subprocess.run(["cargo", "--version"], capture_output=True, text=True, env=env).stdout.strip()
+
     original_content = lib_rs.read_text(encoding="utf-8")
     injection_snippet = (
         "\n\n// Intentional audit diagnostics for tokio-macros parity verification\n"
@@ -93,8 +136,29 @@ def main():
         print("Injecting intentional warning and clippy lints into tokio-macros/src/lib.rs...")
         lib_rs.write_text(original_content + injection_snippet, encoding="utf-8")
 
+        # 1. Check mode
+        print("Running cargo check -v -p tokio-macros...")
+        p_c_chk = subprocess.run(
+            ["cargo", "check", "-v", "-p", "tokio-macros"],
+            cwd=project_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        print("Running mitts check -v -p tokio-macros...")
+        p_m_chk = subprocess.run(
+            [str(mitts_bin), "check", "-v", "-p", "tokio-macros"],
+            cwd=project_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        # 2. Clippy mode
         print("Running cargo clippy -v -p tokio-macros...")
-        p_c = subprocess.run(
+        p_c_clp = subprocess.run(
             ["cargo", "clippy", "-v", "-p", "tokio-macros"],
             cwd=project_dir,
             env=env,
@@ -102,12 +166,8 @@ def main():
             stderr=subprocess.STDOUT,
             text=True,
         )
-        cargo_output = p_c.stdout
-        with open(cargo_log_path, "w", encoding="utf-8") as f:
-            f.write(sanitize_paths(cargo_output))
-
         print("Running mitts clippy -v -p tokio-macros...")
-        p_m = subprocess.run(
+        p_m_clp = subprocess.run(
             [str(mitts_bin), "clippy", "-v", "-p", "tokio-macros"],
             cwd=project_dir,
             env=env,
@@ -115,36 +175,75 @@ def main():
             stderr=subprocess.STDOUT,
             text=True,
         )
-        mitts_output = p_m.stdout
+
+        # Write sanitized logs with provenance and exit codes
+        cargo_header = (
+            f"# Cargo Diagnostic Parity Log (tokio-macros)\n"
+            f"# Toolchain: {cargo_ver}\n"
+            f"# Exit Codes: check={p_c_chk.returncode}, clippy={p_c_clp.returncode}\n\n"
+            f"=== 1. CARGO CHECK OUTPUT ===\n\n"
+        )
+        with open(cargo_log_path, "w", encoding="utf-8") as f:
+            f.write(cargo_header)
+            f.write(sanitize_paths(p_c_chk.stdout))
+            f.write("\n\n=== 2. CARGO CLIPPY OUTPUT ===\n\n")
+            f.write(sanitize_paths(p_c_clp.stdout))
+
+        mitts_header = (
+            f"# Mitts Diagnostic Parity Log (tokio-macros)\n"
+            f"# Mitts Version: {mitts_ver}\n"
+            f"# Binary SHA-256: {mitts_sha256}\n"
+            f"# Exit Codes: check={p_m_chk.returncode}, clippy={p_m_clp.returncode}\n\n"
+            f"=== 1. MITTS CHECK OUTPUT ===\n\n"
+        )
         with open(mitts_log_path, "w", encoding="utf-8") as f:
-            f.write(sanitize_paths(mitts_output))
+            f.write(mitts_header)
+            f.write(sanitize_paths(p_m_chk.stdout))
+            f.write("\n\n=== 2. MITTS CLIPPY OUTPUT ===\n\n")
+            f.write(sanitize_paths(p_m_clp.stdout))
 
     finally:
         print("Restoring original tokio-macros/src/lib.rs...")
         lib_rs.write_text(original_content, encoding="utf-8")
 
-    # Verify diagnostic detections
-    checks = [
-        ("unused variable `unused_tokio_macro_var`", "unused_tokio_macro_var"),
-        ("clippy::ptr_arg (&Vec parameter)", "ptr_arg"),
-        ("clippy::len_zero (length comparison to zero)", "len_zero"),
-    ]
+    # Structured diagnostic comparisons
+    c_chk_diags = extract_diagnostics(p_c_chk.stdout)
+    m_chk_diags = extract_diagnostics(p_m_chk.stdout)
+    c_clp_diags = extract_diagnostics(p_c_clp.stdout)
+    m_clp_diags = extract_diagnostics(p_m_clp.stdout)
 
     all_passed = True
     print("\nParity verification results:")
-    for label, pattern in checks:
-        in_cargo = (pattern in cargo_output) or (pattern == "ptr_arg" and "writing `&Vec`" in cargo_output) or (pattern == "len_zero" and "length comparison to zero" in cargo_output)
-        in_mitts = (pattern in mitts_output) or (pattern == "ptr_arg" and "writing `&Vec`" in mitts_output) or (pattern == "len_zero" and "length comparison to zero" in mitts_output)
-        status = "MATCH" if in_cargo == in_mitts and in_cargo else "MISMATCH"
-        print(f"  [{status}] {label}: Cargo={in_cargo}, Mitts={in_mitts}")
-        if status != "MATCH":
-            all_passed = False
+
+    # Exit code checks
+    chk_exit_match = (p_c_chk.returncode == p_m_chk.returncode)
+    clp_exit_match = (p_c_clp.returncode == p_m_clp.returncode)
+    print(f"  [{'MATCH' if chk_exit_match else 'MISMATCH'}] Check exit codes: Cargo={p_c_chk.returncode}, Mitts={p_m_chk.returncode}")
+    print(f"  [{'MATCH' if clp_exit_match else 'MISMATCH'}] Clippy exit codes: Cargo={p_c_clp.returncode}, Mitts={p_m_clp.returncode}")
+    if not (chk_exit_match and clp_exit_match):
+        all_passed = False
+
+    # Check mode diagnostics parity
+    chk_diag_match = (c_chk_diags == m_chk_diags and len(c_chk_diags) > 0)
+    print(f"  [{'MATCH' if chk_diag_match else 'MISMATCH'}] Check diagnostics exact match ({len(c_chk_diags)} diagnostics):")
+    for d in sorted(c_chk_diags):
+        print(f"    - {d[0]} at {d[1]}:{d[2]}:{d[3]}")
+    if not chk_diag_match:
+        all_passed = False
+
+    # Clippy mode diagnostics parity
+    clp_diag_match = (c_clp_diags == m_clp_diags and len(c_clp_diags) > 0)
+    print(f"  [{'MATCH' if clp_diag_match else 'MISMATCH'}] Clippy diagnostics exact match ({len(c_clp_diags)} diagnostics):")
+    for d in sorted(c_clp_diags):
+        print(f"    - {d[0]} at {d[1]}:{d[2]}:{d[3]}")
+    if not clp_diag_match:
+        all_passed = False
 
     if not all_passed:
         print("\nERROR: Diagnostic parity verification failed for tokio-macros!", file=sys.stderr)
         sys.exit(1)
 
-    print(f"\nSUCCESS: tokio-macros diagnostic parity verified 100%!")
+    print(f"\nSUCCESS: tokio-macros diagnostic parity (both check and clippy) verified 100%!")
     print(f"Cargo log: {cargo_log_path}")
     print(f"Mitts log: {mitts_log_path}")
 

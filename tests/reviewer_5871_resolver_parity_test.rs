@@ -605,3 +605,40 @@ fn test_find_workspace_root_fail_closed_and_pattern_parity() {
         .to_string()
         .contains("does not contain a [workspace] section"));
 }
+
+#[test]
+fn test_workspace_pattern_unsupported_glob_syntax() {
+    use mitts::adapter::rust::manifest_workspace::validate_workspace_pattern;
+
+    assert!(validate_workspace_pattern("crates/*").is_ok());
+    assert!(validate_workspace_pattern("crates/**").is_ok());
+    assert!(validate_workspace_pattern("crates/tokio-*").is_ok());
+
+    let err_inter = validate_workspace_pattern("crates/*/sub");
+    assert!(err_inter.is_err());
+    assert!(err_inter
+        .unwrap_err()
+        .to_string()
+        .contains("wildcards in intermediate directories are not supported"));
+
+    let err_q = validate_workspace_pattern("crates/?/foo");
+    assert!(err_q.is_err());
+    assert!(err_q
+        .unwrap_err()
+        .to_string()
+        .contains("glob character classes and `?` wildcards are not supported"));
+
+    let err_bracket = validate_workspace_pattern("crates/[a-z]");
+    assert!(err_bracket.is_err());
+    assert!(err_bracket
+        .unwrap_err()
+        .to_string()
+        .contains("glob character classes and `?` wildcards are not supported"));
+
+    let err_multi = validate_workspace_pattern("crates/*foo*");
+    assert!(err_multi.is_err());
+    assert!(err_multi
+        .unwrap_err()
+        .to_string()
+        .contains("multiple wildcards in a component are not supported"));
+}

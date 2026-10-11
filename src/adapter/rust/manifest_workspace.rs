@@ -62,6 +62,15 @@ impl CargoToml {
                     format!("Failed to parse workspace candidate at {:?}", candidate)
                 })?;
                 if let Some(ref ws) = ws_toml.workspace {
+                    for m in &ws.members {
+                        validate_workspace_pattern(m)
+                            .with_context(|| format!("in workspace at {:?}", candidate))?;
+                    }
+                    for ex in &ws.exclude {
+                        validate_workspace_pattern(ex)
+                            .with_context(|| format!("in workspace at {:?}", candidate))?;
+                    }
+
                     if let Ok(rel) = pkg_dir.strip_prefix(dir) {
                         let is_excluded = ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
                         if is_excluded {
@@ -120,6 +129,9 @@ impl CargoToml {
 
         if let Some(ref ws) = self.workspace {
             for pattern in &ws.members {
+                if let Err(e) = validate_workspace_pattern(pattern) {
+                    panic!("unsupported pattern in workspace.members: {}", e);
+                }
                 if pattern == "." {
                     if let Some(ref pkg) = self.package {
                         members.push((pkg.name.clone(), root_dir.to_path_buf()));
@@ -231,4 +243,35 @@ pub fn matches_path_pattern(pattern: &str, rel: &Path) -> bool {
         }
     }
     false
+}
+
+/// Validates that a workspace member or exclude pattern uses supported glob syntax.
+/// Disallows character classes (`[...]`), `?` wildcards, multiple wildcards in one component,
+/// or wildcards in intermediate directories (e.g. `crates/*/sub`).
+pub fn validate_workspace_pattern(pattern: &str) -> Result<()> {
+    let p = pattern.trim_end_matches('/');
+    if p.contains('?') || p.contains('[') || p.contains(']') {
+        anyhow::bail!(
+            "unsupported member pattern `{}`: glob character classes and `?` wildcards are not supported",
+            pattern
+        );
+    }
+    let components: Vec<&str> = p.split('/').collect();
+    for (idx, comp) in components.iter().enumerate() {
+        if comp.contains('*') {
+            if idx + 1 < components.len() {
+                anyhow::bail!(
+                    "unsupported member pattern `{}`: wildcards in intermediate directories are not supported",
+                    pattern
+                );
+            }
+            if comp.chars().filter(|c| *c == '*').count() > 1 && *comp != "**" {
+                anyhow::bail!(
+                    "unsupported member pattern `{}`: multiple wildcards in a component are not supported",
+                    pattern
+                );
+            }
+        }
+    }
+    Ok(())
 }
