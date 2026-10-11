@@ -69,6 +69,20 @@ pub fn unused_func() {
     let (_, result_cold) = res_cold.unwrap();
     assert!(result_cold.success);
 
+    let cold_msgs = events_cold.lock().unwrap();
+    assert_eq!(
+        cold_msgs.len(),
+        1,
+        "Expected exactly 1 CompilerMessage event on cold run, got: {:?}",
+        *cold_msgs
+    );
+    let count_cold_summary = cold_msgs[0].matches("warning: 1 warning emitted").count();
+    assert_eq!(
+        count_cold_summary, 1,
+        "Expected exactly 1 warning summary line on cold run, got: {count_cold_summary}\nMessage: {}",
+        cold_msgs[0]
+    );
+
     // Run 2: Full AC hit
     let events_cached = Arc::new(Mutex::new(Vec::new()));
     let ev_w = Arc::clone(&events_cached);

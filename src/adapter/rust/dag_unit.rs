@@ -315,19 +315,19 @@ pub(crate) fn execute_unit(
             .lock()
             .unwrap()
             .push(output.stdout.clone());
+        if let Some(ref cb) = ctx.opt.progress {
+            cb.0(BuildProgressEvent::CompilerMessage(output.stdout.clone()));
+        }
     }
     if !output.stderr.is_empty() {
         ctx.compiler_messages
             .lock()
             .unwrap()
             .push(output.stderr.clone());
-        if unit.is_workspace && output.success {
-            if let Some(ref cb) = ctx.opt.progress {
+        if let Some(ref cb) = ctx.opt.progress {
+            if output.success {
                 cb.0(BuildProgressEvent::CompilerMessage(output.stderr.clone()));
-            }
-        }
-        if !output.success {
-            if let Some(ref cb) = ctx.opt.progress {
+            } else {
                 cb.0(BuildProgressEvent::CompilerMessage(format!(
                     "Command: {}\n{}",
                     output.command_line, output.stderr

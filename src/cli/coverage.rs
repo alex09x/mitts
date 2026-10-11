@@ -10,6 +10,7 @@
 
 use crate::adapter::{BuildMode, RustAdapter, RustBuildOptions};
 use crate::cli::ui::Ui;
+use anyhow::{Context, Result};
 use clap::Args;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -253,24 +254,13 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
             std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
         }
     };
-    let mut target_to_pkg: std::collections::HashMap<String, (String, PathBuf)> =
-        std::collections::HashMap::new();
-
-    if let Ok(root_toml) = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest) {
-        if let Ok(members) = root_toml.discover_workspace_members(&root_dir) {
-            for (pkg_name, pkg_dir) in members {
-                let member_manifest = pkg_dir.join("Cargo.toml");
-                if let Ok(toml) =
-                    crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
-                {
-                    let test_targets = toml.discover_test_targets(&pkg_dir);
-                    for tt in test_targets {
-                        target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
-                    }
-                }
-            }
+    let target_to_pkg = match map_targets_to_packages(&root_manifest, &root_dir) {
+        Ok(map) => map,
+        Err(err) => {
+            eprintln!("mitts coverage error: {:#}", err);
+            return 1;
         }
-    }
+    };
 
     let profile_name = if opt.release { "release" } else { "debug" };
     let profile_dir = plan.target_directory.join(profile_name);
@@ -522,4 +512,35 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     Ui::finish("coverage", &dur, "Coverage report completed");
 
     cov_status.code().unwrap_or(0)
+}
+
+fn map_targets_to_packages(
+    root_manifest: &Path,
+    root_dir: &Path,
+) -> Result<std::collections::HashMap<String, (String, PathBuf)>> {
+    let mut target_to_pkg = std::collections::HashMap::new();
+    let root_toml = crate::adapter::rust::manifest::CargoToml::from_file(root_manifest)
+        .with_context(|| format!("failed to read root manifest {}", root_manifest.display()))?;
+    let members = root_toml
+        .discover_workspace_members(root_dir)
+        .with_context(|| {
+            format!(
+                "failed to discover workspace members for {}",
+                root_dir.display()
+            )
+        })?;
+    for (pkg_name, pkg_dir) in members {
+        let member_manifest = pkg_dir.join("Cargo.toml");
+        let toml = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
+            .with_context(|| {
+                format!(
+                    "failed to read workspace member manifest {}",
+                    member_manifest.display()
+                )
+            })?;
+        for tt in toml.discover_test_targets(&pkg_dir) {
+            target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
+        }
+    }
+    Ok(target_to_pkg)
 }

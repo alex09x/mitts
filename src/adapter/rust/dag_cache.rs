@@ -267,15 +267,23 @@ pub fn try_restore_from_cache_with_directives(
             }
         }
 
+        if !entry.stdout.is_empty() {
+            ctx.compiler_messages
+                .lock()
+                .unwrap()
+                .push(entry.stdout.clone());
+            if let Some(ref cb) = ctx.opt.progress {
+                cb.0(BuildProgressEvent::CompilerMessage(entry.stdout.clone()));
+            }
+        }
+
         if !entry.stderr.is_empty() {
             ctx.compiler_messages
                 .lock()
                 .unwrap()
                 .push(entry.stderr.clone());
-            if unit.is_workspace {
-                if let Some(ref cb) = ctx.opt.progress {
-                    cb.0(BuildProgressEvent::CompilerMessage(entry.stderr.clone()));
-                }
+            if let Some(ref cb) = ctx.opt.progress {
+                cb.0(BuildProgressEvent::CompilerMessage(entry.stderr.clone()));
             }
         }
 

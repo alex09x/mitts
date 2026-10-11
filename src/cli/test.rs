@@ -237,7 +237,13 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     };
 
     let (binaries, declared_test_count) =
-        super::test_runner::discover_test_binaries(&plan, &opt, &root_dir);
+        match super::test_runner::discover_test_binaries(&plan, &opt, &root_dir) {
+            Ok(res) => res,
+            Err(err) => {
+                eprintln!("mitts test error: {:#}", err);
+                return 1;
+            }
+        };
 
     super::test_runner::execute_test_binaries(
         binaries,

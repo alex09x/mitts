@@ -12,6 +12,7 @@ use super::test::TestArgs;
 use crate::adapter::RustBuildOptions;
 use crate::cli::ui::Ui;
 use crate::core::action::{ActionKind, BuildPlan};
+use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,7 +28,7 @@ pub fn discover_test_binaries(
     plan: &BuildPlan,
     opt: &RustBuildOptions,
     root_dir: &Path,
-) -> (DiscoveredBinaries, usize) {
+) -> Result<(DiscoveredBinaries, usize)> {
     let mut test_binaries = Vec::new();
     let mut cli_binaries = HashMap::new();
 
@@ -65,21 +66,30 @@ pub fn discover_test_binaries(
     let mut manifest_test_target_count = 0;
     let mut declared_bin_names: HashSet<String> = HashSet::new();
 
-    if let Ok(root_toml) = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest) {
-        if let Ok(members) = root_toml.discover_workspace_members(root_dir) {
-            for (_pkg_name, pkg_dir) in members {
-                let member_manifest = pkg_dir.join("Cargo.toml");
-                if let Ok(toml) =
-                    crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
-                {
-                    let test_targets = toml.discover_test_targets(&pkg_dir);
-                    manifest_test_target_count += test_targets.len();
-                    for t in toml.discover_targets(&pkg_dir) {
-                        if t.kind == "bin" {
-                            declared_bin_names.insert(t.name);
-                        }
-                    }
-                }
+    let root_toml = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest)
+        .with_context(|| format!("failed to read root manifest {}", root_manifest.display()))?;
+    let members = root_toml
+        .discover_workspace_members(root_dir)
+        .with_context(|| {
+            format!(
+                "failed to discover workspace members for {}",
+                root_dir.display()
+            )
+        })?;
+    for (_pkg_name, pkg_dir) in members {
+        let member_manifest = pkg_dir.join("Cargo.toml");
+        let toml = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
+            .with_context(|| {
+                format!(
+                    "failed to read workspace member manifest {}",
+                    member_manifest.display()
+                )
+            })?;
+        let test_targets = toml.discover_test_targets(&pkg_dir);
+        manifest_test_target_count += test_targets.len();
+        for t in toml.discover_targets(&pkg_dir) {
+            if t.kind == "bin" {
+                declared_bin_names.insert(t.name);
             }
         }
     }
@@ -106,13 +116,13 @@ pub fn discover_test_binaries(
     test_binaries.sort_by(|a, b| a.1.cmp(&b.1));
     test_binaries.dedup_by(|a, b| a.1 == b.1);
 
-    (
+    Ok((
         DiscoveredBinaries {
             test_binaries,
             cli_binaries,
         },
         manifest_test_target_count,
-    )
+    ))
 }
 
 /// Executes all discovered test binaries sequentially and returns the final exit code.
