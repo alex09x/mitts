@@ -10,8 +10,7 @@
 
 use super::dag::CompilationDag;
 use super::dag_cache::ExecutionContext;
-use super::dag_scheduler::{UnitExecutionStatus, WaveWorkQueue};
-use super::dag_unit::execute_unit;
+use super::dag_scheduler::WaveWorkQueue;
 use super::types::{BuildProgressEvent, EffectivePlanExplanation, RustBuildOptions};
 use crate::core::action::{Action, ActionResult, BuildPlan};
 use crate::core::action_cache::ActionCache;
@@ -56,6 +55,12 @@ pub fn run_native_dag_build(
 
     let target_dir = explanation.target_directory.clone();
     fs::create_dir_all(&target_dir)?;
+
+    let profile_name = if opt.release { "release" } else { "debug" };
+    let target_index = Arc::new(Mutex::new(crate::core::TargetArtifactIndex::load(
+        &target_dir,
+        profile_name,
+    )));
 
     let is_cache_enabled = !opt.no_cache;
 
@@ -128,13 +133,21 @@ pub fn run_native_dag_build(
     let compiled_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let cached_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
+    let shared = super::dag_worker::WorkerShared {
+        dag: &dag,
+        work_queue: &work_queue,
+        in_degrees: &in_degrees,
+        metadata_signaled: &metadata_signaled,
+        resolved_keys: &resolved_keys,
+        unit_keys,
+        deriver,
+    };
+
     thread::scope(|s| {
         let mut handles = Vec::new();
 
         for _ in 0..concurrency {
-            let work_queue = Arc::clone(&work_queue);
-            let in_degrees = Arc::clone(&in_degrees);
-            let metadata_signaled = Arc::clone(&metadata_signaled);
+            let shared = &shared;
             let on_metadata_ready = &on_metadata_ready;
             let cas = cas.clone();
             let ac = ac.clone();
@@ -147,15 +160,14 @@ pub fn run_native_dag_build(
             let any_missed = Arc::clone(&any_missed);
             let dep_build_metadata = Arc::clone(&dep_build_metadata);
             let resolved_keys = Arc::clone(&resolved_keys);
-            let deriver = deriver.clone();
             let jobserver = jobserver.clone();
             let is_first_job = Arc::clone(&is_first_job);
             let target_dir = target_dir.clone();
             let toolchain = explanation.toolchain.clone();
             let opt = opt.clone();
-            let dag = &dag;
             let compiled_actions = Arc::clone(&compiled_actions);
             let cached_actions = Arc::clone(&cached_actions);
+            let target_index = Arc::clone(&target_index);
 
             handles.push(s.spawn(move || -> Result<()> {
                 let ctx = ExecutionContext {
@@ -179,117 +191,10 @@ pub fn run_native_dag_build(
                     completed_cfgs: Some(&completed_cfgs),
                     completed_env: Some(&completed_env),
                     completed_link_args: Some(&completed_link_args),
+                    target_index: Some(&target_index),
                 };
 
-                struct WorkGuard<'a> {
-                    queue: &'a WaveWorkQueue,
-                    unit_id: String,
-                    resolved: bool,
-                }
-
-                impl<'a> Drop for WorkGuard<'a> {
-                    fn drop(&mut self) {
-                        if !self.resolved {
-                            self.queue.mark_failed(format!(
-                                "Worker thread aborted or panicked while executing unit '{}'",
-                                self.unit_id
-                            ));
-                        }
-                    }
-                }
-
-                while let Some((unit_id, lock_mode)) = work_queue.pop_work() {
-                    let mut guard = WorkGuard {
-                        queue: &work_queue,
-                        unit_id: unit_id.clone(),
-                        resolved: false,
-                    };
-
-                    let Some(node) = dag.get_node(&unit_id) else {
-                        guard.resolved = true;
-                        work_queue.mark_completed(&unit_id);
-                        continue;
-                    };
-                    let unit = node.unit.clone();
-                    let dep_keys: Vec<(String, String)> = {
-                        let map = resolved_keys.lock().unwrap();
-                        unit.dependencies
-                            .iter()
-                            .filter_map(|dep_id| {
-                                map.get(dep_id)
-                                    .or_else(|| unit_keys.get(dep_id))
-                                    .map(|k| (dep_id.clone(), k.clone()))
-                            })
-                            .collect()
-                    };
-                    let dep_refs: Vec<(&str, &str)> = dep_keys
-                        .iter()
-                        .map(|(id, k)| (id.as_str(), k.as_str()))
-                        .collect();
-                    let action_key = deriver.compute_dynamic_key(&unit, &dep_refs);
-
-                    let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        execute_unit(&unit, &action_key, &ctx, lock_mode)
-                    }));
-
-                    match exec_res {
-                        Ok(Ok(UnitExecutionStatus::Success)) => {
-                            guard.resolved = true;
-                            let was_meta_signaled =
-                                metadata_signaled.lock().unwrap().contains(&unit_id);
-                            if let Some(node) = dag.get_node(&unit_id) {
-                                for dep_id in &node.dependents {
-                                    if let Some(dep_node) = dag.get_node(dep_id) {
-                                        let req = super::pipelining::classify_dep_requirement(
-                                            &dep_node.unit,
-                                            &node.unit,
-                                        );
-                                        if was_meta_signaled
-                                            && req
-                                                == super::pipelining::DepRequirement::MetadataOnly
-                                        {
-                                            continue;
-                                        }
-                                        if let Some(counter) = in_degrees.get(dep_id) {
-                                            if counter
-                                                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
-                                                == 1
-                                            {
-                                                work_queue.push_ready(dep_id.clone());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            work_queue.mark_completed(&unit_id);
-                        }
-                        Ok(Ok(UnitExecutionStatus::Contested)) => {
-                            guard.resolved = true;
-                            work_queue.mark_contested(unit_id);
-                        }
-                        Ok(Err(err)) => {
-                            guard.resolved = true;
-                            work_queue.mark_failed(format!("{:#}", err));
-                            break;
-                        }
-                        Err(panic_err) => {
-                            guard.resolved = true;
-                            let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
-                                s.to_string()
-                            } else if let Some(s) = panic_err.downcast_ref::<String>() {
-                                s.clone()
-                            } else {
-                                "Unknown worker thread panic".to_string()
-                            };
-                            work_queue.mark_failed(format!(
-                                "Worker thread panicked on unit {}: {}",
-                                unit_id, msg
-                            ));
-                            break;
-                        }
-                    }
-                }
-                Ok(())
+                super::dag_worker::run_worker_loop(shared, &ctx)
             }));
         }
 
@@ -312,6 +217,8 @@ pub fn run_native_dag_build(
             }
         }
     });
+
+    let _ = target_index.lock().unwrap().save(&target_dir, profile_name);
 
     if let Some(err) = work_queue.take_error() {
         if !compile_errors.contains(&err) {

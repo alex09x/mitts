@@ -46,7 +46,9 @@ pub struct ExecutionContext<'a> {
     pub completed_cfgs: Option<&'a CompletedCfgsMap>,
     pub completed_env: Option<&'a CompletedEnvMap>,
     pub completed_link_args: Option<&'a CompletedLinkArgsMap>,
+    pub target_index: Option<&'a Arc<Mutex<crate::core::TargetArtifactIndex>>>,
 }
+
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.
 /// Returns Ok(true) if restored from cache, Ok(false) otherwise.
@@ -220,7 +222,16 @@ pub fn try_restore_from_cache_with_directives(
             for out in &entry.outputs {
                 if out.executable {
                     let rel_dest = ctx.target_dir.join(&out.relative_path);
-                    ctx.cas.restore_object(&out.cas_hash, &rel_dest, true)?;
+                    let rel_key = out.relative_path.to_string_lossy();
+                    crate::core::target_index::check_or_restore(
+                        ctx.target_index,
+                        ctx.cas,
+                        &out.cas_hash,
+                        &rel_dest,
+                        &rel_key,
+                        true,
+                    )?;
+
                     if rel_dest != dest_bin {
                         let _ = crate::core::link_intra_workspace(
                             &rel_dest,
@@ -254,11 +265,16 @@ pub fn try_restore_from_cache_with_directives(
                     let deps_dir = ctx.target_dir.join(profile_name).join("deps");
                     let _ = fs::create_dir_all(&deps_dir);
                     let target_dep_dest = deps_dir.join(&out.relative_path);
-                    if !target_dep_dest.is_file() {
-                        let _ = ctx
-                            .cas
-                            .restore_object(&out.cas_hash, &target_dep_dest, false);
-                    }
+                    let rel_key =
+                        format!("{}/deps/{}", profile_name, out.relative_path.display());
+                    let _ = crate::core::target_index::check_or_restore(
+                        ctx.target_index,
+                        ctx.cas,
+                        &out.cas_hash,
+                        &target_dep_dest,
+                        &rel_key,
+                        false,
+                    );
                     let clean_crate = unit.target_name.replace('-', "_");
                     let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
                     if unhashed != target_dep_dest {
@@ -270,6 +286,7 @@ pub fn try_restore_from_cache_with_directives(
                         );
                     }
                 }
+
 
                 if ext == "rlib" || ext == "dylib" || ext == "so" {
                     let named = ctx.cas.named_artifact_path_with_disambiguator(

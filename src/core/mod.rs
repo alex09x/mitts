@@ -24,6 +24,7 @@ pub mod lock;
 pub mod metrics;
 pub mod reflink;
 pub mod source_store;
+pub mod target_index;
 
 pub use action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 pub use action_cache::{ActionCache, ActionCacheEntry, CachedOutput};
@@ -38,3 +39,5 @@ pub use jobserver::{JobToken, JobserverPool};
 pub use lock::FileLock;
 pub use reflink::{link_intra_workspace, reflink_or_copy};
 pub use source_store::SourceStore;
+pub use target_index::{TargetArtifactIndex, TargetArtifactRecord};
+

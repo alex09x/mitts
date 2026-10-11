@@ -26,6 +26,7 @@ pub mod dag_unit;
 pub mod dag_unit_build_script;
 pub mod dag_unit_externs;
 pub mod dag_unit_publish;
+pub mod dag_worker;
 pub mod dep_info;
 pub mod dependency_check;
 pub mod doctest;

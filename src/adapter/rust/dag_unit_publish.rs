@@ -74,6 +74,10 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                             PathBuf::from(if ctx.opt.release { "release" } else { "debug" })
                                 .join(&unit.target_name)
                         });
+                    let rel_key = rel.to_string_lossy().to_string();
+                    if let Some(ti) = ctx.target_index {
+                        ti.lock().unwrap().record(rel_key, bin_hash.clone(), dest);
+                    }
                     cached_outputs.push(CachedOutput {
                         relative_path: rel,
                         cas_hash: bin_hash,
@@ -81,6 +85,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                         executable: true,
                     });
                 }
+
                 let alt_path = dest.parent().unwrap_or(dest).join(&clean_crate);
                 if alt_path != *dest {
                     let _ =
@@ -135,6 +140,11 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                         false,
                     );
                 }
+                if let Some(ti) = ctx.target_index {
+                    let rel_key =
+                        format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
+                    ti.lock().unwrap().record(rel_key, hash.clone(), &dep_copy);
+                }
                 let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
                 if unhashed != dep_copy {
                     let _ = crate::core::link_intra_workspace(
@@ -159,7 +169,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             let file_name = mp.file_name().unwrap_or_default();
             cached_outputs.push(CachedOutput {
                 relative_path: PathBuf::from(file_name),
-                cas_hash: meta_hash,
+                cas_hash: meta_hash.clone(),
                 file_size: meta_size,
                 executable: false,
             });
@@ -175,6 +185,11 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                         &[args.staging_dir, ctx.target_dir],
                         false,
                     );
+                }
+                if let Some(ti) = ctx.target_index {
+                    let rel_key =
+                        format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
+                    ti.lock().unwrap().record(rel_key, meta_hash.clone(), &dep_copy);
                 }
                 let unhashed = deps_dir.join(format!("lib{}.rmeta", clean_crate));
                 if unhashed != dep_copy {
