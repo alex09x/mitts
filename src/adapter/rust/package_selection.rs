@@ -133,6 +133,8 @@ pub fn select_transitive_packages<'a>(
         }
     }
 
+    root_pkgs.retain(|p| !opt.exclude.iter().any(|ex| ex == &p.name));
+
     // Graph traversal: collect all reachable packages
     let mut selected_packages: Vec<(&'a CargoLockPackage, bool)> = Vec::new();
     let mut visited: HashSet<(String, String)> = HashSet::new();

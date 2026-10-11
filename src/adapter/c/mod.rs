@@ -216,6 +216,7 @@ impl CAdapter {
                             target_directory: target_dir,
                             artifacts: Default::default(),
                             unit_cfgs: Default::default(),
+                            ..Default::default()
                         };
                         let result = ActionResult {
                             action_id: format!("c::bin:{}", manifest.package.name),
@@ -306,6 +307,7 @@ impl CAdapter {
             target_directory: target_dir,
             artifacts: Default::default(),
             unit_cfgs: Default::default(),
+            ..Default::default()
         };
 
         let result = ActionResult {

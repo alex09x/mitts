@@ -149,6 +149,7 @@ pub struct RustBuildOptions {
     pub all_bins: bool,
     pub lib_only: bool,
     pub doc_only: bool,
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -39,6 +39,8 @@ pub struct DoctestInvocation {
     /// `-L dependency=` directories holding the externs (for transitive crate lookup).
     pub search_dirs: Vec<PathBuf>,
     pub env: HashMap<String, String>,
+    /// Link arguments from build scripts (e.g. -L native=, -l).
+    pub link_args: Vec<String>,
     /// Planned library dependencies that have no built artifact in the plan.
     pub missing: Vec<String>,
     /// False when the library has no unit-test target, so dev-dependencies could not be resolved.
@@ -73,7 +75,14 @@ pub fn plan_doctests(opt: &RustBuildOptions, plan: &BuildPlan) -> Result<Vec<Doc
         .iter()
         .filter(|u| u.is_primary && !u.for_host && (u.kind == "lib" || u.kind == "proc-macro"))
     {
-        if let Some(inv) = doctest_for_lib(lib, &explanation.units, &completed, &plan.unit_cfgs)? {
+        if let Some(inv) = doctest_for_lib(
+            lib,
+            &explanation.units,
+            &completed,
+            &plan.unit_cfgs,
+            &plan.unit_env,
+            &plan.unit_link_args,
+        )? {
             out.push(inv);
         }
     }
@@ -86,6 +95,8 @@ pub fn doctest_for_lib(
     units: &[PlannedCompilationUnit],
     completed: &HashMap<String, PathBuf>,
     unit_cfgs: &BTreeMap<String, Vec<String>>,
+    unit_env: &BTreeMap<String, HashMap<String, String>>,
+    unit_link_args: &BTreeMap<String, Vec<String>>,
 ) -> Result<Option<DoctestInvocation>> {
     let package_dir = lib
         .manifest_path
@@ -132,7 +143,7 @@ pub fn doctest_for_lib(
         .collect();
 
     let mut externs = Vec::new();
-    match completed.get(&lib.unit_id()) {
+    match lookup(completed, &lib.unit_id()) {
         Some(p) => externs.push((crate_name.clone(), linkable(p))),
         None => missing.insert(0, lib.unit_id()),
     }
@@ -142,7 +153,7 @@ pub fn doctest_for_lib(
         }
     }
 
-    let search_dirs: BTreeSet<PathBuf> = externs
+    let mut search_dirs: BTreeSet<PathBuf> = externs
         .iter()
         .filter_map(|(_, p)| p.parent().map(Path::to_path_buf))
         .collect();
@@ -180,6 +191,26 @@ pub fn doctest_for_lib(
     check_cfgs.push(format!("cfg(feature, values({}))", quoted.join(", ")));
 
     let cfgs = unit_cfgs.get(&lib.unit_id()).cloned().unwrap_or_default();
+    let mut env = compute_unit_rustc_env(lib, None, None);
+    if let Some(extra_env) = unit_env.get(&lib.unit_id()) {
+        env.extend(extra_env.clone());
+    }
+
+    // In Cargo, rustdoc receives -L (link-search) directories from all build scripts
+    // (compilation.native_dirs), but does NOT receive -l (link-lib) or -C link-arg.
+    for args in unit_link_args.values() {
+        let mut it = args.iter();
+        while let Some(arg) = it.next() {
+            if arg == "-L" {
+                if let Some(val) = it.next() {
+                    search_dirs.insert(PathBuf::from(val));
+                }
+            } else if let Some(val) = arg.strip_prefix("-L") {
+                search_dirs.insert(PathBuf::from(val));
+            }
+        }
+    }
+    let link_args = Vec::new();
 
     Ok(Some(DoctestInvocation {
         crate_name,
@@ -192,7 +223,8 @@ pub fn doctest_for_lib(
         check_cfgs,
         externs,
         search_dirs: search_dirs.into_iter().collect(),
-        env: compute_unit_rustc_env(lib, None, None),
+        env,
+        link_args,
         missing,
         dev_deps_resolved,
     }))

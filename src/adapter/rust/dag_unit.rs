@@ -173,14 +173,13 @@ pub(crate) fn execute_unit(
             toml_str,
         );
     }
-    if let Some(cfgs_map) = ctx.completed_cfgs {
-        if !directives.cfgs.is_empty() {
-            cfgs_map
-                .lock()
-                .unwrap()
-                .insert(unit.unit_id(), directives.cfgs.clone());
-        }
-    }
+    super::dag_unit_build_script::record_completed_directives(
+        &unit.unit_id(),
+        &directives,
+        ctx.completed_cfgs,
+        ctx.completed_env,
+        ctx.completed_link_args,
+    );
 
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
     let cas_artifacts = ctx.cas.root().join("artifacts");

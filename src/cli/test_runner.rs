@@ -77,6 +77,9 @@ pub fn discover_test_binaries(
             )
         })?;
     for (pkg_name, pkg_dir) in members {
+        if opt.exclude.iter().any(|ex| ex == &pkg_name) {
+            continue;
+        }
         if let Some(ref target_pkg) = opt.package {
             if &pkg_name != target_pkg {
                 continue;

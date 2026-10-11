@@ -33,6 +33,7 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         mode: crate::adapter::BuildMode::Build,
         progress: None,
         start_dir: None,
+        exclude: args.exclude.clone(),
         ..Default::default()
     }
 }
@@ -277,6 +278,7 @@ mod tests {
             target_directory: PathBuf::from("/target"),
             artifacts: Default::default(),
             unit_cfgs: Default::default(),
+            ..Default::default()
         };
         let res_fast = ActionResult {
             action_id: "fast-lock-hit".to_string(),
@@ -330,6 +332,7 @@ mod tests {
             target_directory: PathBuf::from("/target"),
             artifacts: Default::default(),
             unit_cfgs: Default::default(),
+            ..Default::default()
         };
         assert_eq!(
             render_build_result(&plan_many, &res_exec, "dev", now, false),
@@ -347,6 +350,7 @@ mod tests {
             target_directory: PathBuf::from("/target"),
             artifacts: Default::default(),
             unit_cfgs: Default::default(),
+            ..Default::default()
         };
         assert_eq!(
             render_build_result(&plan_libs, &res_exec, "dev", now, false),

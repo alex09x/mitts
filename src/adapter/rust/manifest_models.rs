@@ -191,6 +191,8 @@ pub struct TomlLib {
     pub test: Option<bool>,
     #[serde(default)]
     pub doctest: Option<bool>,
+    #[serde(default)]
+    pub doc: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -256,4 +258,5 @@ pub struct DiscoveredTarget {
     pub required_features: Option<Vec<String>>,
     pub harness: bool,
     pub test_role: Option<TestRole>,
+    pub explicit_only: bool,
 }

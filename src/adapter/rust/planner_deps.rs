@@ -31,7 +31,11 @@ pub fn resolve_unit_dependencies(
             proc_macro_names.insert(unit.package_name.clone());
             proc_macro_names.insert(unit.package_name.replace('-', "_"));
         }
-        if unit.kind != "bin" && unit.kind != "test" && unit.kind != "custom-test" {
+        if unit.kind != "bin"
+            && unit.kind != "test"
+            && unit.kind != "custom-test"
+            && unit.kind != "test-deps"
+        {
             let uid = unit.unit_id();
             lib_units_by_exact.insert(
                 (
@@ -67,7 +71,7 @@ pub fn resolve_unit_dependencies(
             .find(|(p, _)| p.name == unit.package_name && p.version == unit.version);
 
         let pkg_toml_opt = CargoToml::from_file(&unit.manifest_path).ok();
-        let is_test = unit.kind == "test" || unit.kind == "custom-test";
+        let is_test = unit.kind == "test" || unit.kind == "custom-test" || unit.kind == "test-deps";
 
         let pkg_dir = unit
             .manifest_path
@@ -194,7 +198,11 @@ pub fn resolve_unit_dependencies(
             }
         }
 
-        if unit.kind == "bin" || unit.kind == "test" || unit.kind == "custom-test" {
+        if unit.kind == "bin"
+            || unit.kind == "test"
+            || unit.kind == "custom-test"
+            || unit.kind == "test-deps"
+        {
             let self_lib_uid = lib_units_by_exact
                 .get(&(unit.package_name.clone(), unit.version.clone(), false))
                 .or_else(|| {

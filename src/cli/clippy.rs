@@ -63,6 +63,10 @@ pub struct ClippyArgs {
     #[arg(long, action = clap::ArgAction::Append)]
     pub config: Vec<String>,
 
+    /// Exclude packages from being linted
+    #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
+    pub exclude: Vec<String>,
+
     /// Additional arguments passed to clippy-driver (e.g. -D warnings)
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -91,6 +95,7 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         mode: BuildMode::Clippy,
         progress: None,
         start_dir: None,
+        exclude: args.exclude.clone(),
         ..Default::default()
     };
 

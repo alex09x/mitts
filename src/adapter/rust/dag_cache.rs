@@ -22,6 +22,8 @@ use std::sync::{Arc, Mutex};
 
 pub type MetadataReadyCallback<'a> = &'a (dyn Fn(&str, &Path) + Send + Sync);
 pub type CompletedCfgsMap = Arc<Mutex<HashMap<String, Vec<String>>>>;
+pub type CompletedEnvMap = Arc<Mutex<HashMap<String, HashMap<String, String>>>>;
+pub type CompletedLinkArgsMap = Arc<Mutex<HashMap<String, Vec<String>>>>;
 
 pub struct ExecutionContext<'a> {
     pub opt: &'a RustBuildOptions,
@@ -42,6 +44,8 @@ pub struct ExecutionContext<'a> {
     pub compiled_actions: Option<&'a Arc<std::sync::atomic::AtomicUsize>>,
     pub cached_actions: Option<&'a Arc<std::sync::atomic::AtomicUsize>>,
     pub completed_cfgs: Option<&'a CompletedCfgsMap>,
+    pub completed_env: Option<&'a CompletedEnvMap>,
+    pub completed_link_args: Option<&'a CompletedLinkArgsMap>,
 }
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.
@@ -184,40 +188,29 @@ pub fn try_restore_from_cache_with_directives(
                 .insert(unit.unit_id(), res_key.to_string());
         }
 
-        if let Some(d) = current_directives {
+        let effective_dirs: Option<BuildScriptDirectives> = if let Some(d) = current_directives {
+            Some(d.clone())
+        } else if meta_path.is_file() {
+            fs::read_to_string(&meta_path)
+                .ok()
+                .and_then(|c| toml::from_str::<BuildScriptDirectives>(&c).ok())
+        } else {
+            None
+        };
+        if let Some(ref d) = effective_dirs {
             let dep_vars = d.dep_env_vars();
             if !dep_vars.is_empty() {
                 let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
                 all_meta.insert(unit.unit_id(), dep_vars.clone());
                 all_meta.insert(unit.package_name.clone(), dep_vars);
             }
-            if let Some(cfgs_map) = ctx.completed_cfgs {
-                if !d.cfgs.is_empty() {
-                    cfgs_map
-                        .lock()
-                        .unwrap()
-                        .insert(unit.unit_id(), d.cfgs.clone());
-                }
-            }
-        } else if meta_path.is_file() {
-            if let Ok(content) = fs::read_to_string(&meta_path) {
-                if let Ok(directives) = toml::from_str::<BuildScriptDirectives>(&content) {
-                    let dep_vars = directives.dep_env_vars();
-                    if !dep_vars.is_empty() {
-                        let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
-                        all_meta.insert(unit.unit_id(), dep_vars.clone());
-                        all_meta.insert(unit.package_name.clone(), dep_vars);
-                    }
-                    if let Some(cfgs_map) = ctx.completed_cfgs {
-                        if !directives.cfgs.is_empty() {
-                            cfgs_map
-                                .lock()
-                                .unwrap()
-                                .insert(unit.unit_id(), directives.cfgs);
-                        }
-                    }
-                }
-            }
+            super::dag_unit_build_script::record_completed_directives(
+                &unit.unit_id(),
+                d,
+                ctx.completed_cfgs,
+                ctx.completed_env,
+                ctx.completed_link_args,
+            );
         }
 
         if is_bin {

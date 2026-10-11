@@ -43,16 +43,16 @@ pub fn run_native_dag_build(
     let dag = CompilationDag::from_explanation(explanation)?;
     let _ = dag.topological_waves()?;
 
-    let completed_artifacts: Arc<Mutex<HashMap<String, PathBuf>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let completed_cfgs: Arc<Mutex<HashMap<String, Vec<String>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let recorded_actions: Arc<Mutex<Vec<Action>>> = Arc::new(Mutex::new(Vec::new()));
-    let compiler_messages: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let any_missed: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
-    let dep_build_metadata: Arc<Mutex<HashMap<String, HashMap<String, String>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let resolved_keys: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+    let completed_artifacts = Arc::new(Mutex::new(HashMap::<String, PathBuf>::new()));
+    let completed_cfgs = Arc::new(Mutex::new(HashMap::<String, Vec<String>>::new()));
+    let completed_env = Arc::new(Mutex::new(HashMap::<String, HashMap<String, String>>::new()));
+    let completed_link_args = Arc::new(Mutex::new(HashMap::<String, Vec<String>>::new()));
+    let recorded_actions = Arc::new(Mutex::new(Vec::<Action>::new()));
+    let compiler_messages = Arc::new(Mutex::new(Vec::<String>::new()));
+    let any_missed = Arc::new(Mutex::new(false));
+    let dep_build_metadata =
+        Arc::new(Mutex::new(HashMap::<String, HashMap<String, String>>::new()));
+    let resolved_keys = Arc::new(Mutex::new(HashMap::<String, String>::new()));
 
     let target_dir = explanation.target_directory.clone();
     fs::create_dir_all(&target_dir)?;
@@ -140,6 +140,8 @@ pub fn run_native_dag_build(
             let ac = ac.clone();
             let completed_artifacts = Arc::clone(&completed_artifacts);
             let completed_cfgs = Arc::clone(&completed_cfgs);
+            let completed_env = Arc::clone(&completed_env);
+            let completed_link_args = Arc::clone(&completed_link_args);
             let recorded_actions = Arc::clone(&recorded_actions);
             let compiler_messages = Arc::clone(&compiler_messages);
             let any_missed = Arc::clone(&any_missed);
@@ -175,6 +177,8 @@ pub fn run_native_dag_build(
                     compiled_actions: Some(&compiled_actions),
                     cached_actions: Some(&cached_actions),
                     completed_cfgs: Some(&completed_cfgs),
+                    completed_env: Some(&completed_env),
+                    completed_link_args: Some(&completed_link_args),
                 };
 
                 struct WorkGuard<'a> {
@@ -331,6 +335,8 @@ pub fn run_native_dag_build(
                 target_directory: target_dir,
                 artifacts: snapshot_map(&completed_artifacts),
                 unit_cfgs: snapshot_map(&completed_cfgs),
+                unit_env: snapshot_map(&completed_env),
+                unit_link_args: snapshot_map(&completed_link_args),
             },
             result,
         ));
@@ -369,6 +375,8 @@ pub fn run_native_dag_build(
             target_directory: target_dir,
             artifacts: snapshot_map(&completed_artifacts),
             unit_cfgs: snapshot_map(&completed_cfgs),
+            unit_env: snapshot_map(&completed_env),
+            unit_link_args: snapshot_map(&completed_link_args),
         },
         result,
     ))

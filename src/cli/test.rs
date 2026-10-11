@@ -31,6 +31,10 @@ pub struct TestArgs {
     #[arg(long, visible_alias = "all")]
     pub workspace: bool,
 
+    /// Exclude packages from being tested
+    #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
+    pub exclude: Vec<String>,
+
     /// Build and run tests in release mode
     #[arg(short, long)]
     pub release: bool,
@@ -225,6 +229,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         all_bins: args.bins,
         lib_only: args.lib,
         doc_only: args.doc,
+        exclude: args.exclude.clone(),
     };
 
     let root_manifest = opt

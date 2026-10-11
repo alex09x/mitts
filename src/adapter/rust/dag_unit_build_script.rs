@@ -95,3 +95,47 @@ pub(crate) fn run_build_script_if_needed(
 
     Ok((Some(directives), Some(staging_dir)))
 }
+
+/// Records build script directives into thread-safe maps for downstream compilation and doctests.
+pub fn record_completed_directives(
+    unit_id: &str,
+    directives: &BuildScriptDirectives,
+    cfgs_map: Option<&super::dag_cache::CompletedCfgsMap>,
+    env_map: Option<&super::dag_cache::CompletedEnvMap>,
+    link_map: Option<&super::dag_cache::CompletedLinkArgsMap>,
+) {
+    if let Some(cfgs) = cfgs_map {
+        if !directives.cfgs.is_empty() {
+            cfgs.lock()
+                .unwrap()
+                .insert(unit_id.to_string(), directives.cfgs.clone());
+        }
+    }
+    if let Some(envs) = env_map {
+        let mut u_env = directives.envs.clone();
+        if let Some(ref out) = directives.out_dir {
+            u_env.insert("OUT_DIR".to_string(), out.to_string_lossy().to_string());
+        }
+        if !u_env.is_empty() {
+            envs.lock().unwrap().insert(unit_id.to_string(), u_env);
+        }
+    }
+    if let Some(links) = link_map {
+        let mut args = Vec::new();
+        for s in &directives.link_searches {
+            args.push("-L".to_string());
+            args.push(s.clone());
+        }
+        for l in &directives.link_libs {
+            args.push("-l".to_string());
+            args.push(l.clone());
+        }
+        for a in &directives.link_args {
+            args.push("-C".to_string());
+            args.push(format!("link-arg={}", a));
+        }
+        if !args.is_empty() {
+            links.lock().unwrap().insert(unit_id.to_string(), args);
+        }
+    }
+}

@@ -67,4 +67,10 @@ pub struct BuildPlan {
     /// Build cfgs / directives per action id (e.g. rustc-cfg from build scripts).
     #[serde(default)]
     pub unit_cfgs: BTreeMap<String, Vec<String>>,
+    /// Extra environment variables per unit (e.g. OUT_DIR and rustc-env from build scripts).
+    #[serde(default)]
+    pub unit_env: BTreeMap<String, HashMap<String, String>>,
+    /// Extra link arguments per unit (e.g. -L native=, -l from build scripts).
+    #[serde(default)]
+    pub unit_link_args: BTreeMap<String, Vec<String>>,
 }

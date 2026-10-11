@@ -154,7 +154,7 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     base_test_args = ["--no-fail-fast"]
 
     if tool == "mitts_cas":
-        cmd = [str(MITTS_BIN), "test"] + ws_args + base_test_args + extra_tail
+        cmd = [str(MITTS_BIN), "test", "--tests"] + ws_args + base_test_args + extra_tail
     elif tool == "cargo_bare":
         cmd = ["cargo", "test", "--tests"] + ws_args + base_test_args + extra_tail
     elif tool == "cargo_sccache":
@@ -249,7 +249,11 @@ def run_t5_project(project_name, runs_count=5):
     sccache_dir = Path.home() / ".cache" / "sccache"
 
     is_ws = True
-    extra_tail = ["--", "--skip", "f1414"] if project_name == "ripgrep" else []
+    extra_tail = (
+        ["--exclude", "tests-build"]
+        if project_name == "tokio"
+        else (["--", "--skip", "f1414"] if project_name == "ripgrep" else [])
+    )
 
     print("[1/5] Warming up Mitts CAS on WT-01...")
     init_wts = prepare_worktrees(repo_dir, wt_base, commits)

@@ -135,6 +135,10 @@ pub struct BuildArgs {
     #[arg(long, action = clap::ArgAction::Append)]
     pub config: Vec<String>,
 
+    /// Exclude packages from being built
+    #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
+    pub exclude: Vec<String>,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,

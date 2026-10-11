@@ -43,21 +43,43 @@ pub fn select_test_targets(targets: &mut Vec<DiscoveredTarget>, opt: &RustBuildO
         return;
     }
     if !has_target_selection(opt) {
+        targets.retain(|t| !t.explicit_only);
         return;
     }
     targets.retain(|t| {
         let role = t.test_role.clone().unwrap_or_else(|| test_role(&t.name));
         match role {
-            TestRole::LibUnit => opt.lib_only || opt.all_tests,
-            TestRole::BinUnit(ref bin) => {
-                opt.all_bins
-                    || opt.all_tests
-                    || opt
-                        .bin_targets
-                        .iter()
-                        .any(|b| b == bin || b.replace('-', "_") == *bin)
+            TestRole::LibUnit => {
+                if opt.lib_only {
+                    true
+                } else if opt.all_tests {
+                    !t.explicit_only
+                } else {
+                    false
+                }
             }
-            TestRole::Integration => opt.all_tests || opt.test_targets.contains(&t.name),
+            TestRole::BinUnit(ref bin) => {
+                if opt
+                    .bin_targets
+                    .iter()
+                    .any(|b| b == bin || b.replace('-', "_") == *bin)
+                {
+                    true
+                } else if opt.all_bins || opt.all_tests {
+                    !t.explicit_only
+                } else {
+                    false
+                }
+            }
+            TestRole::Integration => {
+                if opt.test_targets.contains(&t.name) {
+                    true
+                } else if opt.all_tests {
+                    !t.explicit_only
+                } else {
+                    false
+                }
+            }
         }
     });
 }
@@ -132,6 +154,9 @@ pub fn validate_test_options(
     let mut declared_bin_names = Vec::new();
 
     for (pkg_name, pkg_dir) in members {
+        if opt.exclude.iter().any(|ex| ex == &pkg_name) {
+            continue;
+        }
         if let Some(ref target_pkg) = opt.package {
             if &pkg_name != target_pkg {
                 continue;

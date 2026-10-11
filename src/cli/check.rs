@@ -63,6 +63,10 @@ pub struct CheckArgs {
     #[arg(long, action = clap::ArgAction::Append)]
     pub config: Vec<String>,
 
+    /// Exclude packages from being checked
+    #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
+    pub exclude: Vec<String>,
+
     /// Additional arguments passed to the compiler
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -91,6 +95,7 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         mode: BuildMode::Check,
         progress: None,
         start_dir: None,
+        exclude: args.exclude.clone(),
         ..Default::default()
     };
 

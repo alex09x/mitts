@@ -175,6 +175,7 @@ impl CargoToml {
                     required_features: None,
                     harness: self.lib.as_ref().and_then(|l| l.harness).unwrap_or(true),
                     test_role: None,
+                    explicit_only: false,
                 });
             }
         } else {
@@ -189,6 +190,7 @@ impl CargoToml {
                     required_features: None,
                     harness: true,
                     test_role: None,
+                    explicit_only: false,
                 });
             }
         }
@@ -220,6 +222,7 @@ impl CargoToml {
                         required_features: b.required_features.clone(),
                         harness: b.harness.unwrap_or(true),
                         test_role: None,
+                        explicit_only: false,
                     });
                 }
             }
@@ -235,6 +238,7 @@ impl CargoToml {
                     required_features: None,
                     harness: true,
                     test_role: None,
+                    explicit_only: false,
                 });
             }
 
@@ -261,6 +265,7 @@ impl CargoToml {
                                     required_features: None,
                                     harness: true,
                                     test_role: None,
+                                    explicit_only: false,
                                 });
                             }
                         } else if path.is_dir() {
@@ -276,6 +281,7 @@ impl CargoToml {
                                         required_features: None,
                                         harness: true,
                                         test_role: None,
+                                        explicit_only: false,
                                     });
                                 }
                             }

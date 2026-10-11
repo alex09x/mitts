@@ -237,6 +237,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     let is_primary_pkg = |name: &str| -> bool {
+        if opt.exclude.iter().any(|ex| ex == name) {
+            return false;
+        }
         target_pkg.map_or_else(
             || {
                 (has_all_ws && workspace_manifests.contains_key(name))
@@ -295,24 +298,40 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         let is_root_pkg = is_primary_pkg(&u.package_name);
         if opt.mode == crate::adapter::rust::types::BuildMode::Test {
             if opt.doc_only {
-                if is_root_pkg && (u.kind == "test" || u.kind == "custom-test") {
+                if is_root_pkg
+                    && (u.kind == "test" || u.kind == "custom-test" || u.kind == "test-deps")
+                {
+                    root_unit_ids.extend(u.dependencies.clone());
+                }
+            } else if u.kind == "test-deps" {
+                if !opt.lib_only {
                     root_unit_ids.extend(u.dependencies.clone());
                 }
             } else if u.kind == "test" || u.kind == "custom-test" {
                 root_unit_ids.push(u.unit_id());
             }
         }
-        if (is_root_pkg && (u.kind == "lib" || u.kind == "proc-macro" || u.kind == "bin"))
-            || (has_all_ws && u.is_workspace)
-        {
+        let is_primary_or_ws = (is_root_pkg
+            && (u.kind == "lib" || u.kind == "proc-macro" || (!opt.doc_only && u.kind == "bin")))
+            || (has_all_ws
+                && u.is_workspace
+                && !opt.exclude.iter().any(|ex| ex == &u.package_name));
+        if is_primary_or_ws {
             root_unit_ids.push(u.unit_id());
         }
     }
     if root_unit_ids.is_empty() {
-        root_unit_ids.extend(units.iter().filter(|u| u.is_workspace).map(|u| u.unit_id()));
+        root_unit_ids.extend(
+            units
+                .iter()
+                .filter(|u| u.is_workspace && !opt.exclude.iter().any(|ex| ex == &u.package_name))
+                .map(|u| u.unit_id()),
+        );
     }
     if opt.doc_only {
-        units.retain(|u| u.kind != "test" && u.kind != "custom-test");
+        units.retain(|u| u.kind != "test" && u.kind != "custom-test" && u.kind != "test-deps");
+    } else {
+        units.retain(|u| u.kind != "test-deps");
     }
     prune_unreachable_units(&mut units, &root_unit_ids);
 

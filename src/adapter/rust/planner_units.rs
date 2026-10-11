@@ -45,6 +45,29 @@ pub fn build_planned_units(
                 });
             } else {
                 super::test_selection::select_test_targets(&mut test_targets, opt);
+                let has_doctest = pkg_toml.discover_doctest_target(pkg_dir).is_some();
+                let has_lib_unit = test_targets.iter().any(|t| {
+                    t.test_role.as_ref().map_or_else(
+                        || t.name.ends_with("_unit_test"),
+                        |r| *r == super::manifest_models::TestRole::LibUnit,
+                    )
+                });
+                let should_run_doctests = !super::test_selection::has_target_selection(opt);
+                if should_run_doctests && has_doctest && !has_lib_unit {
+                    if let Some(mut doc_dep_target) = pkg_toml
+                        .discover_test_targets(pkg_dir)
+                        .into_iter()
+                        .find(|t| {
+                            t.test_role.as_ref().map_or_else(
+                                || t.name.ends_with("_unit_test"),
+                                |r| *r == super::manifest_models::TestRole::LibUnit,
+                            )
+                        })
+                    {
+                        doc_dep_target.kind = "test-deps".to_string();
+                        test_targets.push(doc_dep_target);
+                    }
+                }
             }
             targets.extend(test_targets);
         }
@@ -69,7 +92,8 @@ pub fn build_planned_units(
 
         for target in targets {
             let is_pm = target.kind == "proc-macro";
-            let is_executable = target.kind == "bin" || target.kind == "test";
+            let is_executable =
+                target.kind == "bin" || target.kind == "test" || target.kind == "test-deps";
 
             if is_pm {
                 if in_host || is_primary {
@@ -234,6 +258,11 @@ fn create_unit(
         (
             target.crate_types.join(","),
             "Uncached (contains native/dynamic library crate types; outside initial M2 pure rlib subset)".to_string(),
+        )
+    } else if target.kind == "test-deps" {
+        (
+            "test-deps".to_string(),
+            "Doctest dependency placeholder (not compiled as test binary)".to_string(),
         )
     } else if target.kind == "test" {
         (
