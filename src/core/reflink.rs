@@ -146,35 +146,76 @@ pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+fn is_cas_path(p: &Path) -> bool {
+    let s = p.to_string_lossy();
+    s.contains("/cas/objects/") || s.contains("\\cas\\objects\\")
+}
+
 /// Links an artifact within the workspace (e.g. creating unhashed aliases or secondary binary names)
-/// with zero-copy semantics.
+/// with zero-copy semantics and atomic replacement.
 ///
-/// On Unix, if `src` is verified to have `nlink == 1` (guaranteed isolated to the workspace and not
-/// shared with CAS or external stores), it creates a hardlink (`std::fs::hard_link`) after unlinking
-/// any existing `dst`.
-/// If `nlink > 1`, or if hardlinking fails (e.g. cross-device boundaries), it falls back safely to
+/// Uses atomic destination staging (creates link at a unique temporary path in `dst.parent()`,
+/// then atomically renames to `dst`). This guarantees that concurrent readers never observe a missing
+/// or half-created destination file, and existing files remain untouched if hardlink creation fails.
+///
+/// If `dst` already shares the same inode on the same device as `src`, this is a no-op returning `Ok(())`.
+/// If `src` is within the workspace/staging (not inside CAS objects storage), it stages via
+/// `fs::hard_link(&src, &tmp_dst)` and renames. If cross-device or unsupported, it falls back safely to
 /// `reflink_or_copy`.
 pub fn link_intra_workspace(src: &Path, dst: &Path, executable: bool) -> Result<()> {
     if src == dst {
         return Ok(());
     }
 
-    if let Some(parent) = dst.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create parent directory for {:?}", dst))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(src_meta), Ok(dst_meta)) = (fs::symlink_metadata(src), fs::symlink_metadata(dst)) {
+            if src_meta.dev() == dst_meta.dev() && src_meta.ino() == dst_meta.ino() {
+                return Ok(());
+            }
+        }
     }
 
-    // Always unlink destination prior to linking to break previous links and prevent in-place mutation
-    let _ = fs::remove_file(dst);
+    let parent = dst
+        .parent()
+        .context("Destination path must have a parent directory")?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("Failed to create parent directory for {:?}", dst))?;
+
+    let file_name = dst
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("artifact");
+    let pid = std::process::id();
+    let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_dst = parent.join(format!(".{}.tmp_link.{}.{}", file_name, pid, counter));
+
+    let mut hardlink_succeeded = false;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         if let Ok(meta) = fs::symlink_metadata(src) {
-            if meta.nlink() == 1 && fs::hard_link(src, dst).is_ok() {
-                return Ok(());
+            if !is_cas_path(src) && !is_cas_path(dst) && (meta.mode() & 0o200 != 0) {
+                let _ = fs::remove_file(&tmp_dst);
+                if fs::hard_link(src, &tmp_dst).is_ok() {
+                    hardlink_succeeded = true;
+                }
             }
         }
+    }
+
+    if hardlink_succeeded {
+        if let Err(rename_err) = fs::rename(&tmp_dst, dst) {
+            let _ = fs::remove_file(&tmp_dst);
+            bail!(
+                "Failed to atomically stage hardlink to {:?}: {}",
+                dst,
+                rename_err
+            );
+        }
+        return Ok(());
     }
 
     reflink_or_copy(src, dst, executable)

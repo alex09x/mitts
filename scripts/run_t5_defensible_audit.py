@@ -60,7 +60,17 @@ def inject_test_defect(wt_dir: Path):
     # Prefer integration test files in tests/ directories so that `cargo test --tests` executes them
     candidates = []
     for r, _, files in os.walk(wt_dir):
-        if ".git" in r or "target" in r or "plugins" in r or "plugin_persistence" in r:
+        if (
+            ".git" in r
+            or "target" in r
+            or "plugins" in r
+            or "plugin_persistence" in r
+            or "tests-build" in r
+            or "tests-integration" in r
+            or "benches" in r
+            or "examples" in r
+            or "stress-test" in r
+        ):
             continue
         p_r = Path(r)
         if "tests" in p_r.parts:
@@ -245,8 +255,8 @@ def run_t5_project(project_name, runs_count=5):
     wt_base = scratch_dir / "worktrees"
     snap_cas = scratch_dir / "snap_cas"
     snap_sccache = scratch_dir / "snap_sccache"
-    mitts_cache = Path.home() / ".cache" / "mitts"
-    sccache_dir = Path.home() / ".cache" / "sccache"
+    mitts_cache = Path(os.environ.get("MITTS_CACHE_DIR", Path.home() / ".cache" / "mitts"))
+    sccache_dir = Path(os.environ.get("SCCACHE_DIR", Path.home() / ".cache" / "sccache"))
 
     is_ws = True
     extra_tail = (

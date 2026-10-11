@@ -58,8 +58,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 if let Some(parent) = dest.parent() {
                     let _ = fs::create_dir_all(parent);
                 }
-                if bp != dest {
-                    let _ = crate::core::reflink_or_copy(bp, dest, true);
+                if bp != dest && fs::rename(bp, dest).is_err() {
+                    let _ = crate::core::link_intra_workspace(bp, dest, true);
                 }
                 if let Ok((bin_hash, bin_size)) = ctx.cas.store_file(dest) {
                     let rel = dest
@@ -125,7 +125,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     let _ = crate::core::link_intra_workspace(lib_path, &dep_copy, false);
                 }
                 let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                if unhashed != dep_copy && !unhashed.is_file() {
+                if unhashed != dep_copy {
                     let _ = crate::core::link_intra_workspace(&dep_copy, &unhashed, false);
                 }
             }
@@ -156,7 +156,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     let _ = crate::core::link_intra_workspace(mp, &dep_copy, false);
                 }
                 let unhashed = deps_dir.join(format!("lib{}.rmeta", clean_crate));
-                if unhashed != dep_copy && !unhashed.is_file() {
+                if unhashed != dep_copy {
                     let _ = crate::core::link_intra_workspace(&dep_copy, &unhashed, false);
                 }
             }
