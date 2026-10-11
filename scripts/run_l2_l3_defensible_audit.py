@@ -653,7 +653,7 @@ def main():
             "wall_sec": round(wall_c, 4),
             "cargo_compiled_packages": cargo_compiled_l3a,
             "stdout": p_c.stdout,
-            "stderr": sanitize_stderr(p_c.stderr, bench_root),
+            "stderr": sanitize_stderr(p_c.stderr, BENCH_ROOT),
         }
     finally:
         mpsc_test_file.write_text(original_test_content)
@@ -716,7 +716,7 @@ def main():
             "wall_sec": round(wall_cb, 4),
             "cargo_compiled_packages": cargo_compiled_l3b,
             "stdout": p_cb.stdout,
-            "stderr": sanitize_stderr(p_cb.stderr, bench_root),
+            "stderr": sanitize_stderr(p_cb.stderr, BENCH_ROOT),
         }
 
         # Measured Cargo baseline with CARGO_INCREMENTAL=0 on identical mutation in WT-03
@@ -754,7 +754,7 @@ def main():
                 "wall_sec": round(wall_noinc, 4),
                 "cargo_compiled_packages": cargo_compiled_noinc,
                 "stdout": p_noinc.stdout,
-                "stderr": sanitize_stderr(p_noinc.stderr, bench_root),
+                "stderr": sanitize_stderr(p_noinc.stderr, BENCH_ROOT),
             }
         finally:
             wt03_mpsc_mod.write_text(wt03_orig_content)
