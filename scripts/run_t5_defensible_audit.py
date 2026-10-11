@@ -145,7 +145,7 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     env["CARGO_HOME"] = str(Path.home() / ".cargo")
 
     # Isolate TMPDIR per worktree to prevent cross-worktree race conditions
-    wt_tmp = wt_dir / "tmp"
+    wt_tmp = (wt_dir / "tmp").resolve()
     wt_tmp.mkdir(parents=True, exist_ok=True)
     env["TMPDIR"] = str(wt_tmp)
 

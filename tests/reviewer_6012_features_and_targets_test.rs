@@ -412,3 +412,55 @@ fn test_doctest_command_native_search_link_args() {
         args
     );
 }
+
+#[test]
+fn test_integration_test_discovery_includes_underscore_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pkg_dir = tmp.path();
+    std::fs::write(
+        pkg_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "underscore-demo"
+        version = "0.1.0"
+        edition = "2021"
+        "#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(pkg_dir.join("tests")).unwrap();
+    std::fs::write(
+        pkg_dir.join("tests").join("_require_full.rs"),
+        "fn main() {}",
+    )
+    .unwrap();
+    std::fs::write(pkg_dir.join("tests").join("normal.rs"), "fn main() {}").unwrap();
+    std::fs::write(pkg_dir.join("tests").join(".hidden.rs"), "fn main() {}").unwrap();
+
+    let toml: CargoToml = toml::from_str(
+        r#"
+        [package]
+        name = "underscore-demo"
+        version = "0.1.0"
+        edition = "2021"
+        "#,
+    )
+    .unwrap();
+
+    let targets = toml.discover_test_targets(pkg_dir);
+    let names: Vec<String> = targets.into_iter().map(|t| t.name).collect();
+    assert!(
+        names.contains(&"_require_full".to_string()),
+        "tests/_require_full.rs must be discovered as integration test: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"normal".to_string()),
+        "tests/normal.rs must be discovered: {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&".hidden".to_string()),
+        "hidden files must be ignored: {:?}",
+        names
+    );
+}

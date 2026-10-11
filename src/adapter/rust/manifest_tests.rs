@@ -114,7 +114,7 @@ impl CargoToml {
                 test_files.sort();
                 for path in test_files {
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        if stem.starts_with('_') {
+                        if stem.starts_with('.') {
                             continue;
                         }
                         targets.push(DiscoveredTarget {
