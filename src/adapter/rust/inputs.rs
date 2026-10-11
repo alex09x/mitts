@@ -259,7 +259,40 @@ pub use super::unit_inputs::{
 };
 
 
-/// Gathers package base inputs excluding tests/, benches/, and examples/ for legacy compatibility.
+/// Gathers full package base inputs including tests/, benches/, and examples/ for build scripts and impure macros.
+pub fn hash_package_full_inputs(
+    package_dir: &Path,
+    workspace_manifest: Option<&Path>,
+    is_workspace: bool,
+) -> Result<Vec<(String, String)>> {
+    let mut inputs = hash_package_common_inputs(package_dir, workspace_manifest, is_workspace)?;
+    if inputs.iter().any(|(k, _)| k == "immutable_pkg") {
+        return Ok(inputs);
+    }
+    let entries = fs::read_dir(package_dir)
+        .with_context(|| format!("Failed to read package directory {:?}", package_dir))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+        if path.is_dir() {
+            if name_str == "target"
+                || name_str == ".git"
+                || name_str == ".mitts"
+                || path.join("Cargo.toml").is_file()
+            {
+                continue;
+            }
+            scan_dir_inputs(&path, package_dir, &mut inputs)?;
+        }
+    }
+    inputs.sort_by(|a, b| a.0.cmp(&b.0));
+    inputs.dedup_by(|a, b| a.0 == b.0);
+    Ok(inputs)
+}
+
+/// Gathers package base inputs excluding tests/, benches/, and examples/ for standard compilation units.
 pub fn hash_package_base_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,

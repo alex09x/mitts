@@ -66,6 +66,24 @@ pub fn is_known_pure_proc_macro(name: &str) -> bool {
     )
 }
 
+/// Returns true if a unit depends on any proc-macro not in the known-pure whitelist.
+pub fn unit_has_impure_proc_macro(unit: &super::types::PlannedCompilationUnit) -> bool {
+    unit.dependencies.iter().any(|dep| {
+        if dep.contains("::proc-macro:") {
+            let name = dep
+                .split("::proc-macro:")
+                .nth(1)
+                .unwrap_or("")
+                .split(':')
+                .next()
+                .unwrap_or("");
+            !is_known_pure_proc_macro(name)
+        } else {
+            false
+        }
+    })
+}
+
 /// Resolves explicit target triple from CLI extra_args, Cargo config files, or environment.
 /// Returns None when compiling natively for the default host toolchain without explicit target.
 pub fn resolve_explicit_target_from_args_and_dir(
@@ -172,20 +190,7 @@ pub fn compute_unit_flags_with_ws(
         let reads_manifest_dir = unit.env_vars.iter().any(|v| v == "CARGO_MANIFEST_DIR")
             || unit.cache_eligibility.contains("untracked dynamic env");
         let has_build_script = super::pipelining::package_has_build_script(&unit.manifest_path);
-        let has_impure_proc_macro = unit.dependencies.iter().any(|dep| {
-            if dep.contains("::proc-macro:") {
-                let name = dep
-                    .split("::proc-macro:")
-                    .nth(1)
-                    .unwrap_or("")
-                    .split(':')
-                    .next()
-                    .unwrap_or("");
-                !is_known_pure_proc_macro(name)
-            } else {
-                false
-            }
-        });
+        let has_impure_proc_macro = unit_has_impure_proc_macro(unit);
 
         let root = ws_root
             .map(|p| p.to_path_buf())

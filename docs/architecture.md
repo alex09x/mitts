@@ -46,7 +46,6 @@ sources:   <sorted (path, content hash) pairs>
 deps:      <sorted (dependency unit, dependency action key) pairs>
 ```
 
-- **Sources.** For a registry dependency, the content hash of its unpacked
 - **Sources.** For a registry dependency, the package files downloaded with the
   package. For workspace units, input tracking is isolated at the unit level:
   - *Package common inputs*: manifests (`Cargo.toml`), lockfiles (`Cargo.lock`),

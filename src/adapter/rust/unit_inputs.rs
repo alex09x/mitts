@@ -36,6 +36,21 @@ pub fn clean_path(path: &Path) -> PathBuf {
     out
 }
 
+#[inline]
+pub(crate) fn is_ignored_file_name(name: &str) -> bool {
+    name.ends_with(".tmp")
+        || name.ends_with(".swp")
+        || name.ends_with(".profraw")
+        || name.ends_with(".profdata")
+        || name == ".git"
+        || name == "Cargo.lock"
+}
+
+#[inline]
+pub(crate) fn is_ignored_dir_name(name: &str) -> bool {
+    matches!(name, "target" | ".git" | ".mitts" | "tests" | "benches" | "examples")
+}
+
 /// Recursively scans a directory for source and asset inputs.
 pub fn scan_dir_inputs(
     dir: &Path,
@@ -52,22 +67,14 @@ pub fn scan_dir_inputs(
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
             if path.is_dir() {
-                if name_str == "target"
-                    || name_str == ".git"
-                    || name_str == ".mitts"
+                if matches!(name_str.as_ref(), "target" | ".git" | ".mitts")
                     || (path != dir && path.join("Cargo.toml").is_file())
                 {
                     continue;
                 }
                 stack.push(path);
             } else if path.is_file() {
-                if name_str.ends_with(".tmp")
-                    || name_str.ends_with(".swp")
-                    || name_str.ends_with(".profraw")
-                    || name_str.ends_with(".profdata")
-                    || name_str == ".git"
-                    || name_str == "Cargo.lock"
-                {
+                if is_ignored_file_name(&name_str) {
                     continue;
                 }
                 let hash = Sha256::digest_file(&path)
@@ -104,14 +111,7 @@ pub fn compute_package_cache_entry(
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
             if path.is_dir() {
-                if name_str == "target"
-                    || name_str == ".git"
-                    || name_str == ".mitts"
-                    || name_str == "tests"
-                    || name_str == "benches"
-                    || name_str == "examples"
-                    || path.join("Cargo.toml").is_file()
-                {
+                if is_ignored_dir_name(&name_str) || path.join("Cargo.toml").is_file() {
                     continue;
                 }
                 scan_dir_inputs(&path, package_dir, &mut src_inputs)?;
@@ -141,6 +141,14 @@ pub fn compute_unit_coarse_inputs(
         || unit.kind == "custom-build"
     {
         inputs.extend_from_slice(&pkg_entry.src_inputs);
+        if super::key_flags::unit_has_impure_proc_macro(unit) {
+            for extra_dir in &["tests", "benches", "examples"] {
+                let p = pkg_dir.join(extra_dir);
+                if p.is_dir() {
+                    scan_dir_inputs(&p, pkg_dir, &mut inputs)?;
+                }
+            }
+        }
         let src_dir = pkg_dir.join("src");
         if unit.src_path.is_file() && !unit.src_path.starts_with(&src_dir) {
             let hash = Sha256::digest_file(&unit.src_path)
@@ -185,6 +193,43 @@ pub fn compute_unit_coarse_inputs(
     Ok(inputs)
 }
 
+/// Returns true if a path within pkg_dir is part of the scanned package sources.
+pub fn is_file_in_scanned_tree(pkg_dir: &Path, file_path: &Path, allow_test_dirs: bool) -> bool {
+    let Ok(rel) = file_path.strip_prefix(pkg_dir) else {
+        return false;
+    };
+    if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
+        if is_ignored_file_name(file_name) {
+            return false;
+        }
+    }
+    let mut current = pkg_dir.to_path_buf();
+    let components: Vec<_> = rel.components().collect();
+    if components.is_empty() {
+        return false;
+    }
+    for comp in &components[..components.len() - 1] {
+        let name_str = comp.as_os_str().to_string_lossy();
+        if matches!(name_str.as_ref(), "target" | ".git" | ".mitts") {
+            return false;
+        }
+        if !allow_test_dirs && matches!(name_str.as_ref(), "tests" | "benches" | "examples") {
+            return false;
+        }
+        current.push(comp);
+        if current.join("Cargo.toml").is_file() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Returns true if a path within pkg_dir is part of the standard scanned package sources (excluding tests/, benches/, examples/, nested crates, and build/vcs artifacts).
+#[inline]
+pub fn is_file_in_scanned_pkg_sources(pkg_dir: &Path, file_path: &Path) -> bool {
+    is_file_in_scanned_tree(pkg_dir, file_path, false)
+}
+
 /// Checks whether a given file path is already part of the unit's coarse input set.
 pub fn is_file_in_unit_coarse_inputs(
     unit: &PlannedCompilationUnit,
@@ -204,20 +249,9 @@ pub fn is_file_in_unit_coarse_inputs(
         || unit.kind == "proc-macro"
         || unit.kind == "custom-build"
     {
-        if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_pkg) {
-            if let Some(first_comp) = rel.components().next() {
-                let first_str = first_comp.as_os_str().to_string_lossy();
-                if first_str == "tests"
-                    || first_str == "benches"
-                    || first_str == "examples"
-                    || first_str == "target"
-                    || first_str == ".git"
-                    || first_str == ".mitts"
-                {
-                    return false;
-                }
-                return true;
-            }
+        let allow_tests = super::key_flags::unit_has_impure_proc_macro(unit);
+        if is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, allow_tests) {
+            return true;
         }
         let unit_src = clean_path(&unit.src_path);
         if cleaned_file == unit_src {
@@ -298,20 +332,12 @@ pub fn extract_unit_extra_inputs(
                         }
                         for (var, val_opt) in parsed.env_deps {
                             let norm_path = format!("env:{}", var);
-                            let hash = if var == "OUT_DIR" {
-                                if let Some(purity) = out_dir_purity {
-                                    Sha256::digest(purity.out_dir_hash.as_bytes())
-                                } else {
-                                    match val_opt {
-                                        Some(v) => Sha256::digest(v.as_bytes()),
-                                        None => Sha256::digest(b"__UNSET__"),
-                                    }
-                                }
-                            } else {
-                                match val_opt {
+                            let hash = match (var.as_str(), out_dir_purity) {
+                                ("OUT_DIR", Some(purity)) => Sha256::digest(purity.out_dir_hash.as_bytes()),
+                                _ => match val_opt {
                                     Some(v) => Sha256::digest(v.as_bytes()),
                                     None => Sha256::digest(b"__UNSET__"),
-                                }
+                                },
                             };
                             extra_inputs.push((norm_path, hash));
                         }

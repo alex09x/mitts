@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::inputs::hash_package_base_inputs;
+use super::inputs::hash_package_full_inputs;
 use super::types::PlannedCompilationUnit;
 use crate::core::hash::{bytes_to_hex, Sha256};
 use anyhow::{Context, Result};
@@ -124,7 +124,7 @@ pub fn compute_build_script_key(
                 unit.manifest_path.display()
             )
         })?;
-        let base_inputs = hash_package_base_inputs(pkg_dir, None, true).with_context(|| {
+        let base_inputs = hash_package_full_inputs(pkg_dir, None, true).with_context(|| {
             format!(
                 "Failed to hash workspace package inputs for '{}' at {}",
                 unit.package_name,
