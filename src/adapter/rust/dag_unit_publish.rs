@@ -78,7 +78,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 }
                 let alt_path = dest.parent().unwrap_or(dest).join(&clean_crate);
                 if alt_path != *dest {
-                    let _ = crate::core::reflink_or_copy(dest, &alt_path, true);
+                    let _ = crate::core::link_intra_workspace(dest, &alt_path, true);
                 }
                 action_outputs.push(dest.to_path_buf());
             }
@@ -121,10 +121,12 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 let deps_dir = ctx.target_dir.join(profile_name).join("deps");
                 let _ = fs::create_dir_all(&deps_dir);
                 let dep_copy = deps_dir.join(file_name);
-                let _ = crate::core::reflink_or_copy(lib_path, &dep_copy, false);
+                if lib_path != &dep_copy {
+                    let _ = crate::core::link_intra_workspace(lib_path, &dep_copy, false);
+                }
                 let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                if !unhashed.is_file() {
-                    let _ = crate::core::reflink_or_copy(lib_path, &unhashed, false);
+                if unhashed != dep_copy && !unhashed.is_file() {
+                    let _ = crate::core::link_intra_workspace(&dep_copy, &unhashed, false);
                 }
             }
         }
@@ -150,10 +152,12 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 let deps_dir = ctx.target_dir.join(profile_name).join("deps");
                 let _ = fs::create_dir_all(&deps_dir);
                 let dep_copy = deps_dir.join(file_name);
-                let _ = crate::core::reflink_or_copy(mp, &dep_copy, false);
+                if mp != &dep_copy {
+                    let _ = crate::core::link_intra_workspace(mp, &dep_copy, false);
+                }
                 let unhashed = deps_dir.join(format!("lib{}.rmeta", clean_crate));
-                if !unhashed.is_file() {
-                    let _ = crate::core::reflink_or_copy(mp, &unhashed, false);
+                if unhashed != dep_copy && !unhashed.is_file() {
+                    let _ = crate::core::link_intra_workspace(&dep_copy, &unhashed, false);
                 }
             }
         }

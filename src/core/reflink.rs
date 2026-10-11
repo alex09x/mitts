@@ -145,3 +145,37 @@ pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Links an artifact within the workspace (e.g. creating unhashed aliases or secondary binary names)
+/// with zero-copy semantics.
+///
+/// On Unix, if `src` is verified to have `nlink == 1` (guaranteed isolated to the workspace and not
+/// shared with CAS or external stores), it creates a hardlink (`std::fs::hard_link`) after unlinking
+/// any existing `dst`.
+/// If `nlink > 1`, or if hardlinking fails (e.g. cross-device boundaries), it falls back safely to
+/// `reflink_or_copy`.
+pub fn link_intra_workspace(src: &Path, dst: &Path, executable: bool) -> Result<()> {
+    if src == dst {
+        return Ok(());
+    }
+
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create parent directory for {:?}", dst))?;
+    }
+
+    // Always unlink destination prior to linking to break previous links and prevent in-place mutation
+    let _ = fs::remove_file(dst);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = fs::symlink_metadata(src) {
+            if meta.nlink() == 1 && fs::hard_link(src, dst).is_ok() {
+                return Ok(());
+            }
+        }
+    }
+
+    reflink_or_copy(src, dst, executable)
+}

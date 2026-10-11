@@ -79,6 +79,7 @@ impl<'a> RustcInvocation<'a> {
                 if let Some(dest) = self.dest_binary {
                     if bin_path.is_file() {
                         let _ = dest.parent().map(fs::create_dir_all);
+                        let _ = fs::remove_file(dest);
                         let _ = crate::core::reflink_or_copy(&bin_path, dest, true);
                     }
                     primary_output = Some(dest.to_path_buf());

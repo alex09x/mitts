@@ -222,10 +222,7 @@ pub fn try_restore_from_cache_with_directives(
                     let rel_dest = ctx.target_dir.join(&out.relative_path);
                     ctx.cas.restore_object(&out.cas_hash, &rel_dest, true)?;
                     if rel_dest != dest_bin {
-                        if let Some(parent) = dest_bin.parent() {
-                            let _ = fs::create_dir_all(parent);
-                        }
-                        let _ = crate::core::reflink_or_copy(&rel_dest, &dest_bin, true);
+                        let _ = crate::core::link_intra_workspace(&rel_dest, &dest_bin, true);
                     }
                     break;
                 }
@@ -249,8 +246,8 @@ pub fn try_restore_from_cache_with_directives(
                     }
                     let clean_crate = unit.target_name.replace('-', "_");
                     let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                    if !unhashed.is_file() {
-                        let _ = ctx.cas.restore_object(&out.cas_hash, &unhashed, false);
+                    if unhashed != target_dep_dest && !unhashed.is_file() {
+                        let _ = crate::core::link_intra_workspace(&target_dep_dest, &unhashed, false);
                     }
                 }
 
