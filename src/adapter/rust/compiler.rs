@@ -80,7 +80,13 @@ impl<'a> RustcInvocation<'a> {
                     if bin_path.is_file() {
                         let _ = dest.parent().map(fs::create_dir_all);
                         if fs::rename(&bin_path, dest).is_err() {
-                            let _ = crate::core::link_intra_workspace(&bin_path, dest, true);
+                            let parent = dest.parent().unwrap_or(dest);
+                            let _ = crate::core::link_intra_workspace(
+                                &bin_path,
+                                dest,
+                                &[self.out_dir, parent],
+                                true,
+                            );
                         }
                     }
                     primary_output = Some(dest.to_path_buf());

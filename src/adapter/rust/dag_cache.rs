@@ -222,12 +222,22 @@ pub fn try_restore_from_cache_with_directives(
                     let rel_dest = ctx.target_dir.join(&out.relative_path);
                     ctx.cas.restore_object(&out.cas_hash, &rel_dest, true)?;
                     if rel_dest != dest_bin {
-                        let _ = crate::core::link_intra_workspace(&rel_dest, &dest_bin, true);
+                        let _ = crate::core::link_intra_workspace(
+                            &rel_dest,
+                            &dest_bin,
+                            &[ctx.target_dir],
+                            true,
+                        );
                     }
                     let clean_crate = unit.target_name.replace('-', "_");
                     let alt_path = dest_bin.parent().unwrap_or(&dest_bin).join(&clean_crate);
                     if alt_path != dest_bin {
-                        let _ = crate::core::link_intra_workspace(&dest_bin, &alt_path, true);
+                        let _ = crate::core::link_intra_workspace(
+                            &dest_bin,
+                            &alt_path,
+                            &[ctx.target_dir],
+                            true,
+                        );
                     }
                     break;
                 }
@@ -252,7 +262,12 @@ pub fn try_restore_from_cache_with_directives(
                     let clean_crate = unit.target_name.replace('-', "_");
                     let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
                     if unhashed != target_dep_dest {
-                        let _ = crate::core::link_intra_workspace(&target_dep_dest, &unhashed, false);
+                        let _ = crate::core::link_intra_workspace(
+                            &target_dep_dest,
+                            &unhashed,
+                            &[ctx.target_dir],
+                            false,
+                        );
                     }
                 }
 

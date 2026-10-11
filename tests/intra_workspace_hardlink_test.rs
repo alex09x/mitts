@@ -24,7 +24,7 @@ fn test_intra_workspace_hardlink_basic_and_inode_match() {
     fs::write(&src, b"rust library bytecode v1").unwrap();
 
     let dst = root.join("deps").join("src_file.rlib");
-    link_intra_workspace(&src, &dst, false).unwrap();
+    link_intra_workspace(&src, &dst, &[root], false).unwrap();
 
     assert!(dst.is_file());
     assert_eq!(fs::read(&dst).unwrap(), b"rust library bytecode v1");
@@ -44,16 +44,19 @@ fn test_intra_workspace_hardlink_chaining_and_cas_isolation() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
-    let src = root.join("source.bin");
+    let ws_dir = root.join("workspace").join("target");
+    fs::create_dir_all(&ws_dir).unwrap();
+
+    let src = ws_dir.join("source.bin");
     fs::write(&src, b"binary content").unwrap();
 
     // 1. Create an initial hardlink so src has nlink == 2
-    let alias1 = root.join("alias1.bin");
-    link_intra_workspace(&src, &alias1, true).unwrap();
+    let alias1 = ws_dir.join("alias1.bin");
+    link_intra_workspace(&src, &alias1, &[&ws_dir], true).unwrap();
 
     // 2. Chaining: link_intra_workspace(&alias1, &alias2) must succeed with zero-copy hardlink!
-    let alias2 = root.join("alias2.bin");
-    link_intra_workspace(&alias1, &alias2, true).unwrap();
+    let alias2 = ws_dir.join("alias2.bin");
+    link_intra_workspace(&alias1, &alias2, &[&ws_dir], true).unwrap();
     assert!(alias2.is_file());
     assert_eq!(fs::read(&alias2).unwrap(), b"binary content");
 
@@ -69,17 +72,17 @@ fn test_intra_workspace_hardlink_chaining_and_cas_isolation() {
     }
 
     // 3. Fast-path: repeated link to already identical inode must be a no-op
-    link_intra_workspace(&src, &alias1, true).unwrap();
+    link_intra_workspace(&src, &alias1, &[&ws_dir], true).unwrap();
 
-    // 4. CAS isolation: an object in CAS objects directory must NEVER be hardlinked
+    // 4. CAS isolation: an object in CAS objects directory must NEVER be hardlinked into workspace
     let cas_dir = root.join("cas");
     let cas = ContentAddressedStore::new(cas_dir).unwrap();
     let (cas_hash, _) = cas.store_file(&src).unwrap();
     let cas_obj = cas.object_path(&cas_hash);
     assert!(cas_obj.is_file());
 
-    let ws_dst = root.join("from_cas.bin");
-    link_intra_workspace(&cas_obj, &ws_dst, true).unwrap();
+    let ws_dst = ws_dir.join("from_cas.bin");
+    link_intra_workspace(&cas_obj, &ws_dst, &[&ws_dir], true).unwrap();
     assert!(ws_dst.is_file());
 
     #[cfg(unix)]
@@ -124,7 +127,7 @@ fn test_intra_workspace_rebuild_cas_isolation() {
     assert_eq!(fs::read(&obj_path_v1).unwrap(), b"compiled binary v1 content");
 
     // Link alt_path
-    link_intra_workspace(&dest, &alt_path, true).unwrap();
+    link_intra_workspace(&dest, &alt_path, &[&target_debug], true).unwrap();
     assert_eq!(fs::read(&dest).unwrap(), b"compiled binary v1 content");
     assert_eq!(fs::read(&alt_path).unwrap(), b"compiled binary v1 content");
 
@@ -148,7 +151,7 @@ fn test_intra_workspace_rebuild_cas_isolation() {
     assert_ne!(hash_v1, hash_v2);
 
     // Link alt_path to new dest
-    link_intra_workspace(&dest, &alt_path, true).unwrap();
+    link_intra_workspace(&dest, &alt_path, &[&target_debug], true).unwrap();
 
     // 3. Verifications
     assert_eq!(fs::read(&dest).unwrap(), b"compiled binary v2 updated content");
@@ -518,6 +521,75 @@ version = "0.1.0"
             u_rlib_meta_3.ino(),
             h_rlib_meta_3.ino(),
             "repeated cache hit must preserve identical inodes"
+        );
+    }
+}
+
+#[test]
+fn test_intra_workspace_cas_isolation_with_writable_permissions_and_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    let cas_dir = root.join("cas");
+    let cas = ContentAddressedStore::new(cas_dir).unwrap();
+
+    let ws_dir = root.join("workspace").join("target");
+    fs::create_dir_all(&ws_dir).unwrap();
+
+    // 1. Create a file and store it in CAS
+    let src = ws_dir.join("temp_src.bin");
+    fs::write(&src, b"cas object bytes").unwrap();
+    let (hash, _) = cas.store_file(&src).unwrap();
+    let cas_obj = cas.object_path(&hash);
+    assert!(cas_obj.is_file());
+
+    // Simulate "chmod -R u+rwx" on CAS (writable permissions 0o644 / 0o755)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&cas_obj, fs::Permissions::from_mode(0o644));
+    }
+
+    // Attempt link_intra_workspace from CAS object to workspace target
+    let ws_dst1 = ws_dir.join("restored_obj.bin");
+    link_intra_workspace(&cas_obj, &ws_dst1, &[&ws_dir], false).unwrap();
+    assert!(ws_dst1.is_file());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let cas_meta = fs::metadata(&cas_obj).unwrap();
+        let dst_meta = fs::metadata(&ws_dst1).unwrap();
+        assert_ne!(
+            cas_meta.ino(),
+            dst_meta.ino(),
+            "CAS object even with 0644 mode must NEVER share inode with workspace"
+        );
+    }
+
+    // 2. Create a named artifact in cas/artifacts/ and set to 0o644
+    let cas_artifact = cas.named_artifact_path("my_crate", &hash, "rlib").unwrap();
+    assert!(cas_artifact.is_file());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&cas_artifact, fs::Permissions::from_mode(0o644));
+    }
+
+    // Attempt link_intra_workspace from cas/artifacts to workspace target
+    let ws_dst2 = ws_dir.join("restored_artifact.rlib");
+    link_intra_workspace(&cas_artifact, &ws_dst2, &[&ws_dir], false).unwrap();
+    assert!(ws_dst2.is_file());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let art_meta = fs::metadata(&cas_artifact).unwrap();
+        let dst_meta = fs::metadata(&ws_dst2).unwrap();
+        assert_ne!(
+            art_meta.ino(),
+            dst_meta.ino(),
+            "cas/artifacts artifact even with 0644 mode must NEVER share inode with workspace"
         );
     }
 }

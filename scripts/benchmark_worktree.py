@@ -29,7 +29,11 @@ def get_disk_usage_mb(paths):
     if not valid:
         return 0.0
     try:
-        subprocess.run(["chmod", "-R", "u+rwx"] + valid, stderr=subprocess.DEVNULL)
+        for p in valid:
+            subprocess.run(
+                ["find", p, "-type", "d", "!", "-perm", "-u+rx", "-exec", "chmod", "u+rx", "{}", "+"],
+                stderr=subprocess.DEVNULL,
+            )
         out = subprocess.check_output(["du", "-scm"] + valid, stderr=subprocess.DEVNULL, text=True)
         return float(out.strip().splitlines()[-1].split()[0])
     except Exception:

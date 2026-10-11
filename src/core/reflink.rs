@@ -146,9 +146,34 @@ pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-fn is_cas_path(p: &Path) -> bool {
-    let s = p.to_string_lossy();
-    s.contains("/cas/objects/") || s.contains("\\cas\\objects\\")
+/// Helper to verify that a path resides within any of the provided allowed root directories,
+/// comparing by canonical prefix.
+pub fn is_path_under_roots(path: &Path, allowed_roots: &[&Path]) -> bool {
+    let canonical = path.canonicalize().unwrap_or_else(|_| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(path))
+                .unwrap_or_else(|_| path.to_path_buf())
+        }
+    });
+
+    for root in allowed_roots {
+        let canonical_root = root.canonicalize().unwrap_or_else(|_| {
+            if root.is_absolute() {
+                root.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .map(|cwd| cwd.join(root))
+                    .unwrap_or_else(|_| root.to_path_buf())
+            }
+        });
+        if canonical.starts_with(&canonical_root) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Links an artifact within the workspace (e.g. creating unhashed aliases or secondary binary names)
@@ -159,10 +184,16 @@ fn is_cas_path(p: &Path) -> bool {
 /// or half-created destination file, and existing files remain untouched if hardlink creation fails.
 ///
 /// If `dst` already shares the same inode on the same device as `src`, this is a no-op returning `Ok(())`.
-/// If `src` is within the workspace/staging (not inside CAS objects storage), it stages via
-/// `fs::hard_link(&src, &tmp_dst)` and renames. If cross-device or unsupported, it falls back safely to
-/// `reflink_or_copy`.
-pub fn link_intra_workspace(src: &Path, dst: &Path, executable: bool) -> Result<()> {
+/// On Unix, hardlink creation is strictly gated: both `src` and `dst` must positively reside within
+/// the provided `allowed_roots` (e.g. `target_dir` and the unit compilation `out_dir`).
+/// Any path outside allowed roots (such as CAS objects or artifacts) will fail this check and safely fall
+/// back to `reflink_or_copy`.
+pub fn link_intra_workspace(
+    src: &Path,
+    dst: &Path,
+    allowed_roots: &[&Path],
+    executable: bool,
+) -> Result<()> {
     if src == dst {
         return Ok(());
     }
@@ -195,13 +226,10 @@ pub fn link_intra_workspace(src: &Path, dst: &Path, executable: bool) -> Result<
 
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = fs::symlink_metadata(src) {
-            if !is_cas_path(src) && !is_cas_path(dst) && (meta.mode() & 0o200 != 0) {
-                let _ = fs::remove_file(&tmp_dst);
-                if fs::hard_link(src, &tmp_dst).is_ok() {
-                    hardlink_succeeded = true;
-                }
+        if is_path_under_roots(src, allowed_roots) && is_path_under_roots(dst, allowed_roots) {
+            let _ = fs::remove_file(&tmp_dst);
+            if fs::hard_link(src, &tmp_dst).is_ok() {
+                hardlink_succeeded = true;
             }
         }
     }
