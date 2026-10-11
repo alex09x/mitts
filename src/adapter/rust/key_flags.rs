@@ -55,6 +55,14 @@ pub fn is_known_pure_proc_macro(name: &str) -> bool {
             | "auto_impl"
             | "shrinkwraprs"
             | "byteorder"
+            | "prost_derive"
+            | "futures_macro"
+            | "paste"
+            | "num_derive"
+            | "displaydoc"
+            | "miette_derive"
+            | "serde_repr"
+            | "arbitrary_derive"
     )
 }
 
@@ -166,7 +174,13 @@ pub fn compute_unit_flags_with_ws(
         let has_build_script = super::pipelining::package_has_build_script(&unit.manifest_path);
         let has_impure_proc_macro = unit.dependencies.iter().any(|dep| {
             if dep.contains("::proc-macro:") {
-                let name = dep.split("::proc-macro:").nth(1).unwrap_or("");
+                let name = dep
+                    .split("::proc-macro:")
+                    .nth(1)
+                    .unwrap_or("")
+                    .split(':')
+                    .next()
+                    .unwrap_or("");
                 !is_known_pure_proc_macro(name)
             } else {
                 false

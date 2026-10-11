@@ -359,3 +359,127 @@ edition = "2021"
         "Panic stderr must not leak clone 1's path"
     );
 }
+
+#[test]
+fn test_m8_workspace_with_pure_proc_macro_has_identical_action_keys_across_clones() {
+    let cache_dir = TempDir::new().unwrap();
+    let clone1 = TempDir::new().unwrap();
+    let clone2 = TempDir::new().unwrap();
+
+    let setup = |root: &Path| {
+        fs::create_dir_all(root.join("pure_macro/src")).unwrap();
+        fs::create_dir_all(root.join("app/src")).unwrap();
+
+        fs::write(
+            root.join("Cargo.toml"),
+            r#"[workspace]
+members = ["pure_macro", "app"]
+resolver = "2"
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("pure_macro/Cargo.toml"),
+            r#"[package]
+name = "serde_derive"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("pure_macro/src/lib.rs"),
+            r#"use proc_macro::TokenStream;
+
+#[proc_macro_derive(MyDerive)]
+pub fn my_derive(_input: TokenStream) -> TokenStream {
+    TokenStream::new()
+}
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("app/Cargo.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde_derive = { path = "../pure_macro" }
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("app/src/main.rs"),
+            r#"use serde_derive::MyDerive;
+
+#[derive(MyDerive)]
+struct TestStruct;
+
+fn main() {
+    println!("hello from app with pure macro");
+}
+"#,
+        )
+        .unwrap();
+    };
+
+    setup(clone1.path());
+    setup(clone2.path());
+
+    let opt1 = RustBuildOptions {
+        manifest_path: Some(clone1.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        target_dir: Some(clone1.path().join("target")),
+        ..Default::default()
+    };
+
+    let opt2 = RustBuildOptions {
+        manifest_path: Some(clone2.path().join("Cargo.toml")),
+        cache_dir: Some(cache_dir.path().to_path_buf()),
+        target_dir: Some(clone2.path().join("target")),
+        ..Default::default()
+    };
+
+    let expl1 = RustAdapter::explain_plan(&opt1).expect("explain clone1");
+    let expl2 = RustAdapter::explain_plan(&opt2).expect("explain clone2");
+    let keys1 = derive_unit_action_keys(&opt1, &expl1).expect("keys clone1");
+    let keys2 = derive_unit_action_keys(&opt2, &expl2).expect("keys clone2");
+
+    let app_unit = expl1.units.iter().find(|u| u.package_name == "app").unwrap();
+    let app_uid = app_unit.unit_id();
+
+    assert_eq!(
+        keys1[&app_uid], keys2[&app_uid],
+        "App crate depending on pure proc-macro must produce identical action keys across clones"
+    );
+
+    // Build clone 1
+    let (_, res1) = RustAdapter::build(&opt1).expect("build clone1");
+    assert!(res1.success);
+    assert!(!res1.cached);
+
+    // Build clone 2: must be 100% cache hit from CAS!
+    let (_, res2) = RustAdapter::build(&opt2).expect("build clone2");
+    assert!(res2.success);
+    assert!(
+        res2.cached,
+        "Clone 2 build must hit cache for path-independent workspace crate using pure macro"
+    );
+
+    let bin2 = clone2.path().join("target/debug/app");
+    assert!(bin2.is_file(), "Binary must be restored in clone 2");
+    let out = Command::new(&bin2).output().expect("run bin2");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("hello from app with pure macro"));
+}
+
