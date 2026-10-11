@@ -105,9 +105,13 @@ pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
         }
     }
 
-    if !reflink_succeeded {
+    let file_size = fs::metadata(src).map(|m| m.len()).unwrap_or(0);
+    if reflink_succeeded {
+        crate::core::metrics::record_cloned(file_size);
+    } else {
         fs::copy(src, &tmp_dst)
             .with_context(|| format!("Failed to copy bytes from {:?} to {:?}", src, tmp_dst))?;
+        crate::core::metrics::record_copied(file_size);
     }
 
     #[cfg(unix)]
@@ -277,6 +281,8 @@ pub fn link_intra_workspace(
                 rename_err
             );
         }
+        let file_size = fs::metadata(dst).map(|m| m.len()).unwrap_or(0);
+        crate::core::metrics::record_hardlinked(file_size);
         return Ok(());
     }
 

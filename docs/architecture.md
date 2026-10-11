@@ -191,3 +191,10 @@ workspace and never shared.
 - Windows (locks and the jobserver are POSIX-only today).
 - Empty or omitted `workspace.members` defaults strictly to the root package (`.`); implicit path-dependencies outside the root package are not auto-promoted to members and must be listed in `workspace.members`.
 - Wildcards in intermediate directories (`crates/*/sub`) and character-class globs (`?`, `[...]`) in `workspace.members` are unsupported and fail closed.
+
+## 11. Diagnostic Environment Variables
+
+- `MITTS_TIMINGS=1`: Enables sub-millisecond phase timing breakdowns (`[mitts::phases]`), I/O byte and file counters (`[mitts::io]`), and aggregate CPU time (`[mitts::aggregate_cpu]`) on stderr.
+- `MITTS_NO_REFLINK=1`: Diagnostic flag to disable copy-on-write block cloning (`FICLONE` on Linux, `clonefile` on macOS), forcing fallback to byte copying for isolation studies and benchmarking.
+- `MITTS_NO_HARDLINK=1`: Diagnostic flag to disable intra-workspace zero-copy hardlinks, forcing fallback to byte copying or reflink.
+

@@ -92,6 +92,7 @@ pub(crate) fn execute_unit(
     };
 
     let try_restore = |ctx: &ExecutionContext| -> Result<bool> {
+        let t0 = std::time::Instant::now();
         if try_restore_from_cache_with_directives(
             unit,
             &effective_action_key,
@@ -99,6 +100,7 @@ pub(crate) fn execute_unit(
             is_executable,
             current_directives.as_ref(),
         )? {
+            crate::core::metrics::record_restore_duration(t0.elapsed());
             if let Some(ref p) = staging_dir_holder {
                 let _ = fs::remove_dir_all(p);
             }
@@ -209,6 +211,7 @@ pub(crate) fn execute_unit(
         target_dir: Some(ctx.target_dir),
     };
 
+    let t_rustc = std::time::Instant::now();
     let output = if let Some(cb) = ctx.on_metadata_ready {
         invocation.execute_pipelined(|rmeta_path| {
             let ws_root = if unit.is_workspace {
@@ -253,6 +256,7 @@ pub(crate) fn execute_unit(
     } else {
         invocation.execute()?
     };
+    crate::core::metrics::record_rustc_duration(t_rustc.elapsed());
 
     if !output.stdout.is_empty() {
         ctx.compiler_messages
@@ -296,6 +300,7 @@ pub(crate) fn execute_unit(
         );
     }
 
+    let t_pub = std::time::Instant::now();
     let action_outputs =
         super::dag_unit_publish::publish_unit_artifacts(super::dag_unit_publish::PublishArgs {
             unit,
@@ -307,6 +312,7 @@ pub(crate) fn execute_unit(
             out_dir_purity: build_purity_opt.as_ref(),
             out_dir: directives.out_dir.as_deref(),
         })?;
+    crate::core::metrics::record_publish_duration(t_pub.elapsed());
 
     // Clean up staging directory immediately to guarantee zero workspace target pollution
     let _ = fs::remove_dir_all(&staging_dir);

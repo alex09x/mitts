@@ -250,7 +250,7 @@ def get_filesystem_type(path: Path) -> str:
         p = p.parent
     try:
         res = subprocess.check_output(
-            ["stat", "-f", "-c", "%T", str(p)],
+            ["findmnt", "-no", "FSTYPE", "--target", str(p)],
             text=True,
             stderr=subprocess.DEVNULL
         ).strip()
@@ -268,6 +268,16 @@ def get_filesystem_type(path: Path) -> str:
             parts = lines[1].split()
             if len(parts) > 1:
                 return parts[1]
+    except Exception:
+        pass
+    try:
+        res = subprocess.check_output(
+            ["stat", "-f", "-c", "%T", str(p)],
+            text=True,
+            stderr=subprocess.DEVNULL
+        ).strip()
+        if res:
+            return res
     except Exception:
         pass
     return "unknown"

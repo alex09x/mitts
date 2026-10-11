@@ -21,6 +21,7 @@ pub mod gc;
 pub mod hash;
 pub mod jobserver;
 pub mod lock;
+pub mod metrics;
 pub mod reflink;
 pub mod source_store;
 

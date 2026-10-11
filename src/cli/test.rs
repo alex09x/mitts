@@ -348,12 +348,9 @@ pub fn handle_test(args: &TestArgs) -> i32 {
 
     let test_duration = test_start.elapsed();
     let total_duration = start.elapsed();
-    eprintln!(
-        "[mitts::phases] compile_s={:.3} test_exec_s={:.3} total_s={:.3}",
-        compile_duration.as_secs_f64(),
-        test_duration.as_secs_f64(),
-        total_duration.as_secs_f64()
-    );
+    if std::env::var_os("MITTS_TIMINGS").is_some() || args.verbose > 0 {
+        crate::core::metrics::print_timings(compile_duration, test_duration, total_duration);
+    }
 
     exit_code
 }

@@ -98,6 +98,11 @@ def get_scripts_provenance():
 def get_provenance_info(mitts_cache=None, worktree_dir=None):
     prov = get_binary_provenance(MITTS_BIN)
     prov["scripts_provenance"] = get_scripts_provenance()
+    prov["diagnostic_flags"] = {
+        "mitts_no_reflink": os.environ.get("MITTS_NO_REFLINK", "0"),
+        "mitts_no_hardlink": os.environ.get("MITTS_NO_HARDLINK", "0"),
+        "mitts_timings": os.environ.get("MITTS_TIMINGS", "0"),
+    }
     if mitts_cache:
         prov["cache_filesystem"] = get_filesystem_type(Path(mitts_cache))
     if worktree_dir:
@@ -208,6 +213,23 @@ def parse_sccache_stats(text: str):
     }
 
 
+def extract_failed_tests(text: str):
+    failed = []
+    for line in text.splitlines():
+        line_s = line.strip()
+        if line_s.startswith("test ") and line_s.endswith(" ... FAILED"):
+            name = line_s[5:-11].strip()
+            if name and name not in failed:
+                failed.append(name)
+    m_fail = re.search(r"failures:\n((?:\s+[^\n]+\n)+)", text)
+    if m_fail:
+        for f_line in m_fail.group(1).splitlines():
+            name = f_line.strip()
+            if name and not name.startswith("----") and name not in failed:
+                failed.append(name)
+    return failed
+
+
 def parse_phase_breakdown(text: str, elapsed: float, tool: str):
     if tool == "mitts_cas":
         m = re.search(
@@ -217,18 +239,45 @@ def parse_phase_breakdown(text: str, elapsed: float, tool: str):
         if m:
             compile_s = round(float(m.group(1)), 3)
             test_exec_s = round(float(m.group(2)), 3)
-            return {
+            res = {
                 "compile_s": compile_s,
                 "test_exec_s": test_exec_s,
                 "total_wall_s": round(float(m.group(3)), 3),
             }
+            m_io = re.search(
+                r"\[mitts::io\]\s+bytes_cloned=(\d+)\s+bytes_copied=(\d+)\s+bytes_hardlinked=(\d+)\s+files_cloned=(\d+)\s+files_copied=(\d+)\s+files_hardlinked=(\d+)",
+                text,
+            )
+            if m_io:
+                res["io_stats"] = {
+                    "bytes_cloned": int(m_io.group(1)),
+                    "bytes_copied": int(m_io.group(2)),
+                    "bytes_hardlinked": int(m_io.group(3)),
+                    "files_cloned": int(m_io.group(4)),
+                    "files_copied": int(m_io.group(5)),
+                    "files_hardlinked": int(m_io.group(6)),
+                }
+            m_agg = re.search(
+                r"\[mitts::aggregate_cpu\]\s+restore_cpu_s=([\d\.]+)\s+publish_cpu_s=([\d\.]+)\s+rustc_cpu_s=([\d\.]+)",
+                text,
+            )
+            if m_agg:
+                res["aggregate_cpu_s"] = {
+                    "restore_cpu_s": float(m_agg.group(1)),
+                    "publish_cpu_s": float(m_agg.group(2)),
+                    "rustc_cpu_s": float(m_agg.group(3)),
+                }
+            return res
+
     # Cargo fallback for cargo_bare, cargo_sccache, cargo_shared
     m_cargo = re.search(
-        r"Finished\s+`?(?:test|dev|release)`?\s+profile.*?in\s+([\d\.]+)s",
+        r"Finished\s+`?(?:test|dev|release)`?\s+profile.*?in\s+(?:(\d+)m\s+)?([\d\.]+)s",
         text,
     )
     if m_cargo:
-        c_s = round(float(m_cargo.group(1)), 3)
+        mins = float(m_cargo.group(1)) if m_cargo.group(1) else 0.0
+        secs = float(m_cargo.group(2))
+        c_s = round(mins * 60.0 + secs, 3)
         t_s = round(max(0.0, elapsed - c_s), 3)
         return {
             "compile_s": c_s,
@@ -252,6 +301,7 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     env["CARGO"] = str(cargo_bin)
     env["RUSTUP_HOME"] = str(Path.home() / ".rustup")
     env["CARGO_HOME"] = str(Path.home() / ".cargo")
+    env["MITTS_TIMINGS"] = "1"
 
     # Isolate TMPDIR per worktree to prevent cross-worktree race conditions
     wt_tmp = (wt_dir / "tmp").resolve()
@@ -288,6 +338,7 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     test_stats = parse_test_results(full_output)
     mitts_stats = parse_mitts_stats(full_output) if tool == "mitts_cas" else None
     phases = parse_phase_breakdown(full_output, elapsed, tool)
+    failed_test_names = extract_failed_tests(full_output) if exit_code != 0 else []
     return {
         "wt_index": i,
         "wall_sec": round(elapsed, 3),
@@ -298,6 +349,7 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
         "stderr": stderr,
         "test_stats": test_stats,
         "mitts_stats": mitts_stats,
+        "failed_test_names": failed_test_names,
     }
 
 
