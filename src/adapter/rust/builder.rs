@@ -9,7 +9,7 @@
  */
 
 use super::planner::explain_plan;
-use super::types::{RustAdapterError, RustBuildOptions};
+use super::types::{BuildProgressEvent, RustAdapterError, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use crate::core::action::{Action, ActionKind, ActionResult, BuildPlan};
 use crate::core::build_lock::{
@@ -114,6 +114,14 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                         r#"{{"compiled": 0, "cached": 0, "total": {}, "fast_lock": 1}}"#,
                         action_count
                     );
+                }
+
+                if let Some(ref ref_stderr) = stderr {
+                    if !ref_stderr.is_empty() {
+                        if let Some(ref cb) = opt.progress {
+                            cb.0(BuildProgressEvent::CompilerMessage(ref_stderr.clone()));
+                        }
+                    }
                 }
 
                 let mut actions = Vec::new();
