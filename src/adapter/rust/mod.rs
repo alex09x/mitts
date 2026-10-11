@@ -57,6 +57,7 @@ pub mod test_selection;
 pub mod types;
 pub mod unescape;
 pub mod unit_env;
+pub mod unit_inputs;
 
 pub use build_script::execute_build_script;
 pub use build_script_directives::BuildScriptDirectives;

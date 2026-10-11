@@ -8,8 +8,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::inputs::hash_package_base_inputs;
 use super::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions};
+use super::unit_inputs::{
+    compute_package_cache_entry, compute_unit_coarse_inputs, PackageInputsCacheEntry,
+};
 use crate::core::action_cache::ActionCache;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -156,28 +158,27 @@ pub fn derive_unit_action_key_context(
     let ws_manifest = Some(explanation.manifest_path.as_path());
     let pkg_list: Vec<(PathBuf, bool)> = unique_pkgs.into_iter().collect();
 
-    // Parallel hash base inputs across chunked workers
+    // Parallel hash common and library inputs across chunked workers once per package
     let computed_pkg_inputs = parallel_map_chunks(&pkg_list, |(pkg_dir, is_ws)| {
         let ws_ref = if *is_ws { ws_manifest } else { None };
-        let inputs = hash_package_base_inputs(pkg_dir, ws_ref, *is_ws)?;
-        Ok::<_, anyhow::Error>((pkg_dir.clone(), inputs))
+        let entry = compute_package_cache_entry(pkg_dir, ws_ref, *is_ws)?;
+        Ok::<_, anyhow::Error>((pkg_dir.clone(), entry))
     });
 
-    let mut pkg_inputs_cache: HashMap<PathBuf, Vec<(String, String)>> = HashMap::new();
+    let mut pkg_inputs_cache: HashMap<PathBuf, PackageInputsCacheEntry> = HashMap::new();
     for res in computed_pkg_inputs {
-        let (pkg_dir, inputs) = res?;
-        pkg_inputs_cache.insert(pkg_dir, inputs);
+        let (pkg_dir, entry) = res?;
+        pkg_inputs_cache.insert(pkg_dir, entry);
     }
 
     // 2. Parallel resolution of unit dep-info inputs and compiler flags
     let unit_preps = parallel_map_chunks(&explanation.units, |unit| {
         let pkg_dir = resolve_unit_pkg_dir(unit);
-        let base_inputs = pkg_inputs_cache
+        let pkg_entry = pkg_inputs_cache
             .get(&pkg_dir)
-            .cloned()
             .ok_or_else(|| anyhow::anyhow!("Missing base inputs for package {:?}", pkg_dir))?;
         let build_ws_root = explanation.manifest_path.parent().unwrap_or(Path::new("."));
-        let inputs = base_inputs;
+        let inputs = compute_unit_coarse_inputs(unit, &pkg_dir, pkg_entry)?;
         let mut u_flags = compute_unit_flags_with_ws(
             unit,
             &pkg_dir,

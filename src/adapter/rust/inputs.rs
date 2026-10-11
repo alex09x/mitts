@@ -46,7 +46,7 @@ pub fn discover_clippy_config(start_dir: &Path) -> Option<PathBuf> {
     None
 }
 
-pub fn hash_package_base_inputs(
+pub fn hash_package_common_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
     is_workspace: bool,
@@ -225,49 +225,71 @@ pub fn hash_package_base_inputs(
         inputs.push((label, hash));
     }
 
-    // 6. Scan workspace package directory (src, assets, custom directories)
-    let mut stack = vec![package_dir.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let entries =
-            fs::read_dir(&dir).with_context(|| format!("Failed to read directory {:?}", dir))?;
-        for entry in entries {
-            let entry = entry?;
+    // 5. Scan root-level files directly in package_dir (build.rs, README.md, etc.)
+    if let Ok(entries) = fs::read_dir(package_dir) {
+        for entry in entries.flatten() {
             let path = entry.path();
-            let file_name = entry.file_name();
-            let name_str = file_name.to_string_lossy();
-            if path.is_dir() {
-                // Ignore build outputs, VCS metadata, mitts state, and nested crate directories
-                if name_str == "target"
-                    || name_str == ".git"
-                    || name_str == ".mitts"
-                    || (path != package_dir && path.join("Cargo.toml").is_file())
-                {
-                    continue;
-                }
-                stack.push(path);
-            } else if path.is_file() {
-                // Ignore transient editor swap and temporary files, and Cargo.lock (already hashed in Step 3)
+            if path.is_file() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
                 if name_str.ends_with(".tmp")
                     || name_str.ends_with(".swp")
                     || name_str.ends_with(".profraw")
                     || name_str.ends_with(".profdata")
                     || name_str == ".git"
                     || name_str == "Cargo.lock"
+                    || name_str == "Cargo.toml"
                 {
                     continue;
                 }
                 let hash = Sha256::digest_file(&path)
-                    .with_context(|| format!("Failed to hash package file {:?}", path))?;
-                let rel = path
-                    .strip_prefix(package_dir)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .to_string();
-                inputs.push((rel, hash));
+                    .with_context(|| format!("Failed to hash package root file {:?}", path))?;
+                inputs.push((name_str.to_string(), hash));
             }
         }
     }
 
+    inputs.sort_by(|a, b| a.0.cmp(&b.0));
+    inputs.dedup_by(|a, b| a.0 == b.0);
+    Ok(inputs)
+}
+
+pub use super::unit_inputs::{
+    clean_path, compute_unit_coarse_inputs, is_file_in_unit_coarse_inputs, scan_dir_inputs,
+};
+
+
+/// Gathers package base inputs excluding tests/, benches/, and examples/ for legacy compatibility.
+pub fn hash_package_base_inputs(
+    package_dir: &Path,
+    workspace_manifest: Option<&Path>,
+    is_workspace: bool,
+) -> Result<Vec<(String, String)>> {
+    let mut inputs = hash_package_common_inputs(package_dir, workspace_manifest, is_workspace)?;
+    if inputs.iter().any(|(k, _)| k == "immutable_pkg") {
+        return Ok(inputs);
+    }
+    let entries = fs::read_dir(package_dir)
+        .with_context(|| format!("Failed to read package directory {:?}", package_dir))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+        if path.is_dir() {
+            if name_str == "target"
+                || name_str == ".git"
+                || name_str == ".mitts"
+                || name_str == "tests"
+                || name_str == "benches"
+                || name_str == "examples"
+                || path.join("Cargo.toml").is_file()
+            {
+                continue;
+            }
+            scan_dir_inputs(&path, package_dir, &mut inputs)?;
+        }
+    }
     inputs.sort_by(|a, b| a.0.cmp(&b.0));
     inputs.dedup_by(|a, b| a.0 == b.0);
     Ok(inputs)

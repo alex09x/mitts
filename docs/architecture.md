@@ -47,9 +47,19 @@ deps:      <sorted (dependency unit, dependency action key) pairs>
 ```
 
 - **Sources.** For a registry dependency, the content hash of its unpacked
-  package. For a workspace crate, the package files plus every file that rustc
-  reported reading in its dep-info (`include_str!`, `include_bytes!`, nested
-  modules).
+- **Sources.** For a registry dependency, the package files downloaded with the
+  package. For workspace units, input tracking is isolated at the unit level:
+  - *Package common inputs*: manifests (`Cargo.toml`), lockfiles (`Cargo.lock`),
+    applicable configs (`.cargo/config.toml`, `clippy.toml`), and package root files
+    (including `build.rs`).
+  - *Unit coarse inputs*: library and binary units track the `src/` directory;
+    integration tests, benchmarks, and examples track only their declared `src_path`
+    (or `<dir>/**` for multi-file runner suites). Editing an integration test never
+    cascades invalidations to sibling tests or the library crate.
+  - *Extra inputs*: files read by the compiler outside the unit's coarse set
+    (such as `tests/support/`, `#[path]` targets, `include_str!`, `include_bytes!`)
+    are extracted from `rustc` dep-info (`.d`) and recorded in the action manifest,
+    ensuring precise invalidation without over-invalidating unrelated units.
 - **Environment.** `CARGO_*`, `RUST_*`, `RUSTFLAGS`, `RUSTDOCFLAGS`,
   `RUSTC_WRAPPER`, `RUSTC_WORKSPACE_WRAPPER`, `TARGET`, `HOST` and `PROFILE`
   enter the flags. Variables read through `env!` / `option_env!` are discovered
@@ -194,7 +204,8 @@ workspace and never shared.
 
 ## 11. Diagnostic Environment Variables
 
-- `MITTS_TIMINGS=1`: Enables sub-millisecond phase timing breakdowns (`[mitts::phases]`), I/O byte and file counters (`[mitts::io]`), and aggregate CPU time (`[mitts::aggregate_cpu]`) on stderr.
+- `MITTS_TIMINGS=1`: Enables sub-millisecond phase timing breakdowns (`[mitts::phases]`) and I/O byte and file counters (`[mitts::io]`) on stderr.
 - `MITTS_NO_REFLINK=1`: Diagnostic flag to disable copy-on-write block cloning (`FICLONE` on Linux, `clonefile` on macOS), forcing fallback to byte copying for isolation studies and benchmarking.
 - `MITTS_NO_HARDLINK=1`: Diagnostic flag to disable intra-workspace zero-copy hardlinks, forcing fallback to byte copying or reflink.
+
 
