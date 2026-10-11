@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -70,8 +71,8 @@ def get_scripts_provenance():
         "".join(f"{k}:{v}" for k, v in sorted(script_shas.items())).encode("utf-8")
     ).hexdigest()
 
-    git_head = ""
-    scripts_dirty = False
+    git_head = None
+    scripts_dirty = None
     try:
         git_head = subprocess.check_output(
             ["git", "-C", str(scripts_dir), "rev-parse", "HEAD"],
@@ -85,7 +86,8 @@ def get_scripts_provenance():
         ).strip()
         scripts_dirty = bool(status)
     except Exception:
-        pass
+        git_head = None
+        scripts_dirty = None
 
     return {
         "combined_sha256": combined,
@@ -257,6 +259,17 @@ def parse_phase_breakdown(text: str, elapsed: float, tool: str):
                     "files_copied": int(m_io.group(5)),
                     "files_hardlinked": int(m_io.group(6)),
                 }
+            m_sum = re.search(
+                r"\[mitts::timings_sum\]\s+restore_sum_s=([\d\.]+)\s+restore_miss_sum_s=([\d\.]+)\s+publish_sum_s=([\d\.]+)\s+rustc_sum_s=([\d\.]+)",
+                text,
+            )
+            if m_sum:
+                res["timings_sum_s"] = {
+                    "restore_sum_s": float(m_sum.group(1)),
+                    "restore_miss_sum_s": float(m_sum.group(2)),
+                    "publish_sum_s": float(m_sum.group(3)),
+                    "rustc_sum_s": float(m_sum.group(4)),
+                }
             m_agg = re.search(
                 r"\[mitts::aggregate_cpu\]\s+restore_cpu_s=([\d\.]+)\s+publish_cpu_s=([\d\.]+)\s+rustc_cpu_s=([\d\.]+)",
                 text,
@@ -353,8 +366,84 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     }
 
 
+class SystemPressureSampler:
+    def __init__(self, interval_s=0.5):
+        self.interval_s = interval_s
+        self._stop_event = threading.Event()
+        self._thread = None
+        self.samples = []
+
+    def _sample_once(self):
+        sample = {
+            "time": time.time(),
+            "dirty_mb": 0.0,
+            "writeback_mb": 0.0,
+            "io_some_avg10": 0.0,
+            "io_full_avg10": 0.0,
+        }
+        try:
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    if line.startswith("Dirty:"):
+                        sample["dirty_mb"] = round(int(line.split()[1]) / 1024.0, 1)
+                    elif line.startswith("Writeback:"):
+                        sample["writeback_mb"] = round(int(line.split()[1]) / 1024.0, 1)
+        except Exception:
+            pass
+
+        try:
+            with open("/proc/pressure/io", "r") as f:
+                for line in f:
+                    if line.startswith("some "):
+                        m = re.search(r"avg10=([\d\.]+)", line)
+                        if m:
+                            sample["io_some_avg10"] = float(m.group(1))
+                    elif line.startswith("full "):
+                        m = re.search(r"avg10=([\d\.]+)", line)
+                        if m:
+                            sample["io_full_avg10"] = float(m.group(1))
+        except Exception:
+            pass
+        return sample
+
+    def _run(self):
+        while not self._stop_event.is_set():
+            self.samples.append(self._sample_once())
+            self._stop_event.wait(self.interval_s)
+
+    def start(self):
+        self._stop_event.clear()
+        self.samples = []
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=2.0)
+        if not self.samples:
+            return {}
+        dirty_vals = [s["dirty_mb"] for s in self.samples]
+        wb_vals = [s["writeback_mb"] for s in self.samples]
+        io_some = [s["io_some_avg10"] for s in self.samples]
+        io_full = [s["io_full_avg10"] for s in self.samples]
+        return {
+            "samples_count": len(self.samples),
+            "max_dirty_mb": max(dirty_vals) if dirty_vals else 0.0,
+            "avg_dirty_mb": round(sum(dirty_vals) / len(dirty_vals), 1) if dirty_vals else 0.0,
+            "max_writeback_mb": max(wb_vals) if wb_vals else 0.0,
+            "avg_writeback_mb": round(sum(wb_vals) / len(wb_vals), 1) if wb_vals else 0.0,
+            "max_io_some_avg10": max(io_some) if io_some else 0.0,
+            "avg_io_some_avg10": round(sum(io_some) / len(io_some), 2) if io_some else 0.0,
+            "max_io_full_avg10": max(io_full) if io_full else 0.0,
+            "avg_io_full_avg10": round(sum(io_full) / len(io_full), 2) if io_full else 0.0,
+        }
+
+
 def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None):
     start = time.perf_counter()
+    sampler = SystemPressureSampler(interval_s=0.5)
+    sampler.start()
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(worktrees)) as executor:
         futs = {executor.submit(run_single_worktree, tool, wt, shared_target_dir, is_workspace, extra_test_args): wt for wt in worktrees}
@@ -363,9 +452,10 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
                 results.append(fut.result())
             except Exception as e:
                 results.append({"wt_index": -1, "wall_sec": -1, "exit_code": -1, "max_rss_mb": 0, "stdout": "", "stderr": str(e), "test_stats": {}})
+    pressure = sampler.stop()
     wall = round(time.perf_counter() - start, 3)
     results.sort(key=lambda r: r["wt_index"])
-    return {"total_wall_s": wall, "results": results}
+    return {"total_wall_s": wall, "results": results, "system_pressure": pressure}
 
 
 def compute_stats(vals):
@@ -472,6 +562,7 @@ def run_t5_project(project_name, runs_count=5):
             swarm_res = run_test_swarm(tool, wts, shared_target, is_workspace=is_ws, extra_test_args=extra_tail)
             tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
             tool_results[tool]["runs_data"].append(swarm_res)
+            tool_results[tool].setdefault("system_pressure_runs", []).append(swarm_res.get("system_pressure", {}))
 
             if tool == "cargo_sccache":
                 disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts] + [sccache_dir])
@@ -516,7 +607,9 @@ def run_t5_project(project_name, runs_count=5):
             elif tool == "mitts_cas":
                 last_mitts_res = swarm_res
 
-            print(f"    {tool:14s}: {swarm_res['total_wall_s']:6.2f}s | disk: {disk:6.1f}MB")
+            press = swarm_res.get("system_pressure", {})
+            press_str = f" | dirty: {press.get('max_dirty_mb', 0):.0f}MB | io_some: {press.get('max_io_some_avg10', 0):.2f}" if press else ""
+            print(f"    {tool:14s}: {swarm_res['total_wall_s']:6.2f}s | disk: {disk:6.1f}MB{press_str}")
 
     for tool, data in tool_results.items():
         st = compute_stats(data["durations_s"])
@@ -656,6 +749,7 @@ def run_t5_project(project_name, runs_count=5):
             {
                 "run_idx": idx + 1,
                 "total_wall_s": sr["total_wall_s"],
+                "system_pressure": sr.get("system_pressure", {}),
                 "worktrees": [
                     {
                         "wt_index": r["wt_index"],
@@ -668,6 +762,15 @@ def run_t5_project(project_name, runs_count=5):
                     }
                     for r in sr["results"]
                 ],
+                "totals": {
+                    "bytes_copied": sum(r.get("phases", {}).get("io_stats", {}).get("bytes_copied", 0) for r in sr["results"]),
+                    "bytes_cloned": sum(r.get("phases", {}).get("io_stats", {}).get("bytes_cloned", 0) for r in sr["results"]),
+                    "bytes_hardlinked": sum(r.get("phases", {}).get("io_stats", {}).get("bytes_hardlinked", 0) for r in sr["results"]),
+                    "restore_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("restore_sum_s", 0) for r in sr["results"]), 3),
+                    "restore_miss_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("restore_miss_sum_s", 0) for r in sr["results"]), 3),
+                    "publish_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("publish_sum_s", 0) for r in sr["results"]), 3),
+                    "rustc_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("rustc_sum_s", 0) for r in sr["results"]), 3),
+                } if tool == "mitts_cas" else {},
             }
             for idx, sr in enumerate(runs_d)
         ]

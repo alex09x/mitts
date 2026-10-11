@@ -289,11 +289,13 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         Ui::stage_start("❌", &format!("Test compilation failed [{}]", profile));
         render_compiler_diagnostics(&result.stderr, is_verbose);
         Ui::finish_failed(profile, &dur, "compilation errors");
-        eprintln!(
-            "[mitts::phases] compile_s={:.3} test_exec_s=0.000 total_s={:.3}",
-            compile_duration.as_secs_f64(),
-            start.elapsed().as_secs_f64()
-        );
+        if std::env::var_os("MITTS_TIMINGS").is_some() || args.verbose > 0 {
+            crate::core::metrics::print_timings(
+                compile_duration,
+                std::time::Duration::ZERO,
+                start.elapsed(),
+            );
+        }
         return result.exit_code;
     }
 
@@ -319,12 +321,14 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         );
         if exit_code != 0 && !args.no_fail_fast {
             let test_duration = test_start.elapsed();
-            eprintln!(
-                "[mitts::phases] compile_s={:.3} test_exec_s={:.3} total_s={:.3}",
-                compile_duration.as_secs_f64(),
-                test_duration.as_secs_f64(),
-                start.elapsed().as_secs_f64()
-            );
+            let total_duration = start.elapsed();
+            if std::env::var_os("MITTS_TIMINGS").is_some() || args.verbose > 0 {
+                crate::core::metrics::print_timings(
+                    compile_duration,
+                    test_duration,
+                    total_duration,
+                );
+            }
             return exit_code;
         }
     }

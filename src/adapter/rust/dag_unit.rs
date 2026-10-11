@@ -106,6 +106,7 @@ pub(crate) fn execute_unit(
             }
             return Ok(true);
         }
+        crate::core::metrics::record_restore_miss_duration(t0.elapsed());
         Ok(false)
     };
 
