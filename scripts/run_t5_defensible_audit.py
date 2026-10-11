@@ -664,6 +664,7 @@ def run_t5_project(project_name, runs_count=5):
                         "exit_code": r["exit_code"],
                         "test_stats": r["test_stats"],
                         "mitts_stats": r.get("mitts_stats"),
+                        "failed_test_names": r.get("failed_test_names", []),
                     }
                     for r in sr["results"]
                 ],
