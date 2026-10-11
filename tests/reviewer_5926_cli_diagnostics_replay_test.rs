@@ -230,6 +230,8 @@ fn test_check_cli_single_diagnostic_replay_fast_lock_hit() {
     let output1 = Command::new(bin_path)
         .arg("check")
         .env("HOME", temp_home.path())
+        .env_remove("MITTS_CACHE_DIR")
+        .env_remove("XDG_CACHE_HOME")
         .current_dir(ws.root_dir.path())
         .output()
         .expect("run cold check without --cache-dir");
@@ -242,6 +244,8 @@ fn test_check_cli_single_diagnostic_replay_fast_lock_hit() {
     let output2 = Command::new(bin_path)
         .arg("check")
         .env("HOME", temp_home.path())
+        .env_remove("MITTS_CACHE_DIR")
+        .env_remove("XDG_CACHE_HOME")
         .current_dir(ws.root_dir.path())
         .output()
         .expect("run repeat check without --cache-dir");
@@ -255,6 +259,8 @@ fn test_check_cli_single_diagnostic_replay_fast_lock_hit() {
     let output3 = Command::new(bin_path)
         .arg("check")
         .env("HOME", temp_home.path())
+        .env_remove("MITTS_CACHE_DIR")
+        .env_remove("XDG_CACHE_HOME")
         .current_dir(ws.root_dir.path())
         .output()
         .expect("run check after target wipe without --cache-dir");
