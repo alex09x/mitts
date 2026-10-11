@@ -567,15 +567,20 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
     known_discrepancy_accepted = False
     if project_name == "tokio":
         known_discrepancy = "tokio-macros proc-macro host dependencies (5 units: unicode_ident, proc_macro2, quote, syn, tokio_macros)"
-        tokio_expected_missing = {"unicode-ident", "proc-macro2", "quote", "syn", "tokio-macros"}
-        actual_missing_pkgs = set(k[0].replace("_", "-") for k in missing_in_mitts)
-        # Strict fail-closed check: exact 5 missing units matching expected package names and 0 extra units
+        tokio_expected_missing_counter = collections.Counter({
+            "unicode-ident": 1,
+            "proc-macro2": 1,
+            "quote": 1,
+            "syn": 1,
+            "tokio-macros": 1,
+        })
+        actual_missing_counter = collections.Counter(k[0].replace("_", "-") for k in missing_in_mitts)
+        # Strict fail-closed check: exact 1 copy of each expected missing package, 0 extra units, non-empty cargo
         if (
             not cargo_parse_error
             and not mitts_parse_error
             and len(extra_in_mitts) == 0
-            and len(missing_in_mitts) == 5
-            and actual_missing_pkgs == tokio_expected_missing
+            and actual_missing_counter == tokio_expected_missing_counter
             and sum(cargo_target_units_counter.values()) > 0
         ):
             known_discrepancy_accepted = True
@@ -586,12 +591,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
 
     cargo_pkgs = set((k[0], k[1]) for k in cargo_target_units_counter.keys())
     mitts_pkgs = set((k[0], k[1]) for k in mitts_units_counter.keys())
-    if project_name == "tokio":
-        tokio_expected_missing_names = {"unicode-ident", "proc-macro2", "quote", "syn", "tokio-macros"}
-        cargo_target_pkgs = set((p, v) for (p, v) in cargo_pkgs if p.replace("_", "-") not in tokio_expected_missing_names)
-        packages_identical = (cargo_target_pkgs == mitts_pkgs and len(mitts_pkgs) > 0)
-    else:
-        packages_identical = (cargo_pkgs == mitts_pkgs and len(cargo_pkgs) > 0)
+    packages_identical = (cargo_pkgs == mitts_pkgs and len(cargo_pkgs) > 0)
 
     feature_discrepancies = []
     # Check for feature discrepancies on common base units
@@ -636,36 +636,6 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
             f.write(header + sanitize_paths(p_exp_txt.stdout))
     except Exception as e:
         print(f"  [ERROR dumping parity] {e}")
-
-    # For Tokio: generate verbose logs for tokio-macros from Cargo and Mitts
-    if project_name == "tokio":
-        try:
-            DEFAULT_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-            p_c_macros = subprocess.run(
-                ["cargo", mode, "-v", "-p", "tokio-macros"],
-                cwd=wt_base / "wt-01",
-                capture_output=True,
-                text=True,
-            )
-            with open(DEFAULT_RESULTS_DIR / "tokio_macros_cargo.log", "w", encoding="utf-8") as f:
-                f.write(sanitize_paths(p_c_macros.stdout + "\n" + p_c_macros.stderr))
-
-            p_m_exp = subprocess.run(
-                [str(MITTS_BIN), "explain"],
-                cwd=wt_base / "wt-01",
-                capture_output=True,
-                text=True,
-            )
-            mitts_lines = [
-                l for l in p_m_exp.stdout.splitlines()
-                if any(w in l for w in ["tokio-macros", "tokio_macros", "proc-macro", "quote", "syn", "unicode_ident", "proc_macro2"])
-            ]
-            with open(DEFAULT_RESULTS_DIR / "tokio_macros_mitts.log", "w", encoding="utf-8") as f:
-                m_header = f"# mitts explain extract for tokio-macros & host dependencies\n# generated from {MITTS_BIN}\n\n"
-                f.write(m_header + sanitize_paths("\n".join(mitts_lines)) + "\n\n# Full explain output:\n" + sanitize_paths(p_m_exp.stdout))
-            print("  Generated tokio_macros_cargo.log and tokio_macros_mitts.log in benchmark-results/")
-        except Exception as e:
-            print(f"  [ERROR generating tokio_macros logs] {e}")
 
     cross_mode_separation_verified = True
     if mode == "clippy":

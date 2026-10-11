@@ -467,3 +467,141 @@ fn test_find_workspace_root_members_exclude_and_package_workspace() {
         root_dir.join("Cargo.toml").canonicalize().unwrap()
     );
 }
+
+#[test]
+fn test_find_workspace_root_fail_closed_and_pattern_parity() {
+    let temp = tempfile::tempdir().unwrap();
+    let root_dir = temp.path();
+
+    std::fs::write(
+        root_dir.join("Cargo.toml"),
+        r#"
+        [workspace]
+        members = ["crates/tokio-*", "crates/core"]
+        exclude = ["crates/tokio-ignored"]
+        resolver = "2"
+        "#,
+    )
+    .unwrap();
+
+    // 1. Prefix wildcard match: crates/tokio-macros
+    let prefix_match_dir = root_dir.join("crates/tokio-macros");
+    std::fs::create_dir_all(prefix_match_dir.join("src")).unwrap();
+    std::fs::write(prefix_match_dir.join("src/lib.rs"), "pub fn tm() {}").unwrap();
+    std::fs::write(
+        prefix_match_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "tokio-macros"
+        version = "0.1.0"
+        edition = "2021"
+        "#,
+    )
+    .unwrap();
+    let prefix_toml = CargoToml::from_file(&prefix_match_dir.join("Cargo.toml")).unwrap();
+    let found_prefix =
+        CargoToml::find_workspace_root(&prefix_match_dir.join("Cargo.toml"), &prefix_toml).unwrap();
+    assert!(
+        found_prefix.is_some(),
+        "crates/tokio-macros must match prefix wildcard crates/tokio-*"
+    );
+
+    // 2. Excluded under prefix: crates/tokio-ignored
+    let ignored_dir = root_dir.join("crates/tokio-ignored");
+    std::fs::create_dir_all(ignored_dir.join("src")).unwrap();
+    std::fs::write(ignored_dir.join("src/lib.rs"), "pub fn ti() {}").unwrap();
+    std::fs::write(
+        ignored_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "tokio-ignored"
+        version = "0.1.0"
+        edition = "2021"
+        "#,
+    )
+    .unwrap();
+    let ignored_toml = CargoToml::from_file(&ignored_dir.join("Cargo.toml")).unwrap();
+    let found_ignored =
+        CargoToml::find_workspace_root(&ignored_dir.join("Cargo.toml"), &ignored_toml).unwrap();
+    assert!(
+        found_ignored.is_none(),
+        "crates/tokio-ignored is excluded and must not find workspace root"
+    );
+
+    // 3. Unlisted package in workspace tree: should fail-closed with Err
+    let unlisted_dir = root_dir.join("crates/unlisted");
+    std::fs::create_dir_all(unlisted_dir.join("src")).unwrap();
+    std::fs::write(unlisted_dir.join("src/lib.rs"), "pub fn ul() {}").unwrap();
+    std::fs::write(
+        unlisted_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "unlisted"
+        version = "0.1.0"
+        edition = "2021"
+        "#,
+    )
+    .unwrap();
+    let unlisted_toml = CargoToml::from_file(&unlisted_dir.join("Cargo.toml")).unwrap();
+    let err_unlisted =
+        CargoToml::find_workspace_root(&unlisted_dir.join("Cargo.toml"), &unlisted_toml);
+    assert!(
+        err_unlisted.is_err(),
+        "Unlisted crate inside workspace tree must fail-closed"
+    );
+    let err_msg = err_unlisted.unwrap_err().to_string();
+    assert!(err_msg.contains("is not listed in `workspace.members` or `workspace.exclude`"));
+
+    // 4. Invalid package.workspace pointing to nonexistent path: should fail-closed with Err
+    let broken_ws_dir = root_dir.join("broken_ws");
+    std::fs::create_dir_all(broken_ws_dir.join("src")).unwrap();
+    std::fs::write(broken_ws_dir.join("src/lib.rs"), "pub fn bw() {}").unwrap();
+    std::fs::write(
+        broken_ws_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "broken_ws"
+        version = "0.1.0"
+        edition = "2021"
+        workspace = "../nonexistent_workspace"
+        "#,
+    )
+    .unwrap();
+    let broken_toml = CargoToml::from_file(&broken_ws_dir.join("Cargo.toml")).unwrap();
+    let err_broken =
+        CargoToml::find_workspace_root(&broken_ws_dir.join("Cargo.toml"), &broken_toml);
+    assert!(
+        err_broken.is_err(),
+        "package.workspace pointing to nonexistent path must fail-closed"
+    );
+    assert!(err_broken
+        .unwrap_err()
+        .to_string()
+        .contains("does not exist or is not a file"));
+
+    // 5. Invalid package.workspace pointing to a Cargo.toml without [workspace]: should fail-closed with Err
+    let not_ws_dir = root_dir.join("not_ws");
+    std::fs::create_dir_all(not_ws_dir.join("src")).unwrap();
+    std::fs::write(not_ws_dir.join("src/lib.rs"), "pub fn nw() {}").unwrap();
+    std::fs::write(
+        not_ws_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "not_ws"
+        version = "0.1.0"
+        edition = "2021"
+        workspace = "../crates/tokio-macros"
+        "#,
+    )
+    .unwrap();
+    let not_ws_toml = CargoToml::from_file(&not_ws_dir.join("Cargo.toml")).unwrap();
+    let err_not_ws = CargoToml::find_workspace_root(&not_ws_dir.join("Cargo.toml"), &not_ws_toml);
+    assert!(
+        err_not_ws.is_err(),
+        "package.workspace pointing to non-workspace Cargo.toml must fail-closed"
+    );
+    assert!(err_not_ws
+        .unwrap_err()
+        .to_string()
+        .contains("does not contain a [workspace] section"));
+}
