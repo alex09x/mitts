@@ -173,7 +173,8 @@
         </div>
       </header>
       <div class="table-wrap">
-        <table class="table">
+        <table class="table inputs-table">
+          <colgroup><col class="c1"><col></colgroup>
           <thead><tr><th>Input</th><th>Tracked as</th></tr></thead>
           <tbody>
             <tr><td>Toolchain</td><td><code>rustc -vV</code> output</td></tr>
@@ -199,16 +200,17 @@
       </header>
       <div class="table-wrap">
         <table class="table compare">
+          <colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"></colgroup>
           <thead><tr><th></th><th>Cargo</th><th>Cargo + sccache</th><th class="hl">Mitts</th></tr></thead>
           <tbody>
-            <tr><td>Reads <code>Cargo.toml</code> / <code>Cargo.lock</code> as is</td><td>yes</td><td>yes</td><td class="hl">yes</td></tr>
-            <tr><td>Reuse across workspaces and worktrees</td><td>no, per <code>target/</code></td><td>yes, per <code>rustc</code> call</td><td class="hl">yes, per unit</td></tr>
-            <tr><td>Key depends on the checkout path</td><td>—</td><td>yes, unless normalized</td><td class="hl">no for registry crates; workspace crates when not eligible</td></tr>
-            <tr><td>Caches <code>bin</code>, test and <code>proc-macro</code> units</td><td>—</td><td>no</td><td class="hl">yes</td></tr>
-            <tr><td>Caches build-script runs</td><td>no</td><td>no</td><td class="hl">yes</td></tr>
-            <tr><td>Concurrent builds of one dependency</td><td>wait on the <code>target/</code> lock</td><td>both may compile on a miss</td><td class="hl">one compiles, the other reuses</td></tr>
-            <tr><td>Remote / team cache</td><td>no</td><td>yes</td><td class="hl">planned</td></tr>
-            <tr><td>Windows</td><td>yes</td><td>yes</td><td class="hl">no</td></tr>
+            <tr><td>Reads <code>Cargo.toml</code> / <code>Cargo.lock</code> as is</td><td data-label="Cargo">yes</td><td data-label="Cargo + sccache">yes</td><td data-label="Mitts" class="hl">yes</td></tr>
+            <tr><td>Reuse across workspaces and worktrees</td><td data-label="Cargo">no, per <code>target/</code></td><td data-label="Cargo + sccache">yes, per <code>rustc</code> call</td><td data-label="Mitts" class="hl">yes, per unit</td></tr>
+            <tr><td>Key depends on the checkout path</td><td data-label="Cargo">—</td><td data-label="Cargo + sccache">yes, unless normalized</td><td data-label="Mitts" class="hl">no for registry crates; workspace crates when not eligible</td></tr>
+            <tr><td>Caches <code>bin</code>, test and <code>proc-macro</code> units</td><td data-label="Cargo">—</td><td data-label="Cargo + sccache">no</td><td data-label="Mitts" class="hl">yes</td></tr>
+            <tr><td>Caches build-script runs</td><td data-label="Cargo">no</td><td data-label="Cargo + sccache">no</td><td data-label="Mitts" class="hl">yes</td></tr>
+            <tr><td>Concurrent builds of one dependency</td><td data-label="Cargo">wait on the <code>target/</code> lock</td><td data-label="Cargo + sccache">both may compile on a miss</td><td data-label="Mitts" class="hl">one compiles, the other reuses</td></tr>
+            <tr><td>Remote / team cache</td><td data-label="Cargo">no</td><td data-label="Cargo + sccache">yes</td><td data-label="Mitts" class="hl">planned</td></tr>
+            <tr><td>Windows</td><td data-label="Cargo">yes</td><td data-label="Cargo + sccache">yes</td><td data-label="Mitts" class="hl">no</td></tr>
           </tbody>
         </table>
       </div>

@@ -29,10 +29,8 @@ html { scroll-behavior: smooth; }
 body {
   margin: 0;
   background:
-    radial-gradient(1200px 600px at 85% -10%, rgb(255 59 48 / .10), transparent 60%),
-    linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 100% 48px,
+    radial-gradient(1200px 600px at 85% -10%, rgb(255 59 48 / .10), transparent 60%) no-repeat,
     var(--bg);
-  background-blend-mode: normal, soft-light, normal;
   color: var(--ink);
   font: 400 17px/1.6 var(--sans);
   -webkit-font-smoothing: antialiased;
@@ -89,10 +87,11 @@ h1 { font-size: clamp(48px, 7.4vw, 96px); font-weight: 800; line-height: .95; }
 
 /* sections */
 .section { padding: 88px 0; border-top: 1px solid var(--line); }
-.section-head { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 24px; margin-bottom: 48px; }
-.num { color: var(--accent); font-size: 14px; padding-top: 10px; }
+.section-head { display: grid; gap: 14px; margin-bottom: 48px; }
+.num { color: var(--accent); font-size: 13px; letter-spacing: .08em; }
+.num::after { content: " /"; color: var(--line); }
 h2 { font-size: clamp(32px, 4.4vw, 52px); font-weight: 700; line-height: 1.05; }
-.section-head p { color: var(--muted); max-width: 40em; margin: 16px 0 0; }
+.section-head p { color: var(--muted); max-width: 44em; margin: 14px 0 0; }
 
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 28px; transition: border-color .2s; }
@@ -108,19 +107,22 @@ h3 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
 .checklist .yes::before { content: "HIT"; color: var(--hit); }
 .checklist .no::before { content: "SKIP"; color: var(--accent); }
 .checklist .no { color: var(--muted); }
-.note { font: 500 22px/1.4 var(--display); margin: 0; padding-left: 24px; border-left: 2px solid var(--accent); }
+.note { font: 500 clamp(18px, 1.9vw, 22px)/1.4 var(--display); margin: 0; padding-left: 24px; border-left: 2px solid var(--accent); }
 
 .cli { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.cli div { background: var(--panel); padding: 22px 24px; display: grid; gap: 6px; }
+.cli div { background: var(--panel); padding: 22px 24px; display: grid; align-content: start; gap: 6px; }
 .cli dt { color: var(--ink); font-weight: 600; }
 .cli dt::before { content: "$ "; color: var(--accent); }
 .cli dd { margin: 0; color: var(--muted); font-size: 15px; }
 
-.milestones { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
-.milestones li { display: grid; align-content: start; gap: 10px; padding: 18px 16px; border-top: 3px solid var(--hit); background: var(--panel); font-size: 14px; color: var(--muted); }
-.milestones b { font: 600 22px var(--display); color: var(--ink); }
-.milestones .wip { border-top-color: var(--accent); }
-.milestones .plan { border-top-color: var(--line); }
+.milestones { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.milestones li { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 18px 20px; border-left: 3px solid var(--hit); border-radius: 0 6px 6px 0; background: var(--panel); font-size: 15px; color: var(--muted); }
+.milestones b { font: 700 20px var(--display); color: var(--ink); }
+.milestones li::after { grid-column: 2; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--hit); content: "done"; }
+.milestones .wip::after { content: "in progress"; color: var(--accent); }
+.milestones .plan::after { content: "planned"; color: var(--muted); }
+.milestones .wip { border-left-color: var(--accent); }
+.milestones .plan { border-left-color: var(--line); }
 .checklist code { font-size: 14px; color: var(--ink); }
 
 .lede code, .section-head p code, .card p code { font-size: .92em; color: var(--ink); }
@@ -161,7 +163,11 @@ h3 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
 .table td { color: var(--muted); }
 .table td:first-child { color: var(--ink); }
 .table code { font-size: 13px; color: var(--ink); }
-.compare { min-width: 760px; }
+.table { table-layout: fixed; }
+.inputs-table col.c1 { width: 24%; }
+.compare col.c1 { width: 32%; } .compare col.c2 { width: 19%; } .compare col.c3 { width: 21%; } .compare col.c4 { width: 28%; }
+.compare { min-width: 720px; }
+.table-wrap .inputs-table { min-width: 560px; }
 .compare .hl { color: var(--ink); background: rgb(255 59 48 / .06); }
 .compare th.hl { color: var(--accent); }
 .aside { color: var(--muted); max-width: 46em; margin: 24px 0 0; }
@@ -185,11 +191,25 @@ footer a { color: var(--muted); }
   .grid3, .cli, .facts, .arch-row { grid-template-columns: 1fr; }
   .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pipeline { grid-template-columns: 1fr; }
-  .section-head { grid-template-columns: 1fr; gap: 8px; }
+  .milestones { grid-template-columns: 1fr; }
   .nav { display: none; }
 }
 
 @media (max-width: 560px) {
   .grid4 { grid-template-columns: 1fr; }
   .table th, .table td { padding: 12px 14px; }
+}
+
+@media (max-width: 700px) {
+  .table-wrap { overflow: visible; border: 0; border-radius: 0; }
+  .table, .table-wrap .inputs-table, .compare { min-width: 0; table-layout: auto; background: none; }
+  .table colgroup, .table thead { display: none; }
+  .table, .table tbody, .table tr, .table td { display: block; width: auto; }
+  .table tr { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+  .table td { border: 0; padding: 4px 0; }
+  .table td:first-child { font-weight: 500; padding-bottom: 8px; }
+  .compare td[data-label] { position: relative; padding-left: 138px; }
+  .compare td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 128px; font: 600 11px/2.2 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .compare td.hl { background: none; color: var(--ink); }
+  .compare td.hl::before { color: var(--accent); }
 }
