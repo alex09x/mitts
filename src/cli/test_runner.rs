@@ -35,7 +35,7 @@ pub fn discover_test_binaries(
     // 1. Collect compiled binaries from plan actions
     for action in &plan.actions {
         if action.kind == ActionKind::CompileBin {
-            if action.id.contains("::test:") {
+            if action.id.contains("::test:") || action.id.contains("::custom-test:") {
                 for out in &action.outputs {
                     if is_executable_binary(out) {
                         test_binaries.push((
@@ -76,7 +76,12 @@ pub fn discover_test_binaries(
                 root_dir.display()
             )
         })?;
-    for (_pkg_name, pkg_dir) in members {
+    for (pkg_name, pkg_dir) in members {
+        if let Some(ref target_pkg) = opt.package {
+            if &pkg_name != target_pkg {
+                continue;
+            }
+        }
         let member_manifest = pkg_dir.join("Cargo.toml");
         let toml = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
             .with_context(|| {
@@ -85,7 +90,27 @@ pub fn discover_test_binaries(
                     member_manifest.display()
                 )
             })?;
-        let test_targets = toml.discover_test_targets(&pkg_dir);
+        let mut test_targets = toml.discover_test_targets(&pkg_dir);
+        if opt.doc_only {
+            test_targets.clear();
+        } else if opt.lib_only {
+            test_targets.retain(|t| t.name.ends_with("_unit_test"));
+        } else if !opt.test_targets.is_empty() {
+            test_targets.retain(|t| opt.test_targets.contains(&t.name));
+        } else if opt.all_tests {
+            test_targets
+                .retain(|t| !t.name.ends_with("_unit_test") && !t.name.ends_with("_bin_test"));
+        } else if !opt.bin_targets.is_empty() {
+            test_targets.retain(|t| {
+                if let Some(bin_name) = t.name.strip_suffix("_bin_test") {
+                    opt.bin_targets.iter().any(|b| b == bin_name)
+                } else {
+                    false
+                }
+            });
+        } else if opt.all_bins {
+            test_targets.retain(|t| t.name.ends_with("_bin_test"));
+        }
         manifest_test_target_count += test_targets.len();
         for t in toml.discover_targets(&pkg_dir) {
             if t.kind == "bin" {
@@ -165,7 +190,9 @@ pub fn execute_test_binaries(
         return 0;
     }
 
-    println!();
+    if !binaries.test_binaries.is_empty() {
+        println!();
+    }
     let mut failure_code: Option<i32> = None;
     let mut failed_harness: Option<String> = None;
     for (desc, bin_path, env) in &mut binaries.test_binaries {
@@ -206,8 +233,19 @@ pub fn execute_test_binaries(
         if let Some(ref filter) = args.filter {
             cmd.arg(filter);
         }
+        if args.nocapture && !args.test_args.iter().any(|a| a == "--nocapture") {
+            cmd.arg("--nocapture");
+        }
+        if args.exact && !args.test_args.iter().any(|a| a == "--exact") {
+            cmd.arg("--exact");
+        }
+        if args.ignored && !args.test_args.iter().any(|a| a == "--ignored") {
+            cmd.arg("--ignored");
+        }
         for extra in &args.test_args {
-            cmd.arg(extra);
+            if extra != "--nocapture" && extra != "--exact" && extra != "--ignored" {
+                cmd.arg(extra);
+            }
         }
 
         if env.get("CARGO").is_none() {

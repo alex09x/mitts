@@ -152,6 +152,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         verbose: args.verbose,
         progress: None,
         start_dir: None,
+        ..Default::default()
     };
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {

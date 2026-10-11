@@ -143,6 +143,12 @@ pub struct RustBuildOptions {
     pub mode: BuildMode,
     pub progress: Option<BuildProgressCallback>,
     pub start_dir: Option<PathBuf>,
+    pub test_targets: Vec<String>,
+    pub all_tests: bool,
+    pub bin_targets: Vec<String>,
+    pub all_bins: bool,
+    pub lib_only: bool,
+    pub doc_only: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]

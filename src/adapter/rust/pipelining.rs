@@ -53,7 +53,7 @@ pub fn classify_dep_requirement(
     // Linking targets need native code from all their dependencies
     let is_consumer_linking = matches!(
         consumer.kind.as_str(),
-        "bin" | "test" | "proc-macro" | "dylib" | "cdylib" | "example" | "bench"
+        "bin" | "test" | "custom-test" | "proc-macro" | "dylib" | "cdylib" | "example" | "bench"
     );
     if is_consumer_linking {
         return DepRequirement::FullArtifact;

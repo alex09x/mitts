@@ -86,20 +86,12 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     cmd.arg("--edition").arg(edition);
 
     let is_bin = inv.unit.kind == "bin";
-    let is_test = inv.unit.kind == "test";
+    let is_test = inv.unit.kind == "test" || inv.unit.kind == "custom-test";
     let is_proc_macro = inv.unit.kind == "proc-macro";
 
     if is_test {
-        let is_custom_harness =
-            crate::adapter::rust::manifest::CargoToml::from_file(&inv.unit.manifest_path)
-                .ok()
-                .is_some_and(|toml| {
-                    toml.test
-                        .iter()
-                        .any(|t| t.name == inv.unit.target_name && t.harness == Some(false))
-                        || toml.lib.as_ref().is_some_and(|l| l.harness == Some(false))
-                });
-        if is_custom_harness {
+        if inv.unit.kind == "custom-test" {
+            cmd.arg("--crate-type").arg("bin");
             cmd.arg("--cfg").arg("test");
         } else {
             cmd.arg("--test");

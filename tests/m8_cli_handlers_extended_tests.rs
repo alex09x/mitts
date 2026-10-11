@@ -150,6 +150,7 @@ fn test_m8_cli_test_no_tests_and_no_run() {
         workspace: false,
         no_fail_fast: false,
         test_args: Vec::new(),
+        ..Default::default()
     };
     assert_eq!(handle_test(&test_args), 0);
 }

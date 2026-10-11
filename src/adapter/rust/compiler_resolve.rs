@@ -25,6 +25,7 @@ pub struct RustcOutput {
 
 static RESOLVED_RUSTC: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static RESOLVED_CLIPPY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static RESOLVED_RUSTDOC: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static RESOLVED_CARGO: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static RESOLVED_HOST_TRIPLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -151,6 +152,52 @@ pub fn resolve_clippy_driver() -> PathBuf {
                 .map(|h| PathBuf::from(h).join(".cargo/bin/clippy-driver"))
                 .filter(|p| p.is_file())
                 .unwrap_or_else(|| PathBuf::from("clippy-driver"))
+        })
+        .clone()
+}
+
+pub fn resolve_rustdoc() -> PathBuf {
+    RESOLVED_RUSTDOC
+        .get_or_init(|| {
+            if let Ok(p) = std::env::var("RUSTDOC") {
+                return PathBuf::from(p);
+            }
+            let home_cargo_rustup = std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/rustup"));
+            let candidates = ["rustup".into()]
+                .into_iter()
+                .chain(home_cargo_rustup)
+                .collect::<Vec<PathBuf>>();
+            for rustup in candidates {
+                if let Ok(output) = std::process::Command::new(&rustup)
+                    .arg("which")
+                    .arg("rustdoc")
+                    .output()
+                {
+                    if output.status.success() {
+                        if let Ok(s) = String::from_utf8(output.stdout) {
+                            let p = PathBuf::from(s.trim());
+                            if p.is_file() {
+                                return p;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Ok(paths) = std::env::var("PATH") {
+                for dir in std::env::split_paths(&paths) {
+                    let p = dir.join("rustdoc");
+                    if p.is_file() {
+                        return p;
+                    }
+                }
+            }
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cargo/bin/rustdoc"))
+                .filter(|p| p.is_file())
+                .unwrap_or_else(|| PathBuf::from("rustdoc"))
         })
         .clone()
 }

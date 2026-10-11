@@ -22,7 +22,7 @@ pub(crate) fn unit_dest_binary(
     target_dir: &Path,
     profile: &str,
 ) -> PathBuf {
-    if unit.kind == "test" {
+    if unit.kind == "test" || unit.kind == "custom-test" {
         target_dir
             .join(profile)
             .join("deps")

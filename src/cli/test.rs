@@ -83,6 +83,42 @@ pub struct TestArgs {
     #[arg(long)]
     pub no_fail_fast: bool,
 
+    /// Test only the specified integration test target
+    #[arg(long = "test", action = clap::ArgAction::Append)]
+    pub test: Vec<String>,
+
+    /// Test all integration test targets
+    #[arg(long)]
+    pub tests: bool,
+
+    /// Test only the specified binary
+    #[arg(long = "bin", action = clap::ArgAction::Append)]
+    pub bin: Vec<String>,
+
+    /// Test all binary targets
+    #[arg(long)]
+    pub bins: bool,
+
+    /// Test only this package's library unit tests
+    #[arg(long)]
+    pub lib: bool,
+
+    /// Test only this package's library documentation
+    #[arg(long)]
+    pub doc: bool,
+
+    /// Run tests without capturing output (equivalent to -- --nocapture)
+    #[arg(long)]
+    pub nocapture: bool,
+
+    /// Run only tests that exactly match the filter (equivalent to -- --exact)
+    #[arg(long)]
+    pub exact: bool,
+
+    /// Run only ignored tests (equivalent to -- --ignored)
+    #[arg(long)]
+    pub ignored: bool,
+
     /// Arguments passed to the test binary runner (e.g. -- --nocapture)
     #[arg(last = true)]
     pub test_args: Vec<String>,
@@ -183,6 +219,12 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         mode: BuildMode::Test,
         progress: None,
         start_dir: None,
+        test_targets: args.test.clone(),
+        all_tests: args.tests,
+        bin_targets: args.bin.clone(),
+        all_bins: args.bins,
+        lib_only: args.lib,
+        doc_only: args.doc,
     };
 
     let start = std::time::Instant::now();
@@ -236,23 +278,48 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         }
     };
 
-    let (binaries, declared_test_count) =
-        match super::test_runner::discover_test_binaries(&plan, &opt, &root_dir) {
-            Ok(res) => res,
-            Err(err) => {
-                eprintln!("mitts test error: {:#}", err);
-                return 1;
-            }
-        };
+    let mut exit_code = 0;
+    if !args.doc {
+        let (binaries, declared_test_count) =
+            match super::test_runner::discover_test_binaries(&plan, &opt, &root_dir) {
+                Ok(res) => res,
+                Err(err) => {
+                    eprintln!("mitts test error: {:#}", err);
+                    return 1;
+                }
+            };
 
-    super::test_runner::execute_test_binaries(
-        binaries,
-        declared_test_count,
-        args,
-        &root_dir,
-        start,
-        profile,
-    )
+        exit_code = super::test_runner::execute_test_binaries(
+            binaries,
+            declared_test_count,
+            args,
+            &root_dir,
+            start,
+            profile,
+        );
+        if exit_code != 0 && !args.no_fail_fast {
+            return exit_code;
+        }
+    }
+
+    if super::test_doctest::should_run_doctests(args) {
+        match super::test_doctest::execute_doctests(&opt, args, &plan, &root_dir, profile) {
+            Ok(Some(doc_fail)) => {
+                if exit_code == 0 {
+                    exit_code = doc_fail;
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                eprintln!("mitts error executing doctests: {}", err);
+                if exit_code == 0 {
+                    exit_code = 101;
+                }
+            }
+        }
+    }
+
+    exit_code
 }
 
 #[cfg(test)]

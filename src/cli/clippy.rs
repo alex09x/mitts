@@ -91,6 +91,7 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         mode: BuildMode::Clippy,
         progress: None,
         start_dir: None,
+        ..Default::default()
     };
 
     let start = std::time::Instant::now();

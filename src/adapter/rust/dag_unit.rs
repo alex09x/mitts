@@ -8,8 +8,6 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::build_script::execute_build_script;
-use super::build_script_directives::BuildScriptDirectives;
 use super::compiler::RustcInvocation;
 use super::dag_cache::{try_restore_from_cache_with_directives, ExecutionContext};
 use super::dag_scheduler::{LockMode, UnitExecutionStatus};
@@ -19,8 +17,6 @@ use crate::core::lock::FileLock;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
-use std::thread;
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
 pub(crate) fn execute_unit(
@@ -30,75 +26,15 @@ pub(crate) fn execute_unit(
     lock_mode: LockMode,
 ) -> Result<UnitExecutionStatus> {
     let clean_crate = unit.target_name.replace('-', "_");
-    let is_executable = matches!(unit.kind.as_str(), "bin" | "test")
+    let is_executable = matches!(unit.kind.as_str(), "bin" | "test" | "custom-test")
         && !(unit.is_workspace
             && matches!(
                 ctx.opt.mode,
                 crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
             ));
 
-    let has_build = super::unit_env::unit_has_build_script(unit);
-    let mut current_directives: Option<BuildScriptDirectives> = None;
-    let mut staging_dir_holder: Option<PathBuf> = None;
-
-    if has_build {
-        let staging_dir = create_staging_dir(ctx.cas.root(), &clean_crate)?;
-
-        let extern_crates = super::dag_unit_externs::resolve_extern_crates_for_build_script(
-            unit,
-            &ctx.completed_artifacts.lock().unwrap(),
-        );
-        let artifacts_dir = ctx.cas.root().join("artifacts");
-        let mut build_dep_env = HashMap::new();
-        {
-            let all_meta = ctx.dep_build_metadata.lock().unwrap();
-            for dep_id in &unit.dependencies {
-                let clean_dep_id = dep_id.strip_suffix(":host").unwrap_or(dep_id);
-                let dep_pkg = clean_dep_id.split("::").next().unwrap_or(clean_dep_id);
-                let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
-                for key in [dep_id.as_str(), clean_dep_id, pkg_name_only] {
-                    if let Some(vars) = all_meta.get(key) {
-                        build_dep_env.extend(vars.clone());
-                    }
-                }
-            }
-        }
-
-        let directives = match execute_build_script(
-            unit,
-            &staging_dir,
-            ctx.opt.release,
-            &unit.features,
-            Some(&artifacts_dir),
-            &extern_crates,
-            Some(&build_dep_env),
-        ) {
-            Ok(d) => d,
-            Err(err) => {
-                let _ = fs::remove_dir_all(&staging_dir);
-                let pkg_dir = unit
-                    .manifest_path
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."));
-                bail!(
-                    "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
-                    unit.unit_id(),
-                    pkg_dir.display(),
-                    err
-                );
-            }
-        };
-
-        let dep_vars = directives.dep_env_vars();
-        if !dep_vars.is_empty() {
-            let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
-            all_meta.insert(unit.unit_id(), dep_vars.clone());
-            all_meta.insert(unit.package_name.clone(), dep_vars);
-        }
-
-        current_directives = Some(directives);
-        staging_dir_holder = Some(staging_dir);
-    }
+    let (current_directives, staging_dir_holder) =
+        super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
 
     let mut build_purity_opt = None;
     if let (Some(d), Some(s_dir)) = (current_directives.as_ref(), staging_dir_holder.as_ref()) {
@@ -219,7 +155,7 @@ pub(crate) fn execute_unit(
     // Staging directory for build isolation
     let staging_dir = match staging_dir_holder {
         Some(s) => s,
-        None => create_staging_dir(ctx.cas.root(), &clean_crate)?,
+        None => super::dag_unit_build_script::create_staging_dir(ctx.cas.root(), &clean_crate)?,
     };
 
     // Gather dependencies' CAS artifact paths for --extern, resolving any Cargo package rename aliases
@@ -397,16 +333,4 @@ pub(crate) fn execute_unit(
     }
 
     Ok(UnitExecutionStatus::Success)
-}
-
-fn create_staging_dir(cas_root: &std::path::Path, clean_crate: &str) -> Result<PathBuf> {
-    let tid: String = format!("{:?}", thread::current().id())
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .collect();
-    let s = cas_root
-        .join("tmp")
-        .join(format!("stage_{clean_crate}_{}_{tid}", std::process::id()));
-    fs::create_dir_all(&s)?;
-    Ok(s)
 }

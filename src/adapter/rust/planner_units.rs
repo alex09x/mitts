@@ -35,7 +35,27 @@ pub fn build_planned_units(
         let is_primary = is_primary_pkg(&pkg.name);
         let mut targets = pkg_toml.discover_targets(pkg_dir);
         if opt.mode == crate::adapter::BuildMode::Test && (is_primary || is_target_pkg) {
-            let test_targets = pkg_toml.discover_test_targets(pkg_dir);
+            let mut test_targets = pkg_toml.discover_test_targets(pkg_dir);
+            if opt.doc_only {
+                test_targets.clear();
+            } else if opt.lib_only {
+                test_targets.retain(|t| t.name.ends_with("_unit_test"));
+            } else if !opt.test_targets.is_empty() {
+                test_targets.retain(|t| opt.test_targets.contains(&t.name));
+            } else if opt.all_tests {
+                test_targets
+                    .retain(|t| !t.name.ends_with("_unit_test") && !t.name.ends_with("_bin_test"));
+            } else if !opt.bin_targets.is_empty() {
+                test_targets.retain(|t| {
+                    if let Some(bin_name) = t.name.strip_suffix("_bin_test") {
+                        opt.bin_targets.iter().any(|b| b == bin_name)
+                    } else {
+                        false
+                    }
+                });
+            } else if opt.all_bins {
+                test_targets.retain(|t| t.name.ends_with("_bin_test"));
+            }
             targets.extend(test_targets);
         }
         if !*is_workspace && !is_target_pkg {
@@ -227,7 +247,11 @@ fn create_unit(
         )
     } else if target.kind == "test" {
         (
-            "test".to_string(),
+            if target.harness {
+                "test".to_string()
+            } else {
+                "custom-test".to_string()
+            },
             "Uncached in M1 (eligible for M2 test binary artifact cache)".to_string(),
         )
     } else if is_bin {

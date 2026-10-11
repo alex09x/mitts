@@ -33,6 +33,7 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         mode: crate::adapter::BuildMode::Build,
         progress: None,
         start_dir: None,
+        ..Default::default()
     }
 }
 

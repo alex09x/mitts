@@ -63,7 +63,14 @@ impl CompilationDag {
             .filter(|(_, node)| {
                 matches!(
                     node.unit.kind.as_str(),
-                    "bin" | "test" | "example" | "bench" | "cdylib" | "dylib" | "proc-macro"
+                    "bin"
+                        | "test"
+                        | "custom-test"
+                        | "example"
+                        | "bench"
+                        | "cdylib"
+                        | "dylib"
+                        | "proc-macro"
                 ) || super::pipelining::package_has_build_script(&node.unit.manifest_path)
             })
             .map(|(id, _)| id.clone())

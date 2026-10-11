@@ -53,6 +53,10 @@ pub struct TomlTest {
     pub required_features: Option<Vec<String>>,
     #[serde(default)]
     pub harness: Option<bool>,
+    #[serde(default)]
+    pub test: Option<bool>,
+    #[serde(default)]
+    pub doctest: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -183,6 +187,10 @@ pub struct TomlLib {
     pub crate_type: Vec<String>,
     #[serde(default)]
     pub harness: Option<bool>,
+    #[serde(default)]
+    pub test: Option<bool>,
+    #[serde(default)]
+    pub doctest: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -193,6 +201,10 @@ pub struct TomlBin {
     pub required_features: Option<Vec<String>>,
     #[serde(default)]
     pub harness: Option<bool>,
+    #[serde(default)]
+    pub test: Option<bool>,
+    #[serde(default)]
+    pub doctest: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

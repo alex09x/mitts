@@ -23,6 +23,7 @@ pub mod dag_cache;
 pub mod dag_runner;
 pub mod dag_scheduler;
 pub mod dag_unit;
+pub mod dag_unit_build_script;
 pub mod dag_unit_externs;
 pub mod dag_unit_publish;
 pub mod dep_info;

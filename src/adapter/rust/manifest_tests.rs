@@ -29,7 +29,9 @@ impl CargoToml {
         } else {
             default_lib
         };
-        if lib_src.is_file() {
+        let lib_has_test = self.lib.as_ref().and_then(|l| l.test).unwrap_or(true);
+        let lib_has_harness = self.lib.as_ref().and_then(|l| l.harness).unwrap_or(true);
+        if lib_src.is_file() && lib_has_test && lib_has_harness {
             targets.push(DiscoveredTarget {
                 name: format!("{}_unit_test", pkg_name.replace('-', "_")),
                 kind: "test".to_string(),
@@ -37,7 +39,7 @@ impl CargoToml {
                 edition: edition.clone(),
                 crate_types: vec!["bin".to_string()],
                 required_features: None,
-                harness: self.lib.as_ref().and_then(|l| l.harness).unwrap_or(true),
+                harness: true,
             });
         }
 
@@ -47,19 +49,30 @@ impl CargoToml {
             .filter(|t| t.kind == "bin")
             .collect();
         for b in bin_targets {
-            targets.push(DiscoveredTarget {
-                name: format!("{}_bin_test", b.name.replace('-', "_")),
-                kind: "test".to_string(),
-                src_path: b.src_path,
-                edition: b.edition,
-                crate_types: vec!["bin".to_string()],
-                required_features: b.required_features,
-                harness: b.harness,
-            });
+            let bin_has_test = self
+                .bin
+                .iter()
+                .find(|bin| bin.name == b.name)
+                .and_then(|bin| bin.test)
+                .unwrap_or(true);
+            if bin_has_test {
+                targets.push(DiscoveredTarget {
+                    name: format!("{}_bin_test", b.name.replace('-', "_")),
+                    kind: "test".to_string(),
+                    src_path: b.src_path,
+                    edition: b.edition,
+                    crate_types: vec!["bin".to_string()],
+                    required_features: b.required_features,
+                    harness: b.harness,
+                });
+            }
         }
 
         let mut explicit_test_paths = std::collections::HashSet::new();
         for t in &self.test {
+            if t.test == Some(false) {
+                continue;
+            }
             let src = match t.path {
                 Some(ref p) => pkg_dir.join(p),
                 None => pkg_dir.join("tests").join(format!("{}.rs", t.name)),
@@ -117,5 +130,35 @@ impl CargoToml {
         }
 
         targets
+    }
+
+    /// Discovers the doctest target for this package's library, if eligible.
+    pub fn discover_doctest_target(&self, pkg_dir: &Path) -> Option<DiscoveredTarget> {
+        let pkg_name = self.package.as_ref().map(|p| p.name.as_str()).unwrap_or("");
+        let edition = self.package.as_ref().and_then(|p| p.edition.clone());
+        let default_lib = pkg_dir.join("src").join("lib.rs");
+        let lib_src = if let Some(ref lib) = self.lib {
+            lib.path
+                .as_ref()
+                .map(|p| pkg_dir.join(p))
+                .unwrap_or(default_lib)
+        } else {
+            default_lib
+        };
+        let doctest_enabled = self.lib.as_ref().and_then(|l| l.doctest).unwrap_or(true);
+        let test_enabled = self.lib.as_ref().and_then(|l| l.test).unwrap_or(true);
+        if lib_src.is_file() && doctest_enabled && test_enabled {
+            Some(DiscoveredTarget {
+                name: pkg_name.replace('-', "_"),
+                kind: "doctest".to_string(),
+                src_path: lib_src,
+                edition,
+                crate_types: vec!["lib".to_string()],
+                required_features: None,
+                harness: true,
+            })
+        } else {
+            None
+        }
     }
 }

@@ -222,7 +222,7 @@ pub fn compute_unit_flags_with_ws(
     u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
     u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));
     u_flags.push(format!("CRATE_KIND={}", unit.kind));
-    if unit.kind == "bin" {
+    if unit.kind == "bin" || unit.kind == "custom-test" {
         u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
     }
     u_flags.push(format!(
@@ -269,7 +269,7 @@ pub fn compute_unit_flags_with_ws(
         } else if var == "CARGO_CRATE_NAME" {
             format!("ENV_MACRO:CARGO_CRATE_NAME={}", unit.target_name)
         } else if var == "CARGO_BIN_NAME" {
-            if unit.kind == "bin" {
+            if unit.kind == "bin" || unit.kind == "custom-test" {
                 format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
             } else {
                 "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()

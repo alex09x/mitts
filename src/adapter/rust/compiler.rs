@@ -71,7 +71,7 @@ impl<'a> RustcInvocation<'a> {
 
         if success {
             let is_bin = self.unit.kind == "bin";
-            let is_test = self.unit.kind == "test";
+            let is_test = self.unit.kind == "test" || self.unit.kind == "custom-test";
             let is_check_or_clippy_ws = self.unit.is_workspace
                 && (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy);
             if (is_bin || is_test) && !is_check_or_clippy_ws {
