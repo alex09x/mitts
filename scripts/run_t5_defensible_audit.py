@@ -208,6 +208,41 @@ def parse_sccache_stats(text: str):
     }
 
 
+def parse_phase_breakdown(text: str, elapsed: float, tool: str):
+    if tool == "mitts_cas":
+        m = re.search(
+            r"\[mitts::phases\]\s+compile_s=([\d\.]+)\s+test_exec_s=([\d\.]+)\s+total_s=([\d\.]+)",
+            text,
+        )
+        if m:
+            compile_s = round(float(m.group(1)), 3)
+            test_exec_s = round(float(m.group(2)), 3)
+            return {
+                "compile_s": compile_s,
+                "test_exec_s": test_exec_s,
+                "total_wall_s": round(float(m.group(3)), 3),
+            }
+    # Cargo fallback for cargo_bare, cargo_sccache, cargo_shared
+    m_cargo = re.search(
+        r"Finished\s+`?(?:test|dev|release)`?\s+profile.*?in\s+([\d\.]+)s",
+        text,
+    )
+    if m_cargo:
+        c_s = round(float(m_cargo.group(1)), 3)
+        t_s = round(max(0.0, elapsed - c_s), 3)
+        return {
+            "compile_s": c_s,
+            "test_exec_s": t_s,
+            "total_wall_s": round(elapsed, 3),
+        }
+
+    return {
+        "compile_s": round(elapsed, 3),
+        "test_exec_s": 0.0,
+        "total_wall_s": round(elapsed, 3),
+    }
+
+
 def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, extra_test_args=None):
     i, wt_dir, commit = wt_tuple
     env = os.environ.copy()
@@ -252,9 +287,11 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     full_output = stdout + "\n" + stderr
     test_stats = parse_test_results(full_output)
     mitts_stats = parse_mitts_stats(full_output) if tool == "mitts_cas" else None
+    phases = parse_phase_breakdown(full_output, elapsed, tool)
     return {
         "wt_index": i,
         "wall_sec": round(elapsed, 3),
+        "phases": phases,
         "exit_code": exit_code,
         "max_rss_mb": round(ru.ru_maxrss / 1024.0, 1),
         "stdout": stdout,
@@ -355,10 +392,13 @@ def run_t5_project(project_name, runs_count=5):
     last_sccache_res = None
     last_mitts_res = None
 
+    tools_base = ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]
     print(f"[3/5] Executing {runs_count} iterations across 12 worktrees per tool...")
     for run_idx in range(1, runs_count + 1):
-        print(f"  --- Iteration {run_idx}/{runs_count} ---")
-        for tool in ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]:
+        shift = (run_idx - 1) % len(tools_base)
+        tools_in_run = tools_base[shift:] + tools_base[:shift]
+        print(f"  --- Iteration {run_idx}/{runs_count} (tool order: {', '.join(tools_in_run)}) ---")
+        for tool in tools_in_run:
             wts = prepare_worktrees(repo_dir, wt_base, commits)
             inject_test_defect(wts[-1][1])
 
@@ -568,6 +608,7 @@ def run_t5_project(project_name, runs_count=5):
                     {
                         "wt_index": r["wt_index"],
                         "wall_sec": r["wall_sec"],
+                        "phases": r.get("phases", {}),
                         "exit_code": r["exit_code"],
                         "test_stats": r["test_stats"],
                         "mitts_stats": r.get("mitts_stats"),
@@ -577,6 +618,22 @@ def run_t5_project(project_name, runs_count=5):
             }
             for idx, sr in enumerate(runs_d)
         ]
+        all_compile_s = [
+            r["phases"]["compile_s"]
+            for sr in runs_d
+            for r in sr["results"]
+            if "phases" in r and "compile_s" in r["phases"]
+        ]
+        all_test_exec_s = [
+            r["phases"]["test_exec_s"]
+            for sr in runs_d
+            for r in sr["results"]
+            if "phases" in r and "test_exec_s" in r["phases"]
+        ]
+        tool_results[tool]["phase_stats"] = {
+            "compile_s": compute_stats(all_compile_s),
+            "test_exec_s": compute_stats(all_test_exec_s),
+        }
 
     print(f"Results for {project_name}: Speedup vs {sound_baseline_name}: {speedup_ratio:.2f}x (vs bare: {speedup_vs_bare:.2f}x)")
     print(f"Invariants: {invariants}")

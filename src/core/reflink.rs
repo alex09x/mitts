@@ -62,13 +62,15 @@ pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
         use std::ffi::CString;
         use std::os::unix::ffi::OsStrExt;
 
-        if let (Ok(c_src), Ok(c_tmp)) = (
-            CString::new(src.as_os_str().as_bytes()),
-            CString::new(tmp_dst.as_os_str().as_bytes()),
-        ) {
-            let ret = unsafe { macos_sys::clonefile(c_src.as_ptr(), c_tmp.as_ptr(), 0) };
-            if ret == 0 {
-                reflink_succeeded = true;
+        if std::env::var_os("MITTS_NO_REFLINK").is_none() {
+            if let (Ok(c_src), Ok(c_tmp)) = (
+                CString::new(src.as_os_str().as_bytes()),
+                CString::new(tmp_dst.as_os_str().as_bytes()),
+            ) {
+                let ret = unsafe { macos_sys::clonefile(c_src.as_ptr(), c_tmp.as_ptr(), 0) };
+                if ret == 0 {
+                    reflink_succeeded = true;
+                }
             }
         }
     }
@@ -78,25 +80,27 @@ pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
         use std::fs::OpenOptions;
         use std::os::unix::io::AsRawFd;
 
-        if let (Ok(src_file), Ok(tmp_file)) = (
-            OpenOptions::new().read(true).open(src),
-            OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&tmp_dst),
-        ) {
-            let ret = unsafe {
-                linux_sys::ioctl(
-                    tmp_file.as_raw_fd(),
-                    linux_sys::FICLONE,
-                    src_file.as_raw_fd(),
-                )
-            };
-            if ret == 0 {
-                reflink_succeeded = true;
-            } else {
-                let _ = fs::remove_file(&tmp_dst);
+        if std::env::var_os("MITTS_NO_REFLINK").is_none() {
+            if let (Ok(src_file), Ok(tmp_file)) = (
+                OpenOptions::new().read(true).open(src),
+                OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&tmp_dst),
+            ) {
+                let ret = unsafe {
+                    linux_sys::ioctl(
+                        tmp_file.as_raw_fd(),
+                        linux_sys::FICLONE,
+                        src_file.as_raw_fd(),
+                    )
+                };
+                if ret == 0 {
+                    reflink_succeeded = true;
+                } else {
+                    let _ = fs::remove_file(&tmp_dst);
+                }
             }
         }
     }
@@ -248,10 +252,12 @@ pub fn link_intra_workspace(
 
     #[cfg(unix)]
     {
+        let disable_hardlinks = std::env::var_os("MITTS_NO_HARDLINK").is_some();
         let src_is_regular_file = fs::symlink_metadata(src)
             .map(|m| m.file_type().is_file())
             .unwrap_or(false);
-        if src_is_regular_file
+        if !disable_hardlinks
+            && src_is_regular_file
             && is_path_under_roots(src, allowed_roots)
             && is_path_under_roots(dst, allowed_roots)
         {

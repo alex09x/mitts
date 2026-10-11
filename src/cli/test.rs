@@ -268,7 +268,9 @@ pub fn handle_test(args: &TestArgs) -> i32 {
 
     opt.progress = Some(create_test_progress_callback(progress.clone()));
 
+    let build_start = std::time::Instant::now();
     let build_res = RustAdapter::build(&opt);
+    let compile_duration = build_start.elapsed();
     if let Some(ref pb) = progress {
         pb.finish_and_clear();
     }
@@ -287,9 +289,15 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         Ui::stage_start("❌", &format!("Test compilation failed [{}]", profile));
         render_compiler_diagnostics(&result.stderr, is_verbose);
         Ui::finish_failed(profile, &dur, "compilation errors");
+        eprintln!(
+            "[mitts::phases] compile_s={:.3} test_exec_s=0.000 total_s={:.3}",
+            compile_duration.as_secs_f64(),
+            start.elapsed().as_secs_f64()
+        );
         return result.exit_code;
     }
 
+    let test_start = std::time::Instant::now();
     let mut exit_code = 0;
     if !args.doc {
         let (binaries, declared_test_count) =
@@ -310,6 +318,13 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             profile,
         );
         if exit_code != 0 && !args.no_fail_fast {
+            let test_duration = test_start.elapsed();
+            eprintln!(
+                "[mitts::phases] compile_s={:.3} test_exec_s={:.3} total_s={:.3}",
+                compile_duration.as_secs_f64(),
+                test_duration.as_secs_f64(),
+                start.elapsed().as_secs_f64()
+            );
             return exit_code;
         }
     }
@@ -330,6 +345,15 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             }
         }
     }
+
+    let test_duration = test_start.elapsed();
+    let total_duration = start.elapsed();
+    eprintln!(
+        "[mitts::phases] compile_s={:.3} test_exec_s={:.3} total_s={:.3}",
+        compile_duration.as_secs_f64(),
+        test_duration.as_secs_f64(),
+        total_duration.as_secs_f64()
+    );
 
     exit_code
 }
