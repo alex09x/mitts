@@ -584,7 +584,10 @@ def run_t5_project(project_name, runs_count=5):
     return {
         "mode": "test",
         "worktrees_count": 12,
-        "provenance": get_provenance_info(mitts_cache, wts[0]["dir"] if wts else None),
+        "provenance": get_provenance_info(
+            mitts_cache,
+            (wts[0][1] if isinstance(wts[0], (list, tuple)) else wts[0].get("dir")) if wts else None,
+        ),
         "commit_distribution": "4/3/3/2",
         "runs": tool_results,
         "speedup_vs_sound_baseline": {
