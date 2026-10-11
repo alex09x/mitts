@@ -163,6 +163,14 @@ pub fn compute_unit_coarse_inputs(
         }
     } else {
         // test, bench, example: do not include library src/ tree in unit coarse inputs
+        if super::key_flags::unit_has_impure_proc_macro(unit) {
+            for extra_dir in &["tests", "benches", "examples"] {
+                let p = pkg_dir.join(extra_dir);
+                if p.is_dir() {
+                    scan_dir_inputs(&p, pkg_dir, &mut inputs)?;
+                }
+            }
+        }
         let src_path = &unit.src_path;
         if src_path.is_file() {
             let is_dir_runner = src_path
@@ -258,6 +266,11 @@ pub fn is_file_in_unit_coarse_inputs(
             return true;
         }
     } else {
+        if super::key_flags::unit_has_impure_proc_macro(unit)
+            && is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, true)
+        {
+            return true;
+        }
         let unit_src = clean_path(&unit.src_path);
         if cleaned_file == unit_src {
             return true;

@@ -559,4 +559,32 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     let pure_paths: Vec<_> = pure_coarse.iter().map(|(p, _)| p.as_str()).collect();
     assert!(!pure_paths.iter().any(|p| p.starts_with("tests/")));
     assert!(!is_file_in_unit_coarse_inputs(&pure_unit, root, &root.join("tests/my_test.rs")));
+
+    // 4. Test unit with impure proc macro: coarse inputs includes tests/, benches/, examples/
+    fs::create_dir_all(root.join("tests/fixtures")).unwrap();
+    fs::write(root.join("tests/fixtures/query.sql"), "SELECT 1;").unwrap();
+    let test_unit_impure = PlannedCompilationUnit {
+        kind: "test".to_string(),
+        src_path: root.join("tests/my_test.rs"),
+        manifest_path: root.join("Cargo.toml"),
+        dependencies: vec!["some_crate::proc-macro:sqlx_macros:0.7.0".to_string()],
+        ..Default::default()
+    };
+    let test_coarse = compute_unit_coarse_inputs(&test_unit_impure, root, &pkg_entry).unwrap();
+    let test_paths: Vec<_> = test_coarse.iter().map(|(p, _)| p.as_str()).collect();
+    assert!(test_paths.iter().any(|p| p.contains("query.sql")));
+    assert!(is_file_in_unit_coarse_inputs(&test_unit_impure, root, &root.join("tests/fixtures/query.sql")));
+
+    // 5. Test unit with pure proc macro: coarse inputs does NOT include fixtures in other directories
+    let test_unit_pure = PlannedCompilationUnit {
+        kind: "test".to_string(),
+        src_path: root.join("tests/my_test.rs"),
+        manifest_path: root.join("Cargo.toml"),
+        dependencies: vec!["serde_derive::proc-macro:serde_derive:1.0.0".to_string()],
+        ..Default::default()
+    };
+    let test_pure_coarse = compute_unit_coarse_inputs(&test_unit_pure, root, &pkg_entry).unwrap();
+    let test_pure_paths: Vec<_> = test_pure_coarse.iter().map(|(p, _)| p.as_str()).collect();
+    assert!(!test_pure_paths.iter().any(|p| p.contains("query.sql")));
+    assert!(!is_file_in_unit_coarse_inputs(&test_unit_pure, root, &root.join("tests/fixtures/query.sql")));
 }

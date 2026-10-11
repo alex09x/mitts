@@ -36,6 +36,9 @@ pub struct TargetArtifactRecord {
 pub struct TargetArtifactIndex {
     /// Maps relative path from target_dir to artifact record
     pub artifacts: HashMap<String, TargetArtifactRecord>,
+    /// Tracks whether entries were inserted or modified since load.
+    #[serde(skip)]
+    pub dirty: bool,
 }
 
 impl TargetArtifactIndex {
@@ -55,8 +58,11 @@ impl TargetArtifactIndex {
         Self::default()
     }
 
-    /// Atomically persists the artifact index to disk.
-    pub fn save(&self, target_dir: &Path, profile: &str) -> Result<()> {
+    /// Atomically persists the artifact index to disk if entries were modified.
+    pub fn save(&mut self, target_dir: &Path, profile: &str) -> Result<()> {
+        if !self.dirty {
+            return Ok(());
+        }
         let path = Self::index_path(target_dir, profile);
         let data = serde_json::to_vec(self)
             .with_context(|| "Failed to serialize TargetArtifactIndex")?;
@@ -74,6 +80,7 @@ impl TargetArtifactIndex {
             let _ = fs::remove_file(&tmp);
             bail!("Failed to atomically stage target artifact index: {}", e);
         }
+        self.dirty = false;
         Ok(())
     }
 
@@ -104,6 +111,13 @@ impl TargetArtifactIndex {
         {
             use std::os::unix::fs::MetadataExt;
             if dest_meta.dev() == obj_meta.dev() && dest_meta.ino() == obj_meta.ino() {
+                use std::os::unix::fs::PermissionsExt;
+                // If the hardlink in workspace has writable bits set (e.g. chmod u+w),
+                // it is potentially poisoned. Reject fast-path so check_or_restore triggers
+                // full verification and restores immutable read-only state.
+                if dest_meta.permissions().mode() & 0o222 != 0 {
+                    return false;
+                }
                 return true;
             }
         }
@@ -157,17 +171,18 @@ impl TargetArtifactIndex {
             #[cfg(not(unix))]
             let (ino, dev) = (0, 0);
 
-            self.artifacts.insert(
-                rel_key,
-                TargetArtifactRecord {
-                    cas_hash,
-                    size,
-                    mtime_secs,
-                    mtime_nanos,
-                    ino,
-                    dev,
-                },
-            );
+            let new_record = TargetArtifactRecord {
+                cas_hash,
+                size,
+                mtime_secs,
+                mtime_nanos,
+                ino,
+                dev,
+            };
+            if self.artifacts.get(&rel_key) != Some(&new_record) {
+                self.artifacts.insert(rel_key, new_record);
+                self.dirty = true;
+            }
         }
     }
 }
