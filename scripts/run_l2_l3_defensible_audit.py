@@ -509,14 +509,14 @@ def main():
         # Warm cargo on all 12 WTs once before cargo no-op benchmark
         if it == 1:
             run_concurrent_worktree_cmd(
-                lambda d: ["cargo", "build", "--workspace"], wts
+                lambda d: ["cargo", "build", "--offline", "--workspace"], wts
             )
 
         wait_for_dirty_flush()
         # Cargo L2a (parallel across 12 worktrees - exhibits package cache lock contention)
         sec_before = get_device_sectors_written(dev_name)
         res_c_par = run_concurrent_worktree_cmd(
-            lambda d: ["cargo", "build", "--workspace"], wts
+            lambda d: ["cargo", "build", "--offline", "--workspace"], wts
         )
         sec_after = get_device_sectors_written(dev_name)
         dev_wr_mb = round((sec_after - sec_before) * 512 / (1024.0 * 1024.0), 2)
@@ -531,7 +531,7 @@ def main():
         # Cargo L2a (sequential control - 12 worktrees run sequentially without lock contention)
         sec_before = get_device_sectors_written(dev_name)
         res_c_seq = run_sequential_worktree_cmd(
-            lambda d: ["cargo", "build", "--workspace"], wts
+            lambda d: ["cargo", "build", "--offline", "--workspace"], wts
         )
         sec_after = get_device_sectors_written(dev_name)
         dev_wr_mb = round((sec_after - sec_before) * 512 / (1024.0 * 1024.0), 2)
@@ -558,7 +558,7 @@ def main():
         env=mitts_env,
     )
     run_concurrent_worktree_cmd(
-        lambda d: ["cargo", "test", "--tests", "--no-run", "--workspace"], wts
+        lambda d: ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"], wts
     )
 
     wait_for_dirty_flush()
@@ -580,13 +580,13 @@ def main():
     wait_for_dirty_flush()
     # Cargo Parallel
     res_c_test_par = run_concurrent_worktree_cmd(
-        lambda d: ["cargo", "test", "--tests", "--no-run", "--workspace"], wts
+        lambda d: ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"], wts
     )
 
     wait_for_dirty_flush()
     # Cargo Sequential Control
     res_c_test_seq = run_sequential_worktree_cmd(
-        lambda d: ["cargo", "test", "--tests", "--no-run", "--workspace"], wts
+        lambda d: ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"], wts
     )
 
     mp_tq = res_m_test_par["quantiles"]
@@ -638,7 +638,7 @@ def main():
         wait_for_dirty_flush()
         start_c = time.time()
         p_c = subprocess.run(
-            ["cargo", "test", "--tests", "--no-run", "--workspace"],
+            ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"],
             cwd=str(wt01_dir),
             capture_output=True,
             text=True,
@@ -648,7 +648,7 @@ def main():
         print(f"  Cargo WT-01 (mutated test file): packages={cargo_compiled_l3a} | wall={wall_c:.3f}s (exit {p_c.returncode})")
 
         cargo_l3a_result = {
-            "cmd": ["cargo", "test", "--tests", "--no-run", "--workspace"],
+            "cmd": ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"],
             "exit_code": p_c.returncode,
             "wall_sec": round(wall_c, 4),
             "cargo_compiled_packages": cargo_compiled_l3a,
@@ -701,7 +701,7 @@ def main():
         wait_for_dirty_flush()
         start_cb = time.time()
         p_cb = subprocess.run(
-            ["cargo", "test", "--tests", "--no-run", "--workspace"],
+            ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"],
             cwd=str(wt01_dir),
             capture_output=True,
             text=True,
@@ -711,7 +711,7 @@ def main():
         print(f"  Cargo WT-01 (mutated core crate): packages={cargo_compiled_l3b} | wall={wall_cb:.3f}s (exit {p_cb.returncode})")
 
         cargo_l3b_result = {
-            "cmd": ["cargo", "test", "--tests", "--no-run", "--workspace"],
+            "cmd": ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"],
             "exit_code": p_cb.returncode,
             "wall_sec": round(wall_cb, 4),
             "cargo_compiled_packages": cargo_compiled_l3b,
@@ -737,7 +737,7 @@ def main():
 
             start_noinc = time.time()
             p_noinc = subprocess.run(
-                ["cargo", "test", "--tests", "--no-run", "--workspace"],
+                ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"],
                 cwd=str(wt03_dir),
                 env=cargo_noinc_env,
                 capture_output=True,
@@ -748,7 +748,7 @@ def main():
             print(f"  Cargo WT-03 (CARGO_INCREMENTAL=0 control): packages={cargo_compiled_noinc} | wall={wall_noinc:.3f}s (exit {p_noinc.returncode})")
 
             cargo_l3b_noinc_result = {
-                "cmd": ["cargo", "test", "--tests", "--no-run", "--workspace"],
+                "cmd": ["cargo", "test", "--offline", "--tests", "--no-run", "--workspace"],
                 "env_overrides": {"CARGO_INCREMENTAL": "0"},
                 "exit_code": p_noinc.returncode,
                 "wall_sec": round(wall_noinc, 4),

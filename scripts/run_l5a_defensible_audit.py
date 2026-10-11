@@ -208,12 +208,12 @@ def run_single_worktree(tool, mode, wt_tuple, shared_target_dir=None):
     if tool == "mitts_cas":
         cmd = [str(MITTS_BIN), mode]
     elif tool == "cargo_bare":
-        cmd = ["cargo", mode]
+        cmd = ["cargo", mode, "--offline"]
     elif tool == "cargo_sccache":
-        cmd = ["cargo", mode]
+        cmd = ["cargo", mode, "--offline"]
         env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
     elif tool == "cargo_shared":
-        cmd = ["cargo", mode]
+        cmd = ["cargo", mode, "--offline"]
         env["CARGO_TARGET_DIR"] = str(shared_target_dir)
 
     start = time.perf_counter()

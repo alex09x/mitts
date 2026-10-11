@@ -318,12 +318,12 @@ def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=Tru
     if tool == "mitts_cas":
         cmd = [str(MITTS_BIN), "test", "--tests"] + ws_args + base_test_args + extra_tail
     elif tool == "cargo_bare":
-        cmd = ["cargo", "test", "--tests"] + ws_args + base_test_args + extra_tail
+        cmd = ["cargo", "test", "--offline", "--tests"] + ws_args + base_test_args + extra_tail
     elif tool == "cargo_sccache":
-        cmd = ["cargo", "test", "--tests"] + ws_args + base_test_args + extra_tail
+        cmd = ["cargo", "test", "--offline", "--tests"] + ws_args + base_test_args + extra_tail
         env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
     elif tool == "cargo_shared":
-        cmd = ["cargo", "test", "--tests"] + ws_args + base_test_args + extra_tail
+        cmd = ["cargo", "test", "--offline", "--tests"] + ws_args + base_test_args + extra_tail
         env["CARGO_TARGET_DIR"] = str(shared_target_dir)
 
     start = time.perf_counter()
