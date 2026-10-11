@@ -162,8 +162,9 @@ pub fn compute_unit_coarse_inputs(
             inputs.push((rel, hash));
         }
     } else {
-        // test, bench, example: do not include library src/ tree in unit coarse inputs
+        // test, bench, example: do not include library src/ tree in unit coarse inputs unless impure
         if super::key_flags::unit_has_impure_proc_macro(unit) {
+            inputs.extend_from_slice(&pkg_entry.src_inputs);
             for extra_dir in &["tests", "benches", "examples"] {
                 let p = pkg_dir.join(extra_dir);
                 if p.is_dir() {

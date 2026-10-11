@@ -889,15 +889,15 @@ def main():
                 for r in l2a_mitts_runs[-1]["results"]
             ),
             "l2b_isolated_planning_fast": (
-                res_m_test_par["wall_sec"] < 1.0
+                res_m_test_par.get("total_wall_sec", 999.0) < 1.0
                 and all(r["exit_code"] == 0 for r in res_m_test_par["results"])
             ),
             "l3a_leaf_compiles_single_unit": l3a_invariant_passed,
             "l3b_sibling_wt_recompiles_zero": (wt_other_l3b_compiled == 0),
             "l3c_cas_zero_mutation_and_immutable": (
                 cas_audit_l3c.get("immutable", False)
-                and cas_audit_l3c.get("mutated", -1) == 0
-                and cas_audit_l3c.get("added", -1) == 0
+                and cas_audit_l3c.get("mutated_count", -1) == 0
+                and cas_audit_l3c.get("new_objects_added", -1) == 0
                 and l3c_hit
             ),
         },

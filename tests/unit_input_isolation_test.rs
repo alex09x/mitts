@@ -573,7 +573,9 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     let test_coarse = compute_unit_coarse_inputs(&test_unit_impure, root, &pkg_entry).unwrap();
     let test_paths: Vec<_> = test_coarse.iter().map(|(p, _)| p.as_str()).collect();
     assert!(test_paths.iter().any(|p| p.contains("query.sql")));
+    assert!(test_paths.contains(&"src/lib.rs"));
     assert!(is_file_in_unit_coarse_inputs(&test_unit_impure, root, &root.join("tests/fixtures/query.sql")));
+    assert!(is_file_in_unit_coarse_inputs(&test_unit_impure, root, &root.join("src/lib.rs")));
 
     // 5. Test unit with pure proc macro: coarse inputs does NOT include fixtures in other directories
     let test_unit_pure = PlannedCompilationUnit {
