@@ -43,9 +43,17 @@ pub fn resolve_extern_crates_with_target(
     sorted_deps.sort_by_key(|dep_id| {
         let is_host_dep = dep_id.ends_with(":host");
         if for_host {
-            if is_host_dep { 0 } else { 1 }
+            if is_host_dep {
+                0
+            } else {
+                1
+            }
         } else {
-            if !is_host_dep { 0 } else { 1 }
+            if !is_host_dep {
+                0
+            } else {
+                1
+            }
         }
     });
 

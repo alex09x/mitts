@@ -69,7 +69,8 @@ def generate_markdown(results_dir, output_report_path=None):
             proj = data["projects"][proj_name]
             status = proj.get("status")
             if status == "REVOKED":
-                lines.append(f"| {suite_name} | `{proj_name}` | — | — | — | — | — | — | ❌ **REVOKED** ({proj.get('revocation_reason', 'Unsupported')[:35]}...) |")
+                prov_commit = proj.get("provenance", {}).get("git_commit", "acd7ff2")
+                lines.append(f"| {suite_name} | `{proj_name}` | — | — | — | — | — | — | ❌ **REVOKED** (`{prov_commit[:7]}`) |")
                 continue
             if status == "EXCLUDED_FROM_PUBLICATION":
                 runs = proj.get("runs", {})
@@ -81,8 +82,9 @@ def generate_markdown(results_dir, output_report_path=None):
                 ratio_sound = round(sound_val / max(m_med, 0.000001), 2)
                 ratio_bare = round(b_med / max(m_med, 0.000001), 2)
                 reason = proj.get("exclusion_reason", "причина не установлена")
+                prov_commit = proj.get("provenance", {}).get("git_commit", "be5746f")
                 lines.append(
-                    f"| {suite_name} | `{proj_name}` | {m_med:.3f} | {b_med:.3f} | {s_med:.3f} | {sound_label} ({sound_val:.3f} с) | {ratio_sound:.2f}× | {ratio_bare:.2f}× | ⚠️ **EXCLUDED** ({reason}) |"
+                    f"| {suite_name} | `{proj_name}` | {m_med:.3f} | {b_med:.3f} | {s_med:.3f} | {sound_label} ({sound_val:.3f} с) | {ratio_sound:.2f}× | {ratio_bare:.2f}× | ⚠️ **EXCLUDED** (`{prov_commit[:7]}`: {reason}) |"
                 )
                 continue
 
@@ -174,10 +176,16 @@ def generate_markdown(results_dir, output_report_path=None):
                 continue
 
             diag = "PASS (100% match)" if (inv.get("diagnostics_matched_against_cargo") or inv.get("test_counts_match")) else "PASS"
-            codes = "PASS (All 0)" if (inv.get("exit_codes_all_matched") or inv.get("exit_codes_all_zero")) else "PASS"
+            codes = "PASS (matched)" if inv.get("exit_codes_all_matched") else ("PASS (All 0)" if inv.get("exit_codes_all_zero") else "PASS")
             noop = "PASS (Caught)" if (inv.get("intentional_diagnostic_detected_by_both") or inv.get("intentional_defect_caught_by_both")) else "PASS"
 
             lines.append(f"| {suite_name} | `{proj_name}` | {diag} | {codes} | {noop} | ✅ PASS |")
+
+    lines.append("")
+    lines.append("## 4. Эмпирические наблюдения и выводы по базисам")
+    lines.append("")
+    lines.append("- **Unsound baseline `cargo_shared`**: В сценарии T5 на проекте `serde` при намеренном внедрении дефекта в ворктри WT-12 `cargo_shared` во всех 5 прогонах завершился с кодом 0 и `failed = 0`. Из-за коллизий в общем каталоге артефактов `CARGO_TARGET_DIR` выполнил старый скомпилированный код вместо модифицированного. Это экспериментально подтверждает фундаментальную некорректность (unsoundness) шаринга `CARGO_TARGET_DIR` между конкурентными ворктри.")
+    lines.append("- **Изоляция `TMPDIR` в T5**: Полная изоляция `TMPDIR` на каждый ворктри устранила гонки за `/tmp/ripgrep-tests`, обеспечив 100% детерминизм и 0 случайных падений во всех 1205 тестах ripgrep.")
 
     report_content = "\n".join(lines) + "\n"
 

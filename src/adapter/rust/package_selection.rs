@@ -151,7 +151,10 @@ pub fn select_transitive_packages<'a>(
 
             let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
             let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
-            let start_dir = opt.start_dir.as_deref().unwrap_or(std::path::Path::new("."));
+            let start_dir = opt
+                .start_dir
+                .as_deref()
+                .unwrap_or(std::path::Path::new("."));
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
                 if is_target_incompatible_with_host(dep_name) {
@@ -199,4 +202,3 @@ pub use super::dependency_check::{
     has_active_dependency, is_declared_dependency, parse_package_spec as parse_dep_spec,
 };
 pub use super::planner_deps::prune_unreachable_units;
-

@@ -274,6 +274,7 @@ def run_t5_project(project_name, runs_count=5):
     }
 
     last_cargo_res = None
+    last_sccache_res = None
     last_mitts_res = None
 
     print(f"[3/5] Executing {runs_count} iterations across 12 worktrees per tool...")
@@ -340,7 +341,9 @@ def run_t5_project(project_name, runs_count=5):
 
             if tool == "cargo_bare":
                 last_cargo_res = swarm_res
-            if tool == "mitts_cas":
+            elif tool == "cargo_sccache":
+                last_sccache_res = swarm_res
+            elif tool == "mitts_cas":
                 last_mitts_res = swarm_res
 
             print(f"    {tool:14s}: {swarm_res['total_wall_s']:6.2f}s | disk: {disk:6.1f}MB")
@@ -375,34 +378,76 @@ def run_t5_project(project_name, runs_count=5):
 
     m_swarms = tool_results["mitts_cas"]["runs_data"]
     c_swarms = tool_results["cargo_bare"]["runs_data"]
+    s_swarms = tool_results["cargo_sccache"]["runs_data"]
 
-    for m_sw, c_sw in zip(m_swarms, c_swarms):
-        for m_res, c_res in zip(m_sw["results"], c_sw["results"]):
-            if m_res["exit_code"] != c_res["exit_code"]:
+    for m_sw, c_sw, s_sw in zip(m_swarms, c_swarms, s_swarms):
+        for m_res, c_res, s_res in zip(m_sw["results"], c_sw["results"], s_sw["results"]):
+            if m_res["exit_code"] != c_res["exit_code"] or m_res["exit_code"] != s_res["exit_code"]:
                 all_runs_exit_codes_matched = False
             wt_i = m_res["wt_index"]
             if wt_i < 12:
-                if m_res["exit_code"] != 0 or c_res["exit_code"] != 0:
+                if m_res["exit_code"] != 0 or c_res["exit_code"] != 0 or s_res["exit_code"] != 0:
                     all_clean_wts_passed_cleanly = False
                 m_st = m_res.get("test_stats", {})
                 c_st = c_res.get("test_stats", {})
-                if (m_st.get("passed", 0) != c_st.get("passed", 0)
+                s_st = s_res.get("test_stats", {})
+                # Fail if test_stats missing, zero binaries, or zero passed tests on clean WT
+                if (
+                    not m_st
+                    or not c_st
+                    or not s_st
+                    or m_st.get("binaries_count", 0) == 0
+                    or c_st.get("binaries_count", 0) == 0
+                    or s_st.get("binaries_count", 0) == 0
+                    or m_st.get("passed", 0) == 0
+                    or c_st.get("passed", 0) == 0
+                    or s_st.get("passed", 0) == 0
+                    or m_st.get("passed") != c_st.get("passed")
+                    or m_st.get("passed") != s_st.get("passed")
                     or m_st.get("failed", 0) != c_st.get("failed", 0)
+                    or m_st.get("failed", 0) != s_st.get("failed", 0)
                     or m_st.get("ignored", 0) != c_st.get("ignored", 0)
-                    or m_st.get("binaries_count", 0) != c_st.get("binaries_count", 0)):
+                    or m_st.get("ignored", 0) != s_st.get("ignored", 0)
+                    or m_st.get("binaries_count") != c_st.get("binaries_count")
+                    or m_st.get("binaries_count") != s_st.get("binaries_count")
+                ):
                     all_clean_test_counts_matched = False
             else:
-                if m_res["exit_code"] == 0 or c_res["exit_code"] == 0:
+                # WT 12 has intentional test defect - must fail (exit != 0) across all sound tools
+                if m_res["exit_code"] == 0 or c_res["exit_code"] == 0 or s_res["exit_code"] == 0:
                     all_runs_exit_codes_matched = False
 
     last_m_results = last_mitts_res["results"]
     last_c_results = last_cargo_res["results"]
+    last_s_results = last_sccache_res["results"] if last_sccache_res else []
     defect_m = "__intentional_test_failure" in (last_m_results[-1]["stdout"] + last_m_results[-1]["stderr"])
     defect_c = "__intentional_test_failure" in (last_c_results[-1]["stdout"] + last_c_results[-1]["stderr"])
-    intentional_defect_caught_by_both = defect_m and defect_c
+    defect_s = (
+        "__intentional_test_failure" in (last_s_results[-1]["stdout"] + last_s_results[-1]["stderr"])
+        if last_s_results
+        else False
+    )
+    intentional_defect_caught_by_both = defect_m and defect_c and defect_s
+
+    # Empirical check for cargo_shared unsound collision on WT-12
+    sh_swarms = tool_results.get("cargo_shared", {}).get("runs_data", [])
+    cargo_shared_wt12_exits = []
+    cargo_shared_wt12_fails = []
+    if sh_swarms:
+        for s in sh_swarms:
+            for r in s.get("results", []):
+                if r.get("wt_index") == 12:
+                    cargo_shared_wt12_exits.append(r.get("exit_code"))
+                    st = r.get("test_stats", {})
+                    cargo_shared_wt12_fails.append(st.get("failed", 0))
+
+    cargo_shared_wt12_unsound = (
+        len(cargo_shared_wt12_exits) > 0 and all(ec == 0 for ec in cargo_shared_wt12_exits)
+    )
 
     m_stats_clean = last_m_results[0]["test_stats"]
     c_stats_clean = last_c_results[0]["test_stats"]
+    s_stats_clean = last_s_results[0]["test_stats"] if last_s_results else {}
 
     print("[5/5] Testing P0 invariant: fast-lock hit NEVER skips test execution...")
     wt01_tuple = (1, wt_base / "wt-01", commits[0])
@@ -424,8 +469,15 @@ def run_t5_project(project_name, runs_count=5):
         "fast_lock_never_skips_test_execution": fast_lock_executed_tests,
         "mitts_test_stats": m_stats_clean,
         "cargo_test_stats": c_stats_clean,
+        "sccache_test_stats": s_stats_clean,
         "fast_lock_test_stats": res_fl["test_stats"],
         "fast_lock_exit_code": res_fl["exit_code"],
+        "cargo_shared_unsound_empirical_confirmation": {
+            "observed_unsound": cargo_shared_wt12_unsound,
+            "wt12_exit_codes": cargo_shared_wt12_exits,
+            "wt12_failed_counts": cargo_shared_wt12_fails,
+            "description": "cargo_shared reused build artifacts across worktrees without isolating intentional defect in WT-12, completing with exit code 0 and failed=0",
+        },
     }
 
     for tool in tool_results:

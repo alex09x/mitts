@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Strongly typed representation of a Cargo.toml manifest.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -77,34 +77,6 @@ impl CargoToml {
             }
         }
         "1"
-    }
-
-    /// Climbs parent directories to find an enclosing workspace root Cargo.toml.
-    pub fn find_workspace_root(manifest_path: &Path) -> Option<(PathBuf, CargoToml)> {
-        let mut cur = manifest_path.parent().and_then(|p| p.parent());
-        while let Some(dir) = cur {
-            let candidate = dir.join("Cargo.toml");
-            if candidate.is_file() {
-                if let Ok(toml) = CargoToml::from_file(&candidate) {
-                    if toml.workspace.is_some() {
-                        return Some((candidate, toml));
-                    }
-                }
-            }
-            cur = dir.parent();
-        }
-        None
-    }
-
-    /// Returns the effective Cargo feature resolver, climbing to the workspace root if needed.
-    pub fn effective_resolver_for_manifest(manifest_path: &Path, manifest: &CargoToml) -> String {
-        if manifest.workspace.is_some() {
-            return manifest.effective_resolver().to_string();
-        }
-        if let Some((_, ws_toml)) = CargoToml::find_workspace_root(manifest_path) {
-            return ws_toml.effective_resolver().to_string();
-        }
-        manifest.effective_resolver().to_string()
     }
 
     /// Checks if this package defines or defaults to a build script.
@@ -308,57 +280,5 @@ impl CargoToml {
         }
 
         targets
-    }
-
-    /// Discovers all workspace member directories declared in this manifest.
-    pub fn discover_workspace_members(&self, root_dir: &Path) -> Vec<(String, PathBuf)> {
-        let mut members = Vec::new();
-
-        if let Some(ref ws) = self.workspace {
-            for pattern in &ws.members {
-                if pattern == "." {
-                    if let Some(ref pkg) = self.package {
-                        members.push((pkg.name.clone(), root_dir.to_path_buf()));
-                    }
-                } else if pattern.ends_with("/*") {
-                    let base_rel = pattern.trim_end_matches("/*");
-                    let base_dir = root_dir.join(base_rel);
-                    if let Ok(entries) = fs::read_dir(&base_dir) {
-                        for entry in entries.flatten() {
-                            let candidate_dir = entry.path();
-                            let candidate_manifest = candidate_dir.join("Cargo.toml");
-                            if candidate_manifest.is_file() {
-                                if let Ok(toml) = CargoToml::from_file(&candidate_manifest) {
-                                    if let Some(pkg) = toml.package {
-                                        members.push((pkg.name, candidate_dir));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    let member_dir = root_dir.join(pattern);
-                    let candidate_manifest = member_dir.join("Cargo.toml");
-                    if candidate_manifest.is_file() {
-                        if let Ok(toml) = CargoToml::from_file(&candidate_manifest) {
-                            if let Some(pkg) = toml.package {
-                                members.push((pkg.name, member_dir));
-                            }
-                        }
-                    }
-                }
-            }
-        } else if let Some(ref pkg) = self.package {
-            members.push((pkg.name.clone(), root_dir.to_path_buf()));
-        }
-
-        // Ensure root package is included if it defines [package]
-        if let Some(ref pkg) = self.package {
-            if !members.iter().any(|(n, _)| n == &pkg.name) {
-                members.push((pkg.name.clone(), root_dir.to_path_buf()));
-            }
-        }
-
-        members
     }
 }

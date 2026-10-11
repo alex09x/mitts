@@ -51,15 +51,13 @@ pub fn resolve_unit_debuginfo(
     release: bool,
     ws_root: Option<&Path>,
 ) -> anyhow::Result<u32> {
-    let effective_ws_root = ws_root
-        .map(|p| p.to_path_buf())
-        .or_else(|| {
-            if is_workspace {
-                Some(super::compiler_resolve::find_workspace_root(manifest_path))
-            } else {
-                None
-            }
-        });
+    let effective_ws_root = ws_root.map(|p| p.to_path_buf()).or_else(|| {
+        if is_workspace {
+            Some(super::compiler_resolve::find_workspace_root(manifest_path))
+        } else {
+            None
+        }
+    });
 
     let profile_name = if release { "release" } else { "dev" };
     let default_val = if release { 0 } else { 2 };
@@ -215,15 +213,20 @@ fn ingest_profiles_from_toml(
                 merge_table(base_prof, tbl);
 
                 if let Some(bo) = tbl.get("build-override").and_then(|b| b.as_table()) {
-                    let base_bo = resolved.build_overrides.entry(prof_name.clone()).or_default();
+                    let base_bo = resolved
+                        .build_overrides
+                        .entry(prof_name.clone())
+                        .or_default();
                     merge_table(base_bo, bo);
                 }
                 if let Some(pkg_table) = tbl.get("package").and_then(|p| p.as_table()) {
                     for (pkg_k, pkg_v) in pkg_table {
                         if let Some(pkg_tbl) = pkg_v.as_table() {
                             if pkg_k == "*" {
-                                let base_wild =
-                                    resolved.wildcard_overrides.entry(prof_name.clone()).or_default();
+                                let base_wild = resolved
+                                    .wildcard_overrides
+                                    .entry(prof_name.clone())
+                                    .or_default();
                                 merge_table(base_wild, pkg_tbl);
                             } else {
                                 let base_pkg = resolved

@@ -385,7 +385,11 @@ impl FastBuildLock {
         };
 
         let bytes = serde_json::to_vec_pretty(&lock)?;
-        let temp_p = lock_dir.join(format!("build-{}.lock.tmp.{}", args.profile, std::process::id()));
+        let temp_p = lock_dir.join(format!(
+            "build-{}.lock.tmp.{}",
+            args.profile,
+            std::process::id()
+        ));
         fs::write(&temp_p, bytes)?;
         fs::rename(temp_p, Self::lock_path(args.project_dir, args.profile))?;
 

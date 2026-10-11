@@ -34,11 +34,19 @@ pub fn resolve_unit_dependencies(
         if unit.kind != "bin" && unit.kind != "test" {
             let uid = unit.unit_id();
             lib_units_by_exact.insert(
-                (unit.package_name.clone(), unit.version.clone(), unit.for_host),
+                (
+                    unit.package_name.clone(),
+                    unit.version.clone(),
+                    unit.for_host,
+                ),
                 uid.clone(),
             );
             lib_units_by_exact.insert(
-                (unit.package_name.replace('-', "_"), unit.version.clone(), unit.for_host),
+                (
+                    unit.package_name.replace('-', "_"),
+                    unit.version.clone(),
+                    unit.for_host,
+                ),
                 uid.clone(),
             );
 
@@ -61,7 +69,10 @@ pub fn resolve_unit_dependencies(
         let pkg_toml_opt = CargoToml::from_file(&unit.manifest_path).ok();
         let is_test = unit.kind == "test";
 
-        let pkg_dir = unit.manifest_path.parent().unwrap_or(std::path::Path::new("."));
+        let pkg_dir = unit
+            .manifest_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
         let has_build_script = pkg_toml_opt
             .as_ref()
             .is_some_and(|t| t.has_build_script(pkg_dir));
@@ -87,14 +98,18 @@ pub fn resolve_unit_dependencies(
                 let is_pm = proc_macro_names.contains(dep_name)
                     || proc_macro_names.contains(&dep_name.replace('-', "_"));
 
-                let is_build_dep = has_build_script && pkg_toml_opt.as_ref().is_some_and(|t| {
-                    t.build_dependencies.contains_key(dep_name)
-                        || t.build_dependencies.contains_key(&dep_name.replace('-', "_"))
-                        || t.target.values().any(|ts| {
-                            ts.build_dependencies.contains_key(dep_name)
-                                || ts.build_dependencies.contains_key(&dep_name.replace('-', "_"))
-                        })
-                });
+                let is_build_dep = has_build_script
+                    && pkg_toml_opt.as_ref().is_some_and(|t| {
+                        t.build_dependencies.contains_key(dep_name)
+                            || t.build_dependencies
+                                .contains_key(&dep_name.replace('-', "_"))
+                            || t.target.values().any(|ts| {
+                                ts.build_dependencies.contains_key(dep_name)
+                                    || ts
+                                        .build_dependencies
+                                        .contains_key(&dep_name.replace('-', "_"))
+                            })
+                    });
 
                 let is_runtime_dep = pkg_toml_opt.as_ref().is_none_or(|t| {
                     t.dependencies.contains_key(dep_name)
@@ -103,12 +118,15 @@ pub fn resolve_unit_dependencies(
                             ts.dependencies.contains_key(dep_name)
                                 || ts.dependencies.contains_key(&dep_name.replace('-', "_"))
                         })
-                        || (is_test && (t.dev_dependencies.contains_key(dep_name)
-                            || t.dev_dependencies.contains_key(&dep_name.replace('-', "_"))
-                            || t.target.values().any(|ts| {
-                                ts.dev_dependencies.contains_key(dep_name)
-                                    || ts.dev_dependencies.contains_key(&dep_name.replace('-', "_"))
-                            })))
+                        || (is_test
+                            && (t.dev_dependencies.contains_key(dep_name)
+                                || t.dev_dependencies.contains_key(&dep_name.replace('-', "_"))
+                                || t.target.values().any(|ts| {
+                                    ts.dev_dependencies.contains_key(dep_name)
+                                        || ts
+                                            .dev_dependencies
+                                            .contains_key(&dep_name.replace('-', "_"))
+                                })))
                 });
 
                 let resolve_dep = |for_host: bool| -> Option<String> {
@@ -116,13 +134,25 @@ pub fn resolve_unit_dependencies(
                         lib_units_by_exact
                             .get(&(dep_name.to_string(), ver.to_string(), for_host))
                             .or_else(|| {
-                                lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string(), for_host))
+                                lib_units_by_exact.get(&(
+                                    dep_name.replace('-', "_"),
+                                    ver.to_string(),
+                                    for_host,
+                                ))
                             })
                             .or_else(|| {
-                                lib_units_by_exact.get(&(dep_name.to_string(), ver.to_string(), !for_host))
+                                lib_units_by_exact.get(&(
+                                    dep_name.to_string(),
+                                    ver.to_string(),
+                                    !for_host,
+                                ))
                             })
                             .or_else(|| {
-                                lib_units_by_exact.get(&(dep_name.replace('-', "_"), ver.to_string(), !for_host))
+                                lib_units_by_exact.get(&(
+                                    dep_name.replace('-', "_"),
+                                    ver.to_string(),
+                                    !for_host,
+                                ))
                             })
                             .cloned()
                     } else if let Some(candidates) = lib_units_by_name
@@ -167,7 +197,9 @@ pub fn resolve_unit_dependencies(
         if unit.kind == "bin" || unit.kind == "test" {
             let self_lib_uid = lib_units_by_exact
                 .get(&(unit.package_name.clone(), unit.version.clone(), false))
-                .or_else(|| lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone(), true)));
+                .or_else(|| {
+                    lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone(), true))
+                });
             if let Some(uid) = self_lib_uid {
                 let is_self_lib_unit_test =
                     unit.kind == "test" && unit.target_name.ends_with("_unit_test");
@@ -185,10 +217,7 @@ pub fn resolve_unit_dependencies(
 }
 
 /// Prunes compilation units that are not reachable from root targets.
-pub fn prune_unreachable_units(
-    units: &mut Vec<PlannedCompilationUnit>,
-    root_unit_ids: &[String],
-) {
+pub fn prune_unreachable_units(units: &mut Vec<PlannedCompilationUnit>, root_unit_ids: &[String]) {
     if root_unit_ids.is_empty() {
         return;
     }

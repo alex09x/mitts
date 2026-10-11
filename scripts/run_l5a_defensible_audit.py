@@ -17,6 +17,7 @@ import concurrent.futures
 import functools
 import hashlib
 import json
+import collections
 import os
 import re
 import shutil
@@ -493,10 +494,12 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
             return "git"
         return "workspace"
 
-    cargo_target_units = {}
-    cargo_all_compiled_features = {}
+    cargo_target_units_counter = collections.Counter()
+    cargo_parse_error = False
     try:
         p_art = subprocess.run(["cargo", mode, "--message-format=json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
+        if p_art.returncode != 0:
+            cargo_parse_error = True
         for l in p_art.stdout.splitlines():
             if "compiler-artifact" in l:
                 a = json.loads(l)
@@ -510,15 +513,18 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
                 src_kind = get_source_kind(src_path)
                 for_host = (a["profile"].get("debuginfo") == 0)
                 feats = tuple(sorted(f for f in a.get("features", []) if not f.startswith("dep:")))
-                u_key = (pkg_name, version, src_kind, tgt_name, kind, for_host)
-                cargo_target_units[u_key] = feats
+                u_key = (pkg_name, version, src_kind, tgt_name, kind, for_host, feats)
+                cargo_target_units_counter[u_key] += 1
     except Exception as e:
+        cargo_parse_error = True
         print(f"  [ERROR parsing cargo artifacts] {e}")
 
     p_exp = subprocess.run([str(MITTS_BIN), "explain", "--json"], cwd=wt_base / "wt-01", capture_output=True, text=True)
-    mitts_units_map = {}
-    mitts_units = []
+    mitts_units_counter = collections.Counter()
+    mitts_parse_error = False
     try:
+        if p_exp.returncode != 0:
+            mitts_parse_error = True
         exp_data = json.loads(p_exp.stdout)
         mitts_units = exp_data.get("units", [])
         for u in mitts_units:
@@ -530,38 +536,80 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
             kind = norm_kind(u["kind"])
             for_host = bool(u.get("for_host", False))
             feats = tuple(sorted(f for f in u.get("features", []) if not f.startswith("dep:")))
-            mitts_units_map[(pkg_name, version, src_kind, tgt_name, kind, for_host)] = feats
+            u_key = (pkg_name, version, src_kind, tgt_name, kind, for_host, feats)
+            mitts_units_counter[u_key] += 1
     except Exception as e:
+        mitts_parse_error = True
         print(f"  [ERROR parsing mitts explain] {e}")
 
-    cargo_unit_keys = set(cargo_target_units.keys())
-    mitts_unit_keys = set(mitts_units_map.keys())
+    missing_counter = cargo_target_units_counter - mitts_units_counter
+    extra_counter = mitts_units_counter - cargo_target_units_counter
 
-    missing_in_mitts = [list(k) for k in sorted(cargo_unit_keys - mitts_unit_keys)]
-    extra_in_mitts = [list(k) for k in sorted(mitts_unit_keys - cargo_unit_keys)]
-    units_matched_cargo = (len(missing_in_mitts) == 0 and len(extra_in_mitts) == 0 and len(cargo_unit_keys) > 0)
+    missing_in_mitts = []
+    for k, count in sorted(missing_counter.items()):
+        for _ in range(count):
+            missing_in_mitts.append(list(k))
+
+    extra_in_mitts = []
+    for k, count in sorted(extra_counter.items()):
+        for _ in range(count):
+            extra_in_mitts.append(list(k))
+
+    units_matched_cargo = (
+        not cargo_parse_error
+        and not mitts_parse_error
+        and len(missing_in_mitts) == 0
+        and len(extra_in_mitts) == 0
+        and sum(cargo_target_units_counter.values()) > 0
+    )
 
     known_discrepancy = None
     known_discrepancy_accepted = False
     if project_name == "tokio":
-        known_discrepancy = "tokio-macros proc-macro host dependencies (5 units: unicode_ident, proc_macro2, quote, syn 3.0.6, tokio_macros check unit)"
-        known_discrepancy_accepted = True
-        # Known accepted discrepancy for tokio-macros proc-macro host units
-        units_matched_cargo = True
+        known_discrepancy = "tokio-macros proc-macro host dependencies (5 units: unicode_ident, proc_macro2, quote, syn, tokio_macros)"
+        tokio_expected_missing = {"unicode-ident", "proc-macro2", "quote", "syn", "tokio-macros"}
+        actual_missing_pkgs = set(k[0].replace("_", "-") for k in missing_in_mitts)
+        # Strict fail-closed check: exact 5 missing units matching expected package names and 0 extra units
+        if (
+            not cargo_parse_error
+            and not mitts_parse_error
+            and len(extra_in_mitts) == 0
+            and len(missing_in_mitts) == 5
+            and actual_missing_pkgs == tokio_expected_missing
+            and sum(cargo_target_units_counter.values()) > 0
+        ):
+            known_discrepancy_accepted = True
+            units_matched_cargo = True
+        else:
+            known_discrepancy_accepted = False
+            units_matched_cargo = False
 
-    cargo_pkgs = set((k[0], k[1]) for k in cargo_unit_keys)
-    mitts_pkgs = set((k[0], k[1]) for k in mitts_unit_keys)
-    packages_identical = (cargo_pkgs == mitts_pkgs and len(cargo_pkgs) > 0)
+    cargo_pkgs = set((k[0], k[1]) for k in cargo_target_units_counter.keys())
+    mitts_pkgs = set((k[0], k[1]) for k in mitts_units_counter.keys())
+    if project_name == "tokio":
+        tokio_expected_missing_names = {"unicode-ident", "proc-macro2", "quote", "syn", "tokio-macros"}
+        cargo_target_pkgs = set((p, v) for (p, v) in cargo_pkgs if p.replace("_", "-") not in tokio_expected_missing_names)
+        packages_identical = (cargo_target_pkgs == mitts_pkgs and len(mitts_pkgs) > 0)
+    else:
+        packages_identical = (cargo_pkgs == mitts_pkgs and len(cargo_pkgs) > 0)
 
     feature_discrepancies = []
-    for k in sorted(cargo_unit_keys & mitts_unit_keys):
-        cf = cargo_target_units[k]
-        mf = mitts_units_map[k]
-        if cf != mf:
+    # Check for feature discrepancies on common base units
+    cargo_base_keys = {}
+    for (p, v, sk, t, k, fh, feats) in cargo_target_units_counter.keys():
+        cargo_base_keys.setdefault((p, v, sk, t, k, fh), set()).add(feats)
+    mitts_base_keys = {}
+    for (p, v, sk, t, k, fh, feats) in mitts_units_counter.keys():
+        mitts_base_keys.setdefault((p, v, sk, t, k, fh), set()).add(feats)
+
+    for base_k in sorted(set(cargo_base_keys.keys()) & set(mitts_base_keys.keys())):
+        cf_set = cargo_base_keys[base_k]
+        mf_set = mitts_base_keys[base_k]
+        if cf_set != mf_set:
             feature_discrepancies.append({
-                "unit": list(k),
-                "cargo_features": list(cf),
-                "mitts_features": list(mf),
+                "unit": list(base_k),
+                "cargo_feature_sets": [list(f) for f in sorted(cf_set)],
+                "mitts_feature_sets": [list(f) for f in sorted(mf_set)],
             })
 
     features_matched = units_matched_cargo and (len(feature_discrepancies) == 0)
@@ -646,8 +694,9 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         "missing_units_in_mitts": missing_in_mitts,
         "extra_units_in_mitts": extra_in_mitts,
         "feature_discrepancies": feature_discrepancies,
-        "units_count_cargo": len(cargo_unit_keys),
-        "units_count_mitts": len(mitts_unit_keys),
+        "units_count_cargo": sum(cargo_target_units_counter.values()),
+        "units_count_mitts": sum(mitts_units_counter.values()),
+        "host_target_heuristic_note": "for_host inferred from debuginfo level; target units have debuginfo=2, host/macro units have debuginfo=0",
         "diagnostics_count_cargo": total_diag_c,
         "diagnostics_count_mitts": total_diag_m,
     }

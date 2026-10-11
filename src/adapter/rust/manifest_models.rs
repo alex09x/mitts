@@ -145,6 +145,8 @@ pub struct TomlPackage {
     pub rust_version: Option<String>,
     #[serde(default)]
     pub resolver: Option<String>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

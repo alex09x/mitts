@@ -43,10 +43,7 @@ fn test_7a_fail_closed_on_broken_rustc() {
         std::env::remove_var("RUSTC");
     }
 
-    assert!(
-        res.is_err(),
-        "Must fail closed when rustc invocation fails"
-    );
+    assert!(res.is_err(), "Must fail closed when rustc invocation fails");
     match res.unwrap_err() {
         RustAdapterError::MetadataFailed(msg) => {
             assert!(
@@ -80,10 +77,7 @@ fn test_7b_target_resolution_precedence_and_no_target_env() {
 
     let empty_dir = tempdir().unwrap();
     let res_no_target = resolve_explicit_target_from_args_and_dir(&[], empty_dir.path());
-    assert_eq!(
-        res_no_target, None,
-        "TARGET env variable must be ignored"
-    );
+    assert_eq!(res_no_target, None, "TARGET env variable must be ignored");
 
     // 2. build.target from config.toml is loaded
     let res_cfg = resolve_explicit_target_from_args_and_dir(&[], dir.path());
@@ -285,7 +279,8 @@ fn test_5c_profile_precedence_and_deep_merging() {
         true, // for_host
         false,
         Some(ws_dir.path()),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         dbg_syn_host, 2,
         "package.syn debug = 2 must take precedence over build-override for host unit"
@@ -299,7 +294,8 @@ fn test_5c_profile_precedence_and_deep_merging() {
         true, // for_host
         false,
         Some(ws_dir.path()),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         dbg_gen_host, 0,
         "generic host unit without package override must match build-override"
@@ -313,7 +309,8 @@ fn test_5c_profile_precedence_and_deep_merging() {
         false,
         false,
         Some(ws_dir.path()),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         dbg_app, 1,
         "Workspace member must retain debug = 1 merged from Cargo.toml"
@@ -359,8 +356,14 @@ fn test_5d_b37f4e0_regression_host_vs_target_extern_crates() {
     let target_artifact = PathBuf::from("/artifacts/target/libshared_dep.rlib");
 
     let mut completed = HashMap::new();
-    completed.insert("shared_dep@1.0.0::lib:shared_dep".to_string(), target_artifact.clone());
-    completed.insert("shared_dep@1.0.0::lib:shared_dep:host".to_string(), host_artifact.clone());
+    completed.insert(
+        "shared_dep@1.0.0::lib:shared_dep".to_string(),
+        target_artifact.clone(),
+    );
+    completed.insert(
+        "shared_dep@1.0.0::lib:shared_dep:host".to_string(),
+        host_artifact.clone(),
+    );
 
     // 1. Build script (always for host) must resolve the host artifact (:host)
     let build_externs = resolve_extern_crates_for_build_script(&unit, &completed);

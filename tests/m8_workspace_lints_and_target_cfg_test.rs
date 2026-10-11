@@ -223,7 +223,14 @@ fn test_m8_build_disabled_ignores_build_dependencies() {
 
     let toml = CargoToml::from_file(&manifest_path).unwrap();
     assert!(
-        !is_declared_dependency(&toml, "rustc_version", false, None, std::path::Path::new(".")).unwrap(),
+        !is_declared_dependency(
+            &toml,
+            "rustc_version",
+            false,
+            None,
+            std::path::Path::new(".")
+        )
+        .unwrap(),
         "build_dependencies must be ignored when build = false"
     );
 }
@@ -272,7 +279,8 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
         false,
         false,
         Some(dir.path()),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         dbg_target, 1,
         "target dev debuginfo should read [profile.dev].debug"
@@ -285,7 +293,8 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
         true,
         false,
         Some(dir.path()),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         dbg_host, 0,
         "host dev debuginfo should read [profile.dev.build-override].debug"

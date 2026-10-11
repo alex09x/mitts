@@ -237,9 +237,12 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
 
     let is_primary_pkg = |name: &str| -> bool {
         target_pkg.map_or_else(
-            || (has_all_ws && workspace_manifests.contains_key(name))
-                || ((is_virtual_workspace || default_members.is_some()) && is_selected_ws_member(name))
-                || root_toml.package.as_ref().is_some_and(|p| p.name == name),
+            || {
+                (has_all_ws && workspace_manifests.contains_key(name))
+                    || ((is_virtual_workspace || default_members.is_some())
+                        && is_selected_ws_member(name))
+                    || root_toml.package.as_ref().is_some_and(|p| p.name == name)
+            },
             |target| name == target,
         )
     };
@@ -256,7 +259,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             dependencies: &pkg.dependencies,
         })
         .collect();
-    let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml);
+    let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml)?;
     let package_features =
         resolve_package_features_with_resolver(&feature_inputs, opt, Some(&ws_resolver))?;
 

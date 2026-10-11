@@ -64,9 +64,15 @@ pub fn build_planned_units(
             if is_pm {
                 if in_host || is_primary {
                     let feats = if in_host {
-                        package_features.host.get(&pkg_id).or_else(|| package_features.host.get(&pkg.name))
+                        package_features
+                            .host
+                            .get(&pkg_id)
+                            .or_else(|| package_features.host.get(&pkg.name))
                     } else {
-                        package_features.target.get(&pkg_id).or_else(|| package_features.target.get(&pkg.name))
+                        package_features
+                            .target
+                            .get(&pkg_id)
+                            .or_else(|| package_features.target.get(&pkg.name))
                     }
                     .cloned()
                     .unwrap_or_default();
@@ -90,9 +96,17 @@ pub fn build_planned_units(
                 let is_pm_pkg = pkg_toml.lib.as_ref().is_some_and(|l| {
                     l.proc_macro == Some(true) || l.crate_type.iter().any(|k| k == "proc-macro")
                 });
-                let unit_in_scope = if is_pm_pkg { in_host || is_primary } else { in_target };
+                let unit_in_scope = if is_pm_pkg {
+                    in_host || is_primary
+                } else {
+                    in_target
+                };
                 if unit_in_scope {
-                    let feat_map = if is_pm_pkg { &package_features.host } else { &package_features.target };
+                    let feat_map = if is_pm_pkg {
+                        &package_features.host
+                    } else {
+                        &package_features.target
+                    };
                     let feats = feat_map
                         .get(&pkg_id)
                         .or_else(|| feat_map.get(&pkg.name))
@@ -167,7 +181,11 @@ pub fn build_planned_units(
     units
 }
 
-fn target_features_satisfied(target: &DiscoveredTarget, features: &[String], opt: &RustBuildOptions) -> bool {
+fn target_features_satisfied(
+    target: &DiscoveredTarget,
+    features: &[String],
+    opt: &RustBuildOptions,
+) -> bool {
     if let Some(ref req_feats) = target.required_features {
         req_feats
             .iter()

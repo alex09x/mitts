@@ -79,7 +79,10 @@ pub struct PlannedCompilationUnit {
 impl PlannedCompilationUnit {
     pub fn unit_id(&self) -> String {
         if self.for_host {
-            format!("{}::{}:{}:host", self.package_id, self.kind, self.target_name)
+            format!(
+                "{}::{}:{}:host",
+                self.package_id, self.kind, self.target_name
+            )
         } else {
             format!("{}::{}:{}", self.package_id, self.kind, self.target_name)
         }

@@ -375,7 +375,10 @@ pub(crate) fn execute_unit(
         outputs: action_outputs,
         args: Vec::new(),
         env: {
-            let mut env = HashMap::from([("CARGO_PKG_NAME".into(), unit.package_name.clone()), ("CARGO_PKG_VERSION".into(), unit.version.clone())]);
+            let mut env = HashMap::from([
+                ("CARGO_PKG_NAME".into(), unit.package_name.clone()),
+                ("CARGO_PKG_VERSION".into(), unit.version.clone()),
+            ]);
             if let Some(p) = unit.manifest_path.parent() {
                 env.insert("CARGO_MANIFEST_DIR".into(), p.to_string_lossy().into());
             }
@@ -392,8 +395,13 @@ pub(crate) fn execute_unit(
 }
 
 fn create_staging_dir(cas_root: &std::path::Path, clean_crate: &str) -> Result<PathBuf> {
-    let tid: String = format!("{:?}", thread::current().id()).chars().filter(|c| c.is_alphanumeric()).collect();
-    let s = cas_root.join("tmp").join(format!("stage_{clean_crate}_{}_{tid}", std::process::id()));
+    let tid: String = format!("{:?}", thread::current().id())
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect();
+    let s = cas_root
+        .join("tmp")
+        .join(format!("stage_{clean_crate}_{}_{tid}", std::process::id()));
     fs::create_dir_all(&s)?;
     Ok(s)
 }

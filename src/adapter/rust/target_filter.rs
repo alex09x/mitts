@@ -10,7 +10,6 @@
 
 pub use super::target_incompatible::is_target_incompatible_with_host;
 
-
 /// Checks whether a target configuration spec (e.g. `'cfg(windows)'` or `cfg(target_env = "musl")`)
 /// or target triple is incompatible with the current compilation host.
 pub fn is_target_cfg_incompatible_with_host(target_spec: &str) -> bool {
@@ -169,9 +168,9 @@ fn discover_cfg_atoms(
         }
     }
 
-    let output = cmd.output().map_err(|e| {
-        format!("Failed to execute {:?} to discover cfg atoms: {}", rustc, e)
-    })?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to execute {:?} to discover cfg atoms: {}", rustc, e))?;
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
@@ -211,7 +210,8 @@ fn discover_cfg_atoms(
                 parse_cfg_from_iter(flags.split_whitespace(), &mut atoms);
             }
         } else {
-            let config_dir = crate::adapter::rust::cargo_config::resolve_config_start_dir(start_dir);
+            let config_dir =
+                crate::adapter::rust::cargo_config::resolve_config_start_dir(start_dir);
             let cfg_flags = crate::adapter::rust::cargo_config::load_cargo_config_rustflags(
                 &config_dir,
                 explicit_target,
@@ -267,10 +267,18 @@ mod tests {
             eval_atom("target_has_atomic = \"64\"", false, None, Path::new(".")).unwrap()
                 || eval_atom("target_has_atomic = \"32\"", false, None, Path::new(".")).unwrap()
         );
-        assert!(!eval_atom("target_os = \"nonexistent_os\"", false, None, Path::new(".")).unwrap());
-        assert!(!is_target_cfg_incompatible_with_host("cfg(any(unix, windows))"));
-        assert!(is_target_cfg_incompatible_with_host("cfg(target_os = \"nonexistent_os\")"));
+        assert!(!eval_atom(
+            "target_os = \"nonexistent_os\"",
+            false,
+            None,
+            Path::new(".")
+        )
+        .unwrap());
+        assert!(!is_target_cfg_incompatible_with_host(
+            "cfg(any(unix, windows))"
+        ));
+        assert!(is_target_cfg_incompatible_with_host(
+            "cfg(target_os = \"nonexistent_os\")"
+        ));
     }
 }
-
-

@@ -228,7 +228,8 @@ pub fn assess_build_script_purity(
             }
             s
         };
-        if let Some(leak) = check_bytes(k.as_bytes()).or_else(|| check_bytes(v_scrubbed.as_bytes())) {
+        if let Some(leak) = check_bytes(k.as_bytes()).or_else(|| check_bytes(v_scrubbed.as_bytes()))
+        {
             return Ok(BuildScriptPurity {
                 is_pure: false,
                 out_dir_hash: String::new(),

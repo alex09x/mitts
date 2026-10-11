@@ -16,8 +16,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub fn is_implicit_feature(toml: &CargoToml, name: &str) -> bool {
-    let (n1, n2) = (format!("dep:{}", name), format!("dep:{}", name.replace('-', "_")));
-    !toml.features.values().any(|sf| sf.iter().any(|s| s == &n1 || s == &n2))
+    let (n1, n2) = (
+        format!("dep:{}", name),
+        format!("dep:{}", name.replace('-', "_")),
+    );
+    !toml
+        .features
+        .values()
+        .any(|sf| sf.iter().any(|s| s == &n1 || s == &n2))
 }
 
 pub fn is_optional_dep(deps: &[&TomlDependency]) -> bool {
@@ -30,14 +36,19 @@ pub fn is_optional_dep(deps: &[&TomlDependency]) -> bool {
 pub fn is_any_optional_dep(toml: &CargoToml, name: &str) -> bool {
     let norm = name.replace('-', "_");
     let check = |map: &HashMap<String, TomlDependency>| {
-        map.get(name).or_else(|| map.get(&norm)).is_some_and(|d| match d {
-            TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
-            _ => false,
-        })
+        map.get(name)
+            .or_else(|| map.get(&norm))
+            .is_some_and(|d| match d {
+                TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
+                _ => false,
+            })
     };
     check(&toml.dependencies)
         || check(&toml.build_dependencies)
-        || toml.target.values().any(|t| check(&t.dependencies) || check(&t.build_dependencies))
+        || toml
+            .target
+            .values()
+            .any(|t| check(&t.dependencies) || check(&t.build_dependencies))
 }
 
 pub fn resolve_dep_id(
@@ -47,8 +58,13 @@ pub fn resolve_dep_id(
 ) -> Option<String> {
     let clean = dep.replace('-', "_");
     let m = |c: &PackageFeatureContext| c.name == dep || c.name.replace('-', "_") == clean;
-    ver.and_then(|v| packages.iter().find(|c| m(c) && c.version == v).map(|c| c.id()))
-        .or_else(|| packages.iter().find(|c| m(c)).map(|c| c.id()))
+    ver.and_then(|v| {
+        packages
+            .iter()
+            .find(|c| m(c) && c.version == v)
+            .map(|c| c.id())
+    })
+    .or_else(|| packages.iter().find(|c| m(c)).map(|c| c.id()))
 }
 
 pub fn resolve_dep_id_from_ctx(
@@ -57,10 +73,14 @@ pub fn resolve_dep_id_from_ctx(
     dep_name: &str,
 ) -> Option<String> {
     let clean = dep_name.replace('-', "_");
-    let req_ver = ctx.dependencies.iter().find(|s| {
-        let (name, _) = parse_dep_spec(s);
-        name == dep_name || name.replace('-', "_") == clean
-    }).and_then(|s| parse_dep_spec(s).1);
+    let req_ver = ctx
+        .dependencies
+        .iter()
+        .find(|s| {
+            let (name, _) = parse_dep_spec(s);
+            name == dep_name || name.replace('-', "_") == clean
+        })
+        .and_then(|s| parse_dep_spec(s).1);
     resolve_dep_id(packages, dep_name, req_ver)
 }
 
@@ -80,21 +100,23 @@ pub fn collect_manifest_dependencies<'a>(
     add(&toml.dependencies);
     add(&toml.build_dependencies);
     for (spec, t) in &toml.target {
-        let target_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
-            spec,
-            false,
-            explicit_target,
-            start_dir,
-        )?;
+        let target_incompat =
+            crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+                spec,
+                false,
+                explicit_target,
+                start_dir,
+            )?;
         if !target_incompat {
             add(&t.dependencies);
         }
-        let host_incompat = crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
-            spec,
-            true,
-            explicit_target,
-            start_dir,
-        )?;
+        let host_incompat =
+            crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+                spec,
+                true,
+                explicit_target,
+                start_dir,
+            )?;
         if !host_incompat {
             add(&t.build_dependencies);
         }
@@ -160,6 +182,14 @@ pub fn activate_manifest_dep(
     changed: &mut bool,
 ) {
     for d in deps {
-        activate_dep_instance(ctx, packages, dep_name, d, active_packages, requested, changed);
+        activate_dep_instance(
+            ctx,
+            packages,
+            dep_name,
+            d,
+            active_packages,
+            requested,
+            changed,
+        );
     }
 }

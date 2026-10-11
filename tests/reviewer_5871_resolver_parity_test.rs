@@ -52,7 +52,8 @@ fn setup_test_packages<'a>(
 
 #[test]
 fn test_resolver_2_decouples_host_and_target_features() {
-    let syn_toml: CargoToml = toml::from_str(r#"
+    let syn_toml: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "syn"
         version = "2.0.0"
@@ -62,9 +63,12 @@ fn test_resolver_2_decouples_host_and_target_features() {
         default = []
         "proc-macro" = []
         "clone-impls" = []
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
-    let pm_toml: CargoToml = toml::from_str(r#"
+    let pm_toml: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "my_proc_macro"
         version = "0.1.0"
@@ -75,9 +79,12 @@ fn test_resolver_2_decouples_host_and_target_features() {
 
         [dependencies]
         syn = { version = "2.0.0", features = ["proc-macro"] }
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
-    let lib_toml: CargoToml = toml::from_str(r#"
+    let lib_toml: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "my_lib"
         version = "0.1.0"
@@ -86,13 +93,17 @@ fn test_resolver_2_decouples_host_and_target_features() {
         [dependencies]
         my_proc_macro = { version = "0.1.0" }
         syn = { version = "2.0.0", features = ["clone-impls"] }
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
     let syn_deps = vec![];
     let pm_deps = vec!["syn@2.0.0".to_string()];
     let lib_deps = vec!["my_proc_macro@0.1.0".to_string(), "syn@2.0.0".to_string()];
 
-    let packages = setup_test_packages(&syn_toml, &pm_toml, &lib_toml, &syn_deps, &pm_deps, &lib_deps);
+    let packages = setup_test_packages(
+        &syn_toml, &pm_toml, &lib_toml, &syn_deps, &pm_deps, &lib_deps,
+    );
     let opt = RustBuildOptions::default();
 
     let res = resolve_package_features_with_resolver(&packages, &opt, Some("2")).unwrap();
@@ -119,7 +130,8 @@ fn test_resolver_2_decouples_host_and_target_features() {
 
 #[test]
 fn test_resolver_1_unifies_host_and_target_features() {
-    let syn_toml: CargoToml = toml::from_str(r#"
+    let syn_toml: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "syn"
         version = "2.0.0"
@@ -129,9 +141,12 @@ fn test_resolver_1_unifies_host_and_target_features() {
         default = []
         "proc-macro" = []
         "clone-impls" = []
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
-    let pm_toml: CargoToml = toml::from_str(r#"
+    let pm_toml: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "my_proc_macro"
         version = "0.1.0"
@@ -142,9 +157,12 @@ fn test_resolver_1_unifies_host_and_target_features() {
 
         [dependencies]
         syn = { version = "2.0.0", features = ["proc-macro"] }
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
-    let lib_toml: CargoToml = toml::from_str(r#"
+    let lib_toml: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "my_lib"
         version = "0.1.0"
@@ -153,13 +171,17 @@ fn test_resolver_1_unifies_host_and_target_features() {
         [dependencies]
         my_proc_macro = { version = "0.1.0" }
         syn = { version = "2.0.0", features = ["clone-impls"] }
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
 
     let syn_deps = vec![];
     let pm_deps = vec!["syn@2.0.0".to_string()];
     let lib_deps = vec!["my_proc_macro@0.1.0".to_string(), "syn@2.0.0".to_string()];
 
-    let packages = setup_test_packages(&syn_toml, &pm_toml, &lib_toml, &syn_deps, &pm_deps, &lib_deps);
+    let packages = setup_test_packages(
+        &syn_toml, &pm_toml, &lib_toml, &syn_deps, &pm_deps, &lib_deps,
+    );
     let opt = RustBuildOptions::default();
 
     let res = resolve_package_features_with_resolver(&packages, &opt, Some("1")).unwrap();
@@ -179,47 +201,62 @@ fn test_resolver_1_unifies_host_and_target_features() {
 
 #[test]
 fn test_effective_resolver_virtual_workspace_without_resolver_is_1() {
-    let toml: CargoToml = toml::from_str(r#"
+    let toml: CargoToml = toml::from_str(
+        r#"
         [workspace]
         members = ["crate_a", "crate_b"]
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(toml.effective_resolver(), "1");
 }
 
 #[test]
 fn test_effective_resolver_root_package_edition_2021_is_2() {
-    let toml: CargoToml = toml::from_str(r#"
+    let toml: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "my_pkg"
         version = "0.1.0"
         edition = "2021"
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(toml.effective_resolver(), "2");
 }
 
 #[test]
 fn test_effective_resolver_explicit_resolver() {
-    let ws_explicit_2: CargoToml = toml::from_str(r#"
+    let ws_explicit_2: CargoToml = toml::from_str(
+        r#"
         [workspace]
         members = ["crate_a"]
         resolver = "2"
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(ws_explicit_2.effective_resolver(), "2");
 
-    let ws_explicit_1: CargoToml = toml::from_str(r#"
+    let ws_explicit_1: CargoToml = toml::from_str(
+        r#"
         [workspace]
         members = ["crate_a"]
         resolver = "1"
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(ws_explicit_1.effective_resolver(), "1");
 
-    let pkg_explicit_1: CargoToml = toml::from_str(r#"
+    let pkg_explicit_1: CargoToml = toml::from_str(
+        r#"
         [package]
         name = "my_pkg"
         version = "0.1.0"
         edition = "2021"
         resolver = "1"
-    "#).unwrap();
+    "#,
+    )
+    .unwrap();
     assert_eq!(pkg_explicit_1.effective_resolver(), "1");
 }
 
@@ -235,7 +272,27 @@ fn test_explain_plan_serde_like_layout() {
         [workspace]
         members = ["serde_core", "serde_derive"]
         "#,
-    ).unwrap();
+    )
+    .unwrap();
+
+    let shared_dir = root_dir.join("shared_dep");
+    std::fs::create_dir_all(shared_dir.join("src")).unwrap();
+    std::fs::write(shared_dir.join("src/lib.rs"), "pub fn shared() {}").unwrap();
+    std::fs::write(
+        shared_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "shared_dep"
+        version = "0.1.0"
+        edition = "2021"
+
+        [features]
+        default = []
+        feature_a = []
+        feature_b = []
+        "#,
+    )
+    .unwrap();
 
     let core_dir = root_dir.join("serde_core");
     std::fs::create_dir_all(core_dir.join("src")).unwrap();
@@ -247,8 +304,12 @@ fn test_explain_plan_serde_like_layout() {
         name = "serde_core"
         version = "1.0.0"
         edition = "2021"
+
+        [dependencies]
+        shared_dep = { path = "../shared_dep", features = ["feature_a"] }
         "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     let derive_dir = root_dir.join("serde_derive");
     std::fs::create_dir_all(derive_dir.join("src")).unwrap();
@@ -263,24 +324,146 @@ fn test_explain_plan_serde_like_layout() {
 
         [lib]
         proc-macro = true
+
+        [dependencies]
+        shared_dep = { path = "../shared_dep", features = ["feature_b"] }
         "#,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Verify effective resolver from root
     let root_toml = CargoToml::from_file(&root_dir.join("Cargo.toml")).unwrap();
-    let res_from_root = CargoToml::effective_resolver_for_manifest(&root_dir.join("Cargo.toml"), &root_toml);
-    assert_eq!(res_from_root, "1", "Virtual workspace root without resolver must default to resolver 1");
+    let res_from_root =
+        CargoToml::effective_resolver_for_manifest(&root_dir.join("Cargo.toml"), &root_toml)
+            .unwrap();
+    assert_eq!(
+        res_from_root, "1",
+        "Virtual workspace root without resolver must default to resolver 1"
+    );
 
     // Verify effective resolver when launched from member directory
     let core_toml = CargoToml::from_file(&core_dir.join("Cargo.toml")).unwrap();
-    let res_from_member = CargoToml::effective_resolver_for_manifest(&core_dir.join("Cargo.toml"), &core_toml);
-    assert_eq!(res_from_member, "1", "Member of virtual workspace without resolver must inherit resolver 1");
+    let res_from_member =
+        CargoToml::effective_resolver_for_manifest(&core_dir.join("Cargo.toml"), &core_toml)
+            .unwrap();
+    assert_eq!(
+        res_from_member, "1",
+        "Member of virtual workspace without resolver must inherit resolver 1"
+    );
 
-    // Verify explain_plan succeeds on this layout
+    // Verify explain_plan succeeds on this layout and unifies features of shared_dep across host/target under resolver 1
     let opt = RustBuildOptions {
         manifest_path: Some(root_dir.join("Cargo.toml")),
         ..Default::default()
     };
     let plan = mitts::adapter::RustAdapter::explain_plan(&opt).unwrap();
-    assert_eq!(plan.units.len(), 2, "Both serde_core and serde_derive units planned");
+    assert!(plan.units.iter().any(|u| u.package_name == "serde_core"));
+    assert!(plan.units.iter().any(|u| u.package_name == "serde_derive"));
+
+    let shared_unit = plan
+        .units
+        .iter()
+        .find(|u| u.package_name == "shared_dep")
+        .expect("shared_dep unit planned");
+    assert!(
+        shared_unit.features.contains(&"feature_a".to_string()),
+        "feature_a unified under resolver 1"
+    );
+    assert!(
+        shared_unit.features.contains(&"feature_b".to_string()),
+        "feature_b unified under resolver 1"
+    );
+}
+
+#[test]
+fn test_find_workspace_root_members_exclude_and_package_workspace() {
+    let temp = tempfile::tempdir().unwrap();
+    let root_dir = temp.path();
+
+    std::fs::write(
+        root_dir.join("Cargo.toml"),
+        r#"
+        [workspace]
+        members = ["crates/*"]
+        exclude = ["crates/ignored_crate"]
+        resolver = "2"
+        "#,
+    )
+    .unwrap();
+
+    let member_dir = root_dir.join("crates/member_crate");
+    std::fs::create_dir_all(member_dir.join("src")).unwrap();
+    std::fs::write(member_dir.join("src/lib.rs"), "pub fn m() {}").unwrap();
+    std::fs::write(
+        member_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "member_crate"
+        version = "0.1.0"
+        edition = "2021"
+        "#,
+    )
+    .unwrap();
+
+    let excluded_dir = root_dir.join("crates/ignored_crate");
+    std::fs::create_dir_all(excluded_dir.join("src")).unwrap();
+    std::fs::write(excluded_dir.join("src/lib.rs"), "pub fn ex() {}").unwrap();
+    std::fs::write(
+        excluded_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "ignored_crate"
+        version = "0.1.0"
+        edition = "2021"
+        "#,
+    )
+    .unwrap();
+
+    let explicit_ws_dir = root_dir.join("crates/sub/explicit_crate");
+    std::fs::create_dir_all(explicit_ws_dir.join("src")).unwrap();
+    std::fs::write(explicit_ws_dir.join("src/lib.rs"), "pub fn exp() {}").unwrap();
+    std::fs::write(
+        explicit_ws_dir.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "explicit_crate"
+        version = "0.1.0"
+        edition = "2021"
+        workspace = "../../.."
+        "#,
+    )
+    .unwrap();
+
+    let member_toml = CargoToml::from_file(&member_dir.join("Cargo.toml")).unwrap();
+    let found_member =
+        CargoToml::find_workspace_root(&member_dir.join("Cargo.toml"), &member_toml).unwrap();
+    assert!(
+        found_member.is_some(),
+        "member_crate in crates/* must find workspace root"
+    );
+    assert_eq!(
+        found_member.unwrap().0.canonicalize().unwrap(),
+        root_dir.join("Cargo.toml").canonicalize().unwrap()
+    );
+
+    let excluded_toml = CargoToml::from_file(&excluded_dir.join("Cargo.toml")).unwrap();
+    let found_excluded =
+        CargoToml::find_workspace_root(&excluded_dir.join("Cargo.toml"), &excluded_toml).unwrap();
+    assert!(
+        found_excluded.is_none(),
+        "ignored_crate in exclude must NOT find workspace root"
+    );
+
+    let explicit_toml = CargoToml::from_file(&explicit_ws_dir.join("Cargo.toml")).unwrap();
+    let found_explicit =
+        CargoToml::find_workspace_root(&explicit_ws_dir.join("Cargo.toml"), &explicit_toml)
+            .unwrap();
+    assert!(
+        found_explicit.is_some(),
+        "explicit_crate with package.workspace must find workspace root"
+    );
+    assert_eq!(
+        found_explicit.unwrap().0.canonicalize().unwrap(),
+        root_dir.join("Cargo.toml").canonicalize().unwrap()
+    );
 }

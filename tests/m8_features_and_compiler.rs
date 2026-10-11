@@ -256,8 +256,16 @@ build_mode = []
     let opt = RustBuildOptions::default();
     let resolved = resolve_package_features(&pkgs, &opt).unwrap();
 
-    assert!(resolved.active_target_packages.contains("worker@1.0.0"), "worker must be in target");
-    assert!(resolved.active_target_packages.contains("dual_crate@2.0.0"), "dual_crate must be in target");
-    assert!(resolved.active_host_packages.contains("dual_crate@2.0.0"), "dual_crate must be in host");
+    assert!(
+        resolved.active_target_packages.contains("worker@1.0.0"),
+        "worker must be in target"
+    );
+    assert!(
+        resolved.active_target_packages.contains("dual_crate@2.0.0"),
+        "dual_crate must be in target"
+    );
+    assert!(
+        resolved.active_host_packages.contains("dual_crate@2.0.0"),
+        "dual_crate must be in host"
+    );
 }
-

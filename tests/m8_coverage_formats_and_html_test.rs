@@ -125,7 +125,8 @@ fn test_m8_coverage_build_error_and_empty_binaries() {
     assert_eq!(code_err, 1);
 
     // 2. Project with library only and no tests
-    let no_test_root = root.join("no_test_pkg");
+    let no_test_temp = TempDir::new().unwrap();
+    let no_test_root = no_test_temp.path();
     fs::create_dir_all(no_test_root.join("src")).unwrap();
     fs::write(
         no_test_root.join("Cargo.toml"),
