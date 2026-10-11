@@ -109,7 +109,7 @@ def get_provenance_info(mitts_cache: Path, worktree_dir: Path) -> dict:
         "mitts_no_reflink": os.environ.get("MITTS_NO_REFLINK", "0"),
         "mitts_no_hardlink": os.environ.get("MITTS_NO_HARDLINK", "0"),
         "mitts_cas_hardlink": os.environ.get("MITTS_CAS_HARDLINK", "0"),
-        "mitts_timings": os.environ.get("MITTS_TIMINGS", "0"),
+        "mitts_timings": os.environ.get("MITTS_TIMINGS", "1"),
     }
     if mitts_cache:
         prov["cache_filesystem"] = get_filesystem_type(Path(mitts_cache))
@@ -198,6 +198,14 @@ def sanitize_cmd(cmd_list, bench_root: Path):
     return res
 
 
+def sanitize_stderr(text: str, bench_root: Path) -> str:
+    root_str = str(bench_root)
+    home_str = str(Path.home())
+    res = text.replace(root_str, "$BENCH_ROOT")
+    res = res.replace(home_str, "~")
+    return res
+
+
 def parse_mitts_stats(text: str) -> dict:
     res = {
         "compiled": 0,
@@ -223,7 +231,7 @@ def parse_mitts_stats(text: str) -> dict:
     return res
 
 
-def parse_cargo_compiled_count(stderr: str) -> int:
+def cargo_compiling_packages(stderr: str) -> int:
     return len(re.findall(r"^\s*Compiling\s+", stderr, re.MULTILINE))
 
 
@@ -282,9 +290,9 @@ def run_concurrent_worktree_cmd(cmd_fn, worktrees, env=None, bench_root=BENCH_RO
             "wall_sec": round(elapsed, 4),
             "exit_code": p.returncode,
             "mitts_stats": stats,
-            "cargo_compiled_count": parse_cargo_compiled_count(stderr),
+            "cargo_compiled_packages": cargo_compiling_packages(stderr),
             "stdout": stdout,
-            "stderr": stderr,
+            "stderr": sanitize_stderr(stderr, bench_root),
             "cmd": sanitize_cmd(cmd, bench_root),
         }
 
@@ -333,9 +341,9 @@ def run_sequential_worktree_cmd(cmd_fn, worktrees, env=None, bench_root=BENCH_RO
             "wall_sec": round(elapsed, 4),
             "exit_code": p.returncode,
             "mitts_stats": stats,
-            "cargo_compiled_count": parse_cargo_compiled_count(p.stderr),
+            "cargo_compiled_packages": cargo_compiling_packages(p.stderr),
             "stdout": p.stdout,
-            "stderr": p.stderr,
+            "stderr": sanitize_stderr(p.stderr, bench_root),
             "cmd": sanitize_cmd(cmd, bench_root),
         })
 
@@ -636,16 +644,16 @@ def main():
             text=True,
         )
         wall_c = time.time() - start_c
-        cargo_compiled_l3a = parse_cargo_compiled_count(p_c.stderr)
-        print(f"  Cargo WT-01 (mutated test file): compiled={cargo_compiled_l3a} | wall={wall_c:.3f}s (exit {p_c.returncode})")
+        cargo_compiled_l3a = cargo_compiling_packages(p_c.stderr)
+        print(f"  Cargo WT-01 (mutated test file): packages={cargo_compiled_l3a} | wall={wall_c:.3f}s (exit {p_c.returncode})")
 
         cargo_l3a_result = {
             "cmd": ["cargo", "test", "--tests", "--no-run", "--workspace"],
             "exit_code": p_c.returncode,
             "wall_sec": round(wall_c, 4),
-            "compiled_count": cargo_compiled_l3a,
+            "cargo_compiled_packages": cargo_compiled_l3a,
             "stdout": p_c.stdout,
-            "stderr": p_c.stderr,
+            "stderr": sanitize_stderr(p_c.stderr, bench_root),
         }
     finally:
         mpsc_test_file.write_text(original_test_content)
@@ -699,17 +707,57 @@ def main():
             text=True,
         )
         wall_cb = time.time() - start_cb
-        cargo_compiled_l3b = parse_cargo_compiled_count(p_cb.stderr)
-        print(f"  Cargo WT-01 (mutated core crate): compiled={cargo_compiled_l3b} | wall={wall_cb:.3f}s (exit {p_cb.returncode})")
+        cargo_compiled_l3b = cargo_compiling_packages(p_cb.stderr)
+        print(f"  Cargo WT-01 (mutated core crate): packages={cargo_compiled_l3b} | wall={wall_cb:.3f}s (exit {p_cb.returncode})")
 
         cargo_l3b_result = {
             "cmd": ["cargo", "test", "--tests", "--no-run", "--workspace"],
             "exit_code": p_cb.returncode,
             "wall_sec": round(wall_cb, 4),
-            "compiled_count": cargo_compiled_l3b,
+            "cargo_compiled_packages": cargo_compiled_l3b,
             "stdout": p_cb.stdout,
-            "stderr": p_cb.stderr,
+            "stderr": sanitize_stderr(p_cb.stderr, bench_root),
         }
+
+        # Measured Cargo baseline with CARGO_INCREMENTAL=0 on identical mutation in WT-03
+        wt03_dir = wts[2][1]
+        wt03_mpsc_mod = wt03_dir / "tokio" / "src" / "sync" / "mpsc" / "mod.rs"
+        if not wt03_mpsc_mod.exists():
+            candidates = list(wt03_dir.glob("**/src/**/*.rs"))
+            if candidates:
+                wt03_mpsc_mod = candidates[0]
+
+        wt03_orig_content = wt03_mpsc_mod.read_text()
+        try:
+            wt03_mpsc_mod.write_text(wt03_orig_content + mod_probe)
+            wait_for_dirty_flush()
+
+            cargo_noinc_env = os.environ.copy()
+            cargo_noinc_env["CARGO_INCREMENTAL"] = "0"
+
+            start_noinc = time.time()
+            p_noinc = subprocess.run(
+                ["cargo", "test", "--tests", "--no-run", "--workspace"],
+                cwd=str(wt03_dir),
+                env=cargo_noinc_env,
+                capture_output=True,
+                text=True,
+            )
+            wall_noinc = time.time() - start_noinc
+            cargo_compiled_noinc = cargo_compiling_packages(p_noinc.stderr)
+            print(f"  Cargo WT-03 (CARGO_INCREMENTAL=0 control): packages={cargo_compiled_noinc} | wall={wall_noinc:.3f}s (exit {p_noinc.returncode})")
+
+            cargo_l3b_noinc_result = {
+                "cmd": ["cargo", "test", "--tests", "--no-run", "--workspace"],
+                "env_overrides": {"CARGO_INCREMENTAL": "0"},
+                "exit_code": p_noinc.returncode,
+                "wall_sec": round(wall_noinc, 4),
+                "cargo_compiled_packages": cargo_compiled_noinc,
+                "stdout": p_noinc.stdout,
+                "stderr": sanitize_stderr(p_noinc.stderr, bench_root),
+            }
+        finally:
+            wt03_mpsc_mod.write_text(wt03_orig_content)
 
         # L3c: Apply the exact same mutation in WT-02 and verify cache hit from WT-01's CAS
         print("\n  [L3c] Applying same mutation to WT-02...")
@@ -746,7 +794,7 @@ def main():
                 "exit_code": p.returncode,
                 "wall_sec": round(elapsed_wt02, 4),
                 "stdout": p.stdout,
-                "stderr": p.stderr,
+                "stderr": sanitize_stderr(p.stderr, BENCH_ROOT),
                 "mitts_stats": wt02_stats,
             }
 
@@ -826,6 +874,7 @@ def main():
                 "raw_results": res_l3b["results"],
             },
             "cargo": cargo_l3b_result,
+            "cargo_noincremental": cargo_l3b_noinc_result,
         },
         "l3c_cross_worktree_reuse": {
             "wt02_raw_result": raw_wt02_result,
