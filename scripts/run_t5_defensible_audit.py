@@ -446,7 +446,7 @@ def run_t5_project(project_name, runs_count=5):
                     cargo_shared_wt12_fails.append(st.get("failed", 0))
 
     cargo_shared_wt12_unsound = (
-        len(cargo_shared_wt12_exits) > 0 and all(ec == 0 for ec in cargo_shared_wt12_exits)
+        len(cargo_shared_wt12_exits) > 0 and any(ec == 0 for ec in cargo_shared_wt12_exits)
     )
 
     m_stats_clean = last_m_results[0]["test_stats"]
