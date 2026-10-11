@@ -123,6 +123,55 @@ h3 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
 .milestones .plan { border-top-color: var(--line); }
 .checklist code { font-size: 14px; color: var(--ink); }
 
+.lede code, .section-head p code, .card p code { font-size: .92em; color: var(--ink); }
+
+/* problem */
+.grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.grid4 h3 { font-size: 20px; }
+.workarounds { margin-top: 48px; }
+.checklist b { color: var(--ink); font-weight: 500; }
+
+/* pipeline */
+.pipeline { list-style: none; margin: 0 0 32px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; counter-reset: step; }
+.pipeline li { background: var(--panel); padding: 22px 20px; display: grid; align-content: start; gap: 10px; counter-increment: step; }
+.pipeline b { font: 600 15px var(--mono); color: var(--ink); }
+.pipeline b::before { content: counter(step, decimal-leading-zero) " "; color: var(--accent); }
+.pipeline span { color: var(--muted); font-size: 15px; }
+.pipeline code { color: var(--ink); font-size: 13px; }
+
+/* architecture */
+.arch { display: grid; gap: 12px; font-family: var(--mono); font-size: 13px; margin-bottom: 40px; }
+.arch-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+.arch-layer { display: grid; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; }
+.arch-layer small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.arch-layer code { color: var(--ink); line-height: 1.7; }
+.arch-layer.accent-edge { border-left: 3px solid var(--accent); }
+.arch-layer.dim-edge { border-style: dashed; }
+.arch-layer.core { background: var(--panel-2); border-left: 3px solid var(--hit); }
+.arch-arrow { color: var(--accent); text-align: center; font-size: 12px; letter-spacing: .08em; }
+.facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 48px; color: var(--muted); }
+.facts b { color: var(--ink); font-weight: 500; }
+
+/* tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.table { width: 100%; border-collapse: collapse; font-size: 15px; background: var(--panel); }
+.table th, .table td { text-align: left; vertical-align: top; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.table tr:last-child td { border-bottom: 0; }
+.table th { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); background: var(--panel-2); }
+.table td { color: var(--muted); }
+.table td:first-child { color: var(--ink); }
+.table code { font-size: 13px; color: var(--ink); }
+.compare { min-width: 760px; }
+.compare .hl { color: var(--ink); background: rgb(255 59 48 / .06); }
+.compare th.hl { color: var(--accent); }
+.aside { color: var(--muted); max-width: 46em; margin: 24px 0 0; }
+
+/* terminal */
+.term { margin: 0 0 24px; padding: 20px 24px; background: #0c0d0e; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font: 14px/1.7 var(--mono); }
+.term .p { color: var(--accent); }
+.term .c { color: var(--muted); }
+.cli dd code { font-size: 13px; color: var(--ink); }
+
 .author { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 24px; padding: 72px 0; border-top: 1px solid var(--line); }
 .author p { display: flex; gap: 24px; margin: 0; font-family: var(--mono); font-size: 14px; }
 
@@ -133,7 +182,14 @@ footer a { color: var(--muted); }
 @media (max-width: 900px) {
   .hero, .split { grid-template-columns: 1fr; }
   .hero { padding-top: 40px; }
-  .grid3, .cli { grid-template-columns: 1fr; }
+  .grid3, .cli, .facts, .arch-row { grid-template-columns: 1fr; }
+  .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pipeline { grid-template-columns: 1fr; }
   .section-head { grid-template-columns: 1fr; gap: 8px; }
   .nav { display: none; }
+}
+
+@media (max-width: 560px) {
+  .grid4 { grid-template-columns: 1fr; }
+  .table th, .table td { padding: 12px 14px; }
 }

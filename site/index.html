@@ -10,10 +10,19 @@
  -->
 <html lang="en">
 <head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-TKQKJ8LG5Z"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-TKQKJ8LG5Z');
+  </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#121315">
-  <meta name="description" content="Mitts is a Rust-first build system with a shared, content-addressed artifact cache and explicit input tracking.">
+  <meta name="description" content="Mitts is a Rust-first build system with a machine-wide, content-addressed artifact cache and explicit input tracking. It reads your existing Cargo.toml and Cargo.lock.">
   <meta name="author" content="Alexander Panasenko">
   <title>Mitts — build work, accounted for</title>
   <link rel="icon" href="favicon.ico?v=3" sizes="any">
@@ -34,10 +43,12 @@
       <span>mitts<span class="dim">/build</span></span>
     </a>
     <nav class="nav" aria-label="Main navigation">
-      <a href="#model">Model</a>
-      <a href="#cli">CLI</a>
-      <a href="#status">Status</a>
-      <a href="#author">Author</a>
+      <a href="#problem">Problem</a>
+      <a href="#how">How it works</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#compare">Compare</a>
+      <a href="#limits">Limits</a>
+      <a href="#start">Start</a>
     </nav>
   </header>
 
@@ -46,10 +57,10 @@
       <div class="hero-text">
         <p class="kicker"><span class="dot"></span>Rust first · reads your existing Cargo.toml</p>
         <h1 id="hero-title">Build work,<br><span class="accent">accounted for.</span></h1>
-        <p class="lede">Mitts identifies every eligible compile action by its full set of inputs, stores the output once as an immutable object, and restores it into an isolated workspace target. If an input can't be accounted for, the action stays uncached.</p>
+        <p class="lede">Mitts plans a Cargo workspace itself and calls <code>rustc</code> directly. Every compile action is keyed by its full set of inputs, stored once in a machine-wide immutable store, and restored into every workspace that needs it — across projects, worktrees and branches. If an input can't be accounted for, the action is rebuilt, not guessed.</p>
         <div class="actions">
-          <a class="button" href="#model">How it works</a>
-          <a class="button ghost" href="mailto:alex@prod.codes">Contact the author</a>
+          <a class="button" href="#how">How it works</a>
+          <a class="button ghost" href="#start">Quick start</a>
         </div>
       </div>
 
@@ -57,10 +68,10 @@
         <div class="ledger-head"><span>action / rlib</span><span class="ok">inputs tracked</span></div>
         <ol class="ledger-rows">
           <li><span>src</span><code>source set · Cargo.toml</code></li>
-          <li><span>deps</span><code>dependency artifacts</code></li>
+          <li><span>deps</span><code>dependency action keys</code></li>
           <li><span>tool</span><code>rustc · target triple</code></li>
           <li><span>cfg</span><code>features · profile · flags</code></li>
-          <li><span>env</span><code>declared environment</code></li>
+          <li><span>env</span><code>tracked environment</code></li>
         </ol>
         <div class="ledger-sum"><span>action key</span><code>sha256(inputs)</code></div>
         <div class="ledger-flow">
@@ -71,80 +82,190 @@
       </figure>
     </section>
 
-    <section class="shell section" id="model" aria-labelledby="model-title">
+    <section class="shell section" id="problem" aria-labelledby="problem-title">
       <header class="section-head">
         <span class="num">01</span>
         <div>
-          <h2 id="model-title">Reuse follows the inputs.</h2>
-          <p>A cache hit counts only when the effective compile inputs match exactly. Correctness comes before hit rate.</p>
+          <h2 id="problem-title">The same crates, compiled again and again.</h2>
+          <p>Cargo's cache lives in each workspace's <code>target/</code>. Anything that creates a new one starts from zero.</p>
         </div>
       </header>
+      <div class="grid4">
+        <article class="card"><span class="tag">worktrees</span><h3>A second checkout</h3><p>A new clone or <code>git worktree</code> of the same repository rebuilds every dependency.</p></article>
+        <article class="card"><span class="tag">branches</span><h3>Switching back</h3><p>A branch that changes <code>Cargo.lock</code> evicts work you'll need again after the switch back.</p></article>
+        <article class="card"><span class="tag">projects</span><h3>Shared dependencies</h3><p>Two projects using the same <code>serde</code>, <code>syn</code> or <code>tokio</code> build and store them twice.</p></article>
+        <article class="card"><span class="tag">agents</span><h3>Parallel work</h3><p>Coding agents in separate worktrees each pay the full build, at the same time.</p></article>
+      </div>
+      <div class="split workarounds">
+        <ul class="checklist">
+          <li class="no"><span><b>A shared <code>CARGO_TARGET_DIR</code></b> serializes builds behind one lock, and feature sets overwrite each other.</span></li>
+          <li class="no"><span><b>A compiler wrapper such as sccache</b> sees one <code>rustc</code> call at a time: keys depend on absolute paths unless normalized, linking crates aren't cached, and Cargo still runs every build script.</span></li>
+        </ul>
+        <p class="note">Mitts replaces Cargo's executor, not the compiler. It sees the whole unit graph — so it can key each unit by its dependencies, cache linking units and build-script runs, and let builds share one store safely.</p>
+      </div>
+    </section>
+
+    <section class="shell section" id="how" aria-labelledby="how-title">
+      <header class="section-head">
+        <span class="num">02</span>
+        <div>
+          <h2 id="how-title">Reuse follows the inputs.</h2>
+          <p>Five phases, from your manifests to restored outputs. A cache hit counts only when the effective inputs match exactly.</p>
+        </div>
+      </header>
+      <ol class="pipeline">
+        <li><b>resolve</b><span>Reuse <code>Cargo.lock</code>, or resolve against the crates.io sparse index.</span></li>
+        <li><b>fetch</b><span>Download <code>.crate</code> archives in parallel, verify, unpack once per machine.</span></li>
+        <li><b>plan</b><span>Units — lib, bin, test, build script, proc macro — with features and edges, by Cargo's resolver rules.</span></li>
+        <li><b>key</b><span>SHA-256 over toolchain, target, profile, flags, features, sources, dependency keys and environment.</span></li>
+        <li><b>execute</b><span>Parallel DAG of direct <code>rustc</code> calls, pipelined on <code>.rmeta</code>. Hit: verify and restore. Miss: lock the key, compile, publish atomically.</span></li>
+      </ol>
       <div class="grid3">
         <article class="card">
-          <span class="tag">input record</span>
-          <h3>Know what changed</h3>
-          <p>Action keys cover sources, dependency artifacts, toolchain, target, features, flags, configuration and environment.</p>
+          <span class="tag">keys</span>
+          <h3>Keys chain down the graph</h3>
+          <p>A unit's key includes its dependencies' keys, not their bytes. A change anywhere below a unit changes its key.</p>
         </article>
         <article class="card">
-          <span class="tag">shared store</span>
-          <h3>Objects never mutate</h3>
-          <p>Content-addressed artifacts are verified before use. A corrupt object is rejected and rebuilt, never trusted.</p>
+          <span class="tag">build scripts</span>
+          <h3>Scripts are cached too</h3>
+          <p>Their directives enter the key of the unit they configure; their <code>rerun-if-*</code> declarations decide when a cached run is reused.</p>
         </article>
         <article class="card">
-          <span class="tag">workspace</span>
-          <h3>State stays local</h3>
-          <p>Mutable outputs live in each workspace's target, apart from shared objects. No unsafe hardlinks, no timestamp tricks.</p>
+          <span class="tag">fast path</span>
+          <h3>Nothing changed, nothing done</h3>
+          <p>An unchanged workspace skips planning and keying. Any mismatch falls back to the full keyed build.</p>
         </article>
       </div>
     </section>
 
-    <section class="shell section" id="scope" aria-labelledby="scope-title">
+    <section class="shell section" id="architecture" aria-labelledby="arch-title">
       <header class="section-head">
-        <span class="num">02</span>
+        <span class="num">03</span>
         <div>
-          <h2 id="scope-title">A deliberate cache boundary.</h2>
-          <p>Mitts caches the actions it can describe completely. Everything else runs normally and is reported as uncached.</p>
+          <h2 id="arch-title">A neutral core, language adapters on top.</h2>
+          <p>The store, action cache, locks and GC know nothing about Cargo. The Rust adapter turns a Cargo workspace into keyed actions; other languages plug into the same core.</p>
+        </div>
+      </header>
+      <div class="arch" role="img" aria-label="The mitts CLI drives language adapters — Rust, and an experimental C/C++ adapter — which emit actions and keys to a language-neutral core: content-addressed store, action cache, key locks, jobserver, fast path and GC.">
+        <div class="arch-layer"><small>cli</small><code>build · run · check · clippy · fmt · test · coverage · explain · fetch · gc · clean</code></div>
+        <div class="arch-row">
+          <div class="arch-layer accent-edge"><small>rust adapter</small><code>manifest · resolver · fetcher · features · planner · keys · DAG runner · build scripts · doctests</code></div>
+          <div class="arch-layer dim-edge"><small>c/c++ adapter · experimental</small><code>Mitts.toml · compile · link</code></div>
+        </div>
+        <div class="arch-arrow" aria-hidden="true">actions + keys ↓</div>
+        <div class="arch-layer core"><small>core</small><code>content-addressed store · action cache · key locks · jobserver · fast path · GC · reflinks</code></div>
+      </div>
+      <ul class="facts">
+        <li><b>Immutable objects.</b> Published read-only, verified by hash before use, restored by reflink or copy. Never hardlinked into a writable workspace.</li>
+        <li><b>Atomic publish.</b> Outputs are staged, then renamed into the store. An interrupted build never leaves a partial object.</li>
+        <li><b>Cooperating builds.</b> Per-key locks with double-checked lookup: two builds that need the same unit compile it once.</li>
+        <li><b>One jobserver.</b> Parallelism is bounded across every Mitts process on the machine.</li>
+      </ul>
+    </section>
+
+    <section class="shell section" id="inputs" aria-labelledby="inputs-title">
+      <header class="section-head">
+        <span class="num">04</span>
+        <div>
+          <h2 id="inputs-title">What invalidates the cache.</h2>
+          <p>Every input below must match for a hit. If Mitts can't see an input, it does not reuse the result.</p>
+        </div>
+      </header>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Input</th><th>Tracked as</th></tr></thead>
+          <tbody>
+            <tr><td>Toolchain</td><td><code>rustc -vV</code> output</td></tr>
+            <tr><td>Target &amp; profile</td><td>target triple, profile settings, <code>RUSTFLAGS</code> and Cargo config rustflags</td></tr>
+            <tr><td>Features</td><td>the unit's resolved feature set, resolver 1 or 2 as Cargo would</td></tr>
+            <tr><td>Sources</td><td>content hashes of package files and every file rustc reports reading</td></tr>
+            <tr><td>Dependencies</td><td>action keys of all dependency units</td></tr>
+            <tr><td>Environment</td><td><code>CARGO_*</code>, <code>RUST_*</code>, wrappers, and every variable read through <code>env!</code> / <code>option_env!</code>, with <code>&lt;unset&gt;</code> recorded</td></tr>
+            <tr><td>Cargo configuration</td><td>the <code>.cargo/config(.toml)</code> files Cargo would read</td></tr>
+            <tr><td>Build scripts</td><td>directives, <code>OUT_DIR</code>, <code>rerun-if-changed</code> contents and <code>rerun-if-env-changed</code> values</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="shell section" id="compare" aria-labelledby="compare-title">
+      <header class="section-head">
+        <span class="num">05</span>
+        <div>
+          <h2 id="compare-title">Where it sits.</h2>
+          <p>How each tool reuses work. A qualitative comparison, not a performance claim.</p>
+        </div>
+      </header>
+      <div class="table-wrap">
+        <table class="table compare">
+          <thead><tr><th></th><th>Cargo</th><th>Cargo + sccache</th><th class="hl">Mitts</th></tr></thead>
+          <tbody>
+            <tr><td>Reads <code>Cargo.toml</code> / <code>Cargo.lock</code> as is</td><td>yes</td><td>yes</td><td class="hl">yes</td></tr>
+            <tr><td>Reuse across workspaces and worktrees</td><td>no, per <code>target/</code></td><td>yes, per <code>rustc</code> call</td><td class="hl">yes, per unit</td></tr>
+            <tr><td>Key depends on the checkout path</td><td>—</td><td>yes, unless normalized</td><td class="hl">no for registry crates; workspace crates when not eligible</td></tr>
+            <tr><td>Caches <code>bin</code>, test and <code>proc-macro</code> units</td><td>—</td><td>no</td><td class="hl">yes</td></tr>
+            <tr><td>Caches build-script runs</td><td>no</td><td>no</td><td class="hl">yes</td></tr>
+            <tr><td>Concurrent builds of one dependency</td><td>wait on the <code>target/</code> lock</td><td>both may compile on a miss</td><td class="hl">one compiles, the other reuses</td></tr>
+            <tr><td>Remote / team cache</td><td>no</td><td>yes</td><td class="hl">planned</td></tr>
+            <tr><td>Windows</td><td>yes</td><td>yes</td><td class="hl">no</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="aside">Bazel and Buck2 solve a larger problem — hermetic, multi-language builds with remote execution — but need their own build files instead of <code>Cargo.toml</code>.</p>
+    </section>
+
+    <section class="shell section" id="limits" aria-labelledby="limits-title">
+      <header class="section-head">
+        <span class="num">06</span>
+        <div>
+          <h2 id="limits-title">A deliberate cache boundary.</h2>
+          <p>Mitts caches the actions it can describe completely. Everything else builds normally, and <code>mitts explain</code> says why.</p>
         </div>
       </header>
       <div class="split">
         <ul class="checklist">
-          <li class="yes">Rust library and binary actions with matching keys</li>
+          <li class="yes">Library, binary, test and proc-macro units with matching keys</li>
           <li class="yes"><span>Build scripts, re-run only when a declared <code>rerun-if</code> input changes</span></li>
           <li class="yes">Concurrent builds compile each shared unit once</li>
-          <li class="yes">Experimental C/C++ adapter on the same store</li>
-          <li class="no">Your own crates are reused only within the same checkout, for now</li>
+          <li class="yes">Your own crates across checkouts, when their key can be made path-independent</li>
+          <li class="no"><span><code>cdylib</code>, <code>dylib</code>, <code>staticlib</code> crates and untrackable <code>env!</code> reads</span></li>
           <li class="no">Inputs a build script reads without declaring them</li>
+          <li class="no">Windows, cross-compilation and a remote cache — not yet</li>
         </ul>
-        <p class="note">Unknown inputs are never treated as unchanged. If Mitts can't prove an action is compatible, it builds it.</p>
+        <p class="note">Unknown inputs are never treated as unchanged. If Mitts can't prove an action is compatible, it builds it — and unsupported Cargo features fail loudly instead of guessing.</p>
       </div>
     </section>
 
-    <section class="shell section" id="cli" aria-labelledby="cli-title">
+    <section class="shell section" id="start" aria-labelledby="start-title">
       <header class="section-head">
-        <span class="num">03</span>
+        <span class="num">07</span>
         <div>
-          <h2 id="cli-title">A small CLI.</h2>
-          <p>No new manifest and no second lockfile. Point it at a Cargo workspace.</p>
+          <h2 id="start-title">A small CLI.</h2>
+          <p>No new manifest and no second lockfile. Build from source, then point it at a Cargo workspace. Cargo and rust-analyzer keep working next to it.</p>
         </div>
       </header>
+      <pre class="term"><code><span class="p">$</span> cargo install --path .   <span class="c"># from a clone of the repository</span>
+<span class="p">$</span> cd your-workspace
+<span class="p">$</span> mitts build</code></pre>
       <dl class="cli">
-        <div><dt>mitts build</dt><dd>Compile the package and its dependencies into the isolated Mitts target</dd></div>
-        <div><dt>mitts run</dt><dd>Run a binary of the local package</dd></div>
+        <div><dt>mitts build</dt><dd>Compile the package and its dependencies into <code>target/mitts/</code></dd></div>
+        <div><dt>mitts run</dt><dd>Build and run a binary of the local package</dd></div>
         <div><dt>mitts check · clippy · fmt</dt><dd>Type-check, lint and format without producing binaries</dd></div>
-        <div><dt>mitts test · coverage</dt><dd>Run tests and collect LLVM source-based coverage</dd></div>
-        <div><dt>mitts explain</dt><dd>Show the build plan, compilation units, and cache eligibility</dd></div>
-        <div><dt>mitts fetch</dt><dd>Fetch dependencies into the global source store</dd></div>
+        <div><dt>mitts test · coverage</dt><dd>Unit, integration and doc tests with Cargo-style target selection; LLVM source-based coverage</dd></div>
+        <div><dt>mitts explain</dt><dd>The build plan, every unit, and why it is cached or not</dd></div>
+        <div><dt>mitts fetch</dt><dd>Prefetch dependencies into the global source store</dd></div>
         <div><dt>mitts gc</dt><dd>Prune old or unreferenced objects within storage quotas</dd></div>
-        <div><dt>mitts clean</dt><dd>Remove workspace artifacts, and optionally the shared cache</dd></div>
+        <div><dt>mitts clean</dt><dd>Remove this workspace's Mitts artifacts</dd></div>
       </dl>
     </section>
 
     <section class="shell section" id="status" aria-labelledby="status-title">
       <header class="section-head">
-        <span class="num">04</span>
+        <span class="num">08</span>
         <div>
           <h2 id="status-title">Where it stands.</h2>
-          <p>Milestones M0–M6 are complete. Hardening for real projects and a reproducible benchmark study are in progress; no performance numbers are published until that study is.</p>
+          <p>Pre-release. Milestones M0–M6 are complete; hardening for real projects and a reproducible benchmark study are in progress. No performance numbers are published until that study is — with fixed hardware, cold, warm and changed-input runs, and the stronger of Cargo and sccache as the baseline.</p>
         </div>
       </header>
       <ol class="milestones">
