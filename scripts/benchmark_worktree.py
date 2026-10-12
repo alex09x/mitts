@@ -148,6 +148,7 @@ def snapshot_cache(source_dir, snapshot_dir):
         shutil.copytree(
             source_dir,
             snapshot_dir,
+            symlinks=True,
             ignore=shutil.ignore_patterns("*.fifo", "jobserver", "tmp"),
         )
 
@@ -161,7 +162,7 @@ def restore_cache(snapshot_dir, target_dir):
             shutil.rmtree(target_sub, ignore_errors=True)
         snap_sub = snapshot_dir / sub
         if snap_sub.exists():
-            shutil.copytree(snap_sub, target_sub)
+            shutil.copytree(snap_sub, target_sub, symlinks=True)
 
 
 def clean_sccache(sccache_dir):

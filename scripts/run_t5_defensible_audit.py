@@ -572,8 +572,20 @@ def run_t5_project(project_name, runs_count=5):
     wt_base = scratch_dir / "worktrees"
     snap_cas = scratch_dir / "snap_cas"
     snap_sccache = scratch_dir / "snap_sccache"
-    mitts_cache = Path(os.environ.get("MITTS_CACHE_DIR", Path.home() / ".cache" / "mitts"))
-    sccache_dir = Path(os.environ.get("SCCACHE_DIR", Path.home() / ".cache" / "sccache"))
+    default_cache = (
+        (BENCH_ROOT / "cache" / "mitts")
+        if (BENCH_ROOT / "cache").exists()
+        else (Path.home() / ".cache" / "mitts")
+    )
+    default_sccache = (
+        (BENCH_ROOT / "cache" / "sccache")
+        if (BENCH_ROOT / "cache").exists()
+        else (Path.home() / ".cache" / "sccache")
+    )
+    mitts_cache = Path(os.environ.get("MITTS_CACHE_DIR", default_cache))
+    sccache_dir = Path(os.environ.get("SCCACHE_DIR", default_sccache))
+    os.environ["MITTS_CACHE_DIR"] = str(mitts_cache)
+    os.environ["SCCACHE_DIR"] = str(sccache_dir)
 
     is_ws = True
     extra_tail = (
