@@ -233,8 +233,17 @@ pub fn execute_test_binaries(
             }
         }
 
+        let cargo_bin = crate::adapter::rust::compiler::resolve_cargo();
         if env.get("CARGO").is_none() {
-            cmd.env("CARGO", crate::adapter::rust::compiler::resolve_cargo());
+            cmd.env("CARGO", &cargo_bin);
+        }
+        if let Some(parent) = cargo_bin.parent() {
+            let current_path = std::env::var_os("PATH").unwrap_or_default();
+            let mut paths = vec![parent.to_path_buf()];
+            paths.extend(std::env::split_paths(&current_path));
+            if let Ok(new_path) = std::env::join_paths(paths) {
+                cmd.env("PATH", new_path);
+            }
         }
 
         println!("     Running {}", bin_path.display());
