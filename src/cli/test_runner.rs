@@ -204,6 +204,7 @@ pub fn execute_test_binaries(
         };
         cmd.current_dir(&work_dir);
 
+        let profile_dir_name = if profile == "release" { "release" } else { "debug" };
         for (bin_name, bin_file) in &binaries.cli_binaries {
             let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
             let abs_cli = if bin_file.is_absolute() {
@@ -211,7 +212,13 @@ pub fn execute_test_binaries(
             } else {
                 root_dir.join(bin_file)
             };
-            cmd.env(env_var, abs_cli);
+            let canonical_cli = root_dir.join("target").join(profile_dir_name).join(bin_name);
+            let effective_cli = if canonical_cli.exists() {
+                canonical_cli
+            } else {
+                abs_cli
+            };
+            cmd.env(env_var, effective_cli);
         }
 
         if let Some(ref filter) = args.filter {
