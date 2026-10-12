@@ -30,9 +30,11 @@ from pathlib import Path
 
 import hashlib
 from benchmark_common import (
+    check_quiet_rig,
     get_binary_provenance,
     get_filesystem_type,
     get_rig_info,
+    wait_for_quiet_rig,
 )
 from benchmark_worktree import (
     clean_sccache,
@@ -74,22 +76,33 @@ def get_scripts_provenance():
     git_head = None
     scripts_dirty = None
     try:
-        git_dir = (
-            scripts_dir
-            if (scripts_dir / ".git").exists() or (scripts_dir.parent / ".git").exists()
-            else (Path.home() / "mitts")
-        )
+        git_dir = Path(os.environ.get("MITTS_REPO", ""))
+        if not git_dir.exists():
+            git_dir = (
+                scripts_dir
+                if (scripts_dir / ".git").exists() or (scripts_dir.parent / ".git").exists()
+                else (Path.home() / "mitts")
+            )
         git_head = subprocess.check_output(
             ["git", "-C", str(git_dir), "rev-parse", "HEAD"],
             text=True,
             stderr=subprocess.DEVNULL
         ).strip()
-        status = subprocess.check_output(
-            ["git", "-C", str(git_dir), "status", "--porcelain", "scripts"],
-            text=True,
-            stderr=subprocess.DEVNULL
-        ).strip()
-        scripts_dirty = bool(status)
+        any_dirty = False
+        for sname, s_sha in script_shas.items():
+            try:
+                git_blob = subprocess.check_output(
+                    ["git", "-C", str(git_dir), "show", f"HEAD:scripts/{sname}"],
+                    stderr=subprocess.DEVNULL
+                )
+                blob_sha = hashlib.sha256(git_blob).hexdigest()
+                if blob_sha != s_sha:
+                    any_dirty = True
+                    break
+            except Exception:
+                any_dirty = True
+                break
+        scripts_dirty = any_dirty
     except Exception:
         git_head = None
         scripts_dirty = None
@@ -116,6 +129,12 @@ def get_provenance_info(mitts_cache=None, worktree_dir=None):
         prov["worktree_filesystem"] = get_filesystem_type(Path(worktree_dir))
     if mitts_cache and worktree_dir:
         prov["same_device"] = check_same_device(mitts_cache, worktree_dir)
+    is_quiet, load_1m, foreign_procs = check_quiet_rig()
+    prov["preflight"] = {
+        "loadavg_1m": load_1m,
+        "foreign_processes": foreign_procs,
+        "is_quiet": is_quiet,
+    }
     return prov
 
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
@@ -480,6 +499,7 @@ class SystemPressureSampler:
 
 
 def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None):
+    loadavg_before, foreign_procs = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
     target_path = worktrees[0][1] if worktrees else Path.cwd()
     dirty_start_mb = sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
     dev_name, sec_before = get_device_sectors_written(target_path)
@@ -534,6 +554,8 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
         "results": results,
         "system_pressure": pressure,
         "device_io": device_io,
+        "loadavg_before": loadavg_before,
+        "foreign_processes": foreign_procs,
     }
 
 
@@ -823,6 +845,17 @@ def run_t5_project(project_name, runs_count=5):
         and (res_fl["test_stats"].get("passed", 0) > 0)
     )
 
+    c_wt1_compile_times = [
+        sr["results"][0].get("phases", {}).get("compile_s", 0)
+        for sr in c_swarms
+        if sr.get("results")
+    ]
+    if c_wt1_compile_times and min(c_wt1_compile_times) > 0:
+        c_wt1_med = compute_stats(c_wt1_compile_times)["median"]
+        c_wt1_spread_pct = round(((max(c_wt1_compile_times) - min(c_wt1_compile_times)) / c_wt1_med) * 100.0, 2)
+    else:
+        c_wt1_spread_pct = 0.0
+
     invariants = {
         "exit_codes_all_matched": all_runs_exit_codes_matched,
         "all_clean_worktrees_passed_cleanly": all_clean_wts_passed_cleanly,
@@ -831,6 +864,9 @@ def run_t5_project(project_name, runs_count=5):
         "test_counts_match": all_clean_test_counts_matched,
         "tests_passed_count": m_stats_clean.get("passed", 0),
         "fast_lock_never_skips_test_execution": fast_lock_executed_tests,
+        "cargo_bare_wt1_compile_times": c_wt1_compile_times,
+        "cargo_bare_wt1_variance_pct": c_wt1_spread_pct,
+        "cargo_bare_wt1_variance_le_15_pct": c_wt1_spread_pct <= 15.0,
         "mitts_test_stats": m_stats_clean,
         "cargo_test_stats": c_stats_clean,
         "sccache_test_stats": s_stats_clean,
@@ -850,6 +886,8 @@ def run_t5_project(project_name, runs_count=5):
             {
                 "run_idx": idx + 1,
                 "total_wall_s": sr["total_wall_s"],
+                "loadavg_before": sr.get("loadavg_before"),
+                "foreign_processes": sr.get("foreign_processes", []),
                 "system_pressure": sr.get("system_pressure", {}),
                 "worktrees": [
                     {

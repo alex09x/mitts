@@ -7,8 +7,8 @@
 Ubuntu 24.04 LTS) with two separate NVMe devices: one formatted XFS with
 reflink enabled, one formatted ext4. Host names, mount points and device
 models stay in the internal results and never appear in this repository.  
-**Binary under test**: a release build of `mitts` from `origin/main` at
-`c391fe1` (SHA-256 `189a9b8bb2c99c4b99ad7da38c41c0224705cc0695c60706c90e37b2a846c4d4`).
+**Binary under test**: a release build of `mitts` compiled from `origin/main`
+at the start of WP1; each JSON result records the exact commit and binary SHA-256 in its provenance.
 
 ---
 

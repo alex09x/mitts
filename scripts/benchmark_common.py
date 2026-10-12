@@ -282,3 +282,57 @@ def get_filesystem_type(path: Path) -> str:
         pass
     return "unknown"
 
+
+def check_quiet_rig(max_load: float = 1.0):
+    """
+    Checks loadavg and whether any foreign rustc, cargo, sccache, or mitts processes
+    are currently active.
+    Returns (is_quiet, loadavg_1m, foreign_processes).
+    """
+    try:
+        load_1m = os.getloadavg()[0]
+    except Exception:
+        load_1m = 0.0
+
+    foreign_procs = []
+    current_pid = os.getpid()
+    try:
+        out = subprocess.check_output(
+            ["pgrep", "-a", "rustc|cargo|sccache|mitts"],
+            text=True,
+            stderr=subprocess.DEVNULL
+        )
+        for line in out.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            pid = int(parts[0])
+            cmd = parts[1] if len(parts) > 1 else ""
+            if pid == current_pid or "run_t5_defensible_audit.py" in cmd or "pgrep" in cmd:
+                continue
+            foreign_procs.append({"pid": pid, "cmd": cmd[:120]})
+    except subprocess.CalledProcessError:
+        foreign_procs = []
+    except Exception:
+        foreign_procs = []
+
+    is_quiet = (load_1m < max_load) and (len(foreign_procs) == 0)
+    return is_quiet, round(load_1m, 2), foreign_procs
+
+
+def wait_for_quiet_rig(timeout_s: float = 300.0, max_load: float = 1.0, poll_interval_s: float = 2.0):
+    """
+    Waits until loadavg_1m < max_load and no foreign rustc/cargo/sccache/mitts processes exist.
+    Returns (loadavg_1m, foreign_processes).
+    """
+    start = time.perf_counter()
+    while time.perf_counter() - start < timeout_s:
+        is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
+        if is_quiet:
+            return load_1m, foreign_procs
+        time.sleep(poll_interval_s)
+    _, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
+    return load_1m, foreign_procs
+
+
