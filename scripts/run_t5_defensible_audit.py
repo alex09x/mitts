@@ -74,13 +74,18 @@ def get_scripts_provenance():
     git_head = None
     scripts_dirty = None
     try:
+        git_dir = (
+            scripts_dir
+            if (scripts_dir / ".git").exists() or (scripts_dir.parent / ".git").exists()
+            else (Path.home() / "mitts")
+        )
         git_head = subprocess.check_output(
-            ["git", "-C", str(scripts_dir), "rev-parse", "HEAD"],
+            ["git", "-C", str(git_dir), "rev-parse", "HEAD"],
             text=True,
             stderr=subprocess.DEVNULL
         ).strip()
         status = subprocess.check_output(
-            ["git", "-C", str(scripts_dir), "status", "--porcelain", "."],
+            ["git", "-C", str(git_dir), "status", "--porcelain", "scripts"],
             text=True,
             stderr=subprocess.DEVNULL
         ).strip()
