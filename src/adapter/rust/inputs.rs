@@ -164,7 +164,8 @@ pub fn hash_package_common_inputs(
     };
     let base_dir = ws_root.unwrap_or(package_dir);
     let config_start_dir = super::cargo_config::resolve_config_start_dir(base_dir);
-    let config_files = super::cargo_config::discover_cargo_config_files(&config_start_dir);
+    let config_files =
+        super::cargo_config::discover_all_cargo_config_files_for_inputs(&config_start_dir);
     for cfg_p in config_files {
         let hash =
             Sha256::digest_file(&cfg_p).with_context(|| format!("Failed to hash {:?}", cfg_p))?;

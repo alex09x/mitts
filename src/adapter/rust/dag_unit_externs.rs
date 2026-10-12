@@ -157,10 +157,6 @@ pub fn resolve_extern_crates_with_target(
                 for alias in matched_aliases {
                     add_extern(&alias, &chosen_artifact);
                 }
-                add_extern(dep_crate, &chosen_artifact);
-                if dep_crate != norm_pkg {
-                    add_extern(&norm_pkg, &chosen_artifact);
-                }
             }
         }
     }

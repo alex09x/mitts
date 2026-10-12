@@ -13,23 +13,49 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Finds all existing config files (`config` and `config.toml`) in `dir`.
+/// Finds the configuration file in `dir`, preferring bare `config` over `config.toml`.
 fn find_configs_in_dir(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for name in &["config", "config.toml"] {
-        let p = dir.join(name);
-        if p.is_file() {
-            out.push(p);
-        }
+    let bare = dir.join("config");
+    if bare.is_file() {
+        return vec![bare];
     }
-    out
+    let toml = dir.join("config.toml");
+    if toml.is_file() {
+        return vec![toml];
+    }
+    Vec::new()
 }
 
 /// Discovers all applicable Cargo configuration files from global locations
 /// and the filesystem root down to `start_dir`, ordered from lowest to highest precedence.
 pub fn discover_cargo_config_files(start_dir: &Path) -> Vec<PathBuf> {
+    discover_cargo_config_files_impl(start_dir, false)
+}
+
+/// Discovers all existing Cargo configuration files for input tracking and cache invalidation,
+/// including shadowed config files on disk.
+pub fn discover_all_cargo_config_files_for_inputs(start_dir: &Path) -> Vec<PathBuf> {
+    discover_cargo_config_files_impl(start_dir, true)
+}
+
+fn discover_cargo_config_files_impl(start_dir: &Path, include_shadowed: bool) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut seen = HashSet::new();
+
+    let find = |dir: &Path| -> Vec<PathBuf> {
+        if include_shadowed {
+            let mut out = Vec::new();
+            for name in &["config", "config.toml"] {
+                let p = dir.join(name);
+                if p.is_file() {
+                    out.push(p);
+                }
+            }
+            out
+        } else {
+            find_configs_in_dir(dir)
+        }
+    };
 
     // 1. Global config in $CARGO_HOME or $HOME/.cargo (lowest precedence)
     let global_dir = std::env::var_os("CARGO_HOME")
@@ -37,7 +63,7 @@ pub fn discover_cargo_config_files(start_dir: &Path) -> Vec<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")));
 
     if let Some(gdir) = global_dir {
-        for p in find_configs_in_dir(&gdir) {
+        for p in find(&gdir) {
             let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
             if seen.insert(canon) {
                 files.push(p);
@@ -56,7 +82,7 @@ pub fn discover_cargo_config_files(start_dir: &Path) -> Vec<PathBuf> {
 
     for dir in ancestor_chain {
         let cargo_dir = dir.join(".cargo");
-        for p in find_configs_in_dir(&cargo_dir) {
+        for p in find(&cargo_dir) {
             let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
             if seen.insert(canon) {
                 files.push(p);
