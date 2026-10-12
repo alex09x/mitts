@@ -209,8 +209,7 @@ pub fn resolve_unit_dependencies(
                     lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone(), true))
                 });
             if let Some(uid) = self_lib_uid {
-                let is_self_lib_unit_test =
-                    unit.kind == "test" && unit.target_name.ends_with("_unit_test");
+                let is_self_lib_unit_test = unit.target_name.ends_with("_unit_test");
                 if !is_self_lib_unit_test {
                     unit_deps.push(uid.clone());
                 }

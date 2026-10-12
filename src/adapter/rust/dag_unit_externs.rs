@@ -128,8 +128,9 @@ pub fn resolve_extern_crates_with_target(
                 artifact_path.clone()
             };
 
-            let is_self_lib = (unit.kind == "lib" || unit.kind == "proc-macro")
-                || (unit.kind == "test" && unit.target_name.ends_with("_unit_test"));
+            let is_self_lib = unit.kind == "lib"
+                || unit.kind == "proc-macro"
+                || unit.target_name.ends_with("_unit_test");
 
             let mut add_extern = |name: &str, path: &PathBuf| {
                 let clean = name.replace('-', "_");
