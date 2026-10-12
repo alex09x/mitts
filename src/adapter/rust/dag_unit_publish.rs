@@ -32,6 +32,22 @@ pub(crate) fn unit_dest_binary(
     }
 }
 
+pub(crate) fn link_canonical_binary(
+    dest: &Path,
+    target_dir: &Path,
+    profile: &str,
+    target_name: &str,
+) {
+    if let Some(parent) = target_dir.parent() {
+        if target_dir.file_name() == Some(std::ffi::OsStr::new("mitts")) {
+            let canonical = parent.join(profile).join(target_name);
+            if canonical != *dest {
+                let _ = crate::core::link_intra_workspace(dest, &canonical, &[parent], true);
+            }
+        }
+    }
+}
+
 pub(crate) struct PublishArgs<'a> {
     pub unit: &'a PlannedCompilationUnit,
     pub action_key: &'a str,
@@ -91,6 +107,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     let _ =
                         crate::core::link_intra_workspace(dest, &alt_path, &[ctx.target_dir], true);
                 }
+                let profile = if ctx.opt.release { "release" } else { "debug" };
+                link_canonical_binary(dest, ctx.target_dir, profile, &unit.target_name);
                 action_outputs.push(dest.to_path_buf());
             }
         }
