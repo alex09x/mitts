@@ -558,7 +558,7 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
         "system_pressure": pressure,
         "device_io": device_io,
         "loadavg_before": loadavg_before,
-        "foreign_processes": foreign_procs,
+        "foreign_processes": foreign_processes,
     }
 
 
