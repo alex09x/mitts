@@ -237,7 +237,7 @@ pub fn execute_test_binaries(
         if env.get("CARGO").is_none() {
             cmd.env("CARGO", &cargo_bin);
         }
-        if let Some(parent) = cargo_bin.parent() {
+        if let Some(parent) = cargo_bin.parent().filter(|p| !p.as_os_str().is_empty()) {
             let current_path = std::env::var_os("PATH").unwrap_or_default();
             let mut paths = vec![parent.to_path_buf()];
             paths.extend(std::env::split_paths(&current_path));

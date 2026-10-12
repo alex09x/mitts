@@ -71,11 +71,12 @@ pub fn resolve_extern_crates_with_target(
             let dep_pkg = clean_dep_id.split("::").next().unwrap_or(clean_dep_id);
             let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
             let dep_version = dep_pkg.split('@').nth(1);
-            let dep_crate = if let Some(rest) = clean_dep_id.rsplit(':').next() {
-                rest
+            let dep_crate = if clean_dep_id.contains(':') {
+                clean_dep_id.rsplit(':').next().unwrap_or(pkg_name_only)
             } else {
                 pkg_name_only
             };
+            let dep_crate = dep_crate.split('@').next().unwrap_or(dep_crate);
 
             let norm_pkg = pkg_name_only.replace('-', "_");
             let mut matched_aliases = Vec::new();
@@ -128,9 +129,19 @@ pub fn resolve_extern_crates_with_target(
                 artifact_path.clone()
             };
 
+            let pkg_dir = unit
+                .manifest_path
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            let lib_src_path = pkg_toml
+                .lib
+                .as_ref()
+                .and_then(|l| l.path.as_ref())
+                .map(|p| pkg_dir.join(p))
+                .unwrap_or_else(|| pkg_dir.join("src").join("lib.rs"));
             let is_self_lib = unit.kind == "lib"
                 || unit.kind == "proc-macro"
-                || unit.target_name.ends_with("_unit_test");
+                || unit.src_path == lib_src_path;
 
             let mut add_extern = |name: &str, path: &PathBuf| {
                 let clean = name.replace('-', "_");
@@ -153,6 +164,12 @@ pub fn resolve_extern_crates_with_target(
             } else {
                 for alias in matched_aliases {
                     add_extern(&alias, &chosen_artifact);
+                }
+                if pkg_toml.has_direct_dep_named(pkg_name_only, dep_version) {
+                    add_extern(dep_crate, &chosen_artifact);
+                    if dep_crate != norm_pkg {
+                        add_extern(&norm_pkg, &chosen_artifact);
+                    }
                 }
             }
         }

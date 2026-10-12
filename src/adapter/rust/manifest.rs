@@ -139,6 +139,87 @@ impl CargoToml {
         res
     }
 
+    /// Checks if the manifest has a direct, unaliased dependency with the given package name,
+    /// optionally matching a resolved version requirement.
+    pub fn has_direct_dep_named(&self, pkg_name: &str, dep_version: Option<&str>) -> bool {
+        let norm = pkg_name.replace('-', "_");
+        let matches_dep = |alias: &str, dep: &TomlDependency| -> bool {
+            let alias_norm = alias.replace('-', "_");
+            if alias_norm != norm {
+                return false;
+            }
+            match dep {
+                TomlDependency::Simple(req_str) => {
+                    if let Some(ver_str) = dep_version {
+                        match (
+                            semver::VersionReq::parse(req_str),
+                            semver::Version::parse(ver_str),
+                        ) {
+                            (Ok(req), Ok(ver)) => req.matches(&ver),
+                            _ => ver_str.starts_with(req_str) || req_str == ver_str,
+                        }
+                    } else {
+                        true
+                    }
+                }
+                TomlDependency::Detailed(d) => {
+                    let is_unaliased = match d.package_name {
+                        None => true,
+                        Some(ref p) => p.replace('-', "_") == norm,
+                    };
+                    if !is_unaliased {
+                        return false;
+                    }
+                    if let (Some(req_str), Some(ver_str)) = (&d.version, dep_version) {
+                        match (
+                            semver::VersionReq::parse(req_str),
+                            semver::Version::parse(ver_str),
+                        ) {
+                            (Ok(req), Ok(ver)) => req.matches(&ver),
+                            _ => ver_str.starts_with(req_str) || req_str == ver_str,
+                        }
+                    } else {
+                        true
+                    }
+                }
+            }
+        };
+
+        for (alias, dep) in &self.dependencies {
+            if matches_dep(alias, dep) {
+                return true;
+            }
+        }
+        for (alias, dep) in &self.build_dependencies {
+            if matches_dep(alias, dep) {
+                return true;
+            }
+        }
+        for (alias, dep) in &self.dev_dependencies {
+            if matches_dep(alias, dep) {
+                return true;
+            }
+        }
+        for target_spec in self.target.values() {
+            for (alias, dep) in &target_spec.dependencies {
+                if matches_dep(alias, dep) {
+                    return true;
+                }
+            }
+            for (alias, dep) in &target_spec.build_dependencies {
+                if matches_dep(alias, dep) {
+                    return true;
+                }
+            }
+            for (alias, dep) in &target_spec.dev_dependencies {
+                if matches_dep(alias, dep) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Discovers all compilation targets (lib, bin, proc-macro) in this package.
     pub fn discover_targets(&self, pkg_dir: &Path) -> Vec<DiscoveredTarget> {
         let mut targets = Vec::new();

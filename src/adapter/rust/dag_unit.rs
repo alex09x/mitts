@@ -135,10 +135,17 @@ pub(crate) fn execute_unit(
     if let Some(c) = ctx.compiled_actions {
         c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
-    eprintln!(
-        "[mitts::compile] package={} target={} kind={}",
-        unit.package_name, unit.target_name, unit.kind
-    );
+    static LOG_COMPILE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let should_log = *LOG_COMPILE.get_or_init(|| {
+        std::env::var("MITTS_LOG_COMPILE").map(|v| v == "1").unwrap_or(false)
+            || std::env::args().any(|a| a == "-v" || a == "--verbose")
+    });
+    if should_log {
+        eprintln!(
+            "[mitts::compile] package={} target={} kind={}",
+            unit.package_name, unit.target_name, unit.kind
+        );
+    }
 
     // Acquire execution token from jobserver pool before compiling (implicit token for 1st job)
     let _job_token = match (ctx.jobserver, ctx.is_first_job) {

@@ -8,6 +8,7 @@ cache management, worktree helpers, and disk measurement.
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -324,15 +325,23 @@ def check_quiet_rig(max_load: float = 1.0):
 def wait_for_quiet_rig(timeout_s: float = 300.0, max_load: float = 1.0, poll_interval_s: float = 2.0):
     """
     Waits until loadavg_1m < max_load and no foreign rustc/cargo/sccache/mitts processes exist.
-    Returns (loadavg_1m, foreign_processes).
+    Returns (loadavg_1m, foreign_processes, preflight_waited_s).
+    Aborts with non-zero exit code if timeout expires and rig remains noisy.
     """
     start = time.perf_counter()
     while time.perf_counter() - start < timeout_s:
         is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
         if is_quiet:
-            return load_1m, foreign_procs
+            waited_s = round(time.perf_counter() - start, 2)
+            return load_1m, foreign_procs, waited_s
         time.sleep(poll_interval_s)
-    _, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
-    return load_1m, foreign_procs
+    waited_s = round(time.perf_counter() - start, 2)
+    is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
+    if not is_quiet:
+        sys.exit(
+            f"ABORT: Preflight quiet rig timeout ({timeout_s}s) exceeded. "
+            f"loadavg_1m={load_1m} >= {max_load} or foreign_processes={foreign_procs}"
+        )
+    return load_1m, foreign_procs, waited_s
 
 

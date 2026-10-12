@@ -13,7 +13,7 @@ use super::manifest::CargoToml;
 use super::package_selection::{has_active_dependency, parse_dep_spec};
 use super::types::PlannedCompilationUnit;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Resolves exact compilation unit dependencies matching library or proc-macro targets.
 pub fn resolve_unit_dependencies(
@@ -22,7 +22,8 @@ pub fn resolve_unit_dependencies(
     explicit_target: Option<&str>,
     start_dir: &Path,
 ) -> Result<(), crate::adapter::rust::types::RustAdapterError> {
-    let mut lib_units_by_exact: HashMap<(String, String, bool), String> = HashMap::new();
+    let mut lib_units_by_exact: HashMap<(String, String, bool), (String, PathBuf)> =
+        HashMap::new();
     let mut lib_units_by_name: HashMap<(String, bool), Vec<(String, String)>> = HashMap::new();
     let mut proc_macro_names: HashSet<String> = HashSet::new();
 
@@ -43,7 +44,7 @@ pub fn resolve_unit_dependencies(
                     unit.version.clone(),
                     unit.for_host,
                 ),
-                uid.clone(),
+                (uid.clone(), unit.src_path.clone()),
             );
             lib_units_by_exact.insert(
                 (
@@ -51,7 +52,7 @@ pub fn resolve_unit_dependencies(
                     unit.version.clone(),
                     unit.for_host,
                 ),
-                uid.clone(),
+                (uid.clone(), unit.src_path.clone()),
             );
 
             lib_units_by_name
@@ -158,7 +159,7 @@ pub fn resolve_unit_dependencies(
                                     !for_host,
                                 ))
                             })
-                            .cloned()
+                            .map(|(uid, _)| uid.clone())
                     } else if let Some(candidates) = lib_units_by_name
                         .get(&(dep_name.to_string(), for_host))
                         .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), for_host)))
@@ -203,13 +204,13 @@ pub fn resolve_unit_dependencies(
             || unit.kind == "custom-test"
             || unit.kind == "test-deps"
         {
-            let self_lib_uid = lib_units_by_exact
+            let self_lib_entry = lib_units_by_exact
                 .get(&(unit.package_name.clone(), unit.version.clone(), false))
                 .or_else(|| {
                     lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone(), true))
                 });
-            if let Some(uid) = self_lib_uid {
-                let is_self_lib_unit_test = unit.target_name.ends_with("_unit_test");
+            if let Some((uid, lib_src_path)) = self_lib_entry {
+                let is_self_lib_unit_test = unit.src_path == *lib_src_path;
                 if !is_self_lib_unit_test {
                     unit_deps.push(uid.clone());
                 }

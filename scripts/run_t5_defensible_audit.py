@@ -498,11 +498,12 @@ class SystemPressureSampler:
         }
 
 
-def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None, loadavg_before=None, foreign_processes=None):
+def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None, loadavg_before=None, foreign_processes=None, preflight_waited_s=None):
     if loadavg_before is None or foreign_processes is None:
-        lb, fp = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
+        lb, fp, waited_s = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
         loadavg_before = lb if loadavg_before is None else loadavg_before
         foreign_processes = fp if foreign_processes is None else foreign_processes
+        preflight_waited_s = waited_s if preflight_waited_s is None else preflight_waited_s
     target_path = worktrees[0][1] if worktrees else Path.cwd()
     dirty_start_mb = sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
     dev_name, sec_before = get_device_sectors_written(target_path)
@@ -559,6 +560,7 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
         "device_io": device_io,
         "loadavg_before": loadavg_before,
         "foreign_processes": foreign_processes,
+        "preflight_waited_s": preflight_waited_s,
     }
 
 
@@ -624,6 +626,10 @@ def run_t5_project(project_name, runs_count=5):
         else (["--", "--skip", "f1414"] if project_name == "ripgrep" else [])
     )
 
+    # Capture initial preflight provenance before warm-up and swarm iterations
+    wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
+    initial_prov = get_provenance_info(mitts_cache, wt_base)
+
     print("[1/5] Warming up Mitts CAS on WT-01...")
     init_wts = prepare_worktrees(repo_dir, wt_base, commits)
     if mitts_cache.exists():
@@ -661,7 +667,7 @@ def run_t5_project(project_name, runs_count=5):
         tools_in_run = tools_base[shift:] + tools_base[:shift]
         print(f"  --- Iteration {run_idx}/{runs_count} (tool order: {', '.join(tools_in_run)}) ---")
         for tool in tools_in_run:
-            loadavg_before, foreign_procs = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
+            loadavg_before, foreign_procs, preflight_waited_s = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
             wts = prepare_worktrees(repo_dir, wt_base, commits)
             inject_test_defect(wts[-1][1])
 
@@ -689,6 +695,7 @@ def run_t5_project(project_name, runs_count=5):
                 extra_test_args=extra_tail,
                 loadavg_before=loadavg_before,
                 foreign_processes=foreign_procs,
+                preflight_waited_s=preflight_waited_s,
             )
             tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
             tool_results[tool]["runs_data"].append(swarm_res)
@@ -906,6 +913,7 @@ def run_t5_project(project_name, runs_count=5):
                 "total_wall_s": sr["total_wall_s"],
                 "loadavg_before": sr.get("loadavg_before"),
                 "foreign_processes": sr.get("foreign_processes", []),
+                "preflight_waited_s": sr.get("preflight_waited_s", 0.0),
                 "system_pressure": sr.get("system_pressure", {}),
                 "worktrees": [
                     {
@@ -954,10 +962,7 @@ def run_t5_project(project_name, runs_count=5):
     return {
         "mode": "test",
         "worktrees_count": 12,
-        "provenance": get_provenance_info(
-            mitts_cache,
-            (wts[0][1] if isinstance(wts[0], (list, tuple)) else wts[0].get("dir")) if wts else None,
-        ),
+        "provenance": initial_prov,
         "commit_distribution": "4/3/3/2",
         "runs": tool_results,
         "speedup_vs_sound_baseline": {
