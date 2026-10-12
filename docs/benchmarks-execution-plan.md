@@ -49,10 +49,10 @@ site.
 
 | Project | Why it is in the study | Current state | Work packages |
 | :--- | :--- | :--- | :--- |
-| **Tokio** | Large library plus roughly 260 test binaries (343 units) | T5 defensible completed ($n=5$, 2.85× ext4, 2.96× XFS) | WP1 (done), WP2, WP3 |
-| **Serde** | Fast compile, proc-macro derive | T5 defensible completed ($n=5$, 2.07× ext4, 2.12× XFS) | WP1 (done), WP2, WP3 |
-| **Ripgrep** | Binary plus sub-crates and tests, minimal build scripts | T5 defensible completed ($n=5$, 2.91× ext4, 3.30× XFS) | WP1 (done), WP2, WP3, WP4 |
-| **Nushell** | Very large project, deep DAG, plugins | T5 defensible XFS completed ($n=5$, 2.88× vs bare, 9762 tests parity); ext4 running | WP1 (in progress), WP2 |
+| **Ripgrep** | Binary plus sub-crates and tests, minimal build scripts | Prior results superseded; queued for fresh $n=5$ on clean binary | WP1 (first), WP2, WP3, WP4 |
+| **Serde** | Fast compile, proc-macro derive | Prior results superseded; queued for fresh $n=5$ on clean binary | WP1 (second), WP2, WP3 |
+| **Tokio** | Large library plus roughly 260 test binaries (343 units) | Prior results superseded; queued for fresh $n=5$ on clean binary | WP1 (third), WP2, WP3 |
+| **Nushell** | Very large project, deep DAG, plugins; 95 path-dependent units | Isolated test `jobs_get_group_id_right` verified (3/3 passed); queued for fresh $n=5$ | WP1 (fourth), WP2 |
 
 ---
 
@@ -60,20 +60,25 @@ site.
 
 ### WP1. T5 multi-worktree test swarm, re-measured
 
-- **Binary.** Built from `origin/main` at the start of WP1; its SHA-256 is
-  recorded in the provenance of every JSON result.
+- **Binary.** Single clean release binary built from commit `70af17e`
+  (SHA-256: `1a1e396bfa5a979fd2ea01bbba69899cd16ce86402b0391e93a422aa48218e9b`);
+  its SHA-256 is recorded in the provenance of every JSON result. Old runs moved to `_superseded/`.
+- **Preflight invariants.**
+  - `wait_for_quiet_rig` enforces `loadavg < 1.0` and zero foreign compiler processes.
+  - Timeout (300s) aborts immediately with non-zero exit code rather than proceeding noisy.
+  - `preflight_waited_s` recorded per run iteration.
+  - Provenance snapshot captured *before* warm-up and [1/5], not at the end of [5/5].
 - **Scenario.** 12 parallel worktrees on 4 different commits of the project
   history. Worktree 12 carries an injected failing test to check soundness.
 - **Arms.** `mitts`, `cargo_bare`, `cargo_sccache`, `cargo_shared`.
 - **Series.** `n = 5`, rotated arm order, `sync` before every swarm.
 - **Filesystems.** XFS with reflink and ext4 with the copy fallback. The two
   filesystems are on different devices; results state this.
-- **Order.** Tokio, Ripgrep, Serde, Nushell.
+- **Order.** Ripgrep, Serde, Tokio, Nushell.
 - **Acceptance.** JSON results with full provenance; for `mitts`, `cargo_bare`
   and `cargo_sccache` the injected failure is detected in every run and no
-  clean worktree fails; the shared-target arm is expected to violate this and
-  is reported as such; a decision on the Nushell exclusion is made from the new
-  data.
+  clean worktree fails; WT-1 compilation variance $\le 15\%$; shared-target arm
+  reported with unsound failure propagation.
 
 ### WP2. L5a (`check`) and L5b (`clippy`), re-measured
 
