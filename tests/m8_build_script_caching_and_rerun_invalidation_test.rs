@@ -86,7 +86,7 @@ fn main() {
 
     assert!(d1.cfgs.contains(&"data_loaded".to_string()));
     assert_eq!(d1.rerun_if_changed, vec!["data.txt".to_string()]);
-    assert!(staging_1.join("out/out.txt").is_file());
+    assert!(d1.out_dir.as_ref().unwrap().join("out.txt").is_file());
 
     // Run 2: Cache hit in staging_2 (data.txt untouched)
     let staging_2 = temp.path().join("staging_2");
@@ -104,9 +104,9 @@ fn main() {
     .expect("Run 2 failed");
 
     assert!(d2.cfgs.contains(&"data_loaded".to_string()));
-    assert!(staging_2.join("out/out.txt").is_file());
+    assert!(d2.out_dir.as_ref().unwrap().join("out.txt").is_file());
     assert_eq!(
-        fs::read_to_string(staging_2.join("out/out.txt")).unwrap(),
+        fs::read_to_string(d2.out_dir.as_ref().unwrap().join("out.txt")).unwrap(),
         "generated output content"
     );
 
@@ -129,7 +129,7 @@ fn main() {
     .expect("Run 3 failed");
 
     assert!(d3.cfgs.contains(&"data_loaded".to_string()));
-    assert!(staging_3.join("out/out.txt").is_file());
+    assert!(d3.out_dir.as_ref().unwrap().join("out.txt").is_file());
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn main() {
     };
 
     // First build populates CAS and generates OUT_DIR/generated.rs
-    let _d1 = execute_build_script(
+    let d1 = execute_build_script(
         &unit,
         &staging_1,
         false,
@@ -397,15 +397,15 @@ fn main() {
         None,
     )
     .expect("First run failed");
-    assert!(staging_1.join("out/generated.rs").is_file());
+    assert!(d1.out_dir.as_ref().unwrap().join("generated.rs").is_file());
 
     // Completely new clean checkout directory
     let clean_checkout_staging = temp.path().join("clean_checkout_staging");
     fs::create_dir_all(&clean_checkout_staging).unwrap();
-    assert!(!clean_checkout_staging.join("out").exists());
+    assert!(!clean_checkout_staging.join("debug").exists());
 
     // Second run restores OUT_DIR files from CAS
-    let _d2 = execute_build_script(
+    let d2 = execute_build_script(
         &unit,
         &clean_checkout_staging,
         false,
@@ -416,7 +416,7 @@ fn main() {
     )
     .expect("Second run restore failed");
 
-    let restored_file = clean_checkout_staging.join("out/generated.rs");
+    let restored_file = d2.out_dir.as_ref().unwrap().join("generated.rs");
     assert!(
         restored_file.is_file(),
         "OUT_DIR/generated.rs was not restored into clean checkout!"
@@ -483,8 +483,7 @@ fn main() {
         workspace_root: None,
     };
 
-    // First execution publishes with "alpha_content"
-    let _d1 = execute_build_script(
+    let d1 = execute_build_script(
         &unit_a,
         &staging_a,
         false,
@@ -494,7 +493,7 @@ fn main() {
         None,
     )
     .unwrap();
-    let gen_a = fs::read_to_string(staging_a.join("out/generated.rs")).unwrap();
+    let gen_a = fs::read_to_string(d1.out_dir.as_ref().unwrap().join("generated.rs")).unwrap();
     assert!(gen_a.contains("alpha_content"));
 
     // Package copy B (same name, version, edition, build.rs, and EXACT same mtime on tracked.txt, but DIFFERENT content)
@@ -535,7 +534,7 @@ fn main() {
     };
 
     // Second execution with same mtime must detect different content hash and rerun
-    let _d2 = execute_build_script(
+    let d2 = execute_build_script(
         &unit_b,
         &staging_b,
         false,
@@ -545,7 +544,7 @@ fn main() {
         None,
     )
     .unwrap();
-    let gen_b = fs::read_to_string(staging_b.join("out/generated.rs")).unwrap();
+    let gen_b = fs::read_to_string(d2.out_dir.as_ref().unwrap().join("generated.rs")).unwrap();
     assert!(
         gen_b.contains("beta_content"),
         "Must invalidate based on content hash, not mtime! Got: {}",
@@ -637,25 +636,25 @@ fn main() {
     // Step 1: Run A (cold)
     let s_a1 = temp.path().join("staging_a1");
     fs::create_dir_all(&s_a1).unwrap();
-    let _d_a1 =
+    let d_a1 =
         execute_build_script(&unit_a, &s_a1, false, &[], Some(&artifacts_dir), &[], None).unwrap();
-    let gen_a1 = fs::read_to_string(s_a1.join("out/generated.rs")).unwrap();
+    let gen_a1 = fs::read_to_string(d_a1.out_dir.as_ref().unwrap().join("generated.rs")).unwrap();
     assert!(gen_a1.contains("alpha_state"));
 
     // Step 2: Run B (cold, different content under same base_key)
     let s_b1 = temp.path().join("staging_b1");
     fs::create_dir_all(&s_b1).unwrap();
-    let _d_b1 =
+    let d_b1 =
         execute_build_script(&unit_b, &s_b1, false, &[], Some(&artifacts_dir), &[], None).unwrap();
-    let gen_b1 = fs::read_to_string(s_b1.join("out/generated.rs")).unwrap();
+    let gen_b1 = fs::read_to_string(d_b1.out_dir.as_ref().unwrap().join("generated.rs")).unwrap();
     assert!(gen_b1.contains("beta_state"));
 
     // Step 3: Run A again (warm, A -> B -> A) -> MUST restore A's OUT_DIR, NOT B's!
     let s_a2 = temp.path().join("staging_a2");
     fs::create_dir_all(&s_a2).unwrap();
-    let _d_a2 =
+    let d_a2 =
         execute_build_script(&unit_a, &s_a2, false, &[], Some(&artifacts_dir), &[], None).unwrap();
-    let gen_a2 = fs::read_to_string(s_a2.join("out/generated.rs")).unwrap();
+    let gen_a2 = fs::read_to_string(d_a2.out_dir.as_ref().unwrap().join("generated.rs")).unwrap();
     assert!(
         gen_a2.contains("alpha_state"),
         "A->B->A must restore alpha_state! Got: {}",
@@ -665,9 +664,9 @@ fn main() {
     // Step 4: Run B again (warm, B -> A -> B) -> MUST restore B's OUT_DIR, NOT A's!
     let s_b2 = temp.path().join("staging_b2");
     fs::create_dir_all(&s_b2).unwrap();
-    let _d_b2 =
+    let d_b2 =
         execute_build_script(&unit_b, &s_b2, false, &[], Some(&artifacts_dir), &[], None).unwrap();
-    let gen_b2 = fs::read_to_string(s_b2.join("out/generated.rs")).unwrap();
+    let gen_b2 = fs::read_to_string(d_b2.out_dir.as_ref().unwrap().join("generated.rs")).unwrap();
     assert!(
         gen_b2.contains("beta_state"),
         "B->A->B must restore beta_state! Got: {}",

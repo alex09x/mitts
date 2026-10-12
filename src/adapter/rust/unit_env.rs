@@ -134,25 +134,14 @@ pub fn apply_test_binary_env(
     release: bool,
 ) {
     let profile_name = if release { "release" } else { "debug" };
-    let canonical_profile_dir = cwd.join("target").join(profile_name);
     let mitts_profile_dir = target_dir
         .map(|td| td.join(profile_name))
         .unwrap_or_else(|| cwd.join("target").join("mitts").join(profile_name));
 
     let mut set_bin_env = |b_name: &str| {
-        let canonical_bin = canonical_profile_dir.join(b_name);
         let mitts_bin = mitts_profile_dir.join(b_name);
-        if mitts_bin.exists() && !canonical_bin.exists() {
-            if let Some(parent) = canonical_bin.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            #[cfg(unix)]
-            let _ = std::os::unix::fs::symlink(&mitts_bin, &canonical_bin);
-            #[cfg(not(unix))]
-            let _ = std::fs::copy(&mitts_bin, &canonical_bin);
-        }
         let var = format!("CARGO_BIN_EXE_{}", b_name.replace('-', "_"));
-        cmd.env(var, canonical_bin);
+        cmd.env(var, mitts_bin);
     };
 
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));

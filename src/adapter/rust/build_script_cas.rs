@@ -140,9 +140,6 @@ pub fn save_build_script_cas(
                 }
                 if reflink_or_copy_dir_recursive(out_dir, &tmp_out).is_err() {
                     ok = false;
-                } else {
-                    #[cfg(unix)]
-                    let _ = std::os::unix::fs::symlink(&tmp_out, tmp_entry_dir.join("out"));
                 }
             }
             if ok {

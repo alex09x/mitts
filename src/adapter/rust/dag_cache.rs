@@ -250,12 +250,6 @@ pub fn try_restore_from_cache_with_directives(
                             true,
                         );
                     }
-                    super::dag_unit_publish::link_canonical_binary(
-                        &dest_bin,
-                        ctx.target_dir,
-                        profile_name,
-                        &unit.target_name,
-                    );
                     break;
                 }
             }

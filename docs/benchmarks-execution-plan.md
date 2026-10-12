@@ -60,13 +60,15 @@ site.
 
 ### WP1. T5 multi-worktree test swarm, re-measured
 
+- **Binary.** Built from `origin/main` at the start of WP1; its SHA-256 is
+  recorded in the provenance of every JSON result.
 - **Scenario.** 12 parallel worktrees on 4 different commits of the project
   history. Worktree 12 carries an injected failing test to check soundness.
 - **Arms.** `mitts`, `cargo_bare`, `cargo_sccache`, `cargo_shared`.
 - **Series.** `n = 5`, rotated arm order, `sync` before every swarm.
 - **Filesystems.** XFS with reflink and ext4 with the copy fallback. The two
   filesystems are on different devices; results state this.
-- **Order.** Nushell, Tokio, Serde, Ripgrep.
+- **Order.** Tokio, Ripgrep, Serde, Nushell.
 - **Acceptance.** JSON results with full provenance; for `mitts`, `cargo_bare`
   and `cargo_sccache` the injected failure is detected in every run and no
   clean worktree fails; the shared-target arm is expected to violate this and
@@ -117,9 +119,9 @@ site.
 
 ```mermaid
 flowchart TD
-    Start["Start"] --> SyncCheck["Sync main (c391fe1) and the rig"]
+    Start["Start"] --> SyncCheck["Sync main and the rig"]
     SyncCheck --> ReviewerAlign["Align the plan with the reviewer"]
-    ReviewerAlign --> WP1["WP1: T5 re-measurement (Nushell, Tokio, Serde, Ripgrep)"]
+    ReviewerAlign --> WP1["WP1: T5 re-measurement (Tokio, Ripgrep, Serde, Nushell)"]
     WP1 --> WP2["WP2: L5a check and L5b clippy"]
     WP2 --> WP3["WP3: S1 cold build and S4 revert"]
     WP3 --> WP4["WP4: S3 history replay"]

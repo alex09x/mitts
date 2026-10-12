@@ -67,12 +67,6 @@ pub fn execute_build_script(
         .join("out");
     fs::create_dir_all(&out_dir)?;
 
-    let legacy_staging_out = staging_dir.join("out");
-    if !legacy_staging_out.exists() {
-        #[cfg(unix)]
-        let _ = std::os::unix::fs::symlink(&out_dir, &legacy_staging_out);
-    }
-
     let build_key = compute_build_script_key(
         unit,
         &build_rs,
