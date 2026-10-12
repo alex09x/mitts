@@ -135,6 +135,10 @@ pub(crate) fn execute_unit(
     if let Some(c) = ctx.compiled_actions {
         c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
+    eprintln!(
+        "[mitts::compile] package={} target={} kind={}",
+        unit.package_name, unit.target_name, unit.kind
+    );
 
     // Acquire execution token from jobserver pool before compiling (implicit token for 1st job)
     let _job_token = match (ctx.jobserver, ctx.is_first_job) {
