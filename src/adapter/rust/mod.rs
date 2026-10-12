@@ -9,6 +9,7 @@
  */
 
 pub mod build_script;
+pub mod build_script_cas;
 pub mod build_script_directives;
 pub mod build_script_env;
 pub mod build_script_keys;
