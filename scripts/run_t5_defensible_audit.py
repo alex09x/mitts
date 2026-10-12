@@ -498,8 +498,11 @@ class SystemPressureSampler:
         }
 
 
-def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None):
-    loadavg_before, foreign_procs = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
+def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None, loadavg_before=None, foreign_processes=None):
+    if loadavg_before is None or foreign_processes is None:
+        lb, fp = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
+        loadavg_before = lb if loadavg_before is None else loadavg_before
+        foreign_processes = fp if foreign_processes is None else foreign_processes
     target_path = worktrees[0][1] if worktrees else Path.cwd()
     dirty_start_mb = sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
     dev_name, sec_before = get_device_sectors_written(target_path)
@@ -635,6 +638,10 @@ def run_t5_project(project_name, runs_count=5):
     print("[2/5] Warming up sccache on WT-01...")
     run_single_worktree("cargo_sccache", init_wts[0], is_workspace=is_ws, extra_test_args=extra_tail)
     snapshot_cache(sccache_dir, snap_sccache)
+    try:
+        subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
 
     tool_results = {
         "mitts_cas": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
@@ -654,6 +661,7 @@ def run_t5_project(project_name, runs_count=5):
         tools_in_run = tools_base[shift:] + tools_base[:shift]
         print(f"  --- Iteration {run_idx}/{runs_count} (tool order: {', '.join(tools_in_run)}) ---")
         for tool in tools_in_run:
+            loadavg_before, foreign_procs = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
             wts = prepare_worktrees(repo_dir, wt_base, commits)
             inject_test_defect(wts[-1][1])
 
@@ -662,6 +670,7 @@ def run_t5_project(project_name, runs_count=5):
             elif tool == "cargo_sccache":
                 restore_cache(snap_sccache, sccache_dir)
                 try:
+                    subprocess.run([str(SCCACHE_BIN), "--start-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     subprocess.run([str(SCCACHE_BIN), "--zero-stats"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except Exception:
                     pass
@@ -672,7 +681,15 @@ def run_t5_project(project_name, runs_count=5):
                 st.mkdir(parents=True, exist_ok=True)
 
             shared_target = SHARED_TARGET_ROOT / f"{project_name}_test" if tool == "cargo_shared" else None
-            swarm_res = run_test_swarm(tool, wts, shared_target, is_workspace=is_ws, extra_test_args=extra_tail)
+            swarm_res = run_test_swarm(
+                tool,
+                wts,
+                shared_target,
+                is_workspace=is_ws,
+                extra_test_args=extra_tail,
+                loadavg_before=loadavg_before,
+                foreign_processes=foreign_procs,
+            )
             tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
             tool_results[tool]["runs_data"].append(swarm_res)
             tool_results[tool].setdefault("system_pressure_runs", []).append(swarm_res.get("system_pressure", {}))
@@ -684,6 +701,7 @@ def run_t5_project(project_name, runs_count=5):
                     s_out = subprocess.check_output([str(SCCACHE_BIN), "--show-stats"], text=True)
                     s_stats = parse_sccache_stats(s_out)
                     tool_results[tool].setdefault("sccache_stats_runs", []).append(s_stats)
+                    subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except Exception:
                     pass
             elif tool == "mitts_cas":
