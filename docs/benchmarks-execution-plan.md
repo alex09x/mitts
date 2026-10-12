@@ -49,10 +49,10 @@ site.
 
 | Project | Why it is in the study | Current state | Work packages |
 | :--- | :--- | :--- | :--- |
-| **Tokio** | Large library plus roughly 260 test binaries (343 units) | L2/L3 accepted at `n = 1`; T5 needs re-measurement | WP1, WP2, WP3 |
-| **Serde** | Fast compile, proc-macro derive | T5 at `n = 1`; L5 only on an older binary | WP1, WP2, WP3 |
-| **Ripgrep** | Binary plus sub-crates and tests, minimal build scripts | Only older-binary runs | WP1, WP2, WP3, WP4 |
-| **Nushell** | Very large project, deep DAG, plugins | Excluded from publication after zero cache hits on an older binary | WP1 first: re-measure before any decision on the exclusion |
+| **Tokio** | Large library plus roughly 260 test binaries (343 units) | T5 defensible completed ($n=5$, 2.85× ext4, 2.96× XFS) | WP1 (done), WP2, WP3 |
+| **Serde** | Fast compile, proc-macro derive | T5 defensible completed ($n=5$, 2.07× ext4, 2.12× XFS) | WP1 (done), WP2, WP3 |
+| **Ripgrep** | Binary plus sub-crates and tests, minimal build scripts | T5 defensible completed ($n=5$, 2.91× ext4, 3.30× XFS) | WP1 (done), WP2, WP3, WP4 |
+| **Nushell** | Very large project, deep DAG, plugins | T5 defensible XFS completed ($n=5$, 2.88× vs bare, 9762 tests parity); ext4 running | WP1 (in progress), WP2 |
 
 ---
 
