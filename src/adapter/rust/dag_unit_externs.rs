@@ -139,9 +139,8 @@ pub fn resolve_extern_crates_with_target(
                 .and_then(|l| l.path.as_ref())
                 .map(|p| pkg_dir.join(p))
                 .unwrap_or_else(|| pkg_dir.join("src").join("lib.rs"));
-            let is_self_lib = unit.kind == "lib"
-                || unit.kind == "proc-macro"
-                || unit.src_path == lib_src_path;
+            let is_self_lib =
+                unit.kind == "lib" || unit.kind == "proc-macro" || unit.src_path == lib_src_path;
 
             let mut add_extern = |name: &str, path: &PathBuf| {
                 let clean = name.replace('-', "_");

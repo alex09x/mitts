@@ -32,7 +32,6 @@ pub(crate) fn unit_dest_binary(
     }
 }
 
-
 pub(crate) struct PublishArgs<'a> {
     pub unit: &'a PlannedCompilationUnit,
     pub action_key: &'a str,
@@ -142,8 +141,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     );
                 }
                 if let Some(ti) = ctx.target_index {
-                    let rel_key =
-                        format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
+                    let rel_key = format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
                     ti.lock().unwrap().record(rel_key, hash.clone(), &dep_copy);
                 }
                 let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
@@ -188,9 +186,10 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     );
                 }
                 if let Some(ti) = ctx.target_index {
-                    let rel_key =
-                        format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
-                    ti.lock().unwrap().record(rel_key, meta_hash.clone(), &dep_copy);
+                    let rel_key = format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
+                    ti.lock()
+                        .unwrap()
+                        .record(rel_key, meta_hash.clone(), &dep_copy);
                 }
                 let unhashed = deps_dir.join(format!("lib{}.rmeta", clean_crate));
                 if unhashed != dep_copy {
@@ -315,4 +314,3 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
 pub use super::unit_inputs::{
     clean_path, compute_composite_result_key, extract_unit_extra_inputs, resolve_unit_result_key,
 };
-

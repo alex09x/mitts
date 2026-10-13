@@ -272,7 +272,13 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.env(k, v);
     }
     if is_test {
-        super::unit_env::apply_test_binary_env(&mut cmd, inv.unit, &cwd, inv.target_dir, inv.release);
+        super::unit_env::apply_test_binary_env(
+            &mut cmd,
+            inv.unit,
+            &cwd,
+            inv.target_dir,
+            inv.release,
+        );
     }
     cmd.env("RUSTC", &compiler_bin);
     if let Some(toolchain_name) = compiler_bin

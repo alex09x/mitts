@@ -137,7 +137,9 @@ pub(crate) fn execute_unit(
     }
     static LOG_COMPILE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let should_log = *LOG_COMPILE.get_or_init(|| {
-        std::env::var("MITTS_LOG_COMPILE").map(|v| v == "1").unwrap_or(false)
+        std::env::var("MITTS_LOG_COMPILE")
+            .map(|v| v == "1")
+            .unwrap_or(false)
             || std::env::args().any(|a| a == "-v" || a == "--verbose")
     });
     if should_log {

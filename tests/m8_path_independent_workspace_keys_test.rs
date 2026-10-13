@@ -454,7 +454,11 @@ fn main() {
     let keys1 = derive_unit_action_keys(&opt1, &expl1).expect("keys clone1");
     let keys2 = derive_unit_action_keys(&opt2, &expl2).expect("keys clone2");
 
-    let app_unit = expl1.units.iter().find(|u| u.package_name == "app").unwrap();
+    let app_unit = expl1
+        .units
+        .iter()
+        .find(|u| u.package_name == "app")
+        .unwrap();
     let app_uid = app_unit.unit_id();
 
     assert_eq!(
@@ -482,4 +486,3 @@ fn main() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("hello from app with pure macro"));
 }
-

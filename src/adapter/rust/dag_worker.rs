@@ -46,10 +46,7 @@ pub(crate) struct WorkerShared<'a> {
 }
 
 /// Worker thread execution loop consuming compilation units from the work queue.
-pub(crate) fn run_worker_loop(
-    shared: &WorkerShared<'_>,
-    ctx: &ExecutionContext<'_>,
-) -> Result<()> {
+pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<'_>) -> Result<()> {
     while let Some((unit_id, lock_mode)) = shared.work_queue.pop_work() {
         let mut guard = WorkGuard {
             queue: shared.work_queue,
@@ -87,8 +84,7 @@ pub(crate) fn run_worker_loop(
         match exec_res {
             Ok(Ok(UnitExecutionStatus::Success)) => {
                 guard.resolved = true;
-                let was_meta_signaled =
-                    shared.metadata_signaled.lock().unwrap().contains(&unit_id);
+                let was_meta_signaled = shared.metadata_signaled.lock().unwrap().contains(&unit_id);
                 if let Some(node) = shared.dag.get_node(&unit_id) {
                     for dep_id in &node.dependents {
                         if let Some(dep_node) = shared.dag.get_node(dep_id) {
@@ -97,16 +93,12 @@ pub(crate) fn run_worker_loop(
                                 &node.unit,
                             );
                             if was_meta_signaled
-                                && req
-                                    == super::pipelining::DepRequirement::MetadataOnly
+                                && req == super::pipelining::DepRequirement::MetadataOnly
                             {
                                 continue;
                             }
                             if let Some(counter) = shared.in_degrees.get(dep_id) {
-                                if counter
-                                    .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
-                                    == 1
-                                {
+                                if counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
                                     shared.work_queue.push_ready(dep_id.clone());
                                 }
                             }

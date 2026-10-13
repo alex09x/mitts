@@ -64,8 +64,8 @@ impl TargetArtifactIndex {
             return Ok(());
         }
         let path = Self::index_path(target_dir, profile);
-        let data = serde_json::to_vec(self)
-            .with_context(|| "Failed to serialize TargetArtifactIndex")?;
+        let data =
+            serde_json::to_vec(self).with_context(|| "Failed to serialize TargetArtifactIndex")?;
         let parent = path
             .parent()
             .context("Target index path has no parent directory")?;
@@ -73,7 +73,10 @@ impl TargetArtifactIndex {
 
         let pid = std::process::id();
         let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let tmp = parent.join(format!(".artifacts-{}.json.{}.{}.tmp", profile, pid, counter));
+        let tmp = parent.join(format!(
+            ".artifacts-{}.json.{}.{}.tmp",
+            profile, pid, counter
+        ));
 
         fs::write(&tmp, &data)?;
         if let Err(e) = fs::rename(&tmp, &path) {

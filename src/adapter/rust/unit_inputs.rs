@@ -48,7 +48,10 @@ pub(crate) fn is_ignored_file_name(name: &str) -> bool {
 
 #[inline]
 pub(crate) fn is_ignored_dir_name(name: &str) -> bool {
-    matches!(name, "target" | ".git" | ".mitts" | "tests" | "benches" | "examples")
+    matches!(
+        name,
+        "target" | ".git" | ".mitts" | "tests" | "benches" | "examples"
+    )
 }
 
 /// Recursively scans a directory for source and asset inputs.
@@ -347,7 +350,9 @@ pub fn extract_unit_extra_inputs(
                         for (var, val_opt) in parsed.env_deps {
                             let norm_path = format!("env:{}", var);
                             let hash = match (var.as_str(), out_dir_purity) {
-                                ("OUT_DIR", Some(purity)) => Sha256::digest(purity.out_dir_hash.as_bytes()),
+                                ("OUT_DIR", Some(purity)) => {
+                                    Sha256::digest(purity.out_dir_hash.as_bytes())
+                                }
                                 _ => match val_opt {
                                     Some(v) => Sha256::digest(v.as_bytes()),
                                     None => Sha256::digest(b"__UNSET__"),
@@ -366,10 +371,7 @@ pub fn extract_unit_extra_inputs(
 }
 
 /// Derives a composite result key by combining the base action key with unit extra inputs.
-pub fn compute_composite_result_key(
-    base_key: &str,
-    extra_inputs: &[(String, String)],
-) -> String {
+pub fn compute_composite_result_key(base_key: &str, extra_inputs: &[(String, String)]) -> String {
     if extra_inputs.is_empty() {
         base_key.to_string()
     } else {

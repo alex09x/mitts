@@ -270,11 +270,12 @@ edition = "2021"
         dependencies: vec!["parser@0.1.0".to_string()],
         ..Default::default()
     };
-    let externs_lib_test = mitts::adapter::rust::dag_unit_externs::resolve_extern_crates_with_target(
-        &lib_unit_test,
-        &completed,
-        false,
-    );
+    let externs_lib_test =
+        mitts::adapter::rust::dag_unit_externs::resolve_extern_crates_with_target(
+            &lib_unit_test,
+            &completed,
+            false,
+        );
     let names_lib_test: Vec<String> = externs_lib_test.into_iter().map(|(n, _)| n).collect();
     assert!(
         !names_lib_test.contains(&"parser".to_string()),

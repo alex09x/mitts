@@ -97,9 +97,24 @@ fn test_mutate_single_test_recompiles_only_that_test() {
     let expl1 = RustAdapter::explain_plan(&opt).expect("explain initial plan");
     let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys 1");
 
-    let lib_id = expl1.units.iter().find(|u| u.target_name == "isolated_test_crate").unwrap().unit_id();
-    let test_a_id = expl1.units.iter().find(|u| u.target_name == "test_a").unwrap().unit_id();
-    let test_b_id = expl1.units.iter().find(|u| u.target_name == "test_b").unwrap().unit_id();
+    let lib_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "isolated_test_crate")
+        .unwrap()
+        .unit_id();
+    let test_a_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_a")
+        .unwrap()
+        .unit_id();
+    let test_b_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_b")
+        .unwrap()
+        .unit_id();
 
     // 2. Mutate only tests/a.rs
     fs::write(
@@ -187,15 +202,23 @@ fn it_works_a() {
     let test_a_action = plan_units.iter().find(|a| a.description.contains("test_a"));
 
     if let Some(la) = lib_action {
-        assert!(is_action_cached(la), "lib must remain cached when test support is mutated");
+        assert!(
+            is_action_cached(la),
+            "lib must remain cached when test support is mutated"
+        );
     }
     if let Some(tb) = test_b_action {
-        assert!(is_action_cached(tb), "test_b must remain cached when unreferenced support is mutated");
+        assert!(
+            is_action_cached(tb),
+            "test_b must remain cached when unreferenced support is mutated"
+        );
     }
     if let Some(ta) = test_a_action {
-        assert!(!is_action_cached(ta), "test_a must be recompiled when its support helper is mutated");
+        assert!(
+            !is_action_cached(ta),
+            "test_a must be recompiled when its support helper is mutated"
+        );
     }
-
 }
 
 #[test]
@@ -253,9 +276,11 @@ pub fn add(a: i32, b: i32) -> i32 {
     let plan_units = plan2.actions;
     let lib_action = plan_units.iter().find(|a| a.description.contains("lib"));
     if let Some(la) = lib_action {
-        assert!(!is_action_cached(la), "lib must be recompiled when #[path] file in tests/ is mutated");
+        assert!(
+            !is_action_cached(la),
+            "lib must be recompiled when #[path] file in tests/ is mutated"
+        );
     }
-
 }
 
 #[test]
@@ -275,9 +300,24 @@ fn test_mutate_lib_recompiles_lib_and_all_tests() {
 
     let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan 1");
     let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys 1");
-    let lib_id = expl1.units.iter().find(|u| u.target_name == "isolated_test_crate").unwrap().unit_id();
-    let test_a_id = expl1.units.iter().find(|u| u.target_name == "test_a").unwrap().unit_id();
-    let test_b_id = expl1.units.iter().find(|u| u.target_name == "test_b").unwrap().unit_id();
+    let lib_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "isolated_test_crate")
+        .unwrap()
+        .unit_id();
+    let test_a_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_a")
+        .unwrap()
+        .unit_id();
+    let test_b_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_b")
+        .unwrap()
+        .unit_id();
 
     // Mutate src/lib.rs
     fs::write(
@@ -292,9 +332,18 @@ fn test_mutate_lib_recompiles_lib_and_all_tests() {
     let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys 2");
 
-    assert_ne!(keys1[&lib_id], keys2[&lib_id], "lib ActionKey must change when src/lib.rs is mutated");
-    assert_ne!(keys1[&test_a_id], keys2[&test_a_id], "test_a ActionKey must change when dependency lib changes");
-    assert_ne!(keys1[&test_b_id], keys2[&test_b_id], "test_b ActionKey must change when dependency lib changes");
+    assert_ne!(
+        keys1[&lib_id], keys2[&lib_id],
+        "lib ActionKey must change when src/lib.rs is mutated"
+    );
+    assert_ne!(
+        keys1[&test_a_id], keys2[&test_a_id],
+        "test_a ActionKey must change when dependency lib changes"
+    );
+    assert_ne!(
+        keys1[&test_b_id], keys2[&test_b_id],
+        "test_b ActionKey must change when dependency lib changes"
+    );
 }
 
 #[test]
@@ -313,7 +362,6 @@ pub fn get_data() -> &'static str {
 }
 "#,
     )
-
     .unwrap();
 
     let opt = RustBuildOptions {
@@ -337,9 +385,11 @@ pub fn get_data() -> &'static str {
     let plan_units = plan2.actions;
     let lib_action = plan_units.iter().find(|a| a.description.contains("lib"));
     if let Some(la) = lib_action {
-        assert!(!is_action_cached(la), "lib must be recompiled when include_str! file is mutated");
+        assert!(
+            !is_action_cached(la),
+            "lib must be recompiled when include_str! file is mutated"
+        );
     }
-
 }
 
 #[test]
@@ -359,9 +409,24 @@ fn test_mutate_cargo_toml_recompiles_all_package_units() {
 
     let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan 1");
     let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys 1");
-    let lib_id = expl1.units.iter().find(|u| u.target_name == "isolated_test_crate").unwrap().unit_id();
-    let test_a_id = expl1.units.iter().find(|u| u.target_name == "test_a").unwrap().unit_id();
-    let test_b_id = expl1.units.iter().find(|u| u.target_name == "test_b").unwrap().unit_id();
+    let lib_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "isolated_test_crate")
+        .unwrap()
+        .unit_id();
+    let test_a_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_a")
+        .unwrap()
+        .unit_id();
+    let test_b_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_b")
+        .unwrap()
+        .unit_id();
 
     // Mutate Cargo.toml (add features section)
     fs::write(
@@ -391,11 +456,18 @@ path = "tests/b.rs"
     let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys 2");
 
-    assert_ne!(keys1[&lib_id], keys2[&lib_id], "lib ActionKey must change on Cargo.toml mutation");
-    assert_ne!(keys1[&test_a_id], keys2[&test_a_id], "test_a ActionKey must change on Cargo.toml mutation");
-    assert_ne!(keys1[&test_b_id], keys2[&test_b_id], "test_b ActionKey must change on Cargo.toml mutation");
-
-
+    assert_ne!(
+        keys1[&lib_id], keys2[&lib_id],
+        "lib ActionKey must change on Cargo.toml mutation"
+    );
+    assert_ne!(
+        keys1[&test_a_id], keys2[&test_a_id],
+        "test_a ActionKey must change on Cargo.toml mutation"
+    );
+    assert_ne!(
+        keys1[&test_b_id], keys2[&test_b_id],
+        "test_b ActionKey must change on Cargo.toml mutation"
+    );
 }
 
 #[test]
@@ -425,9 +497,24 @@ fn test_mutate_build_rs_recompiles_all_package_units() {
 
     let expl1 = RustAdapter::explain_plan(&opt).expect("explain plan 1");
     let keys1 = RustAdapter::derive_unit_action_keys(&opt, &expl1).expect("derive keys 1");
-    let lib_id = expl1.units.iter().find(|u| u.target_name == "isolated_test_crate").unwrap().unit_id();
-    let test_a_id = expl1.units.iter().find(|u| u.target_name == "test_a").unwrap().unit_id();
-    let test_b_id = expl1.units.iter().find(|u| u.target_name == "test_b").unwrap().unit_id();
+    let lib_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "isolated_test_crate")
+        .unwrap()
+        .unit_id();
+    let test_a_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_a")
+        .unwrap()
+        .unit_id();
+    let test_b_id = expl1
+        .units
+        .iter()
+        .find(|u| u.target_name == "test_b")
+        .unwrap()
+        .unit_id();
 
     // Mutate build.rs
     fs::write(
@@ -442,9 +529,18 @@ fn test_mutate_build_rs_recompiles_all_package_units() {
     let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys 2");
 
-    assert_ne!(keys1[&lib_id], keys2[&lib_id], "lib ActionKey must change on build.rs mutation");
-    assert_ne!(keys1[&test_a_id], keys2[&test_a_id], "test_a ActionKey must change on build.rs mutation");
-    assert_ne!(keys1[&test_b_id], keys2[&test_b_id], "test_b ActionKey must change on build.rs mutation");
+    assert_ne!(
+        keys1[&lib_id], keys2[&lib_id],
+        "lib ActionKey must change on build.rs mutation"
+    );
+    assert_ne!(
+        keys1[&test_a_id], keys2[&test_a_id],
+        "test_a ActionKey must change on build.rs mutation"
+    );
+    assert_ne!(
+        keys1[&test_b_id], keys2[&test_b_id],
+        "test_b ActionKey must change on build.rs mutation"
+    );
 }
 
 #[test]
@@ -461,7 +557,11 @@ fn test_is_file_in_scanned_pkg_sources_excludes_subcrates_and_temporary_files() 
     // Subcrate with its own Cargo.toml
     let subcrate_dir = root.join("subcrate");
     fs::create_dir_all(subcrate_dir.join("src")).unwrap();
-    fs::write(subcrate_dir.join("Cargo.toml"), "[package]\nname = \"sub\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        subcrate_dir.join("Cargo.toml"),
+        "[package]\nname = \"sub\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(subcrate_dir.join("src/lib.rs"), "pub fn sub() {}").unwrap();
 
     // Temporary files
@@ -472,12 +572,24 @@ fn test_is_file_in_scanned_pkg_sources_excludes_subcrates_and_temporary_files() 
     let lock_file = root.join("Cargo.lock");
 
     // Standard package sources must include src and assets
-    assert!(is_file_in_scanned_pkg_sources(root, &root.join("src/lib.rs")));
-    assert!(is_file_in_scanned_pkg_sources(root, &root.join("assets/data.txt")));
+    assert!(is_file_in_scanned_pkg_sources(
+        root,
+        &root.join("src/lib.rs")
+    ));
+    assert!(is_file_in_scanned_pkg_sources(
+        root,
+        &root.join("assets/data.txt")
+    ));
 
     // Standard package sources must exclude subcrates
-    assert!(!is_file_in_scanned_pkg_sources(root, &subcrate_dir.join("src/lib.rs")));
-    assert!(!is_file_in_scanned_pkg_sources(root, &subcrate_dir.join("Cargo.toml")));
+    assert!(!is_file_in_scanned_pkg_sources(
+        root,
+        &subcrate_dir.join("src/lib.rs")
+    ));
+    assert!(!is_file_in_scanned_pkg_sources(
+        root,
+        &subcrate_dir.join("Cargo.toml")
+    ));
 
     // Standard package sources must exclude temporary/VCS files
     assert!(!is_file_in_scanned_pkg_sources(root, &tmp_file));
@@ -492,7 +604,11 @@ fn test_is_file_in_scanned_pkg_sources_excludes_subcrates_and_temporary_files() 
 
     // Scanned tree with allow_test_dirs=true includes test dir files, but still excludes subcrates & tmp files
     assert!(is_file_in_scanned_tree(root, &test_file, true));
-    assert!(!is_file_in_scanned_tree(root, &subcrate_dir.join("src/lib.rs"), true));
+    assert!(!is_file_in_scanned_tree(
+        root,
+        &subcrate_dir.join("src/lib.rs"),
+        true
+    ));
     assert!(!is_file_in_scanned_tree(root, &tmp_file, true));
 }
 
@@ -529,7 +645,11 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     assert!(!normal_paths.iter().any(|p| p.starts_with("tests/")));
     assert!(!normal_paths.iter().any(|p| p.starts_with("benches/")));
     assert!(!normal_paths.iter().any(|p| p.starts_with("examples/")));
-    assert!(!is_file_in_unit_coarse_inputs(&normal_unit, root, &root.join("tests/my_test.rs")));
+    assert!(!is_file_in_unit_coarse_inputs(
+        &normal_unit,
+        root,
+        &root.join("tests/my_test.rs")
+    ));
 
     // 2. Unit with impure proc macro (e.g. sqlx_macros): coarse inputs includes tests/, benches/, examples/
     let impure_unit = PlannedCompilationUnit {
@@ -545,7 +665,11 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     assert!(impure_paths.iter().any(|p| p.contains("my_test.rs")));
     assert!(impure_paths.iter().any(|p| p.contains("my_bench.rs")));
     assert!(impure_paths.iter().any(|p| p.contains("my_example.rs")));
-    assert!(is_file_in_unit_coarse_inputs(&impure_unit, root, &root.join("tests/my_test.rs")));
+    assert!(is_file_in_unit_coarse_inputs(
+        &impure_unit,
+        root,
+        &root.join("tests/my_test.rs")
+    ));
 
     // 3. Unit with pure proc macro (e.g. serde_derive): coarse inputs does NOT include tests/
     let pure_unit = PlannedCompilationUnit {
@@ -558,7 +682,11 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     let pure_coarse = compute_unit_coarse_inputs(&pure_unit, root, &pkg_entry).unwrap();
     let pure_paths: Vec<_> = pure_coarse.iter().map(|(p, _)| p.as_str()).collect();
     assert!(!pure_paths.iter().any(|p| p.starts_with("tests/")));
-    assert!(!is_file_in_unit_coarse_inputs(&pure_unit, root, &root.join("tests/my_test.rs")));
+    assert!(!is_file_in_unit_coarse_inputs(
+        &pure_unit,
+        root,
+        &root.join("tests/my_test.rs")
+    ));
 
     // 4. Test unit with impure proc macro: coarse inputs includes tests/, benches/, examples/
     fs::create_dir_all(root.join("tests/fixtures")).unwrap();
@@ -574,8 +702,16 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     let test_paths: Vec<_> = test_coarse.iter().map(|(p, _)| p.as_str()).collect();
     assert!(test_paths.iter().any(|p| p.contains("query.sql")));
     assert!(test_paths.contains(&"src/lib.rs"));
-    assert!(is_file_in_unit_coarse_inputs(&test_unit_impure, root, &root.join("tests/fixtures/query.sql")));
-    assert!(is_file_in_unit_coarse_inputs(&test_unit_impure, root, &root.join("src/lib.rs")));
+    assert!(is_file_in_unit_coarse_inputs(
+        &test_unit_impure,
+        root,
+        &root.join("tests/fixtures/query.sql")
+    ));
+    assert!(is_file_in_unit_coarse_inputs(
+        &test_unit_impure,
+        root,
+        &root.join("src/lib.rs")
+    ));
 
     // 5. Test unit with pure proc macro: coarse inputs does NOT include fixtures in other directories
     let test_unit_pure = PlannedCompilationUnit {
@@ -588,5 +724,9 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     let test_pure_coarse = compute_unit_coarse_inputs(&test_unit_pure, root, &pkg_entry).unwrap();
     let test_pure_paths: Vec<_> = test_pure_coarse.iter().map(|(p, _)| p.as_str()).collect();
     assert!(!test_pure_paths.iter().any(|p| p.contains("query.sql")));
-    assert!(!is_file_in_unit_coarse_inputs(&test_unit_pure, root, &root.join("tests/fixtures/query.sql")));
+    assert!(!is_file_in_unit_coarse_inputs(
+        &test_unit_pure,
+        root,
+        &root.join("tests/fixtures/query.sql")
+    ));
 }

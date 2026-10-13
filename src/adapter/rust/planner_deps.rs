@@ -22,8 +22,7 @@ pub fn resolve_unit_dependencies(
     explicit_target: Option<&str>,
     start_dir: &Path,
 ) -> Result<(), crate::adapter::rust::types::RustAdapterError> {
-    let mut lib_units_by_exact: HashMap<(String, String, bool), (String, PathBuf)> =
-        HashMap::new();
+    let mut lib_units_by_exact: HashMap<(String, String, bool), (String, PathBuf)> = HashMap::new();
     let mut lib_units_by_name: HashMap<(String, bool), Vec<(String, String)>> = HashMap::new();
     let mut proc_macro_names: HashSet<String> = HashSet::new();
 

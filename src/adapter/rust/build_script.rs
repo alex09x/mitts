@@ -18,8 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub use super::build_script_directives::{
-    compute_build_script_key, detect_default_target_triple, get_target_cfgs,
-    BuildScriptDirectives,
+    compute_build_script_key, detect_default_target_triple, get_target_cfgs, BuildScriptDirectives,
 };
 
 /// Executes a crate's `build.rs` build script in an isolated sandbox with CAS caching.

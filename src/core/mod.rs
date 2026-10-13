@@ -40,4 +40,3 @@ pub use lock::FileLock;
 pub use reflink::{link_intra_workspace, reflink_or_copy};
 pub use source_store::SourceStore;
 pub use target_index::{TargetArtifactIndex, TargetArtifactRecord};
-

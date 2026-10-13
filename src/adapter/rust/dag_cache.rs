@@ -49,7 +49,6 @@ pub struct ExecutionContext<'a> {
     pub target_index: Option<&'a Arc<Mutex<crate::core::TargetArtifactIndex>>>,
 }
 
-
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.
 /// Returns Ok(true) if restored from cache, Ok(false) otherwise.
 pub fn try_restore_from_cache(
@@ -265,8 +264,7 @@ pub fn try_restore_from_cache_with_directives(
                     let deps_dir = ctx.target_dir.join(profile_name).join("deps");
                     let _ = fs::create_dir_all(&deps_dir);
                     let target_dep_dest = deps_dir.join(&out.relative_path);
-                    let rel_key =
-                        format!("{}/deps/{}", profile_name, out.relative_path.display());
+                    let rel_key = format!("{}/deps/{}", profile_name, out.relative_path.display());
                     let _ = crate::core::target_index::check_or_restore(
                         ctx.target_index,
                         ctx.cas,
@@ -286,7 +284,6 @@ pub fn try_restore_from_cache_with_directives(
                         );
                     }
                 }
-
 
                 if ext == "rlib" || ext == "dylib" || ext == "so" {
                     let named = ctx.cas.named_artifact_path_with_disambiguator(

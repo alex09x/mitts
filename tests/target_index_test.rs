@@ -58,29 +58,20 @@ fn test_check_or_restore_skips_intact_and_detects_mutations() {
     let rel_key = "debug/deps/test_bin";
 
     // 1. Initial restore: file does not exist on disk
-    let restored = check_or_restore(
-        Some(&index),
-        &cas,
-        &hash,
-        &dest_path,
-        rel_key,
-        true,
-    )
-    .unwrap();
-    assert!(restored, "Initial check_or_restore should restore missing file");
+    let restored = check_or_restore(Some(&index), &cas, &hash, &dest_path, rel_key, true).unwrap();
+    assert!(
+        restored,
+        "Initial check_or_restore should restore missing file"
+    );
     assert!(dest_path.exists());
-    assert_eq!(fs::read(&dest_path).unwrap(), b"compiled test runner binary v1");
+    assert_eq!(
+        fs::read(&dest_path).unwrap(),
+        b"compiled test runner binary v1"
+    );
 
     // 2. Second call: file is intact on disk -> must skip restore (0 disk writes)
-    let restored_again = check_or_restore(
-        Some(&index),
-        &cas,
-        &hash,
-        &dest_path,
-        rel_key,
-        true,
-    )
-    .unwrap();
+    let restored_again =
+        check_or_restore(Some(&index), &cas, &hash, &dest_path, rel_key, true).unwrap();
     assert!(
         !restored_again,
         "Second check_or_restore on intact file should skip restore"
@@ -88,56 +79,44 @@ fn test_check_or_restore_skips_intact_and_detects_mutations() {
 
     // 3a. Mutate destination file with different size
     fs::write(&dest_path, b"corrupted payload").unwrap();
-    let restored_after_size_corrupt = check_or_restore(
-        Some(&index),
-        &cas,
-        &hash,
-        &dest_path,
-        rel_key,
-        true,
-    )
-    .unwrap();
+    let restored_after_size_corrupt =
+        check_or_restore(Some(&index), &cas, &hash, &dest_path, rel_key, true).unwrap();
     assert!(
         restored_after_size_corrupt,
         "check_or_restore should re-restore size-mutated file"
     );
-    assert_eq!(fs::read(&dest_path).unwrap(), b"compiled test runner binary v1");
+    assert_eq!(
+        fs::read(&dest_path).unwrap(),
+        b"compiled test runner binary v1"
+    );
 
     // 3b. Mutate destination file with SAME size but different content (mtime change)
     std::thread::sleep(std::time::Duration::from_millis(15));
     fs::write(&dest_path, b"compiled test runner binary v2").unwrap();
     assert_eq!(fs::metadata(&dest_path).unwrap().len(), 30);
-    let restored_after_same_size = check_or_restore(
-        Some(&index),
-        &cas,
-        &hash,
-        &dest_path,
-        rel_key,
-        true,
-    )
-    .unwrap();
+    let restored_after_same_size =
+        check_or_restore(Some(&index), &cas, &hash, &dest_path, rel_key, true).unwrap();
     assert!(
         restored_after_same_size,
         "check_or_restore should re-restore same-size content mutation"
     );
-    assert_eq!(fs::read(&dest_path).unwrap(), b"compiled test runner binary v1");
+    assert_eq!(
+        fs::read(&dest_path).unwrap(),
+        b"compiled test runner binary v1"
+    );
 
     // 3c. Truncate destination file to 0 bytes
     fs::write(&dest_path, b"").unwrap();
-    let restored_after_trunc = check_or_restore(
-        Some(&index),
-        &cas,
-        &hash,
-        &dest_path,
-        rel_key,
-        true,
-    )
-    .unwrap();
+    let restored_after_trunc =
+        check_or_restore(Some(&index), &cas, &hash, &dest_path, rel_key, true).unwrap();
     assert!(
         restored_after_trunc,
         "check_or_restore should re-restore truncated empty file"
     );
-    assert_eq!(fs::read(&dest_path).unwrap(), b"compiled test runner binary v1");
+    assert_eq!(
+        fs::read(&dest_path).unwrap(),
+        b"compiled test runner binary v1"
+    );
 }
 
 #[cfg(unix)]
