@@ -125,9 +125,22 @@ path = "src/custom_test.rs"
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].name, "custom-bin");
 
+    // A bin with `test = false` keeps a unit-test target that only an explicit
+    // `--bin custom-bin` selects (cargo semantics); the default selection is
+    // the single explicit [[test]] target.
     let test_targets = cargo_toml.discover_test_targets(pkg_dir);
-    assert_eq!(test_targets.len(), 1);
-    assert_eq!(test_targets[0].name, "custom-test");
+    assert_eq!(test_targets.len(), 2);
+    let default_targets: Vec<_> = test_targets.iter().filter(|t| !t.explicit_only).collect();
+    assert_eq!(default_targets.len(), 1);
+    assert_eq!(default_targets[0].name, "custom-test");
+    let bin_unit = test_targets
+        .iter()
+        .find(|t| t.name == "custom_bin_bin_test")
+        .expect("bin unit-test target is discoverable");
+    assert!(
+        bin_unit.explicit_only,
+        "test = false must make the bin unit test explicit-only"
+    );
 }
 
 #[test]

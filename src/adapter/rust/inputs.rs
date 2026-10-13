@@ -164,8 +164,18 @@ pub fn hash_package_common_inputs(
     };
     let base_dir = ws_root.unwrap_or(package_dir);
     let config_start_dir = super::cargo_config::resolve_config_start_dir(base_dir);
-    let config_files =
-        super::cargo_config::discover_all_cargo_config_files_for_inputs(&config_start_dir);
+    // Cargo reads the config chain from its working directory upwards, so a
+    // config in an intermediate directory between the package and the workspace
+    // root applies whenever cargo is run from the package. Inputs hash the union
+    // of the chain from the package directory and the chain from the resolved
+    // start directory: an unknown config is treated as an input, never as absent.
+    let mut config_files =
+        super::cargo_config::discover_all_cargo_config_files_for_inputs(package_dir);
+    for p in super::cargo_config::discover_all_cargo_config_files_for_inputs(&config_start_dir) {
+        if !config_files.contains(&p) {
+            config_files.push(p);
+        }
+    }
     for cfg_p in config_files {
         let hash =
             Sha256::digest_file(&cfg_p).with_context(|| format!("Failed to hash {:?}", cfg_p))?;
@@ -175,8 +185,9 @@ pub fn hash_package_common_inputs(
             rel.to_string_lossy().to_string()
         } else if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w)) {
             format!("workspace:{}", cfg_p.strip_prefix(ws).unwrap().display())
-        } else if let Some((depth, rel)) = config_start_dir
+        } else if let Some((depth, rel)) = package_dir
             .ancestors()
+            .chain(config_start_dir.ancestors())
             .enumerate()
             .find_map(|(idx, a)| cfg_p.strip_prefix(a.join(".cargo")).ok().map(|r| (idx, r)))
         {
@@ -258,7 +269,6 @@ pub fn hash_package_common_inputs(
 pub use super::unit_inputs::{
     clean_path, compute_unit_coarse_inputs, is_file_in_unit_coarse_inputs, scan_dir_inputs,
 };
-
 
 /// Gathers full package base inputs including tests/, benches/, and examples/ for build scripts and impure macros.
 pub fn hash_package_full_inputs(

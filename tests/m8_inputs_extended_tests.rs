@@ -54,9 +54,15 @@ fn test_m8_inputs_ancestors_and_nested_configs() {
     assert!(inputs.iter().any(|(k, _)| k == "Cargo.lock"));
     assert!(inputs.iter().any(|(k, _)| k == ".cargo/config.toml"));
     assert!(inputs.iter().any(|(k, _)| k == ".cargo/config"));
+    // Configs in a directory between the package and the workspace root apply
+    // whenever cargo runs from the package; they are hashed under a label
+    // relative to the workspace root, which is stable across clones.
     assert!(inputs
         .iter()
-        .any(|(k, _)| k.contains("ancestor:") && k.contains("config")));
+        .any(|(k, _)| k == "workspace:crates/.cargo/config"));
+    assert!(inputs
+        .iter()
+        .any(|(k, _)| k == "workspace:crates/.cargo/config.toml"));
 }
 
 #[test]
