@@ -58,27 +58,37 @@ site.
 
 ## 3. Work packages
 
-### WP1. T5 multi-worktree test swarm, re-measured
+### WP1. T5 multi-worktree build swarm, re-measured
 
-- **Binary.** Single clean release binary built from commit `70af17e`
-  (SHA-256: `1a1e396bfa5a979fd2ea01bbba69899cd16ce86402b0391e93a422aa48218e9b`);
-  its SHA-256 is recorded in the provenance of every JSON result. Old runs moved to `_superseded/`.
-- **Preflight invariants.**
-  - `wait_for_quiet_rig` enforces `loadavg < 1.0` and zero foreign compiler processes.
-  - Timeout (300s) aborts immediately with non-zero exit code rather than proceeding noisy.
-  - `preflight_waited_s` recorded per run iteration.
-  - Provenance snapshot captured *before* warm-up and [1/5], not at the end of [5/5].
+- **Why build-only.** Mitts is a build tool. The time a project's test suite
+  takes to execute is a property of the tests and is identical for every arm, so
+  it is excluded from the metric. Every arm runs `test --no-run`: the whole test
+  suite is compiled and linked, nothing is executed. Soundness is checked
+  afterwards with two short executions that are timed separately and never
+  enter the metric (see Acceptance).
+- **Binary.** One release binary built from the `main` commit at the start of
+  the series; its SHA-256 and commit are recorded in the provenance of every
+  JSON result. Earlier runs live under `_superseded/` and are not cited.
+- **Preflight.** Before every swarm the rig must show `loadavg < 1.0` and no
+  foreign compiler processes; a 300 s timeout aborts the series instead of
+  measuring under noise. Load and foreign processes are recorded before and
+  after each swarm, with the time spent waiting.
 - **Scenario.** 12 parallel worktrees on 4 different commits of the project
-  history. Worktree 12 carries an injected failing test to check soundness.
+  history (4/3/3/2). Worktree 12 carries an injected failing test.
 - **Arms.** `mitts`, `cargo_bare`, `cargo_sccache`, `cargo_shared`.
 - **Series.** `n = 5`, rotated arm order, `sync` before every swarm.
 - **Filesystems.** XFS with reflink and ext4 with the copy fallback. The two
   filesystems are on different devices; results state this.
-- **Order.** Ripgrep, Serde, Tokio, Nushell.
-- **Acceptance.** JSON results with full provenance; for `mitts`, `cargo_bare`
-  and `cargo_sccache` the injected failure is detected in every run and no
-  clean worktree fails; WT-1 compilation variance $\le 15\%$; shared-target arm
-  reported with unsound failure propagation.
+- **Order.** Ripgrep, Serde, Tokio, Nushell; ext4 then XFS for each.
+- **Acceptance.** JSON results with full provenance, and for `mitts`,
+  `cargo_bare` and `cargo_sccache` in every run: every worktree builds with
+  exit code 0; the number of test binaries produced is identical across the
+  three arms; in worktree 12 the injected test, run alone by exact name, is
+  reported as failed; in worktree 1 every built binary runs with the same
+  exact filter and reports no failure; the spread of worktree 1 build time in
+  the `cargo_bare` arm stays within 15 %. A second `test --no-run` on a warm
+  store must report the same number of binaries. The shared-target arm is
+  expected to miss the defect or fail clean worktrees and is reported as such.
 
 ### WP2. L5a (`check`) and L5b (`clippy`), re-measured
 

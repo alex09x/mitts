@@ -7,10 +7,18 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 """
-T5: Multi-Worktree Test Swarm Defensible Audit
-Measures test compilation throughput, execution wall-clock time, caching speedup,
-peak memory, disk footprint, and test result parity across 12 git worktrees on
-4 distinct commits on AMD Ryzen 9 9950X.
+T5: multi-worktree build swarm, defensible audit.
+
+Twelve git worktrees of one project on four commits build their whole test
+suite in parallel (`test --no-run`) with Mitts, plain cargo, cargo + sccache
+and cargo with a shared target directory. The metric is the wall-clock time of
+the build swarm: Mitts is a build tool, and the time a test suite takes to run
+is the same for every arm, so test execution is kept out of the measurement.
+
+Soundness is checked after each swarm with two short executions that are timed
+separately and excluded from the metric: worktree 12 carries an injected
+failing test that every sound arm must report as failed, and worktree 1 runs
+every built binary with the same exact filter and must report them all clean.
 """
 
 import argparse
@@ -19,22 +27,24 @@ import functools
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
-import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 
-import hashlib
 from benchmark_common import (
     check_quiet_rig,
     get_binary_provenance,
     get_filesystem_type,
     get_rig_info,
     wait_for_quiet_rig,
+)
+from benchmark_pressure import (
+    SystemPressureSampler,
+    get_current_dirty_mb,
+    get_device_sectors_written,
+    sync_and_wait_dirty,
 )
 from benchmark_worktree import (
     clean_sccache,
@@ -43,8 +53,47 @@ from benchmark_worktree import (
     restore_cache,
     snapshot_cache,
 )
+from t5_parsers import (
+    DEFECT_TEST_NAME,
+    compute_stats,
+    extract_failed_tests,
+    inject_test_defect,
+    parse_build_output,
+    parse_mitts_io,
+    parse_mitts_stats,
+    parse_sccache_stats,
+    parse_test_results,
+    spread_pct,
+)
 
 print = functools.partial(print, flush=True)
+
+SCHEMA_VERSION = "t5_build_swarm_v2"
+SCRIPT_FILES = [
+    "run_t5_defensible_audit.py",
+    "benchmark_worktree.py",
+    "benchmark_common.py",
+    "benchmark_pressure.py",
+    "t5_parsers.py",
+]
+TOOLS = ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]
+SOUND_TOOLS = ["mitts_cas", "cargo_bare", "cargo_sccache"]
+PREFLIGHT_TIMEOUT_S = 300.0
+PREFLIGHT_MAX_LOAD = 1.0
+
+BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
+DEFAULT_RESULTS_DIR = Path(os.environ.get("BENCHMARK_OUTPUT_DIR", BENCH_ROOT / "benchmark-results"))
+PROJECTS_DIR = BENCH_ROOT / "projects"
+SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
+MITTS_BIN = Path(os.environ.get("MITTS_BIN", BENCH_ROOT / "mitts-bin"))
+SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
+CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
+
+if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
+
+
+# --------------------------------------------------------------------------- provenance
 
 def check_same_device(path_a, path_b):
     if not path_a or not path_b:
@@ -64,11 +113,10 @@ def check_same_device(path_a, path_b):
 def get_scripts_provenance():
     scripts_dir = Path(__file__).resolve().parent
     script_shas = {}
-    for name in ["run_t5_defensible_audit.py", "benchmark_worktree.py", "benchmark_common.py"]:
+    for name in SCRIPT_FILES:
         p = scripts_dir / name
         if p.exists():
             script_shas[name] = hashlib.sha256(p.read_bytes()).hexdigest()
-
     combined = hashlib.sha256(
         "".join(f"{k}:{v}" for k, v in sorted(script_shas.items())).encode("utf-8")
     ).hexdigest()
@@ -84,28 +132,19 @@ def get_scripts_provenance():
                 else (Path.home() / "mitts")
             )
         git_head = subprocess.check_output(
-            ["git", "-C", str(git_dir), "rev-parse", "HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL
+            ["git", "-C", str(git_dir), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
         ).strip()
-        any_dirty = False
+        scripts_dirty = False
         for sname, s_sha in script_shas.items():
-            try:
-                git_blob = subprocess.check_output(
-                    ["git", "-C", str(git_dir), "show", f"HEAD:scripts/{sname}"],
-                    stderr=subprocess.DEVNULL
-                )
-                blob_sha = hashlib.sha256(git_blob).hexdigest()
-                if blob_sha != s_sha:
-                    any_dirty = True
-                    break
-            except Exception:
-                any_dirty = True
+            blob = subprocess.check_output(
+                ["git", "-C", str(git_dir), "show", f"HEAD:scripts/{sname}"], stderr=subprocess.DEVNULL
+            )
+            if hashlib.sha256(blob).hexdigest() != s_sha:
+                scripts_dirty = True
                 break
-        scripts_dirty = any_dirty
     except Exception:
-        git_head = None
-        scripts_dirty = None
+        git_head = git_head if scripts_dirty is not None else None
+        scripts_dirty = None if git_head is None else True
 
     return {
         "combined_sha256": combined,
@@ -130,381 +169,107 @@ def get_provenance_info(mitts_cache=None, worktree_dir=None):
     if mitts_cache and worktree_dir:
         prov["same_device"] = check_same_device(mitts_cache, worktree_dir)
     is_quiet, load_1m, foreign_procs = check_quiet_rig()
-    prov["preflight"] = {
-        "loadavg_1m": load_1m,
-        "foreign_processes": foreign_procs,
-        "is_quiet": is_quiet,
-    }
+    prov["preflight"] = {"loadavg_1m": load_1m, "foreign_processes": foreign_procs, "is_quiet": is_quiet}
     return prov
 
-BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
-DEFAULT_RESULTS_DIR = Path(
-    os.environ.get("BENCHMARK_OUTPUT_DIR", BENCH_ROOT / "benchmark-results")
-)
-PROJECTS_DIR = BENCH_ROOT / "projects"
-SHARED_TARGET_ROOT = BENCH_ROOT / "shared_cargo_target"
-MITTS_BIN = Path(os.environ.get("MITTS_BIN", BENCH_ROOT / "mitts-bin"))
-SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
-CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 
-if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
-    os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
+# --------------------------------------------------------------------------- one worktree
 
-
-def inject_test_defect(wt_dir: Path):
-    # Prefer integration test files in tests/ directories so that `cargo test --tests` executes them
-    candidates = []
-    for r, _, files in os.walk(wt_dir):
-        if (
-            ".git" in r
-            or "target" in r
-            or "plugins" in r
-            or "plugin_persistence" in r
-            or "tests-build" in r
-            or "tests-integration" in r
-            or "benches" in r
-            or "examples" in r
-            or "stress-test" in r
-        ):
-            continue
-        p_r = Path(r)
-        if "tests" in p_r.parts:
-            for f in sorted(files):
-                if f.endswith(".rs") and not f.startswith(".") and not f.startswith("_"):
-                    if f == "lib.rs" or f == "main.rs":
-                        continue
-                    candidates.append(p_r / f)
-    if not candidates:
-        for r, _, files in os.walk(wt_dir):
-            if ".git" in r or "target" in r:
-                continue
-            for f in sorted(files):
-                if f.endswith(".rs") and not f.startswith("."):
-                    candidates.append(Path(r) / f)
-                    break
-            if candidates:
-                break
-    target = candidates[0] if candidates else None
-    if target:
-        with open(target, "r") as f:
-            content = f.read()
-        snippet = "\n#[test]\nfn __intentional_test_failure() {\n    assert_eq!(2 + 2, 5, \"intentional test failure for audit\");\n}\n"
-        with open(target, "w") as f:
-            f.write(content + snippet)
-        return str(target.relative_to(wt_dir))
-    return None
-
-
-def parse_test_results(output: str):
-    matches = re.findall(
-        r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored",
-        output,
-    )
-    total_passed = sum(int(m[1]) for m in matches)
-    total_failed = sum(int(m[2]) for m in matches)
-    total_ignored = sum(int(m[3]) for m in matches)
-    return {
-        "binaries_count": len(matches),
-        "passed": total_passed,
-        "failed": total_failed,
-        "ignored": total_ignored,
-    }
-
-
-def parse_mitts_stats(text: str):
-    m = re.search(
-        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+total=(\d+)(?:\s+fast_lock=(\d+))?",
-        text,
-    )
-    if not m:
-        return {"compiled": 0, "cached": 0, "total": 0, "fast_lock": 0}
-    return {
-        "compiled": int(m.group(1)),
-        "cached": int(m.group(2)),
-        "total": int(m.group(3)),
-        "fast_lock": int(m.group(4)) if m.group(4) is not None else 0,
-    }
-
-
-def parse_sccache_stats(text: str):
-    def get_num(key):
-        m = re.search(rf"{key}\s+(\d+)", text)
-        return int(m.group(1)) if m else 0
-
-    return {
-        "compile_requests": get_num("Compile requests"),
-        "compile_requests_executed": get_num("Compile requests executed"),
-        "cache_hits": get_num("Cache hits"),
-        "cache_misses": get_num("Cache misses"),
-    }
-
-
-def extract_failed_tests(text: str):
-    failed = []
-    for line in text.splitlines():
-        line_s = line.strip()
-        if line_s.startswith("test ") and line_s.endswith(" ... FAILED"):
-            name = line_s[5:-11].strip()
-            if name and name not in failed:
-                failed.append(name)
-    m_fail = re.search(r"failures:\n((?:\s+[^\n]+\n)+)", text)
-    if m_fail:
-        for f_line in m_fail.group(1).splitlines():
-            name = f_line.strip()
-            if name and not name.startswith("----") and name not in failed:
-                failed.append(name)
-    return failed
-
-
-def parse_phase_breakdown(text: str, elapsed: float, tool: str):
-    if tool == "mitts_cas":
-        m = re.search(
-            r"\[mitts::phases\]\s+compile_s=([\d\.]+)\s+test_exec_s=([\d\.]+)\s+total_s=([\d\.]+)",
-            text,
-        )
-        if m:
-            compile_s = round(float(m.group(1)), 3)
-            test_exec_s = round(float(m.group(2)), 3)
-            res = {
-                "compile_s": compile_s,
-                "test_exec_s": test_exec_s,
-                "total_wall_s": round(float(m.group(3)), 3),
-            }
-            m_io = re.search(
-                r"\[mitts::io\]\s+bytes_cloned=(\d+)\s+bytes_copied=(\d+)\s+bytes_hardlinked=(\d+)\s+files_cloned=(\d+)\s+files_copied=(\d+)\s+files_hardlinked=(\d+)",
-                text,
-            )
-            if m_io:
-                res["io_stats"] = {
-                    "bytes_cloned": int(m_io.group(1)),
-                    "bytes_copied": int(m_io.group(2)),
-                    "bytes_hardlinked": int(m_io.group(3)),
-                    "files_cloned": int(m_io.group(4)),
-                    "files_copied": int(m_io.group(5)),
-                    "files_hardlinked": int(m_io.group(6)),
-                }
-            m_sum = re.search(
-                r"\[mitts::timings_sum\]\s+restore_sum_s=([\d\.]+)\s+restore_miss_sum_s=([\d\.]+)\s+publish_sum_s=([\d\.]+)\s+rustc_sum_s=([\d\.]+)",
-                text,
-            )
-            if m_sum:
-                res["timings_sum_s"] = {
-                    "restore_sum_s": float(m_sum.group(1)),
-                    "restore_miss_sum_s": float(m_sum.group(2)),
-                    "publish_sum_s": float(m_sum.group(3)),
-                    "rustc_sum_s": float(m_sum.group(4)),
-                }
-            return res
-
-    # Cargo fallback for cargo_bare, cargo_sccache, cargo_shared
-    m_cargo = re.search(
-        r"Finished\s+`?(?:test|dev|release)`?\s+profile.*?in\s+(?:(\d+)m\s+)?([\d\.]+)s",
-        text,
-    )
-    if m_cargo:
-        mins = float(m_cargo.group(1)) if m_cargo.group(1) else 0.0
-        secs = float(m_cargo.group(2))
-        c_s = round(mins * 60.0 + secs, 3)
-        t_s = round(max(0.0, elapsed - c_s), 3)
-        return {
-            "compile_s": c_s,
-            "test_exec_s": t_s,
-            "total_wall_s": round(elapsed, 3),
-        }
-
-    return {
-        "compile_s": round(elapsed, 3),
-        "test_exec_s": 0.0,
-        "total_wall_s": round(elapsed, 3),
-    }
-
-
-def run_single_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, extra_test_args=None):
-    i, wt_dir, commit = wt_tuple
+def _tool_env(tool, wt_dir, shared_target_dir):
     env = os.environ.copy()
     if CARGO_BIN_DIR not in env.get("PATH", ""):
         env["PATH"] = f"{CARGO_BIN_DIR}:{env.get('PATH', '')}"
-    cargo_bin = shutil.which("cargo") or (Path.home() / ".cargo/bin/cargo")
-    env["CARGO"] = str(cargo_bin)
+    env["CARGO"] = str(shutil.which("cargo") or (Path.home() / ".cargo/bin/cargo"))
     env["RUSTUP_HOME"] = str(Path.home() / ".rustup")
     env["CARGO_HOME"] = str(Path.home() / ".cargo")
     env["MITTS_TIMINGS"] = "1"
-
-    # Isolate TMPDIR per worktree to prevent cross-worktree race conditions
     wt_tmp = (wt_dir / "tmp").resolve()
     wt_tmp.mkdir(parents=True, exist_ok=True)
     env["TMPDIR"] = str(wt_tmp)
-
-    ws_args = ["--workspace"] if is_workspace else []
-    extra_tail = (extra_test_args or [])
-    base_test_args = ["--no-fail-fast"]
-
-    if tool == "mitts_cas":
-        cmd = [str(MITTS_BIN), "test", "--tests"] + ws_args + base_test_args + extra_tail
-    elif tool == "cargo_bare":
-        cmd = ["cargo", "test", "--offline", "--tests"] + ws_args + base_test_args + extra_tail
-    elif tool == "cargo_sccache":
-        cmd = ["cargo", "test", "--offline", "--tests"] + ws_args + base_test_args + extra_tail
+    if tool == "cargo_sccache":
         env["RUSTC_WRAPPER"] = str(SCCACHE_BIN)
     elif tool == "cargo_shared":
-        cmd = ["cargo", "test", "--offline", "--tests"] + ws_args + base_test_args + extra_tail
         env["CARGO_TARGET_DIR"] = str(shared_target_dir)
+    return env
 
+
+def _test_cmd(tool, is_workspace, extra_build_args, no_run, filter_exact=None):
+    ws = ["--workspace"] if is_workspace else []
+    base = [str(MITTS_BIN), "test", "--tests"] if tool == "mitts_cas" else ["cargo", "test", "--offline", "--tests"]
+    cmd = base + ws + ["--no-fail-fast"] + list(extra_build_args or [])
+    if no_run:
+        return cmd + ["--no-run"]
+    if filter_exact:
+        if tool == "mitts_cas":
+            cmd += [filter_exact, "--exact"]
+        else:
+            cmd += ["--", "--exact", filter_exact]
+    return cmd
+
+
+def _run(cmd, cwd, env):
     start = time.perf_counter()
     with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
-        p = subprocess.Popen(cmd, cwd=wt_dir, env=env, stdout=out_f, stderr=err_f)
+        p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=out_f, stderr=err_f)
         _, status, ru = os.wait4(p.pid, 0)
         elapsed = time.perf_counter() - start
         out_f.seek(0)
         err_f.seek(0)
         stdout = out_f.read().decode("utf-8", errors="replace")
         stderr = err_f.read().decode("utf-8", errors="replace")
+    exit_code = os.waitstatus_to_exitcode(status)
+    return elapsed, exit_code, ru, stdout + "\n" + stderr
 
-    exit_code = os.waitstatus_to_exitcode(status) if hasattr(os, "waitstatus_to_exitcode") else (status >> 8)
-    full_output = stdout + "\n" + stderr
-    test_stats = parse_test_results(full_output)
-    mitts_stats = parse_mitts_stats(full_output) if tool == "mitts_cas" else None
-    phases = parse_phase_breakdown(full_output, elapsed, tool)
-    failed_test_names = extract_failed_tests(full_output) if exit_code != 0 else []
-    return {
+
+def build_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, extra_build_args=None):
+    """`test --no-run` in one worktree. This is the measured phase."""
+    i, wt_dir, _commit = wt_tuple
+    env = _tool_env(tool, wt_dir, shared_target_dir)
+    cmd = _test_cmd(tool, is_workspace, extra_build_args, no_run=True)
+    elapsed, exit_code, ru, output = _run(cmd, wt_dir, env)
+    res = {
         "wt_index": i,
-        "wall_sec": round(elapsed, 3),
-        "phases": phases,
+        "build_wall_s": round(elapsed, 3),
         "exit_code": exit_code,
         "max_rss_mb": round(ru.ru_maxrss / 1024.0, 1),
-        "stdout": stdout,
-        "stderr": stderr,
-        "test_stats": test_stats,
-        "mitts_stats": mitts_stats,
-        "failed_test_names": failed_test_names,
+        "build": parse_build_output(output, tool),
+        "stderr_tail": output[-1500:] if exit_code != 0 else "",
+    }
+    if tool == "mitts_cas":
+        res["mitts_stats"] = parse_mitts_stats(output)
+        res.update(parse_mitts_io(output))
+    return res
+
+
+def smoke_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, extra_build_args=None):
+    """
+    Runs every built test binary with `--exact DEFECT_TEST_NAME`.
+    Timed separately; never part of the metric.
+    """
+    i, wt_dir, _commit = wt_tuple
+    env = _tool_env(tool, wt_dir, shared_target_dir)
+    cmd = _test_cmd(tool, is_workspace, extra_build_args, no_run=False, filter_exact=DEFECT_TEST_NAME)
+    elapsed, exit_code, _ru, output = _run(cmd, wt_dir, env)
+    stats = parse_test_results(output)
+    failed = extract_failed_tests(output) if exit_code != 0 else []
+    return {
+        "wt_index": i,
+        "exec_wall_s": round(elapsed, 3),
+        "exit_code": exit_code,
+        "binaries_executed": stats["binaries_executed"],
+        "passed": stats["passed"],
+        "failed": stats["failed"],
+        "failed_test_names": failed,
+        "defect_reported": DEFECT_TEST_NAME in failed,
+        "rebuilt": "Compiling" in output,
     }
 
 
-def get_current_dirty_mb():
-    try:
-        with open("/proc/meminfo", "r") as f:
-            for line in f:
-                if line.startswith("Dirty:"):
-                    return round(int(line.split()[1]) / 1024.0, 1)
-    except Exception:
-        pass
-    return 0.0
+# --------------------------------------------------------------------------- one swarm
 
-
-def sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0):
-    try:
-        subprocess.run(["sync"], check=True)
-    except Exception:
-        pass
-    t0 = time.time()
-    while time.time() - t0 < timeout_s:
-        d_mb = get_current_dirty_mb()
-        if d_mb <= max_dirty_mb:
-            return d_mb
-        time.sleep(0.5)
-    return get_current_dirty_mb()
-
-
-def get_device_sectors_written(target_path):
-    try:
-        src = subprocess.check_output(
-            ["findmnt", "-no", "SOURCE", "--target", str(target_path)],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        real_src = os.path.realpath(src)
-        dev_name = os.path.basename(real_src)
-        stat_file = f"/sys/class/block/{dev_name}/stat"
-        if os.path.exists(stat_file):
-            with open(stat_file, "r") as f:
-                fields = f.read().split()
-            return dev_name, int(fields[6])
-    except Exception:
-        pass
-    return None, None
-
-
-class SystemPressureSampler:
-    def __init__(self, interval_s=0.5):
-        self.interval_s = interval_s
-        self._stop_event = threading.Event()
-        self._thread = None
-        self.samples = []
-
-    def _sample_once(self):
-        sample = {
-            "time": time.time(),
-            "dirty_mb": 0.0,
-            "writeback_mb": 0.0,
-            "io_some_avg10": 0.0,
-            "io_full_avg10": 0.0,
-        }
-        try:
-            with open("/proc/meminfo", "r") as f:
-                for line in f:
-                    if line.startswith("Dirty:"):
-                        sample["dirty_mb"] = round(int(line.split()[1]) / 1024.0, 1)
-                    elif line.startswith("Writeback:"):
-                        sample["writeback_mb"] = round(int(line.split()[1]) / 1024.0, 1)
-        except Exception:
-            pass
-
-        try:
-            with open("/proc/pressure/io", "r") as f:
-                for line in f:
-                    if line.startswith("some "):
-                        m = re.search(r"avg10=([\d\.]+)", line)
-                        if m:
-                            sample["io_some_avg10"] = float(m.group(1))
-                    elif line.startswith("full "):
-                        m = re.search(r"avg10=([\d\.]+)", line)
-                        if m:
-                            sample["io_full_avg10"] = float(m.group(1))
-        except Exception:
-            pass
-        return sample
-
-    def _run(self):
-        while not self._stop_event.is_set():
-            self.samples.append(self._sample_once())
-            self._stop_event.wait(self.interval_s)
-
-    def start(self):
-        self._stop_event.clear()
-        self.samples = []
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        self._stop_event.set()
-        if self._thread:
-            self._thread.join(timeout=2.0)
-        if not self.samples:
-            return {}
-        dirty_vals = [s["dirty_mb"] for s in self.samples]
-        wb_vals = [s["writeback_mb"] for s in self.samples]
-        io_some = [s["io_some_avg10"] for s in self.samples]
-        io_full = [s["io_full_avg10"] for s in self.samples]
-        return {
-            "samples_count": len(self.samples),
-            "max_dirty_mb": max(dirty_vals) if dirty_vals else 0.0,
-            "avg_dirty_mb": round(sum(dirty_vals) / len(dirty_vals), 1) if dirty_vals else 0.0,
-            "max_writeback_mb": max(wb_vals) if wb_vals else 0.0,
-            "avg_writeback_mb": round(sum(wb_vals) / len(wb_vals), 1) if wb_vals else 0.0,
-            "max_io_some_avg10": max(io_some) if io_some else 0.0,
-            "avg_io_some_avg10": round(sum(io_some) / len(io_some), 2) if io_some else 0.0,
-            "max_io_full_avg10": max(io_full) if io_full else 0.0,
-            "avg_io_full_avg10": round(sum(io_full) / len(io_full), 2) if io_full else 0.0,
-        }
-
-
-def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, extra_test_args=None, loadavg_before=None, foreign_processes=None, preflight_waited_s=None):
-    if loadavg_before is None or foreign_processes is None:
-        lb, fp, waited_s = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
-        loadavg_before = lb if loadavg_before is None else loadavg_before
-        foreign_processes = fp if foreign_processes is None else foreign_processes
-        preflight_waited_s = waited_s if preflight_waited_s is None else preflight_waited_s
-    target_path = worktrees[0][1] if worktrees else Path.cwd()
+def run_build_swarm(tool, worktrees, shared_target_dir, is_workspace, extra_build_args, preflight):
+    loadavg_before, foreign_processes, preflight_waited_s = preflight
+    target_path = worktrees[0][1]
     dirty_start_mb = sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
     dev_name, sec_before = get_device_sectors_written(target_path)
 
@@ -512,540 +277,348 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
     sampler = SystemPressureSampler(interval_s=0.5)
     sampler.start()
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(worktrees)) as executor:
-        futs = {executor.submit(run_single_worktree, tool, wt, shared_target_dir, is_workspace, extra_test_args): wt for wt in worktrees}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(worktrees)) as ex:
+        futs = [ex.submit(build_worktree, tool, wt, shared_target_dir, is_workspace, extra_build_args) for wt in worktrees]
         for fut in concurrent.futures.as_completed(futs):
             try:
                 results.append(fut.result())
-            except Exception as e:
-                results.append({"wt_index": -1, "wall_sec": -1, "exit_code": -1, "max_rss_mb": 0, "stdout": "", "stderr": str(e), "test_stats": {}})
+            except Exception as e:  # a crashed worker is a failed worktree, never a missing one
+                results.append({"wt_index": -1, "build_wall_s": -1, "exit_code": -1, "build": {"test_binaries_count": 0}, "stderr_tail": str(e)})
     pressure = sampler.stop()
     wall = round(time.perf_counter() - start, 3)
 
     dirty_end_mb = get_current_dirty_mb()
-    _, sec_after_swarm = get_device_sectors_written(target_path)
-
-    # Flush trailing dirty pages to capture complete disk write volume
     sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
-    _, sec_after_sync = get_device_sectors_written(target_path)
-
-    sec_written_swarm = (sec_after_swarm - sec_before) if (sec_before is not None and sec_after_swarm is not None) else 0
-    sec_written_total = (sec_after_sync - sec_before) if (sec_before is not None and sec_after_sync is not None) else 0
-
-    bytes_written_swarm = sec_written_swarm * 512
-    bytes_written_total = sec_written_total * 512
-
-    device_io = {
+    _, sec_after = get_device_sectors_written(target_path)
+    sectors = (sec_after - sec_before) if (sec_before is not None and sec_after is not None) else 0
+    pressure.update({
+        "dirty_at_start_mb": dirty_start_mb,
+        "dirty_at_end_mb": dirty_end_mb,
         "device": dev_name,
-        "sectors_written_swarm": sec_written_swarm,
-        "bytes_written_swarm": bytes_written_swarm,
-        "mb_written_swarm": round(bytes_written_swarm / (1024.0 * 1024.0), 1),
-        "sectors_written_total": sec_written_total,
-        "bytes_written_total": bytes_written_total,
-        "mb_written_total": round(bytes_written_total / (1024.0 * 1024.0), 1),
-    }
+        "device_sectors_written": sectors,
+        "device_bytes_written": sectors * 512,
+        "device_mb_written": round(sectors * 512 / (1024.0 * 1024.0), 1),
+    })
 
-    pressure["dirty_at_start_mb"] = dirty_start_mb
-    pressure["dirty_at_end_mb"] = dirty_end_mb
-    pressure["device"] = dev_name
-    pressure["device_sectors_written"] = sec_written_total
-    pressure["device_bytes_written"] = bytes_written_total
-    pressure["device_mb_written"] = round(bytes_written_total / (1024.0 * 1024.0), 1)
-
-    _, loadavg_after, foreign_procs_after = check_quiet_rig()
+    # Soundness probes, after the measured phase: clean WT-01 and defective WT-12.
     results.sort(key=lambda r: r["wt_index"])
+    smoke = {
+        "wt01": smoke_worktree(tool, worktrees[0], shared_target_dir, is_workspace, extra_build_args),
+        "wt12": smoke_worktree(tool, worktrees[-1], shared_target_dir, is_workspace, extra_build_args),
+    }
+    _, loadavg_after, foreign_after = check_quiet_rig()
     return {
         "total_wall_s": wall,
         "results": results,
+        "smoke": smoke,
         "system_pressure": pressure,
-        "device_io": device_io,
         "loadavg_before": loadavg_before,
         "foreign_processes": foreign_processes,
         "preflight_waited_s": preflight_waited_s,
         "loadavg_after": loadavg_after,
-        "foreign_processes_after": foreign_procs_after,
+        "foreign_processes_after": foreign_after,
     }
 
 
-def compute_stats(vals):
-    if not vals:
-        return {"median": 0.0, "iqr": 0.0, "stddev": 0.0}
-    s = sorted(vals)
-    n = len(s)
-    median = s[n // 2] if n % 2 == 1 else (s[n // 2 - 1] + s[n // 2]) / 2.0
-    q1 = s[n // 4]
-    q3 = s[(3 * n) // 4]
-    iqr = q3 - q1
+# --------------------------------------------------------------------------- invariants
+
+def _wt(sw, idx):
+    for r in sw["results"]:
+        if r["wt_index"] == idx:
+            return r
+    return {"exit_code": -1, "build": {"test_binaries_count": 0}}
+
+
+def evaluate_invariants(tool_runs, fast_lock_noop, baseline_count):
+    """All checks are over every run and every worktree; a single miss fails the flag."""
+    builds_ok = True
+    counts_match = True
+    defect_caught = True
+    clean_smoke_ok = True
+    for run_i in range(len(tool_runs["cargo_bare"])):
+        swarms = {t: tool_runs[t][run_i] for t in SOUND_TOOLS}
+        for wt in range(1, 13):
+            rows = {t: _wt(swarms[t], wt) for t in SOUND_TOOLS}
+            if any(r["exit_code"] != 0 for r in rows.values()):
+                builds_ok = False
+            counts = {r["build"].get("test_binaries_count", 0) for r in rows.values()}
+            if len(counts) != 1 or 0 in counts:
+                counts_match = False
+        for t in SOUND_TOOLS:
+            s12 = swarms[t]["smoke"]["wt12"]
+            if s12["exit_code"] == 0 or not s12["defect_reported"]:
+                defect_caught = False
+            s01 = swarms[t]["smoke"]["wt01"]
+            built = _wt(swarms[t], 1)["build"].get("test_binaries_count", 0)
+            if s01["exit_code"] != 0 or s01["failed"] != 0 or s01["binaries_executed"] != built or built == 0:
+                clean_smoke_ok = False
+
+    c_wt1 = [_wt(sw, 1)["build_wall_s"] for sw in tool_runs["cargo_bare"]]
+    c_spread = spread_pct(c_wt1)
+
+    sh_runs = tool_runs.get("cargo_shared", [])
+    sh_wt12_exits = [sw["smoke"]["wt12"]["exit_code"] for sw in sh_runs]
+    sh_clean_build_failures = [
+        sum(1 for r in sw["results"] if r["wt_index"] < 12 and r["exit_code"] != 0) for sw in sh_runs
+    ]
+    sh_clean_smoke_failures = [sw["smoke"]["wt01"]["exit_code"] != 0 for sw in sh_runs]
+
     return {
-        "median": round(median, 3),
-        "q1": round(q1, 3),
-        "q3": round(q3, 3),
-        "iqr": round(iqr, 3),
-        "min": round(s[0], 3),
-        "max": round(s[-1], 3),
+        "build_exit_zero_all_worktrees_all_sound_arms": builds_ok,
+        "test_binary_counts_match_all_sound_arms": counts_match,
+        "defect_caught_wt12_all_sound_arms": defect_caught,
+        "clean_wt01_smoke_ok_all_sound_arms": clean_smoke_ok,
+        "cargo_bare_wt1_build_times": c_wt1,
+        "cargo_bare_wt1_variance_pct": c_spread,
+        "cargo_bare_wt1_variance_le_15_pct": c_spread <= 15.0,
+        "fast_lock_noop_same_binary_count": (
+            fast_lock_noop["exit_code"] == 0
+            and fast_lock_noop["build"].get("test_binaries_count", 0) == baseline_count
+            and baseline_count > 0
+        ),
+        "fast_lock_noop": {
+            "exit_code": fast_lock_noop["exit_code"],
+            "wall_s": fast_lock_noop["build_wall_s"],
+            "test_binaries_count": fast_lock_noop["build"].get("test_binaries_count", 0),
+            "mitts_stats": fast_lock_noop.get("mitts_stats"),
+        },
+        "test_binaries_count": baseline_count,
+        "cargo_shared_unsound_empirical_confirmation": {
+            "observed_unsound": any(ec == 0 for ec in sh_wt12_exits) or any(n > 0 for n in sh_clean_build_failures) or any(sh_clean_smoke_failures),
+            "wt12_smoke_exit_codes": sh_wt12_exits,
+            "clean_wt_build_failures_per_run": sh_clean_build_failures,
+            "clean_wt01_smoke_failed_per_run": sh_clean_smoke_failures,
+            "description": "cargo_shared shares one target directory across 12 worktrees on 4 commits; a missed defect in WT-12 or a failed clean worktree is the expected unsound behaviour",
+        },
+    }
+
+
+# --------------------------------------------------------------------------- one project
+
+def _summarise_swarm(idx, sw, tool, keep_targets):
+    rows = []
+    for r in sw["results"]:
+        row = {
+            "wt_index": r["wt_index"],
+            "build_wall_s": r["build_wall_s"],
+            "exit_code": r["exit_code"],
+            "test_binaries_count": r["build"].get("test_binaries_count", 0),
+            "max_rss_mb": r.get("max_rss_mb"),
+        }
+        if "cargo_reported_s" in r["build"]:
+            row["cargo_reported_s"] = r["build"]["cargo_reported_s"]
+        if keep_targets and r["wt_index"] == 1 and r["build"].get("targets"):
+            row["targets"] = r["build"]["targets"]
+        if tool == "mitts_cas":
+            row["mitts_stats"] = r.get("mitts_stats")
+            if "io_stats" in r:
+                row["io_stats"] = r["io_stats"]
+            if "timings_sum_s" in r:
+                row["timings_sum_s"] = r["timings_sum_s"]
+        if r.get("stderr_tail"):
+            row["stderr_tail"] = r["stderr_tail"]
+        rows.append(row)
+    return {
+        "run_idx": idx,
+        "total_wall_s": sw["total_wall_s"],
+        "loadavg_before": sw["loadavg_before"],
+        "foreign_processes": sw["foreign_processes"],
+        "preflight_waited_s": sw["preflight_waited_s"],
+        "loadavg_after": sw["loadavg_after"],
+        "foreign_processes_after": sw["foreign_processes_after"],
+        "system_pressure": sw["system_pressure"],
+        "worktrees": rows,
+        "smoke": sw["smoke"],
     }
 
 
 def run_t5_project(project_name, runs_count=5):
-    print(f"\n=======================================================")
-    print(f"  Starting T5 Defensible Test Swarm: {project_name}")
-    print(f"=======================================================")
-
+    print(f"\n=== T5 build swarm: {project_name} ===")
     repo_dir = PROJECTS_DIR / project_name
     if not repo_dir.exists():
         raise RuntimeError(f"Project repository not found: {repo_dir}")
 
-    out = subprocess.check_output(["git", "log", "-n", "15", "--format=%H"], cwd=repo_dir, text=True)
-    commits_all = out.strip().splitlines()
-    c_head = commits_all[0]
-    c_1 = commits_all[1] if len(commits_all) > 1 else c_head
-    c_5 = commits_all[5] if len(commits_all) > 5 else commits_all[-1]
-    c_14 = commits_all[14] if len(commits_all) > 14 else commits_all[-1]
-    commits = [c_head] * 4 + [c_1] * 3 + [c_5] * 3 + [c_14] * 2
+    log = subprocess.check_output(["git", "log", "-n", "15", "--format=%H"], cwd=repo_dir, text=True).strip().splitlines()
+    pick = lambda n: log[n] if len(log) > n else log[-1]
+    commits = [pick(0)] * 4 + [pick(1)] * 3 + [pick(5)] * 3 + [pick(14)] * 2
 
-    scratch_dir = BENCH_ROOT / f"scratch_t5_{project_name}"
-    wt_base = scratch_dir / "worktrees"
-    snap_cas = scratch_dir / "snap_cas"
-    snap_sccache = scratch_dir / "snap_sccache"
-    default_cache = (
-        (BENCH_ROOT / "cache" / "mitts")
-        if (BENCH_ROOT / "cache").exists()
-        else (Path.home() / ".cache" / "mitts")
-    )
-    default_sccache = (
-        (BENCH_ROOT / "cache" / "sccache")
-        if (BENCH_ROOT / "cache").exists()
-        else (Path.home() / ".cache" / "sccache")
-    )
-    mitts_cache = Path(os.environ.get("MITTS_CACHE_DIR", default_cache))
-    sccache_dir = Path(os.environ.get("SCCACHE_DIR", default_sccache))
+    scratch = BENCH_ROOT / f"scratch_t5_{project_name}"
+    wt_base, snap_cas, snap_sccache = scratch / "worktrees", scratch / "snap_cas", scratch / "snap_sccache"
+    cache_root = BENCH_ROOT / "cache" if (BENCH_ROOT / "cache").exists() else Path.home() / ".cache"
+    mitts_cache = Path(os.environ.get("MITTS_CACHE_DIR", cache_root / "mitts"))
+    sccache_dir = Path(os.environ.get("SCCACHE_DIR", cache_root / "sccache"))
     os.environ["MITTS_CACHE_DIR"] = str(mitts_cache)
     os.environ["SCCACHE_DIR"] = str(sccache_dir)
 
+    # Build-only arguments. tests-build is tokio's trybuild crate: it compiles
+    # fixture programs at test *run* time and has no place in a build metric.
+    extra_build_args = ["--exclude", "tests-build"] if project_name == "tokio" else []
     is_ws = True
-    if project_name == "tokio":
-        extra_tail = ["--exclude", "tests-build"]
-    elif project_name == "ripgrep":
-        extra_tail = ["--", "--skip", "f1414"]
-    elif project_name == "nushell":
-        extra_tail = [
-            "--",
-            "--skip",
-            "jobs_get_group_id_right",
-            "--skip",
-            "job_list_shows_pids",
-            "--skip",
-            "http_get_with_socks5_proxy",
-            "--skip",
-            "port_with_already_usage",
-        ]
-    else:
-        extra_tail = []
 
-    # Capture initial preflight provenance before warm-up and swarm iterations
-    wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
+    wait_for_quiet_rig(timeout_s=PREFLIGHT_TIMEOUT_S, max_load=PREFLIGHT_MAX_LOAD)
     initial_prov = get_provenance_info(mitts_cache, wt_base)
-    initial_prov["extra_test_args"] = extra_tail
+    initial_prov["extra_build_args"] = extra_build_args
 
-    print("[1/5] Warming up Mitts CAS on WT-01...")
+    print("[1/5] Warming Mitts CAS on WT-01 (test --no-run)")
     init_wts = prepare_worktrees(repo_dir, wt_base, commits)
     if mitts_cache.exists():
         shutil.rmtree(mitts_cache, ignore_errors=True)
     clean_sccache(sccache_dir)
-
-    res_warm = run_single_worktree("mitts_cas", init_wts[0], is_workspace=is_ws, extra_test_args=extra_tail)
-    if res_warm["exit_code"] != 0:
-        print(f"WARN: Mitts warmup failed:\n{res_warm['stderr'][:500]}")
+    warm = build_worktree("mitts_cas", init_wts[0], is_workspace=is_ws, extra_build_args=extra_build_args)
+    if warm["exit_code"] != 0:
+        raise RuntimeError(f"Mitts warm-up build failed (exit {warm['exit_code']}):\n{warm['stderr_tail']}")
     snapshot_cache(mitts_cache, snap_cas)
 
-    print("[2/5] Warming up sccache on WT-01...")
-    run_single_worktree("cargo_sccache", init_wts[0], is_workspace=is_ws, extra_test_args=extra_tail)
+    print("[2/5] Warming sccache on WT-01 (test --no-run)")
+    warm_s = build_worktree("cargo_sccache", init_wts[0], is_workspace=is_ws, extra_build_args=extra_build_args)
+    if warm_s["exit_code"] != 0:
+        raise RuntimeError(f"sccache warm-up build failed (exit {warm_s['exit_code']}):\n{warm_s['stderr_tail']}")
     snapshot_cache(sccache_dir, snap_sccache)
-    try:
-        subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+    subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    tool_results = {
-        "mitts_cas": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
-        "cargo_bare": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
-        "cargo_sccache": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
-        "cargo_shared": {"durations_s": [], "disk_mb": 0.0, "runs_data": []},
-    }
+    tool_runs = {t: [] for t in TOOLS}
+    disk_mb = {t: 0.0 for t in TOOLS}
+    sccache_stats_runs = []
 
-    last_cargo_res = None
-    last_sccache_res = None
-    last_mitts_res = None
-
-    tools_base = ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]
-    print(f"[3/5] Executing {runs_count} iterations across 12 worktrees per tool...")
+    print(f"[3/5] {runs_count} iterations x 4 arms x 12 worktrees")
     for run_idx in range(1, runs_count + 1):
-        shift = (run_idx - 1) % len(tools_base)
-        tools_in_run = tools_base[shift:] + tools_base[:shift]
-        print(f"  --- Iteration {run_idx}/{runs_count} (tool order: {', '.join(tools_in_run)}) ---")
-        for tool in tools_in_run:
-            loadavg_before, foreign_procs, preflight_waited_s = wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
+        shift = (run_idx - 1) % len(TOOLS)
+        order = TOOLS[shift:] + TOOLS[:shift]
+        print(f"  --- iteration {run_idx}/{runs_count}: {', '.join(order)}")
+        for tool in order:
+            preflight = wait_for_quiet_rig(timeout_s=PREFLIGHT_TIMEOUT_S, max_load=PREFLIGHT_MAX_LOAD)
             wts = prepare_worktrees(repo_dir, wt_base, commits)
             inject_test_defect(wts[-1][1])
-
+            shared_target = None
             if tool == "mitts_cas":
                 restore_cache(snap_cas, mitts_cache)
             elif tool == "cargo_sccache":
                 restore_cache(snap_sccache, sccache_dir)
-                try:
-                    subprocess.run([str(SCCACHE_BIN), "--start-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    subprocess.run([str(SCCACHE_BIN), "--zero-stats"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except Exception:
-                    pass
+                subprocess.run([str(SCCACHE_BIN), "--start-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run([str(SCCACHE_BIN), "--zero-stats"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif tool == "cargo_shared":
-                st = SHARED_TARGET_ROOT / f"{project_name}_test"
-                if st.exists():
-                    shutil.rmtree(st, ignore_errors=True)
-                st.mkdir(parents=True, exist_ok=True)
+                shared_target = SHARED_TARGET_ROOT / f"{project_name}_test"
+                shutil.rmtree(shared_target, ignore_errors=True)
+                shared_target.mkdir(parents=True, exist_ok=True)
 
-            shared_target = SHARED_TARGET_ROOT / f"{project_name}_test" if tool == "cargo_shared" else None
-            swarm_res = run_test_swarm(
-                tool,
-                wts,
-                shared_target,
-                is_workspace=is_ws,
-                extra_test_args=extra_tail,
-                loadavg_before=loadavg_before,
-                foreign_processes=foreign_procs,
-                preflight_waited_s=preflight_waited_s,
-            )
-            tool_results[tool]["durations_s"].append(swarm_res["total_wall_s"])
-            tool_results[tool]["runs_data"].append(swarm_res)
-            tool_results[tool].setdefault("system_pressure_runs", []).append(swarm_res.get("system_pressure", {}))
-            tool_results[tool].setdefault("device_io_runs", []).append(swarm_res.get("device_io", {}))
+            sw = run_build_swarm(tool, wts, shared_target, is_ws, extra_build_args, preflight)
+            tool_runs[tool].append(sw)
 
+            wt_dirs = [d for _, d, _ in wts]
             if tool == "cargo_sccache":
-                disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts] + [sccache_dir])
+                disk = get_disk_usage_mb(wt_dirs + [sccache_dir])
                 try:
-                    s_out = subprocess.check_output([str(SCCACHE_BIN), "--show-stats"], text=True)
-                    s_stats = parse_sccache_stats(s_out)
-                    tool_results[tool].setdefault("sccache_stats_runs", []).append(s_stats)
-                    subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    sccache_stats_runs.append(parse_sccache_stats(subprocess.check_output([str(SCCACHE_BIN), "--show-stats"], text=True)))
                 except Exception:
-                    pass
+                    sccache_stats_runs.append({})
+                subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif tool == "mitts_cas":
-                cas_mb = get_disk_usage_mb([mitts_cache])
-                wt_mb = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
-                disk = cas_mb + wt_mb
-                tot_comp = sum(r.get("mitts_stats", {}).get("compiled", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
-                tot_cach = sum(r.get("mitts_stats", {}).get("cached", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
-                tot_units = sum(r.get("mitts_stats", {}).get("total", 0) for r in swarm_res["results"] if r.get("mitts_stats"))
-                per_wt = [
-                    {
-                        "wt_index": r["wt_index"],
-                        "compiled": r.get("mitts_stats", {}).get("compiled", 0) if r.get("mitts_stats") else 0,
-                        "cached": r.get("mitts_stats", {}).get("cached", 0) if r.get("mitts_stats") else 0,
-                        "total": r.get("mitts_stats", {}).get("total", 0) if r.get("mitts_stats") else 0,
-                        "fast_lock": r.get("mitts_stats", {}).get("fast_lock", 0) if r.get("mitts_stats") else 0,
-                    }
-                    for r in swarm_res["results"]
-                ]
-                tool_results[tool].setdefault("mitts_stats_runs", []).append({
-                    "run_idx": run_idx,
-                    "compiled": tot_comp,
-                    "cached": tot_cach,
-                    "total": tot_units,
-                    "per_worktree": per_wt,
-                })
+                disk = get_disk_usage_mb([mitts_cache]) + get_disk_usage_mb(wt_dirs)
+            elif tool == "cargo_shared":
+                disk = get_disk_usage_mb(wt_dirs + [shared_target])
             else:
-                disk = get_disk_usage_mb([wt_dir for _, wt_dir, _ in wts])
-            tool_results[tool]["disk_mb"] = max(tool_results[tool]["disk_mb"], disk)
+                disk = get_disk_usage_mb(wt_dirs)
+            disk_mb[tool] = max(disk_mb[tool], disk)
 
-            if tool == "cargo_bare":
-                last_cargo_res = swarm_res
-            elif tool == "cargo_sccache":
-                last_sccache_res = swarm_res
-            elif tool == "mitts_cas":
-                last_mitts_res = swarm_res
-
-            press = swarm_res.get("system_pressure", {})
-            press_str = (
-                f" | start_dirty: {press.get('dirty_at_start_mb', 0):.0f}MB"
-                f" | dev_wr: {press.get('device_mb_written', 0):.0f}MB"
-                f" | avg_dirty: {press.get('avg_dirty_mb', 0):.0f}MB"
-                f" | avg_io: {press.get('avg_io_some_avg10', 0):.2f}"
-                if press else ""
+            fails = sum(1 for r in sw["results"] if r["exit_code"] != 0)
+            print(
+                f"    {tool:13s} build {sw['total_wall_s']:8.2f}s | build failures {fails:2d} | "
+                f"wt12 defect {'caught' if sw['smoke']['wt12']['defect_reported'] else 'MISSED':6s} | "
+                f"wt01 smoke exit {sw['smoke']['wt01']['exit_code']} | dev_wr {sw['system_pressure'].get('device_mb_written', 0):.0f}MB | "
+                f"load {sw['loadavg_before']}->{sw['loadavg_after']}"
             )
-            print(f"    {tool:14s}: {swarm_res['total_wall_s']:6.2f}s | disk: {disk:6.1f}MB{press_str}")
 
-    for tool, data in tool_results.items():
-        st = compute_stats(data["durations_s"])
-        data.update(st)
-        dev_wrs = [p.get("device_mb_written", 0.0) for p in data.get("system_pressure_runs", [])]
-        if dev_wrs:
-            data["device_mb_written_stats"] = compute_stats(dev_wrs)
+    print("[4/5] fast-lock no-op: `test --no-run` again on WT-01 with a warm store")
+    fast_lock_noop = build_worktree("mitts_cas", (1, wt_base / "wt-01", commits[0]), is_workspace=is_ws, extra_build_args=extra_build_args)
 
-    if "sccache_stats_runs" in tool_results["cargo_sccache"]:
-        runs_s = tool_results["cargo_sccache"]["sccache_stats_runs"]
-        if runs_s:
-            tool_results["cargo_sccache"]["sccache_stats"] = runs_s[-1]
-            tool_results["cargo_sccache"]["sccache_stats_per_run"] = runs_s
-    if "mitts_stats_runs" in tool_results["mitts_cas"]:
-        runs_m = tool_results["mitts_cas"]["mitts_stats_runs"]
-        if runs_m:
-            tool_results["mitts_cas"]["mitts_compilation_stats"] = runs_m[-1]
-            tool_results["mitts_cas"]["mitts_stats_per_run"] = runs_m
+    print("[5/5] invariants")
+    baseline_count = _wt(tool_runs["cargo_bare"][0], 1)["build"].get("test_binaries_count", 0)
+    invariants = evaluate_invariants(tool_runs, fast_lock_noop, baseline_count)
 
-    bare_med = tool_results["cargo_bare"]["median"]
-    scc_med = tool_results["cargo_sccache"]["median"]
-    mitts_med = tool_results["mitts_cas"]["median"]
-    sound_baseline_name = "cargo_sccache" if scc_med <= bare_med else "cargo_bare"
-    sound_baseline_val = min(bare_med, scc_med)
-    speedup_ratio = round(sound_baseline_val / max(mitts_med, 0.001), 2)
-    speedup_vs_bare = round(bare_med / max(mitts_med, 0.001), 2)
+    runs_out = {}
+    for tool in TOOLS:
+        durations = [sw["total_wall_s"] for sw in tool_runs[tool]]
+        entry = {"durations_s": durations, "disk_mb": disk_mb[tool]}
+        entry.update(compute_stats(durations))
+        entry["device_mb_written_stats"] = compute_stats([sw["system_pressure"].get("device_mb_written", 0.0) for sw in tool_runs[tool]])
+        entry["per_wt_build_wall_stats"] = compute_stats([r["build_wall_s"] for sw in tool_runs[tool] for r in sw["results"] if r["build_wall_s"] > 0])
+        entry["smoke_exec_wall_stats"] = compute_stats([sw["smoke"][k]["exec_wall_s"] for sw in tool_runs[tool] for k in ("wt01", "wt12")])
+        entry["per_run_summary"] = [_summarise_swarm(i + 1, sw, tool, keep_targets=(i == 0)) for i, sw in enumerate(tool_runs[tool])]
+        if tool == "mitts_cas":
+            entry["mitts_stats_per_run"] = [
+                {
+                    "run_idx": i + 1,
+                    "compiled": sum(r.get("mitts_stats", {}).get("compiled", 0) for r in sw["results"]),
+                    "cached": sum(r.get("mitts_stats", {}).get("cached", 0) for r in sw["results"]),
+                    "total": sum(r.get("mitts_stats", {}).get("total", 0) for r in sw["results"]),
+                    "per_worktree": [{"wt_index": r["wt_index"], **(r.get("mitts_stats") or {})} for r in sw["results"]],
+                }
+                for i, sw in enumerate(tool_runs[tool])
+            ]
+        if tool == "cargo_sccache":
+            entry["sccache_stats_per_run"] = sccache_stats_runs
+        runs_out[tool] = entry
 
-    print("[4/5] Verifying strict T5 test swarm invariants across all runs and worktrees...")
-    all_runs_exit_codes_matched = True
-    all_clean_wts_passed_cleanly = True
-    all_clean_test_counts_matched = True
-
-    m_swarms = tool_results["mitts_cas"]["runs_data"]
-    c_swarms = tool_results["cargo_bare"]["runs_data"]
-    s_swarms = tool_results["cargo_sccache"]["runs_data"]
-
-    for m_sw, c_sw, s_sw in zip(m_swarms, c_swarms, s_swarms):
-        for m_res, c_res, s_res in zip(m_sw["results"], c_sw["results"], s_sw["results"]):
-            if m_res["exit_code"] != c_res["exit_code"] or m_res["exit_code"] != s_res["exit_code"]:
-                all_runs_exit_codes_matched = False
-            wt_i = m_res["wt_index"]
-            if wt_i < 12:
-                if m_res["exit_code"] != 0 or c_res["exit_code"] != 0 or s_res["exit_code"] != 0:
-                    all_clean_wts_passed_cleanly = False
-                m_st = m_res.get("test_stats", {})
-                c_st = c_res.get("test_stats", {})
-                s_st = s_res.get("test_stats", {})
-                # Fail if test_stats missing, zero binaries, or zero passed tests on clean WT
-                if (
-                    not m_st
-                    or not c_st
-                    or not s_st
-                    or m_st.get("binaries_count", 0) == 0
-                    or c_st.get("binaries_count", 0) == 0
-                    or s_st.get("binaries_count", 0) == 0
-                    or m_st.get("passed", 0) == 0
-                    or c_st.get("passed", 0) == 0
-                    or s_st.get("passed", 0) == 0
-                    or m_st.get("passed") != c_st.get("passed")
-                    or m_st.get("passed") != s_st.get("passed")
-                    or m_st.get("failed", 0) != c_st.get("failed", 0)
-                    or m_st.get("failed", 0) != s_st.get("failed", 0)
-                    or m_st.get("ignored", 0) != c_st.get("ignored", 0)
-                    or m_st.get("ignored", 0) != s_st.get("ignored", 0)
-                    or m_st.get("binaries_count") != c_st.get("binaries_count")
-                    or m_st.get("binaries_count") != s_st.get("binaries_count")
-                ):
-                    all_clean_test_counts_matched = False
-            else:
-                # WT 12 has intentional test defect - must fail (exit != 0) across all sound tools
-                if m_res["exit_code"] == 0 or c_res["exit_code"] == 0 or s_res["exit_code"] == 0:
-                    all_runs_exit_codes_matched = False
-
-    last_m_results = last_mitts_res["results"]
-    last_c_results = last_cargo_res["results"]
-    last_s_results = last_sccache_res["results"] if last_sccache_res else []
-    defect_m = "__intentional_test_failure" in (last_m_results[-1]["stdout"] + last_m_results[-1]["stderr"])
-    defect_c = "__intentional_test_failure" in (last_c_results[-1]["stdout"] + last_c_results[-1]["stderr"])
-    defect_s = (
-        "__intentional_test_failure" in (last_s_results[-1]["stdout"] + last_s_results[-1]["stderr"])
-        if last_s_results
-        else False
-    )
-    intentional_defect_caught_by_both = defect_m and defect_c and defect_s
-
-    # Empirical check for cargo_shared unsound collision on WT-12
-    sh_swarms = tool_results.get("cargo_shared", {}).get("runs_data", [])
-    cargo_shared_wt12_exits = []
-    cargo_shared_wt12_fails = []
-    if sh_swarms:
-        for s in sh_swarms:
-            for r in s.get("results", []):
-                if r.get("wt_index") == 12:
-                    cargo_shared_wt12_exits.append(r.get("exit_code"))
-                    st = r.get("test_stats", {})
-                    cargo_shared_wt12_fails.append(st.get("failed", 0))
-
-    cargo_shared_wt12_unsound = (
-        len(cargo_shared_wt12_exits) > 0 and any(ec == 0 for ec in cargo_shared_wt12_exits)
-    )
-
-    m_stats_clean = last_m_results[0]["test_stats"]
-    c_stats_clean = last_c_results[0]["test_stats"]
-    s_stats_clean = last_s_results[0]["test_stats"] if last_s_results else {}
-
-    print("[5/5] Testing P0 invariant: fast-lock hit NEVER skips test execution...")
-    wt01_tuple = (1, wt_base / "wt-01", commits[0])
-    res_fl = run_single_worktree("mitts_cas", wt01_tuple, is_workspace=is_ws, extra_test_args=extra_tail)
-
-    fast_lock_executed_tests = (
-        (res_fl["exit_code"] == last_m_results[0]["exit_code"])
-        and (res_fl["test_stats"].get("passed", 0) == m_stats_clean.get("passed", 0))
-        and (res_fl["test_stats"].get("passed", 0) > 0)
-    )
-
-    c_wt1_compile_times = [
-        sr["results"][0].get("phases", {}).get("compile_s", 0)
-        for sr in c_swarms
-        if sr.get("results")
-    ]
-    if c_wt1_compile_times and min(c_wt1_compile_times) > 0:
-        c_wt1_med = compute_stats(c_wt1_compile_times)["median"]
-        c_wt1_spread_pct = round(((max(c_wt1_compile_times) - min(c_wt1_compile_times)) / c_wt1_med) * 100.0, 2)
-    else:
-        c_wt1_spread_pct = 0.0
-
-    invariants = {
-        "exit_codes_all_matched": all_runs_exit_codes_matched,
-        "all_clean_worktrees_passed_cleanly": all_clean_wts_passed_cleanly,
-        "all_clean_test_counts_matched": all_clean_test_counts_matched,
-        "intentional_defect_caught_by_both": intentional_defect_caught_by_both,
-        "test_counts_match": all_clean_test_counts_matched,
-        "tests_passed_count": m_stats_clean.get("passed", 0),
-        "fast_lock_never_skips_test_execution": fast_lock_executed_tests,
-        "cargo_bare_wt1_compile_times": c_wt1_compile_times,
-        "cargo_bare_wt1_variance_pct": c_wt1_spread_pct,
-        "cargo_bare_wt1_variance_le_15_pct": c_wt1_spread_pct <= 15.0,
-        "mitts_test_stats": m_stats_clean,
-        "cargo_test_stats": c_stats_clean,
-        "sccache_test_stats": s_stats_clean,
-        "fast_lock_test_stats": res_fl["test_stats"],
-        "fast_lock_exit_code": res_fl["exit_code"],
-        "cargo_shared_unsound_empirical_confirmation": {
-            "observed_unsound": cargo_shared_wt12_unsound,
-            "wt12_exit_codes": cargo_shared_wt12_exits,
-            "wt12_failed_counts": cargo_shared_wt12_fails,
-            "description": "cargo_shared reused build artifacts across worktrees without isolating intentional defect in WT-12, completing with exit code 0 and failed=0",
-        },
+    bare_med, scc_med, mitts_med = runs_out["cargo_bare"]["median"], runs_out["cargo_sccache"]["median"], runs_out["mitts_cas"]["median"]
+    sound_name = "cargo_sccache" if scc_med <= bare_med else "cargo_bare"
+    speedup = {
+        "sound_baseline": sound_name,
+        "ratio": round(min(bare_med, scc_med) / max(mitts_med, 0.001), 2),
+        "ratio_vs_bare": round(bare_med / max(mitts_med, 0.001), 2),
+        "ratio_vs_sccache": round(scc_med / max(mitts_med, 0.001), 2),
     }
-
-    for tool in tool_results:
-        runs_d = tool_results[tool].pop("runs_data", [])
-        tool_results[tool]["per_run_summary"] = [
-            {
-                "run_idx": idx + 1,
-                "total_wall_s": sr["total_wall_s"],
-                "loadavg_before": sr.get("loadavg_before"),
-                "foreign_processes": sr.get("foreign_processes", []),
-                "preflight_waited_s": sr.get("preflight_waited_s", 0.0),
-                "loadavg_after": sr.get("loadavg_after"),
-                "foreign_processes_after": sr.get("foreign_processes_after", []),
-                "system_pressure": sr.get("system_pressure", {}),
-                "worktrees": [
-                    {
-                        "wt_index": r["wt_index"],
-                        "wall_sec": r["wall_sec"],
-                        "phases": r.get("phases", {}),
-                        "exit_code": r["exit_code"],
-                        "test_stats": r["test_stats"],
-                        "mitts_stats": r.get("mitts_stats"),
-                        "failed_test_names": r.get("failed_test_names", []),
-                    }
-                    for r in sr["results"]
-                ],
-                "totals": {
-                    "bytes_copied": sum(r.get("phases", {}).get("io_stats", {}).get("bytes_copied", 0) for r in sr["results"]),
-                    "bytes_cloned": sum(r.get("phases", {}).get("io_stats", {}).get("bytes_cloned", 0) for r in sr["results"]),
-                    "bytes_hardlinked": sum(r.get("phases", {}).get("io_stats", {}).get("bytes_hardlinked", 0) for r in sr["results"]),
-                    "restore_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("restore_sum_s", 0) for r in sr["results"]), 3),
-                    "restore_miss_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("restore_miss_sum_s", 0) for r in sr["results"]), 3),
-                    "publish_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("publish_sum_s", 0) for r in sr["results"]), 3),
-                    "rustc_sum_s": round(sum(r.get("phases", {}).get("timings_sum_s", {}).get("rustc_sum_s", 0) for r in sr["results"]), 3),
-                } if tool == "mitts_cas" else {},
-            }
-            for idx, sr in enumerate(runs_d)
-        ]
-        all_compile_s = [
-            r["phases"]["compile_s"]
-            for sr in runs_d
-            for r in sr["results"]
-            if "phases" in r and "compile_s" in r["phases"]
-        ]
-        all_test_exec_s = [
-            r["phases"]["test_exec_s"]
-            for sr in runs_d
-            for r in sr["results"]
-            if "phases" in r and "test_exec_s" in r["phases"]
-        ]
-        tool_results[tool]["phase_stats"] = {
-            "compile_s": compute_stats(all_compile_s),
-            "test_exec_s": compute_stats(all_test_exec_s),
-        }
-
-    print(f"Results for {project_name}: Speedup vs {sound_baseline_name}: {speedup_ratio:.2f}x (vs bare: {speedup_vs_bare:.2f}x)")
-    print(f"Invariants: {invariants}")
+    print(f"{project_name}: mitts {mitts_med}s | bare {bare_med}s | sccache {scc_med}s | vs {sound_name} {speedup['ratio']}x")
+    print(f"invariants: {json.dumps({k: v for k, v in invariants.items() if isinstance(v, bool)})}")
 
     return {
-        "mode": "test",
+        "mode": "build",
+        "metric": "wall-clock of 12 parallel `test --no-run` builds; test execution excluded",
         "worktrees_count": 12,
         "provenance": initial_prov,
         "commit_distribution": "4/3/3/2",
-        "extra_test_args": extra_tail,
-        "runs": tool_results,
-        "speedup_vs_sound_baseline": {
-            "sound_baseline": sound_baseline_name,
-            "ratio": speedup_ratio,
-            "ratio_vs_bare": speedup_vs_bare,
-        },
+        "extra_build_args": extra_build_args,
+        "smoke_filter": DEFECT_TEST_NAME,
+        "runs": runs_out,
+        "speedup_vs_sound_baseline": speedup,
         "invariants": invariants,
     }
 
 
+# --------------------------------------------------------------------------- main
+
 def main():
-    parser = argparse.ArgumentParser(description="T5 Multi-Worktree Test Swarm Defensible Audit")
-    parser.add_argument("--projects", default="tokio,serde,ripgrep,nushell", help="Comma-separated project list")
-    parser.add_argument("--runs", type=int, default=5, help="Number of benchmark iterations (default: 5)")
-    parser.add_argument("--output", default=None, help="Output JSON path")
+    parser = argparse.ArgumentParser(description="T5 multi-worktree build swarm, defensible audit")
+    parser.add_argument("--projects", default="ripgrep,serde,tokio,nushell", help="comma-separated project list")
+    parser.add_argument("--runs", type=int, default=5, help="iterations per project (default 5)")
+    parser.add_argument("--output", default=None, help="output JSON path")
     args = parser.parse_args()
 
-    out_p = Path(args.output) if args.output else (DEFAULT_RESULTS_DIR / "results_t5_test_swarm_defensible.json")
-
-    rig = get_rig_info()
-    projects = [p.strip() for p in args.projects.split(",") if p.strip()]
-
-    final_report = {
-        "schema_version": "t5_test_swarm_v1",
+    out_p = Path(args.output) if args.output else (DEFAULT_RESULTS_DIR / "results_t5_build_swarm_defensible.json")
+    report = {
+        "schema_version": SCHEMA_VERSION,
         "provenance": get_provenance_info(),
-        "rig": rig,
-        "mode": "test",
+        "rig": get_rig_info(),
+        "mode": "build",
         "projects": {},
     }
     if out_p.exists():
         try:
             with open(out_p, "r") as f:
-                existing = json.load(f)
-                final_report["projects"] = existing.get("projects", {})
+                report["projects"] = json.load(f).get("projects", {})
         except Exception:
             pass
 
-    for proj in projects:
+    for proj in [p.strip() for p in args.projects.split(",") if p.strip()]:
         try:
-            res = run_t5_project(proj, runs_count=args.runs)
-            final_report["projects"][proj] = res
+            report["projects"][proj] = run_t5_project(proj, runs_count=args.runs)
         except Exception as e:
-            print(f"ERROR auditing project {proj}: {e}")
             import traceback
             traceback.print_exc()
-            final_report["projects"][proj] = {
-                "mode": "test",
-                "status": "FAIL",
-                "error": str(e),
-                "provenance": get_provenance_info(),
-                "invariants": {
-                    "exit_codes_all_matched": False,
-                    "intentional_defect_caught_by_both": False,
-                    "test_counts_match": False,
-                    "fast_lock_never_skips_test_execution": False,
-                }
-            }
-
-    out_p.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_p, "w") as f:
-        json.dump(final_report, f, indent=2)
-    print(f"\nDefensible T5 audit report saved to {out_p}")
+            report["projects"][proj] = {"mode": "build", "status": "FAIL", "error": str(e), "provenance": get_provenance_info()}
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_p, "w") as f:
+            json.dump(report, f, indent=2)
+        print(f"saved {out_p}")
 
 
 if __name__ == "__main__":
