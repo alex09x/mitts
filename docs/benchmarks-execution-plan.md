@@ -69,10 +69,15 @@ site.
 - **Binary.** One release binary built from the `main` commit at the start of
   the series; its SHA-256 and commit are recorded in the provenance of every
   JSON result. Earlier runs live under `_superseded/` and are not cited.
-- **Preflight.** Before every swarm the rig must show `loadavg < 1.0` and no
-  foreign compiler processes; a 300 s timeout aborts the series instead of
-  measuring under noise. Load and foreign processes are recorded before and
-  after each swarm, with the time spent waiting.
+- **Preflight.** Before every swarm the rig must show a 1-minute load below a
+  threshold (1.0 on an idle rig) and no foreign compiler processes; a 300 s
+  timeout aborts the series instead of measuring under noise. Load and
+  foreign processes are recorded before and after each swarm, with the time
+  spent waiting. When the rig carries a steady background service that cannot
+  be stopped, the threshold is raised for the series and both the threshold
+  and a note describing the service are recorded in the provenance of every
+  result; the same background applies to every arm, and the 15 % spread
+  check on the `cargo_bare` worktree 1 build time remains the quality gate.
 - **Scenario.** 12 parallel worktrees on 4 different commits of the project
   history (4/3/3/2). Worktree 12 carries an injected failing test.
 - **Arms.** `mitts`, `cargo_bare`, `cargo_sccache`, `cargo_shared`.

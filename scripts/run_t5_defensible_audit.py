@@ -79,7 +79,11 @@ SCRIPT_FILES = [
 TOOLS = ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]
 SOUND_TOOLS = ["mitts_cas", "cargo_bare", "cargo_sccache"]
 PREFLIGHT_TIMEOUT_S = 300.0
+# --max-load raises this when the rig carries a steady background service that
+# cannot be stopped; the threshold and a note about the service go into the
+# provenance of every result so the reader can judge the number.
 PREFLIGHT_MAX_LOAD = 1.0
+PREFLIGHT_BACKGROUND_NOTE = ""
 
 BENCH_ROOT = Path(os.environ.get("BENCH_ROOT", Path.home() / "mitts-benchmarks"))
 DEFAULT_RESULTS_DIR = Path(os.environ.get("BENCHMARK_OUTPUT_DIR", BENCH_ROOT / "benchmark-results"))
@@ -171,8 +175,14 @@ def get_provenance_info(mitts_cache=None, worktree_dir=None):
         prov["worktree_filesystem"] = get_filesystem_type(Path(worktree_dir))
     if mitts_cache and worktree_dir:
         prov["same_device"] = check_same_device(mitts_cache, worktree_dir)
-    is_quiet, load_1m, foreign_procs = check_quiet_rig()
-    prov["preflight"] = {"loadavg_1m": load_1m, "foreign_processes": foreign_procs, "is_quiet": is_quiet}
+    is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=PREFLIGHT_MAX_LOAD)
+    prov["preflight"] = {
+        "loadavg_1m": load_1m,
+        "foreign_processes": foreign_procs,
+        "is_quiet": is_quiet,
+        "max_load_threshold": PREFLIGHT_MAX_LOAD,
+        "background_note": PREFLIGHT_BACKGROUND_NOTE,
+    }
     return prov
 
 
@@ -597,7 +607,12 @@ def main():
     parser.add_argument("--projects", default="ripgrep,serde,tokio,nushell", help="comma-separated project list")
     parser.add_argument("--runs", type=int, default=5, help="iterations per project (default 5)")
     parser.add_argument("--output", default=None, help="output JSON path")
+    parser.add_argument("--max-load", type=float, default=1.0, help="preflight loadavg threshold (default 1.0)")
+    parser.add_argument("--background-note", default="", help="what steady background load is present and why it stays")
     args = parser.parse_args()
+    global PREFLIGHT_MAX_LOAD, PREFLIGHT_BACKGROUND_NOTE
+    PREFLIGHT_MAX_LOAD = args.max_load
+    PREFLIGHT_BACKGROUND_NOTE = args.background_note
 
     out_p = Path(args.output) if args.output else (DEFAULT_RESULTS_DIR / "results_t5_build_swarm_defensible.json")
     report = {
