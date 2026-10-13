@@ -283,9 +283,17 @@ def smoke_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, ex
 
 # --------------------------------------------------------------------------- one swarm
 
+def _free_tree(path):
+    """Removes a benchmark-owned directory, including read-only store files."""
+    if path and Path(path).exists():
+        subprocess.run(["chmod", "-R", "u+rwx", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def run_build_swarm(tool, worktrees, shared_target_dir, is_workspace, extra_build_args, preflight):
     loadavg_before, foreign_processes, preflight_waited_s = preflight
     target_path = worktrees[0][1]
+    free_gb_before = round(shutil.disk_usage(target_path).free / 1e9, 1)
     dirty_start_mb = sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=120.0)
     dev_name, sec_before = get_device_sectors_written(target_path)
 
@@ -331,6 +339,7 @@ def run_build_swarm(tool, worktrees, shared_target_dir, is_workspace, extra_buil
         "loadavg_before": loadavg_before,
         "foreign_processes": foreign_processes,
         "preflight_waited_s": preflight_waited_s,
+        "free_gb_before": free_gb_before,
         "loadavg_after": loadavg_after,
         "foreign_processes_after": foreign_after,
     }
@@ -440,6 +449,7 @@ def _summarise_swarm(idx, sw, tool, keep_targets):
         "loadavg_before": sw["loadavg_before"],
         "foreign_processes": sw["foreign_processes"],
         "preflight_waited_s": sw["preflight_waited_s"],
+        "free_gb_before": sw.get("free_gb_before"),
         "loadavg_after": sw["loadavg_after"],
         "foreign_processes_after": sw["foreign_processes_after"],
         "system_pressure": sw["system_pressure"],
@@ -536,6 +546,16 @@ def run_t5_project(project_name, runs_count=5):
                 disk = get_disk_usage_mb(wt_dirs)
             disk_mb[tool] = max(disk_mb[tool], disk)
 
+            # Measurement, soundness probes and the disk reading are done. Drop
+            # what the next swarm rebuilds anyway (worktrees, the shared target,
+            # the live Mitts store, which is restored from its snapshot): a
+            # 12-worktree nushell swarm does not fit next to them on 1 TB.
+            _free_tree(wt_base)
+            if tool == "cargo_shared":
+                _free_tree(shared_target)
+            elif tool == "mitts_cas":
+                _free_tree(mitts_cache)
+
             fails = sum(1 for r in sw["results"] if r["exit_code"] != 0)
             print(
                 f"    {tool:13s} build {sw['total_wall_s']:8.2f}s | build failures {fails:2d} | "
@@ -544,8 +564,13 @@ def run_t5_project(project_name, runs_count=5):
                 f"load {sw['loadavg_before']}->{sw['loadavg_after']}"
             )
 
-    print("[4/5] fast-lock no-op: `test --no-run` again on WT-01 with a warm store")
-    fast_lock_noop = build_worktree("mitts_cas", (1, wt_base / "wt-01", commits[0]), is_workspace=is_ws, extra_build_args=extra_build_args)
+    print("[4/5] warm-store rebuild: fresh WT-01 on the warm-up commit, store restored from its snapshot")
+    fl_wts = prepare_worktrees(repo_dir, wt_base, commits[:1])
+    restore_cache(snap_cas, mitts_cache)
+    fast_lock_noop = build_worktree("mitts_cas", fl_wts[0], is_workspace=is_ws, extra_build_args=extra_build_args)
+    for d in (wt_base, mitts_cache, snap_cas, snap_sccache, SHARED_TARGET_ROOT / f"{project_name}_test"):
+        _free_tree(d)
+    subprocess.run(["git", "worktree", "prune"], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     print("[5/5] invariants")
     baseline_count = _wt(tool_runs["cargo_bare"][0], 1)["build"].get("test_binaries_count", 0)
