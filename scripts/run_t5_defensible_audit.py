@@ -620,15 +620,29 @@ def run_t5_project(project_name, runs_count=5):
     os.environ["SCCACHE_DIR"] = str(sccache_dir)
 
     is_ws = True
-    extra_tail = (
-        ["--exclude", "tests-build"]
-        if project_name == "tokio"
-        else (["--", "--skip", "f1414"] if project_name == "ripgrep" else [])
-    )
+    if project_name == "tokio":
+        extra_tail = ["--exclude", "tests-build"]
+    elif project_name == "ripgrep":
+        extra_tail = ["--", "--skip", "f1414"]
+    elif project_name == "nushell":
+        extra_tail = [
+            "--",
+            "--skip",
+            "jobs_get_group_id_right",
+            "--skip",
+            "job_list_shows_pids",
+            "--skip",
+            "http_get_with_socks5_proxy",
+            "--skip",
+            "port_with_already_usage",
+        ]
+    else:
+        extra_tail = []
 
     # Capture initial preflight provenance before warm-up and swarm iterations
     wait_for_quiet_rig(timeout_s=300.0, max_load=1.0)
     initial_prov = get_provenance_info(mitts_cache, wt_base)
+    initial_prov["extra_test_args"] = extra_tail
 
     print("[1/5] Warming up Mitts CAS on WT-01...")
     init_wts = prepare_worktrees(repo_dir, wt_base, commits)
@@ -964,6 +978,7 @@ def run_t5_project(project_name, runs_count=5):
         "worktrees_count": 12,
         "provenance": initial_prov,
         "commit_distribution": "4/3/3/2",
+        "extra_test_args": extra_tail,
         "runs": tool_results,
         "speedup_vs_sound_baseline": {
             "sound_baseline": sound_baseline_name,

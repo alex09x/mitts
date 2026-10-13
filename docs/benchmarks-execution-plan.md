@@ -52,7 +52,7 @@ site.
 | **Ripgrep** | Binary plus sub-crates and tests, minimal build scripts | Prior results superseded; queued for fresh $n=5$ on clean binary | WP1 (first), WP2, WP3, WP4 |
 | **Serde** | Fast compile, proc-macro derive | Prior results superseded; queued for fresh $n=5$ on clean binary | WP1 (second), WP2, WP3 |
 | **Tokio** | Large library plus roughly 260 test binaries (343 units) | Prior results superseded; queued for fresh $n=5$ on clean binary | WP1 (third), WP2, WP3 |
-| **Nushell** | Very large project, deep DAG, plugins; 95 path-dependent units | Isolated test `jobs_get_group_id_right` verified (3/3 passed); queued for fresh $n=5$ | WP1 (fourth), WP2 |
+| **Nushell** | Very large project, deep DAG, plugins | Prior results superseded; queued for fresh $n=5$ on clean binary | WP1 (fourth), WP2 |
 
 ---
 
