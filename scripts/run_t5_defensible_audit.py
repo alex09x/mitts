@@ -552,6 +552,7 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
     pressure["device_bytes_written"] = bytes_written_total
     pressure["device_mb_written"] = round(bytes_written_total / (1024.0 * 1024.0), 1)
 
+    _, loadavg_after, foreign_procs_after = check_quiet_rig()
     results.sort(key=lambda r: r["wt_index"])
     return {
         "total_wall_s": wall,
@@ -561,6 +562,8 @@ def run_test_swarm(tool, worktrees, shared_target_dir=None, is_workspace=True, e
         "loadavg_before": loadavg_before,
         "foreign_processes": foreign_processes,
         "preflight_waited_s": preflight_waited_s,
+        "loadavg_after": loadavg_after,
+        "foreign_processes_after": foreign_procs_after,
     }
 
 
@@ -928,6 +931,8 @@ def run_t5_project(project_name, runs_count=5):
                 "loadavg_before": sr.get("loadavg_before"),
                 "foreign_processes": sr.get("foreign_processes", []),
                 "preflight_waited_s": sr.get("preflight_waited_s", 0.0),
+                "loadavg_after": sr.get("loadavg_after"),
+                "foreign_processes_after": sr.get("foreign_processes_after", []),
                 "system_pressure": sr.get("system_pressure", {}),
                 "worktrees": [
                     {
