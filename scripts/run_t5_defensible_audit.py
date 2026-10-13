@@ -121,30 +121,33 @@ def get_scripts_provenance():
         "".join(f"{k}:{v}" for k, v in sorted(script_shas.items())).encode("utf-8")
     ).hexdigest()
 
+    # The scripts may run from a copy outside the checkout; MITTS_REPO (or
+    # ~/mitts) names the clone whose HEAD the running copies are compared with.
+    env_repo = os.environ.get("MITTS_REPO", "").strip()
+    candidates = [Path(env_repo)] if env_repo else []
+    candidates += [scripts_dir.parent, Path.home() / "mitts"]
+    git_dir = next((c for c in candidates if (c / ".git").exists()), None)
+
     git_head = None
     scripts_dirty = None
-    try:
-        git_dir = Path(os.environ.get("MITTS_REPO", ""))
-        if not git_dir.exists():
-            git_dir = (
-                scripts_dir
-                if (scripts_dir / ".git").exists() or (scripts_dir.parent / ".git").exists()
-                else (Path.home() / "mitts")
-            )
-        git_head = subprocess.check_output(
-            ["git", "-C", str(git_dir), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
-        ).strip()
+    if git_dir is not None:
+        try:
+            git_head = subprocess.check_output(
+                ["git", "-C", str(git_dir), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except Exception:
+            git_head = None
+    if git_head:
         scripts_dirty = False
         for sname, s_sha in script_shas.items():
-            blob = subprocess.check_output(
-                ["git", "-C", str(git_dir), "show", f"HEAD:scripts/{sname}"], stderr=subprocess.DEVNULL
-            )
-            if hashlib.sha256(blob).hexdigest() != s_sha:
-                scripts_dirty = True
-                break
-    except Exception:
-        git_head = git_head if scripts_dirty is not None else None
-        scripts_dirty = None if git_head is None else True
+            try:
+                blob = subprocess.check_output(
+                    ["git", "-C", str(git_dir), "show", f"HEAD:scripts/{sname}"], stderr=subprocess.DEVNULL
+                )
+                if hashlib.sha256(blob).hexdigest() != s_sha:
+                    scripts_dirty = True
+            except Exception:
+                scripts_dirty = True  # file missing from HEAD counts as dirty
 
     return {
         "combined_sha256": combined,
