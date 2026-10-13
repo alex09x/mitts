@@ -83,9 +83,9 @@ site.
 - **Acceptance.** JSON results with full provenance, and for `mitts`,
   `cargo_bare` and `cargo_sccache` in every run: every worktree builds with
   exit code 0; the number of test binaries produced is identical across the
-  three arms; in worktree 12 the injected test, run alone by exact name, is
-  reported as failed; in worktree 1 every built binary runs with the same
-  exact filter and reports no failure; the spread of worktree 1 build time in
+  three arms; in worktree 12 the injected test, selected by its unique name
+  filter, is reported as failed; in worktree 1 every built binary runs with the
+  same filter, selects nothing and reports no failure; the spread of worktree 1 build time in
   the `cargo_bare` arm stays within 15 %. A second `test --no-run` on a warm
   store must report the same number of binaries. The shared-target arm is
   expected to miss the defect or fail clean worktrees and is reported as such.

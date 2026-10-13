@@ -193,17 +193,20 @@ def _tool_env(tool, wt_dir, shared_target_dir):
     return env
 
 
-def _test_cmd(tool, is_workspace, extra_build_args, no_run, filter_exact=None):
+def _test_cmd(tool, is_workspace, extra_build_args, no_run, name_filter=None):
+    """
+    The smoke filter is a libtest substring filter, not --exact: the injected
+    test lands inside whatever module the chosen file belongs to (for example
+    `binary::__intentional_test_failure` in ripgrep), and --exact would select
+    nothing and report success.
+    """
     ws = ["--workspace"] if is_workspace else []
     base = [str(MITTS_BIN), "test", "--tests"] if tool == "mitts_cas" else ["cargo", "test", "--offline", "--tests"]
     cmd = base + ws + ["--no-fail-fast"] + list(extra_build_args or [])
     if no_run:
         return cmd + ["--no-run"]
-    if filter_exact:
-        if tool == "mitts_cas":
-            cmd += [filter_exact, "--exact"]
-        else:
-            cmd += ["--", "--exact", filter_exact]
+    if name_filter:
+        cmd += [name_filter] if tool == "mitts_cas" else ["--", name_filter]
     return cmd
 
 
@@ -243,12 +246,12 @@ def build_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, ex
 
 def smoke_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, extra_build_args=None):
     """
-    Runs every built test binary with `--exact DEFECT_TEST_NAME`.
-    Timed separately; never part of the metric.
+    Runs every built test binary with the name filter DEFECT_TEST_NAME, so only
+    the injected test (if present) executes. Timed separately; never part of the metric.
     """
     i, wt_dir, _commit = wt_tuple
     env = _tool_env(tool, wt_dir, shared_target_dir)
-    cmd = _test_cmd(tool, is_workspace, extra_build_args, no_run=False, filter_exact=DEFECT_TEST_NAME)
+    cmd = _test_cmd(tool, is_workspace, extra_build_args, no_run=False, name_filter=DEFECT_TEST_NAME)
     elapsed, exit_code, _ru, output = _run(cmd, wt_dir, env)
     stats = parse_test_results(output)
     failed = extract_failed_tests(output) if exit_code != 0 else []
@@ -260,7 +263,7 @@ def smoke_worktree(tool, wt_tuple, shared_target_dir=None, is_workspace=True, ex
         "passed": stats["passed"],
         "failed": stats["failed"],
         "failed_test_names": failed,
-        "defect_reported": DEFECT_TEST_NAME in failed,
+        "defect_reported": any(DEFECT_TEST_NAME in name for name in failed),
         "rebuilt": "Compiling" in output,
     }
 
