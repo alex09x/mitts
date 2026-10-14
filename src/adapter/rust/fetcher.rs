@@ -10,11 +10,13 @@
 
 use super::lockfile::{CargoLock, CargoLockPackage};
 use crate::core::lock::FileLock;
-use crate::core::source_store::SourceStore;
+use crate::core::source_store::{RegistryLookup, SourceStore};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Default)]
@@ -32,6 +34,11 @@ pub struct FetchResult {
     pub duration_ms: u64,
 }
 
+enum UnpackJob {
+    Archive(CargoLockPackage, Vec<u8>, FileLock),
+    CopyDir(CargoLockPackage, PathBuf, FileLock),
+}
+
 /// Concurrent package fetcher that downloads missing `.crate` archives into the global SourceStore.
 pub struct CrateFetcher {
     store: SourceStore,
@@ -42,7 +49,10 @@ impl CrateFetcher {
     /// Creates a new CrateFetcher backed by the provided SourceStore.
     pub fn new(store: SourceStore) -> Self {
         let agent = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
+            .max_idle_connections(128)
+            .max_idle_connections_per_host(128)
             .build();
         Self { store, agent }
     }
@@ -52,13 +62,62 @@ impl CrateFetcher {
         &self.store
     }
 
+    fn resolve_base_url() -> String {
+        std::env::var("MITTS_CRATES_IO_URL")
+            .unwrap_or_else(|_| "https://static.crates.io/crates".to_string())
+    }
+
+    fn download_crate_bytes(&self, base_url: &str, name: &str, version: &str) -> Result<Vec<u8>> {
+        let url = format!(
+            "{}/{}/{}-{}.crate",
+            base_url.trim_end_matches('/'),
+            name,
+            name,
+            version
+        );
+
+        let resp = self
+            .agent
+            .get(&url)
+            .call()
+            .with_context(|| format!("Failed to download crate from {}", url))?;
+
+        let cap = resp
+            .header("Content-Length")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(32 * 1024);
+
+        let mut body_bytes = Vec::with_capacity(cap);
+        resp.into_reader()
+            .read_to_end(&mut body_bytes)
+            .with_context(|| format!("Failed to read crate bytes from {}", url))?;
+        Ok(body_bytes)
+    }
+
     /// Fetches and unpacks a single package into the global SourceStore.
     pub fn fetch_package(
         &self,
         pkg: &CargoLockPackage,
         opt: &FetchOptions,
     ) -> Result<Option<PathBuf>> {
-        // Workspace member or path dependency without remote source
+        if pkg.source.is_none() {
+            return Ok(None);
+        }
+        if self.store.has_source(&pkg.name, &pkg.version) {
+            return Ok(Some(self.store.package_dir(&pkg.name, &pkg.version)));
+        }
+        let lookup = RegistryLookup::discover(self.store.root());
+        let base_url = Self::resolve_base_url();
+        self.fetch_package_with_lookup(pkg, opt, &lookup, &base_url)
+    }
+
+    fn fetch_package_with_lookup(
+        &self,
+        pkg: &CargoLockPackage,
+        opt: &FetchOptions,
+        lookup: &RegistryLookup,
+        base_url: &str,
+    ) -> Result<Option<PathBuf>> {
         if pkg.source.is_none() {
             return Ok(None);
         }
@@ -83,7 +142,7 @@ impl CrateFetcher {
         let expected_checksum = pkg.checksum.as_deref().unwrap_or("");
 
         // 1. Check local cargo cache (~/.cargo/registry/cache or src)
-        if let Some(path) = self.find_in_cargo_registry_cache(&pkg.name, &pkg.version) {
+        if let Some(path) = lookup.find_in_cache(&pkg.name, &pkg.version) {
             if let Ok(bytes) = fs::read(&path) {
                 if let Ok(dir) =
                     self.store
@@ -93,7 +152,7 @@ impl CrateFetcher {
                 }
             }
         }
-        if let Some(src_dir) = self.find_in_cargo_registry_src(&pkg.name, &pkg.version) {
+        if let Some(src_dir) = lookup.find_in_src(&pkg.name, &pkg.version) {
             let target_dir = self.store.package_dir(&pkg.name, &pkg.version);
             if SourceStore::copy_dir_recursive(&src_dir, &target_dir).is_ok() {
                 return Ok(Some(target_dir));
@@ -109,25 +168,7 @@ impl CrateFetcher {
         }
 
         // 2. Download from crates.io static CDN (or custom mirror / mock server)
-        let base_url = std::env::var("MITTS_CRATES_IO_URL")
-            .unwrap_or_else(|_| "https://static.crates.io/crates".to_string());
-        let url = format!(
-            "{}/{}/{}-{}.crate",
-            base_url.trim_end_matches('/'),
-            pkg.name,
-            pkg.name,
-            pkg.version
-        );
-
-        let mut body_bytes = Vec::new();
-        self.agent
-            .get(&url)
-            .call()
-            .with_context(|| format!("Failed to download crate from {}", url))?
-            .into_reader()
-            .read_to_end(&mut body_bytes)
-            .with_context(|| format!("Failed to read crate bytes from {}", url))?;
-
+        let body_bytes = self.download_crate_bytes(base_url, &pkg.name, &pkg.version)?;
         let dir =
             self.store
                 .unpack_archive(&pkg.name, &pkg.version, &body_bytes, expected_checksum)?;
@@ -135,6 +176,8 @@ impl CrateFetcher {
     }
 
     /// Fetches all remote dependencies declared in CargoLock into the global SourceStore in parallel.
+    /// Uses a decoupled network download pool + parallel CPU/disk unpack pool and cooperative
+    /// non-blocking locks for zero-contention multi-process swarms.
     pub fn fetch_all(&self, lock: &CargoLock, opt: &FetchOptions) -> Result<FetchResult> {
         let start = Instant::now();
         let mut total_packages = 0;
@@ -154,99 +197,182 @@ impl CrateFetcher {
             }
         }
 
-        let mut fetched = 0;
-
-        if !to_fetch.is_empty() {
-            let pb = std::sync::Arc::new(crate::cli::Ui::create_progress_bar(
-                to_fetch.len() as u64,
-                "📦 Fetching",
-            ));
-            let num_threads = std::cmp::min(to_fetch.len(), 8);
-            let mut chunks = vec![Vec::new(); num_threads];
-            for (i, pkg) in to_fetch.into_iter().enumerate() {
-                chunks[i % num_threads].push(pkg);
-            }
-
-            std::thread::scope(|s| {
-                let mut handles = Vec::new();
-                for chunk in chunks {
-                    let fetcher = self;
-                    let opt_ref = opt;
-                    let pb_ref = std::sync::Arc::clone(&pb);
-                    handles.push(s.spawn(move || {
-                        let mut count = 0;
-                        for pkg in chunk {
-                            pb_ref.set_message(format!("{} v{}", pkg.name, pkg.version));
-                            if fetcher.fetch_package(&pkg, opt_ref).is_ok() {
-                                count += 1;
-                            }
-                            pb_ref.inc(1);
-                        }
-                        count
-                    }));
-                }
-                for h in handles {
-                    fetched += h.join().unwrap_or(0);
-                }
+        if to_fetch.is_empty() {
+            return Ok(FetchResult {
+                total_packages,
+                already_cached,
+                fetched: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
             });
-            pb.finish_and_clear();
         }
 
-        let duration_ms = start.elapsed().as_millis() as u64;
+        let pb = Arc::new(crate::cli::Ui::create_progress_bar(
+            to_fetch.len() as u64,
+            "📦 Fetching",
+        ));
+        let lookup = Arc::new(RegistryLookup::discover(self.store.root()));
+        let base_url = Self::resolve_base_url();
 
+        let total_missing = to_fetch.len();
+        let dl_threads = total_missing.min(64);
+        let cpu_cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(8);
+        let unpack_threads = total_missing.min(cpu_cores.clamp(4, 32));
+
+        let next_idx = AtomicUsize::new(0);
+        let fetched_count = AtomicUsize::new(0);
+        let pid_offset =
+            (std::process::id() as usize).wrapping_mul(2654435761) % total_missing.max(1);
+        let deferred = Mutex::new(Vec::<CargoLockPackage>::new());
+
+        let (tx, rx) = mpsc::channel::<UnpackJob>();
+        let shared_rx = Arc::new(Mutex::new(rx));
+
+        std::thread::scope(|s| {
+            let mut unpack_handles = Vec::with_capacity(unpack_threads);
+            for _ in 0..unpack_threads {
+                let (rx_ref, pb_ref, fetched_ref) =
+                    (Arc::clone(&shared_rx), Arc::clone(&pb), &fetched_count);
+                unpack_handles.push(s.spawn(move || loop {
+                    let job = rx_ref.lock().unwrap().recv();
+                    let Ok(job) = job else { break };
+                    if self.execute_unpack_job(job) {
+                        fetched_ref.fetch_add(1, Ordering::Relaxed);
+                    }
+                    pb_ref.inc(1);
+                }));
+            }
+
+            for _ in 0..dl_threads {
+                let (tx_clone, lookup_ref, pb_ref) =
+                    (tx.clone(), Arc::clone(&lookup), Arc::clone(&pb));
+                let (to_fetch_ref, next_idx_ref, fetched_ref, deferred_ref, base_url_ref) =
+                    (&to_fetch, &next_idx, &fetched_count, &deferred, &base_url);
+                s.spawn(move || loop {
+                    let step = next_idx_ref.fetch_add(1, Ordering::Relaxed);
+                    if step >= total_missing {
+                        break;
+                    }
+                    let pkg = &to_fetch_ref[(step + pid_offset) % total_missing];
+                    self.stage_package_download(
+                        pkg,
+                        opt,
+                        &lookup_ref,
+                        base_url_ref,
+                        &tx_clone,
+                        fetched_ref,
+                        deferred_ref,
+                        &pb_ref,
+                    );
+                });
+            }
+
+            drop(tx);
+            for h in unpack_handles {
+                let _ = h.join();
+            }
+        });
+
+        let remaining = deferred.into_inner().unwrap();
+        if !remaining.is_empty() {
+            let def_idx = AtomicUsize::new(0);
+            std::thread::scope(|s| {
+                for _ in 0..remaining.len().min(16) {
+                    let (lookup_ref, base_url_ref, rem_ref) = (&lookup, &base_url, &remaining);
+                    let (def_idx_ref, fetched_ref, pb_ref) = (&def_idx, &fetched_count, &pb);
+                    s.spawn(move || loop {
+                        let idx = def_idx_ref.fetch_add(1, Ordering::Relaxed);
+                        if idx >= rem_ref.len() {
+                            break;
+                        }
+                        if self
+                            .fetch_package_with_lookup(&rem_ref[idx], opt, lookup_ref, base_url_ref)
+                            .is_ok()
+                        {
+                            fetched_ref.fetch_add(1, Ordering::Relaxed);
+                        }
+                        pb_ref.inc(1);
+                    });
+                }
+            });
+        }
+
+        pb.finish_and_clear();
         Ok(FetchResult {
             total_packages,
             already_cached,
-            fetched,
-            duration_ms,
+            fetched: fetched_count.load(Ordering::Relaxed),
+            duration_ms: start.elapsed().as_millis() as u64,
         })
     }
 
-    fn cargo_registry_dirs() -> Vec<PathBuf> {
-        let mut dirs = Vec::new();
-        if let Ok(ch) = std::env::var("CARGO_HOME") {
-            dirs.push(PathBuf::from(ch).join("registry"));
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            let p = PathBuf::from(home).join(".cargo").join("registry");
-            if !dirs.contains(&p) {
-                dirs.push(p);
+    fn execute_unpack_job(&self, job: UnpackJob) -> bool {
+        match job {
+            UnpackJob::Archive(pkg, bytes, _lock) => self
+                .store
+                .unpack_archive(
+                    &pkg.name,
+                    &pkg.version,
+                    &bytes,
+                    pkg.checksum.as_deref().unwrap_or(""),
+                )
+                .is_ok(),
+            UnpackJob::CopyDir(pkg, src_dir, _lock) => {
+                let target_dir = self.store.package_dir(&pkg.name, &pkg.version);
+                SourceStore::copy_dir_recursive(&src_dir, &target_dir).is_ok()
             }
         }
-        dirs
     }
 
-    /// Searches standard ~/.cargo/registry/cache for downloaded .crate file.
-    fn find_in_cargo_registry_cache(&self, name: &str, version: &str) -> Option<PathBuf> {
-        let file_name = format!("{}-{}.crate", name, version);
-        for reg_dir in Self::cargo_registry_dirs() {
-            let cache_root = reg_dir.join("cache");
-            if let Ok(entries) = fs::read_dir(&cache_root) {
-                for entry in entries.flatten() {
-                    let candidate = entry.path().join(&file_name);
-                    if candidate.is_file() {
-                        return Some(candidate);
-                    }
-                }
+    #[allow(clippy::too_many_arguments)]
+    fn stage_package_download(
+        &self,
+        pkg: &CargoLockPackage,
+        opt: &FetchOptions,
+        lookup: &RegistryLookup,
+        base_url: &str,
+        tx: &mpsc::Sender<UnpackJob>,
+        fetched: &AtomicUsize,
+        deferred: &Mutex<Vec<CargoLockPackage>>,
+        pb: &indicatif::ProgressBar,
+    ) {
+        if self.store.has_source(&pkg.name, &pkg.version) {
+            fetched.fetch_add(1, Ordering::Relaxed);
+            pb.inc(1);
+            return;
+        }
+        let lock_path = self.store.lock_path(&pkg.name, &pkg.version);
+        let lock = match FileLock::try_acquire_exclusive(&lock_path) {
+            Ok(Some(l)) => l,
+            Ok(None) => {
+                deferred.lock().unwrap().push(pkg.clone());
+                return;
+            }
+            Err(_) => return,
+        };
+        if self.store.has_source(&pkg.name, &pkg.version) {
+            fetched.fetch_add(1, Ordering::Relaxed);
+            pb.inc(1);
+            return;
+        }
+        if let Some(bytes) = lookup
+            .find_in_cache(&pkg.name, &pkg.version)
+            .and_then(|p| fs::read(p).ok())
+        {
+            let _ = tx.send(UnpackJob::Archive(pkg.clone(), bytes, lock));
+            return;
+        }
+        if let Some(src_dir) = lookup.find_in_src(&pkg.name, &pkg.version) {
+            let _ = tx.send(UnpackJob::CopyDir(pkg.clone(), src_dir, lock));
+            return;
+        }
+        if !opt.offline {
+            if let Ok(bytes) = self.download_crate_bytes(base_url, &pkg.name, &pkg.version) {
+                let _ = tx.send(UnpackJob::Archive(pkg.clone(), bytes, lock));
+                return;
             }
         }
-        None
-    }
-
-    /// Searches standard ~/.cargo/registry/src for already unpacked crate source directory.
-    fn find_in_cargo_registry_src(&self, name: &str, version: &str) -> Option<PathBuf> {
-        let dir_name = format!("{}-{}", name, version);
-        for reg_dir in Self::cargo_registry_dirs() {
-            let src_root = reg_dir.join("src");
-            if let Ok(entries) = fs::read_dir(&src_root) {
-                for entry in entries.flatten() {
-                    let candidate = entry.path().join(&dir_name);
-                    if candidate.is_dir() && candidate.join("Cargo.toml").is_file() {
-                        return Some(candidate);
-                    }
-                }
-            }
-        }
-        None
+        pb.inc(1);
     }
 }
