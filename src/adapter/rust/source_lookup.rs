@@ -14,7 +14,29 @@ use std::path::{Path, PathBuf};
 /// for unpacked crate source directory matching name, version, and optional lockfile source.
 pub fn find_crate_source_dir(name: &str, version: &str, source: Option<&str>) -> Option<PathBuf> {
     let is_git = source.map(|s| s.starts_with("git")).unwrap_or(false);
+    let is_registry = source.map(|s| s.starts_with("registry")).unwrap_or(false);
     let expected_hash = source.and_then(|s| s.split('#').nth(1));
+    let target_name = format!("{}-{}", name, version);
+
+    if !is_git {
+        if let Ok(cache_dir) = std::env::var("MITTS_CACHE_DIR") {
+            let candidate = Path::new(&cache_dir).join("sources").join(&target_name);
+            if candidate.join("Cargo.toml").is_file() {
+                return Some(candidate);
+            }
+        }
+        if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+            let cargo_src = Path::new(&cargo_home).join("registry").join("src");
+            if let Ok(entries) = std::fs::read_dir(&cargo_src) {
+                for entry in entries.flatten() {
+                    let candidate = entry.path().join(&target_name);
+                    if candidate.join("Cargo.toml").is_file() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
 
     if let Ok(home) = std::env::var("HOME") {
         let home_path = Path::new(&home);
@@ -110,14 +132,11 @@ pub fn find_crate_source_dir(name: &str, version: &str, source: Option<&str>) ->
         }
 
         let cargo_src = home_path.join(".cargo").join("registry").join("src");
-        if cargo_src.is_dir() {
-            let target_name = format!("{}-{}", name, version);
-            if let Ok(entries) = std::fs::read_dir(&cargo_src) {
-                for entry in entries.flatten() {
-                    let candidate = entry.path().join(&target_name);
-                    if candidate.is_dir() && candidate.join("Cargo.toml").is_file() {
-                        return Some(candidate);
-                    }
+        if let Ok(entries) = std::fs::read_dir(&cargo_src) {
+            for entry in entries.flatten() {
+                let candidate = entry.path().join(&target_name);
+                if candidate.join("Cargo.toml").is_file() {
+                    return Some(candidate);
                 }
             }
         }
@@ -126,16 +145,128 @@ pub fn find_crate_source_dir(name: &str, version: &str, source: Option<&str>) ->
             .join(".cache")
             .join("mitts")
             .join("sources")
-            .join(format!("{}-{}", name, version));
-        if mitts_src.is_dir() && mitts_src.join("Cargo.toml").is_file() {
+            .join(&target_name);
+        if mitts_src.join("Cargo.toml").is_file() {
             return Some(mitts_src);
         }
 
-        if !is_git {
+        if !is_git && !is_registry {
             if let Some(path) = find_in_git() {
                 return Some(path);
             }
         }
     }
     None
+}
+
+pub(crate) type ResolvedPackageManifest<'a> = (
+    &'a super::lockfile::CargoLockPackage,
+    bool,
+    PathBuf,
+    super::manifest::CargoToml,
+);
+
+/// Resolves source directories and parses `Cargo.toml` manifests for selected packages in parallel,
+/// batch-fetching any missing remote packages via `CrateFetcher::fetch_all`.
+pub(crate) fn resolve_selected_package_manifests<'a>(
+    selected_packages: &[(&'a super::lockfile::CargoLockPackage, bool)],
+    workspace_manifests: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
+    path_dependencies: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
+    cache_dir: Option<&Path>,
+    lockfile_version: u32,
+) -> Vec<ResolvedPackageManifest<'a>> {
+    use super::fetcher::{CrateFetcher, FetchOptions};
+    use super::lockfile::{CargoLock, CargoLockPackage};
+    use super::manifest::CargoToml;
+    use crate::core::source_store::SourceStore;
+
+    let store = cache_dir
+        .and_then(|cd| SourceStore::new(cd.join("sources")).ok())
+        .or_else(|| SourceStore::default_store().ok());
+    let fetcher = store.as_ref().cloned().map(CrateFetcher::new);
+
+    if let Some(ref f) = fetcher {
+        let missing: Vec<CargoLockPackage> = selected_packages
+            .iter()
+            .filter(|(pkg, is_ws)| {
+                !*is_ws
+                    && !path_dependencies.contains_key(&pkg.name)
+                    && pkg.source.is_some()
+                    && !f.store().has_source(&pkg.name, &pkg.version)
+                    && find_crate_source_dir(&pkg.name, &pkg.version, pkg.source.as_deref())
+                        .is_none()
+            })
+            .map(|(pkg, _)| (*pkg).clone())
+            .collect();
+        if !missing.is_empty() {
+            let _ = f.fetch_all(
+                &CargoLock {
+                    version: lockfile_version,
+                    packages: missing,
+                },
+                &FetchOptions::default(),
+            );
+        }
+    }
+
+    let resolve_one = |(pkg, is_workspace): &(&'a CargoLockPackage, bool)| {
+        if *is_workspace {
+            let (dir, toml) = workspace_manifests.get(&pkg.name)?;
+            Some((*pkg, true, dir.clone(), toml.clone()))
+        } else if let Some((dir, toml)) = path_dependencies.get(&pkg.name) {
+            Some((*pkg, false, dir.clone(), toml.clone()))
+        } else {
+            let is_git = pkg.source.as_deref().is_some_and(|s| s.starts_with("git"));
+            let resolved_dir = if !is_git
+                && store
+                    .as_ref()
+                    .is_some_and(|st| st.has_source(&pkg.name, &pkg.version))
+            {
+                store.as_ref().unwrap().package_dir(&pkg.name, &pkg.version)
+            } else if let Some(dir) =
+                find_crate_source_dir(&pkg.name, &pkg.version, pkg.source.as_deref())
+            {
+                dir
+            } else {
+                fetcher
+                    .as_ref()?
+                    .fetch_package(pkg, &FetchOptions::default())
+                    .ok()??
+            };
+            let toml = CargoToml::from_file(&resolved_dir.join("Cargo.toml")).unwrap_or_default();
+            Some((*pkg, false, resolved_dir, toml))
+        }
+    };
+
+    if selected_packages.len() <= 8 {
+        selected_packages.iter().filter_map(resolve_one).collect()
+    } else {
+        let n = selected_packages.len();
+        let workers = n.min(
+            std::thread::available_parallelism()
+                .map(|c| c.get())
+                .unwrap_or(8)
+                .clamp(2, 16),
+        );
+        let slots: Vec<std::sync::Mutex<Option<ResolvedPackageManifest<'a>>>> =
+            (0..n).map(|_| std::sync::Mutex::new(None)).collect();
+        let cursor = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..workers {
+                s.spawn(|| loop {
+                    let i = cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= n {
+                        break;
+                    }
+                    if let Some(res) = resolve_one(&selected_packages[i]) {
+                        *slots[i].lock().unwrap() = Some(res);
+                    }
+                });
+            }
+        });
+        slots
+            .into_iter()
+            .filter_map(|m| m.into_inner().unwrap())
+            .collect()
+    }
 }

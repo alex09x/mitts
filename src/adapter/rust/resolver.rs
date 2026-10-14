@@ -122,67 +122,103 @@ impl NativeResolver {
         Ok(lock)
     }
 
-    /// Resolves a set of root dependencies recursively by querying the sparse index.
+    /// Resolves a set of root dependencies recursively by querying the sparse index in parallel BFS waves.
     pub fn resolve_dependencies(
         &self,
         root_deps: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
         let mut resolved: HashMap<String, ResolvedPackage> = HashMap::new();
-        let mut queue: VecDeque<ManifestDirectDep> = VecDeque::new();
+        let mut index_cache: HashMap<String, Vec<super::sparse_index::SparseIndexEntry>> =
+            HashMap::new();
+        let mut queue: VecDeque<ManifestDirectDep> = root_deps.iter().cloned().collect();
         let mut visited_reqs: HashSet<(String, String)> = HashSet::new();
 
-        for dep in root_deps {
-            queue.push_back(dep.clone());
-        }
+        let satisfies = |res: &HashMap<String, ResolvedPackage>, dep: &ManifestDirectDep| -> bool {
+            res.get(&dep.name).is_some_and(|ex| {
+                VersionReq::parse(&dep.req)
+                    .ok()
+                    .zip(Version::parse(&ex.version).ok())
+                    .is_some_and(|(r, v)| r.matches(&v))
+            })
+        };
 
-        while let Some(current) = queue.pop_front() {
-            let key = (current.name.clone(), current.req.clone());
-            if visited_reqs.contains(&key) {
-                continue;
+        while !queue.is_empty() {
+            let wave: Vec<ManifestDirectDep> = queue
+                .drain(..)
+                .filter(|c| {
+                    visited_reqs.insert((c.name.clone(), c.req.clone())) && !satisfies(&resolved, c)
+                })
+                .collect();
+            if wave.is_empty() {
+                break;
             }
-            visited_reqs.insert(key);
 
-            if let Some(existing) = resolved.get(&current.name) {
-                // If existing resolved version satisfies the new requirement, reuse it
-                if let Ok(req) = VersionReq::parse(&current.req) {
-                    if let Ok(ver) = Version::parse(&existing.version) {
-                        if req.matches(&ver) {
-                            continue;
-                        }
-                    }
+            let mut to_fetch: Vec<String> = Vec::new();
+            for dep in &wave {
+                if !index_cache.contains_key(&dep.name) && !to_fetch.contains(&dep.name) {
+                    to_fetch.push(dep.name.clone());
                 }
             }
 
-            let entries = self
-                .index_client
-                .fetch_crate_versions(&current.name, offline)?;
-            let chosen = select_best_version(&entries, &current.req)?;
+            if to_fetch.len() == 1 {
+                let name = to_fetch.pop().unwrap();
+                index_cache.insert(
+                    name.clone(),
+                    self.index_client.fetch_crate_versions(&name, offline)?,
+                );
+            } else if to_fetch.len() > 1 {
+                let n = to_fetch.len();
+                let cursor = std::sync::atomic::AtomicUsize::new(0);
+                let results: Vec<std::sync::Mutex<Option<Result<Vec<_>>>>> =
+                    (0..n).map(|_| std::sync::Mutex::new(None)).collect();
+                std::thread::scope(|s| {
+                    for _ in 0..n.min(32) {
+                        s.spawn(|| loop {
+                            let i = cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if i >= n {
+                                break;
+                            }
+                            let res = self
+                                .index_client
+                                .fetch_crate_versions(&to_fetch[i], offline);
+                            *results[i].lock().unwrap() = Some(res);
+                        });
+                    }
+                });
+                for (name, slot) in to_fetch.into_iter().zip(results) {
+                    index_cache.insert(name, slot.into_inner().unwrap().unwrap()?);
+                }
+            }
 
-            let mut sub_deps = Vec::new();
-            for dep in &chosen.deps {
-                // Exclude dev-dependencies and optional dependencies
-                if dep.kind.as_deref() == Some("dev") || dep.optional {
+            for current in wave {
+                if satisfies(&resolved, &current) {
                     continue;
                 }
-                sub_deps.push(dep.name.clone());
-                queue.push_back(ManifestDirectDep {
-                    name: dep.name.clone(),
-                    req: dep.req.clone(),
-                });
+                let chosen = select_best_version(&index_cache[&current.name], &current.req)?;
+                let mut sub_deps = Vec::new();
+                for dep in &chosen.deps {
+                    if dep.kind.as_deref() == Some("dev") || dep.optional {
+                        continue;
+                    }
+                    let pkg_name = dep.package.as_ref().unwrap_or(&dep.name).clone();
+                    sub_deps.push(pkg_name.clone());
+                    queue.push_back(ManifestDirectDep {
+                        name: pkg_name,
+                        req: dep.req.clone(),
+                    });
+                }
+                resolved.insert(
+                    current.name.clone(),
+                    ResolvedPackage {
+                        name: current.name,
+                        version: chosen.vers.clone(),
+                        checksum: chosen.cksum.clone(),
+                        dependencies: sub_deps,
+                    },
+                );
             }
-
-            resolved.insert(
-                current.name.clone(),
-                ResolvedPackage {
-                    name: current.name.clone(),
-                    version: chosen.vers.clone(),
-                    checksum: chosen.cksum.clone(),
-                    dependencies: sub_deps,
-                },
-            );
         }
-
         let mut packages: Vec<CargoLockPackage> = resolved
             .into_values()
             .map(|pkg| CargoLockPackage {
@@ -193,9 +229,7 @@ impl NativeResolver {
                 dependencies: pkg.dependencies,
             })
             .collect();
-
         packages.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
-
         Ok(CargoLock {
             version: 3,
             packages,

@@ -9,14 +9,11 @@
  */
 
 use super::features::{resolve_package_features_with_resolver, PackageFeatureContext};
-use super::fetcher::{CrateFetcher, FetchOptions};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::CargoToml;
 use super::package_selection::{prune_unreachable_units, select_transitive_packages};
-use super::source_lookup::find_crate_source_dir;
 use super::types::{EffectivePlanExplanation, RustBuildOptions};
 use crate::adapter::RustAdapter;
-use crate::core::source_store::SourceStore;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -164,40 +161,13 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         opt,
     )?;
 
-    // Resolve directories and manifests for each selected package
-    let store = SourceStore::default_store().ok();
-    let fetcher = store.map(CrateFetcher::new);
-
-    let mut resolved_packages = Vec::new();
-    for (pkg, is_workspace) in &selected_packages {
-        let (pkg_dir, pkg_toml) = if *is_workspace {
-            match workspace_manifests.get(&pkg.name) {
-                Some((dir, toml)) => (dir.clone(), toml.clone()),
-                None => continue,
-            }
-        } else if let Some((dir, toml)) = path_dependencies.get(&pkg.name) {
-            (dir.clone(), toml.clone())
-        } else {
-            let candidate_dir =
-                find_crate_source_dir(&pkg.name, &pkg.version, pkg.source.as_deref());
-            let resolved_dir = match candidate_dir {
-                Some(dir) => dir,
-                None => {
-                    if let Some(ref f) = fetcher {
-                        match f.fetch_package(pkg, &FetchOptions::default()) {
-                            Ok(Some(dir)) => dir,
-                            _ => continue,
-                        }
-                    } else {
-                        continue;
-                    }
-                }
-            };
-            let toml = CargoToml::from_file(&resolved_dir.join("Cargo.toml")).unwrap_or_default();
-            (resolved_dir, toml)
-        };
-        resolved_packages.push((*pkg, *is_workspace, pkg_dir, pkg_toml));
-    }
+    let resolved_packages = super::source_lookup::resolve_selected_package_manifests(
+        &selected_packages,
+        &workspace_manifests,
+        &path_dependencies,
+        opt.cache_dir.as_deref(),
+        lockfile.version,
+    );
 
     // Determine root packages being targeted by the build
     let target_pkg = opt.package.as_deref();

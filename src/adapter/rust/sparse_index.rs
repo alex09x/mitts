@@ -68,7 +68,10 @@ impl SparseIndexClient {
         fs::create_dir_all(&cache_dir)?;
 
         let agent = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
+            .max_idle_connections(64)
+            .max_idle_connections_per_host(64)
             .build();
 
         let base_url = std::env::var("MITTS_SPARSE_INDEX_URL")
@@ -85,7 +88,10 @@ impl SparseIndexClient {
     pub fn with_cache_dir(cache_dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&cache_dir)?;
         let agent = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
+            .max_idle_connections(64)
+            .max_idle_connections_per_host(64)
             .build();
         let base_url = std::env::var("MITTS_SPARSE_INDEX_URL")
             .unwrap_or_else(|_| "https://index.crates.io".to_string());
