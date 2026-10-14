@@ -118,6 +118,95 @@ type CachedCfgResult = Result<Arc<HashSet<String>>, String>;
 type CfgCacheMap = HashMap<CfgCacheKey, CachedCfgResult>;
 
 static CFG_CACHE: OnceLock<Mutex<CfgCacheMap>> = OnceLock::new();
+static BASE_CFG_CACHE: OnceLock<Mutex<HashMap<Option<String>, CachedCfgResult>>> = OnceLock::new();
+
+pub fn get_base_cfg_atoms(explicit_target: Option<&str>) -> Result<Arc<HashSet<String>>, String> {
+    let cache = BASE_CFG_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = explicit_target.map(|s| s.to_string());
+    let mut guard = cache.lock().unwrap();
+    if let Some(cached) = guard.get(&key) {
+        return cached.clone();
+    }
+    let rustc = crate::adapter::rust::compiler_resolve::resolve_rustc();
+    let mut cmd = std::process::Command::new(&rustc);
+    cmd.arg("--print").arg("cfg");
+    if let Some(target) = explicit_target {
+        cmd.arg("--target").arg(target);
+    }
+    let res = (|| -> Result<Arc<HashSet<String>>, String> {
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to execute {:?} to discover cfg atoms: {}", rustc, e))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "rustc --print cfg failed with exit code {:?}:\n{}",
+                output.status.code(),
+                err
+            ));
+        }
+        let text = std::str::from_utf8(&output.stdout)
+            .map_err(|e| format!("rustc cfg output not valid utf8: {}", e))?;
+        let mut atoms = HashSet::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                atoms.insert(trimmed.to_string());
+            }
+        }
+        Ok(Arc::new(atoms))
+    })();
+    guard.insert(key, res.clone());
+    res
+}
+
+/// Evaluates a `cfg(...)` expression against base `rustc --print cfg` atoms for `explicit_target`.
+pub fn eval_base_target_cfg(expr: &str, explicit_target: Option<&str>) -> Result<bool, String> {
+    let atoms = get_base_cfg_atoms(explicit_target)?;
+    eval_cfg_with_atoms(expr.trim().trim_matches('\'').trim_matches('"'), &atoms)
+}
+
+fn eval_cfg_with_atoms(expr: &str, atoms: &HashSet<String>) -> Result<bool, String> {
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return Err("Empty cfg expression".to_string());
+    }
+    if let Some(inner) = expr.strip_prefix("cfg(").and_then(|s| s.strip_suffix(')')) {
+        return eval_cfg_with_atoms(inner, atoms);
+    }
+    if let Some(inner) = expr.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
+        return eval_cfg_with_atoms(inner, atoms).map(|b| !b);
+    }
+    if let Some(inner) = expr.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {
+        for arg in split_cfg_args(inner) {
+            if eval_cfg_with_atoms(arg, atoms)? {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    if let Some(inner) = expr.strip_prefix("all(").and_then(|s| s.strip_suffix(')')) {
+        for arg in split_cfg_args(inner) {
+            if !eval_cfg_with_atoms(arg, atoms)? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+    if expr.contains('(') || expr.contains(')') {
+        return Err(format!("Unsupported cfg predicate syntax: {}", expr));
+    }
+    if atoms.contains(expr) {
+        return Ok(true);
+    }
+    if let Some((k, v)) = expr.split_once('=') {
+        let key = k.trim();
+        let val = v.trim().trim_matches('"').trim_matches('\'');
+        let normalized = format!("{key}=\"{val}\"");
+        return Ok(atoms.contains(&normalized));
+    }
+    Ok(false)
+}
 
 pub fn get_cfg_atoms(
     for_host: bool,
@@ -158,39 +247,9 @@ fn discover_cfg_atoms(
     explicit_target: Option<&str>,
     start_dir: &Path,
 ) -> Result<HashSet<String>, String> {
-    let rustc = crate::adapter::rust::compiler_resolve::resolve_rustc();
-    let mut cmd = std::process::Command::new(&rustc);
-    cmd.arg("--print").arg("cfg");
-
-    if !for_host {
-        if let Some(target) = explicit_target {
-            cmd.arg("--target").arg(target);
-        }
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to execute {:?} to discover cfg atoms: {}", rustc, e))?;
-
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "rustc --print cfg failed with exit code {:?}:\n{}",
-            output.status.code(),
-            err
-        ));
-    }
-
-    let text = std::str::from_utf8(&output.stdout)
-        .map_err(|e| format!("rustc cfg output not valid utf8: {}", e))?;
-
-    let mut atoms = HashSet::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if !trimmed.is_empty() {
-            atoms.insert(trimmed.to_string());
-        }
-    }
+    let target_for_base = if for_host { None } else { explicit_target };
+    let base_atoms = get_base_cfg_atoms(target_for_base)?;
+    let mut atoms = (*base_atoms).clone();
 
     // Rustflags precedence:
     // When cross-compiling (explicit_target is Some), host units do NOT receive target rustflags!

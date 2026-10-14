@@ -272,22 +272,30 @@ fn test_cargo_config_target_cfg_fails_closed() {
     fs::write(
         cargo_dir.join("config.toml"),
         r#"
-[target.'cfg(target_os = "linux")']
-rustflags = ["--cfg", "linux_only"]
+[target.'cfg(any(unix, windows))']
+rustflags = ["--cfg", "host_matched"]
+
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
 "#,
     )
     .unwrap();
 
+    let flags = load_cargo_config_rustflags(&pkg_dir, None).unwrap();
+    assert!(flags.contains(&"host_matched".to_string()));
+
+    fs::write(
+        cargo_dir.join("config.toml"),
+        r#"
+[target.'cfg(unsupported_pred(foo))']
+rustflags = ["--cfg", "bad_cfg"]
+"#,
+    )
+    .unwrap();
     let res = load_cargo_config_rustflags(&pkg_dir, None);
     assert!(
         res.is_err(),
-        "Expected fail-closed error for target.'cfg(...)'"
-    );
-    let err_msg = res.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("target.'cfg(...)' rustflags is not yet supported"),
-        "Unexpected error message: {}",
-        err_msg
+        "Expected fail-closed error for invalid target.'cfg(...)' syntax"
     );
 }
 

@@ -173,6 +173,27 @@ impl CargoLock {
         if !manifest_path.is_file() {
             return Ok(false);
         }
+        if let Ok(toml) = super::manifest::CargoToml::from_file(manifest_path) {
+            for (dep_name, dep_val) in toml.dependencies.iter().chain(&toml.build_dependencies) {
+                match dep_val {
+                    super::manifest::TomlDependency::Simple(_) => {
+                        if self.get_package(dep_name).is_none() {
+                            return Ok(false);
+                        }
+                    }
+                    super::manifest::TomlDependency::Detailed(d) => {
+                        if d.optional.unwrap_or(false) || d.path.is_some() || d.git.is_some() {
+                            continue;
+                        }
+                        let pkg_name = d.package_name.as_ref().unwrap_or(dep_name);
+                        if self.get_package(pkg_name).is_none() {
+                            return Ok(false);
+                        }
+                    }
+                }
+            }
+            return Ok(true);
+        }
         let manifest_content = fs::read_to_string(manifest_path)?;
         let direct_deps = extract_manifest_dependencies(&manifest_content);
 
@@ -229,15 +250,29 @@ fn extract_manifest_dependencies(content: &str) -> Vec<String> {
         }
 
         if line.starts_with('[') && line.ends_with(']') {
-            let section = &line[1..line.len() - 1].trim();
+            let section = line[1..line.len() - 1].trim();
+            if let Some(sub) = section
+                .strip_prefix("dependencies.")
+                .or_else(|| section.strip_prefix("build-dependencies."))
+                .or_else(|| section.strip_prefix("dev-dependencies."))
+            {
+                let dep_name = sub.trim().trim_matches('"');
+                if !dep_name.is_empty() {
+                    deps.push(dep_name.to_string());
+                }
+                in_dep_section = false;
+                continue;
+            }
             in_dep_section = matches!(
-                *section,
+                section,
                 "dependencies"
                     | "dev-dependencies"
                     | "build-dependencies"
                     | "workspace.dependencies"
-            ) || section.starts_with("dependencies.")
-                || section.starts_with("target.");
+            ) || (section.starts_with("target.")
+                && (section.ends_with(".dependencies")
+                    || section.ends_with(".build-dependencies")
+                    || section.ends_with(".dev-dependencies")));
             continue;
         }
 

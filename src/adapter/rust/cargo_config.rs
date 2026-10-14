@@ -163,31 +163,58 @@ fn extract_rustflags_from_toml(
     config_path: &Path,
 ) -> Result<ExtractedRustflags> {
     let mut extracted = ExtractedRustflags::default();
+    let host_triple = super::compiler_resolve::resolve_host_triple();
+    let target_opt = if effective_target == host_triple {
+        None
+    } else {
+        Some(effective_target)
+    };
 
     if let Some(targets) = val.get("target").and_then(|t| t.as_table()) {
-        // Fail-closed on target.'cfg(...)'.rustflags until arbitrary cfg expressions are supported
+        let mut merged_target: Vec<String> = Vec::new();
+        let mut found_target_table = false;
+
+        // 1. Check target.<effective_target>.rustflags
+        if let Some(target_val) = targets.get(effective_target) {
+            if let Some(rf) = target_val.get("rustflags") {
+                if let Some(flags) = parse_flags_value(rf) {
+                    found_target_table = true;
+                    merged_target.extend(flags);
+                }
+            }
+        }
+
+        // 2. Evaluate target.'cfg(...)'.rustflags against base target cfg atoms
         for (key, target_val) in targets {
             if key.starts_with("cfg(") || key.contains("cfg(") {
                 if let Some(target_table) = target_val.as_table() {
-                    if target_table.contains_key("rustflags") {
-                        anyhow::bail!(
-                            "Unsupported cargo config: target.'cfg(...)' rustflags is not yet supported in {}",
-                            config_path.display()
-                        );
+                    if let Some(rf) = target_table.get("rustflags") {
+                        let matched = super::target_filter::eval_base_target_cfg(key, target_opt)
+                            .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Unsupported cargo config: target.'{}' rustflags in {}: {}",
+                                key,
+                                config_path.display(),
+                                e
+                            )
+                        })?;
+                        if matched {
+                            if let Some(flags) = parse_flags_value(rf) {
+                                found_target_table = true;
+                                merged_target.extend(flags);
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // 1. Check target.<effective_target>.rustflags
-        if let Some(target_val) = targets.get(effective_target) {
-            if let Some(rf) = target_val.get("rustflags") {
-                extracted.target = parse_flags_value(rf);
-            }
+        if found_target_table {
+            extracted.target = Some(merged_target);
         }
     }
 
-    // 2. Check [build].rustflags
+    // 3. Check [build].rustflags
     if let Some(build_tbl) = val.get("build").and_then(|b| b.as_table()) {
         if let Some(rf) = build_tbl.get("rustflags") {
             extracted.build = parse_flags_value(rf);
@@ -321,18 +348,25 @@ rustflags = ["--cfg", "linux_flag"]
     }
 
     #[test]
-    fn test_extract_target_cfg_fails_closed() {
+    fn test_extract_target_cfg_evaluation_and_invalid_syntax() {
+        let host = super::super::compiler_resolve::resolve_host_triple();
         let content = r#"
-[target.'cfg(target_os = "linux")']
-rustflags = ["--cfg", "linux_cfg"]
+[target.'cfg(any(unix, windows))']
+rustflags = ["--cfg", "matched_cfg"]
+
+[target.'cfg(target_os = "nonexistent_os")']
+rustflags = ["--cfg", "unmatched_cfg"]
 "#;
         let val: toml::Value = toml::from_str(content).unwrap();
-        let res =
-            extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("custom.toml"));
+        let extracted = extract_rustflags_from_toml(&val, host, Path::new("custom.toml")).unwrap();
+        assert_eq!(extracted.target.unwrap(), vec!["--cfg", "matched_cfg"]);
+
+        let bad_content = r#"
+[target.'cfg(invalid_fn(foo))']
+rustflags = ["--cfg", "bad_cfg"]
+"#;
+        let bad_val: toml::Value = toml::from_str(bad_content).unwrap();
+        let res = extract_rustflags_from_toml(&bad_val, host, Path::new("custom.toml"));
         assert!(res.is_err());
-        assert!(res
-            .unwrap_err()
-            .to_string()
-            .contains("target.'cfg(...)' rustflags is not yet supported"));
     }
 }
