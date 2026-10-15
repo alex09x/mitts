@@ -142,26 +142,35 @@ fn test_m8_source_store_registry_empty_index_and_overwrite() {
     let temp = TempDir::new().unwrap();
     let home = temp.path();
     let old_home = std::env::var_os("HOME");
+    let old_ch = std::env::var_os("CARGO_HOME");
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", home);
 
-    // 1. ~/.cargo/registry/src exists but is empty -> discover_cargo_registry_src creates default dir
+    // 1. ~/.cargo/registry/src exists but is empty -> read-only discovery returns None without creating dirs
     let reg_src = home.join(".cargo").join("registry").join("src");
     fs::create_dir_all(&reg_src).unwrap();
-    let discovered_src = SourceStore::discover_cargo_registry_src();
-    assert!(discovered_src.is_some());
-    assert!(discovered_src
-        .unwrap()
-        .ends_with("index.crates.io-1949cf8c6b5b557f"));
+    assert!(SourceStore::discover_cargo_registry_src().is_none());
 
-    // 2. ~/.cargo/registry/cache exists but is empty -> discover_cargo_registry_cache creates default dir
+    // When an index dir exists, it is discovered
+    let idx_src = reg_src.join("index.crates.io-1949cf8c6b5b557f");
+    fs::create_dir_all(&idx_src).unwrap();
+    assert_eq!(SourceStore::discover_cargo_registry_src(), Some(idx_src));
+
+    // 2. ~/.cargo/registry/cache exists but is empty -> read-only discovery returns None
     let reg_cache = home.join(".cargo").join("registry").join("cache");
     fs::create_dir_all(&reg_cache).unwrap();
-    let discovered_cache = SourceStore::discover_cargo_registry_cache();
-    assert!(discovered_cache.is_some());
-    assert!(discovered_cache
-        .unwrap()
-        .ends_with("index.crates.io-1949cf8c6b5b557f"));
+    assert!(SourceStore::discover_cargo_registry_cache().is_none());
 
+    let idx_cache = reg_cache.join("index.crates.io-1949cf8c6b5b557f");
+    fs::create_dir_all(&idx_cache).unwrap();
+    assert_eq!(
+        SourceStore::discover_cargo_registry_cache(),
+        Some(idx_cache)
+    );
+
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

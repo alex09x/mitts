@@ -74,8 +74,11 @@ edition = "2021"
 "#,
     )
     .unwrap();
+    fs::write(fake_src_crate.join(".cargo-ok"), "{\"v\":1}").unwrap();
 
     let prev_home = std::env::var("HOME").ok();
+    let prev_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", &fake_home);
 
     let fake_pkg = CargoLockPackage {
@@ -126,6 +129,9 @@ edition = "2021"
     assert_eq!(fetch_all_res.total_packages, 1);
     assert_eq!(fetch_all_res.already_cached, 1);
 
+    if let Some(ch) = prev_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = prev_home {
         std::env::set_var("HOME", h);
     }

@@ -46,6 +46,7 @@ fn test_m8_fetcher_local_and_offline_paths() {
         "[package]\nname = \"existing-crate\"\nversion = \"1.0.0\"\n",
     )
     .unwrap();
+    fs::write(already_dir.join(".mitts-ok"), "ok\n").unwrap();
 
     let existing_pkg = CargoLockPackage {
         name: "existing-crate".to_string(),
@@ -94,9 +95,11 @@ fn test_m8_fetcher_cargo_registry_src_and_cache_fallbacks() {
     fs::create_dir_all(&reg_cache).unwrap();
 
     let old_home = std::env::var("HOME").ok();
+    let old_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", fake_home.to_str().unwrap());
 
-    // Create unpacked source in fake ~/.cargo/registry/src
+    // Create unpacked source in fake ~/.cargo/registry/src with .cargo-ok
     let src_pkg_dir = reg_src.join("cached-in-src-1.5.0");
     fs::create_dir_all(&src_pkg_dir).unwrap();
     fs::write(
@@ -104,6 +107,7 @@ fn test_m8_fetcher_cargo_registry_src_and_cache_fallbacks() {
         "[package]\nname = \"cached-in-src\"\nversion = \"1.5.0\"\n",
     )
     .unwrap();
+    fs::write(src_pkg_dir.join(".cargo-ok"), "{\"v\":1}").unwrap();
 
     let store = SourceStore::new(tmp.path().join("sources")).unwrap();
     let fetcher = CrateFetcher::new(store);
@@ -144,6 +148,9 @@ fn test_m8_fetcher_cargo_registry_src_and_cache_fallbacks() {
     assert_eq!(fetch_result.total_packages, 1);
     assert_eq!(fetch_result.already_cached, 1);
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

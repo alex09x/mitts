@@ -156,7 +156,10 @@ edition = "2021"
     .unwrap();
     fs::create_dir_all(fake_registry_src.join("src")).unwrap();
     fs::write(fake_registry_src.join("src/lib.rs"), "pub fn ok() {}").unwrap();
+    fs::write(fake_registry_src.join(".cargo-ok"), "{\"v\":1}").unwrap();
 
+    let prev_home = std::env::var_os("HOME");
+    let prev_ch = std::env::var_os("CARGO_HOME");
     std::env::set_var("HOME", &fake_home);
     std::env::set_var("CARGO_HOME", fake_home.join(".cargo"));
 
@@ -181,4 +184,13 @@ edition = "2021"
     // 4. Re-fetching now hits store.has_source directly
     let second_res = fetcher.fetch_package(&remote_pkg, &opt_offline).unwrap();
     assert_eq!(second_res, Some(path));
+
+    if let Some(h) = prev_home {
+        std::env::set_var("HOME", h);
+    }
+    if let Some(ch) = prev_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    } else {
+        std::env::remove_var("CARGO_HOME");
+    }
 }

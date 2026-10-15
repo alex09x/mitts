@@ -155,6 +155,25 @@ impl FileLock {
         Ok(())
     }
 
+    /// Attempts to acquire an exclusive lock within a bounded timeout, returning `Ok(None)` on expiry.
+    pub fn acquire_exclusive_timeout(
+        path: &Path,
+        timeout: std::time::Duration,
+    ) -> Result<Option<Self>> {
+        let start = std::time::Instant::now();
+        let mut sleep_ms = 1u64;
+        loop {
+            if let Some(lock) = Self::try_acquire_exclusive(path)? {
+                return Ok(Some(lock));
+            }
+            if start.elapsed() >= timeout {
+                return Ok(None);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+            sleep_ms = (sleep_ms * 2).min(10);
+        }
+    }
+
     /// Returns the path of the lock file.
     pub fn path(&self) -> &Path {
         &self.path
@@ -163,12 +182,7 @@ impl FileLock {
 
 #[cfg(unix)]
 fn libc_ewouldblock() -> i32 {
-    #[cfg(target_os = "linux")]
-    return 11; // EAGAIN / EWOULDBLOCK
-    #[cfg(target_os = "macos")]
-    return 35; // EAGAIN / EWOULDBLOCK
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    return 11;
+    libc::EWOULDBLOCK
 }
 
 impl Drop for FileLock {

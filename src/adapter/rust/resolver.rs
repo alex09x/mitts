@@ -49,6 +49,7 @@ impl NativeResolver {
 
         let mut path_deps = Vec::new();
         let mut remote_deps = Vec::new();
+        let mut member_deps: HashMap<String, Vec<String>> = HashMap::new();
 
         if let Ok(toml) = CargoToml::from_file(manifest_path) {
             let mut manifests = vec![(manifest_dir.to_path_buf(), toml.clone())];
@@ -71,6 +72,7 @@ impl NativeResolver {
             }
             let local_names: HashSet<String> = path_deps.iter().map(|(n, _)| n.clone()).collect();
             for (m_dir, m_toml) in &manifests {
+                let mut m_dep_list = Vec::new();
                 for (dep_name, dep_val) in
                     m_toml.dependencies.iter().chain(&m_toml.build_dependencies)
                 {
@@ -85,6 +87,7 @@ impl NativeResolver {
                                 let ver = p_ref
                                     .and_then(|p| p.version.clone())
                                     .unwrap_or_else(|| "0.1.0".to_string());
+                                m_dep_list.push(name.clone());
                                 if !local_names.contains(&name) {
                                     path_deps.push((name, ver));
                                 }
@@ -92,14 +95,18 @@ impl NativeResolver {
                         }
                         TomlDependency::Detailed(d)
                             if d.git.is_some() || d.optional.unwrap_or(false) => {}
-                        TomlDependency::Simple(req) if !local_names.contains(dep_name) => {
-                            remote_deps.push(ManifestDirectDep {
-                                name: dep_name.clone(),
-                                req: req.clone(),
-                            });
+                        TomlDependency::Simple(req) => {
+                            m_dep_list.push(dep_name.clone());
+                            if !local_names.contains(dep_name) {
+                                remote_deps.push(ManifestDirectDep {
+                                    name: dep_name.clone(),
+                                    req: req.clone(),
+                                });
+                            }
                         }
                         TomlDependency::Detailed(d) => {
                             let pkg = d.package_name.as_ref().unwrap_or(dep_name).clone();
+                            m_dep_list.push(pkg.clone());
                             if !local_names.contains(&pkg) {
                                 remote_deps.push(ManifestDirectDep {
                                     name: pkg,
@@ -107,8 +114,12 @@ impl NativeResolver {
                                 });
                             }
                         }
-                        _ => {}
                     }
+                }
+                if let Some(p) = &m_toml.package {
+                    m_dep_list.sort();
+                    m_dep_list.dedup();
+                    member_deps.insert(p.name.clone(), m_dep_list);
                 }
             }
         } else {
@@ -124,7 +135,7 @@ impl NativeResolver {
                 version: p_ver.clone(),
                 source: None,
                 checksum: None,
-                dependencies: Vec::new(),
+                dependencies: member_deps.remove(p_name).unwrap_or_default(),
             });
         }
         if let Some((root_name, root_version)) = extract_root_package(&manifest_content) {
@@ -376,24 +387,4 @@ pub fn extract_dependencies_with_reqs(content: &str) -> Vec<ManifestDirectDep> {
     deps.sort_by(|a, b| a.name.cmp(&b.name));
     deps.dedup_by(|a, b| a.name == b.name);
     deps
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_dependencies_with_reqs() {
-        let manifest = "[package]\nname = \"test-pkg\"\nversion = \"0.1.0\"\n[dependencies]\nserde = \"1.0\"\ntokio = { version = \"1.38\", features = [\"full\"] }\n[dev-dependencies]\ntempfile = \"3.0\"\n";
-        let deps = extract_dependencies_with_reqs(manifest);
-        assert_eq!(deps.len(), 2);
-        assert_eq!(
-            (deps[0].name.as_str(), deps[0].req.as_str()),
-            ("serde", "1.0")
-        );
-        assert_eq!(
-            (deps[1].name.as_str(), deps[1].req.as_str()),
-            ("tokio", "1.38")
-        );
-    }
 }

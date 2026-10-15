@@ -220,6 +220,17 @@ pub fn get_cfg_atoms(
         start_dir: start_dir.to_path_buf(),
     };
 
+    {
+        let guard = cache.lock().unwrap();
+        if let Some(cached) = guard.get(&key) {
+            return match cached {
+                Ok(atoms) => Ok(Arc::clone(atoms)),
+                Err(err) => Err(RustAdapterError::MetadataFailed(err.clone())),
+            };
+        }
+    }
+
+    let res = discover_cfg_atoms(for_host, explicit_target, start_dir);
     let mut guard = cache.lock().unwrap();
     if let Some(cached) = guard.get(&key) {
         return match cached {
@@ -227,8 +238,6 @@ pub fn get_cfg_atoms(
             Err(err) => Err(RustAdapterError::MetadataFailed(err.clone())),
         };
     }
-
-    let res = discover_cfg_atoms(for_host, explicit_target, start_dir);
     match res {
         Ok(atoms) => {
             let arc = Arc::new(atoms);

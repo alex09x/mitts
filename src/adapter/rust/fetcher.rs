@@ -62,36 +62,65 @@ impl CrateFetcher {
         &self.store
     }
 
+    /// Returns true if the `Cargo.lock` `source` field points to the official crates.io registry.
+    pub fn is_crates_io_registry_source(source: &str) -> bool {
+        matches!(
+            source,
+            "registry+https://github.com/rust-lang/crates.io-index"
+                | "sparse+https://index.crates.io/"
+                | "sparse+https://index.crates.io"
+        )
+    }
+
     fn resolve_base_url() -> String {
         std::env::var("MITTS_CRATES_IO_URL")
             .unwrap_or_else(|_| "https://static.crates.io/crates".to_string())
     }
 
     fn download_crate_bytes(&self, base_url: &str, name: &str, version: &str) -> Result<Vec<u8>> {
-        let url = format!(
-            "{}/{}/{}-{}.crate",
-            base_url.trim_end_matches('/'),
-            name,
-            name,
-            version
-        );
-
+        let base = base_url.trim_end_matches('/');
+        let url = format!("{base}/{name}/{name}-{version}.crate");
         let resp = self
             .agent
             .get(&url)
             .call()
-            .with_context(|| format!("Failed to download crate from {}", url))?;
-
+            .with_context(|| format!("Failed to download crate from {url}"))?;
         let cap = resp
             .header("Content-Length")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(32 * 1024);
-
         let mut body_bytes = Vec::with_capacity(cap);
         resp.into_reader()
             .read_to_end(&mut body_bytes)
-            .with_context(|| format!("Failed to read crate bytes from {}", url))?;
+            .with_context(|| format!("Failed to read crate bytes from {url}"))?;
         Ok(body_bytes)
+    }
+
+    fn validate_non_crates_io(pkg: &CargoLockPackage) -> Result<Option<PathBuf>> {
+        let Some(ref src) = pkg.source else {
+            return Ok(None);
+        };
+        if Self::is_crates_io_registry_source(src) {
+            return Ok(None);
+        }
+        if let Some(dir) =
+            super::source_lookup::find_crate_source_dir(&pkg.name, &pkg.version, Some(src))
+        {
+            return Ok(Some(dir));
+        }
+        bail!(
+            "Package {}-{} uses non-crates.io source ({}) and is missing locally; run `cargo fetch`",
+            pkg.name,
+            pkg.version,
+            src
+        );
+    }
+
+    fn record_error(slot: &Mutex<Option<anyhow::Error>>, err: anyhow::Error) {
+        let mut guard = slot.lock().unwrap();
+        if guard.is_none() {
+            *guard = Some(err);
+        }
     }
 
     /// Fetches and unpacks a single package into the global SourceStore.
@@ -100,12 +129,6 @@ impl CrateFetcher {
         pkg: &CargoLockPackage,
         opt: &FetchOptions,
     ) -> Result<Option<PathBuf>> {
-        if pkg.source.is_none() {
-            return Ok(None);
-        }
-        if self.store.has_source(&pkg.name, &pkg.version) {
-            return Ok(Some(self.store.package_dir(&pkg.name, &pkg.version)));
-        }
         let lookup = RegistryLookup::discover(self.store.root());
         let base_url = Self::resolve_base_url();
         self.fetch_package_with_lookup(pkg, opt, &lookup, &base_url)
@@ -121,44 +144,38 @@ impl CrateFetcher {
         if pkg.source.is_none() {
             return Ok(None);
         }
-
+        if let Some(dir) = Self::validate_non_crates_io(pkg)? {
+            return Ok(Some(dir));
+        }
         if self.store.has_source(&pkg.name, &pkg.version) {
             return Ok(Some(self.store.package_dir(&pkg.name, &pkg.version)));
         }
 
         let lock_path = self.store.lock_path(&pkg.name, &pkg.version);
-        let _lock = FileLock::acquire_exclusive(&lock_path).with_context(|| {
-            format!(
-                "Failed to acquire download lock for {}-{}",
-                pkg.name, pkg.version
-            )
-        })?;
+        let timeout = std::time::Duration::from_secs(30);
+        let _lock = FileLock::acquire_exclusive_timeout(&lock_path, timeout)?;
 
-        // Re-check inside single-flight lock
         if self.store.has_source(&pkg.name, &pkg.version) {
             return Ok(Some(self.store.package_dir(&pkg.name, &pkg.version)));
         }
 
         let expected_checksum = pkg.checksum.as_deref().unwrap_or("");
-
-        // 1. Check local cargo cache (~/.cargo/registry/cache or src)
-        if let Some(path) = lookup.find_in_cache(&pkg.name, &pkg.version) {
-            if let Ok(bytes) = fs::read(&path) {
-                if let Ok(dir) =
-                    self.store
-                        .unpack_archive(&pkg.name, &pkg.version, &bytes, expected_checksum)
-                {
-                    return Ok(Some(dir));
-                }
+        if let Some(bytes) = lookup
+            .find_in_cache(&pkg.name, &pkg.version)
+            .and_then(|p| fs::read(p).ok())
+        {
+            if let Ok(dir) =
+                self.store
+                    .unpack_archive(&pkg.name, &pkg.version, &bytes, expected_checksum)
+            {
+                return Ok(Some(dir));
             }
         }
         if let Some(src_dir) = lookup.find_in_src(&pkg.name, &pkg.version) {
-            let target_dir = self.store.package_dir(&pkg.name, &pkg.version);
-            if SourceStore::copy_dir_recursive(&src_dir, &target_dir).is_ok() {
-                return Ok(Some(target_dir));
+            if let Ok(dir) = self.store.stage_copy_dir(&pkg.name, &pkg.version, &src_dir) {
+                return Ok(Some(dir));
             }
         }
-
         if opt.offline {
             bail!(
                 "Package {}-{} not found in local cache and offline mode was requested",
@@ -167,7 +184,6 @@ impl CrateFetcher {
             );
         }
 
-        // 2. Download from crates.io static CDN (or custom mirror / mock server)
         let body_bytes = self.download_crate_bytes(base_url, &pkg.name, &pkg.version)?;
         let dir =
             self.store
@@ -176,8 +192,6 @@ impl CrateFetcher {
     }
 
     /// Fetches all remote dependencies declared in CargoLock into the global SourceStore in parallel.
-    /// Uses a decoupled network download pool + parallel CPU/disk unpack pool and cooperative
-    /// non-blocking locks for zero-contention multi-process swarms.
     pub fn fetch_all(&self, lock: &CargoLock, opt: &FetchOptions) -> Result<FetchResult> {
         let start = Instant::now();
         let mut total_packages = 0;
@@ -189,8 +203,9 @@ impl CrateFetcher {
                 continue;
             }
             total_packages += 1;
-
-            if self.store.has_source(&pkg.name, &pkg.version) {
+            if Self::validate_non_crates_io(pkg)?.is_some()
+                || self.store.has_source(&pkg.name, &pkg.version)
+            {
                 already_cached += 1;
             } else {
                 to_fetch.push(pkg.clone());
@@ -225,6 +240,7 @@ impl CrateFetcher {
         let pid_offset =
             (std::process::id() as usize).wrapping_mul(2654435761) % total_missing.max(1);
         let deferred = Mutex::new(Vec::<CargoLockPackage>::new());
+        let first_error = Mutex::new(None::<anyhow::Error>);
 
         let (tx, rx) = mpsc::channel::<UnpackJob>();
         let shared_rx = Arc::new(Mutex::new(rx));
@@ -232,39 +248,44 @@ impl CrateFetcher {
         std::thread::scope(|s| {
             let mut unpack_handles = Vec::with_capacity(unpack_threads);
             for _ in 0..unpack_threads {
-                let (rx_ref, pb_ref, fetched_ref) =
-                    (Arc::clone(&shared_rx), Arc::clone(&pb), &fetched_count);
+                let (rx_ref, pb_ref) = (Arc::clone(&shared_rx), Arc::clone(&pb));
+                let (fetched_ref, err_ref) = (&fetched_count, &first_error);
                 unpack_handles.push(s.spawn(move || loop {
-                    let job = rx_ref.lock().unwrap().recv();
-                    let Ok(job) = job else { break };
-                    if self.execute_unpack_job(job) {
-                        fetched_ref.fetch_add(1, Ordering::Relaxed);
+                    let Ok(job) = rx_ref.lock().unwrap().recv() else {
+                        break;
+                    };
+                    match self.execute_unpack_job(job) {
+                        Ok(()) => {
+                            fetched_ref.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(e) => Self::record_error(err_ref, e),
                     }
                     pb_ref.inc(1);
                 }));
             }
 
             for _ in 0..dl_threads {
-                let (tx_clone, lookup_ref, pb_ref) =
-                    (tx.clone(), Arc::clone(&lookup), Arc::clone(&pb));
-                let (to_fetch_ref, next_idx_ref, fetched_ref, deferred_ref, base_url_ref) =
-                    (&to_fetch, &next_idx, &fetched_count, &deferred, &base_url);
+                let (tx_c, lookup_r, pb_r) = (tx.clone(), Arc::clone(&lookup), Arc::clone(&pb));
+                let (pkgs_r, idx_r, fetched_r) = (&to_fetch, &next_idx, &fetched_count);
+                let (def_r, url_r, err_r) = (&deferred, &base_url, &first_error);
                 s.spawn(move || loop {
-                    let step = next_idx_ref.fetch_add(1, Ordering::Relaxed);
+                    let step = idx_r.fetch_add(1, Ordering::Relaxed);
                     if step >= total_missing {
                         break;
                     }
-                    let pkg = &to_fetch_ref[(step + pid_offset) % total_missing];
-                    self.stage_package_download(
-                        pkg,
-                        opt,
-                        &lookup_ref,
-                        base_url_ref,
-                        &tx_clone,
-                        fetched_ref,
-                        deferred_ref,
-                        &pb_ref,
-                    );
+                    let pkg = &pkgs_r[(step + pid_offset) % total_missing];
+                    match self.stage_package_download(pkg, opt, &lookup_r, url_r, &tx_c) {
+                        Ok(Some(true)) => {
+                            fetched_r.fetch_add(1, Ordering::Relaxed);
+                            pb_r.inc(1);
+                        }
+                        Ok(Some(false)) => def_r.lock().unwrap().push(pkg.clone()),
+                        Ok(None) => {}
+                        Err(e) => {
+                            pb_r.inc(1);
+                            Self::record_error(err_r, e);
+                        }
+                    }
                 });
             }
 
@@ -279,26 +300,31 @@ impl CrateFetcher {
             let def_idx = AtomicUsize::new(0);
             std::thread::scope(|s| {
                 for _ in 0..remaining.len().min(16) {
-                    let (lookup_ref, base_url_ref, rem_ref) = (&lookup, &base_url, &remaining);
-                    let (def_idx_ref, fetched_ref, pb_ref) = (&def_idx, &fetched_count, &pb);
+                    let (lookup_r, url_r, rem_r) = (&lookup, &base_url, &remaining);
+                    let (idx_r, fetched_r, pb_r, err_r) =
+                        (&def_idx, &fetched_count, &pb, &first_error);
                     s.spawn(move || loop {
-                        let idx = def_idx_ref.fetch_add(1, Ordering::Relaxed);
-                        if idx >= rem_ref.len() {
+                        let idx = idx_r.fetch_add(1, Ordering::Relaxed);
+                        if idx >= rem_r.len() {
                             break;
                         }
-                        if self
-                            .fetch_package_with_lookup(&rem_ref[idx], opt, lookup_ref, base_url_ref)
-                            .is_ok()
-                        {
-                            fetched_ref.fetch_add(1, Ordering::Relaxed);
+                        match self.fetch_package_with_lookup(&rem_r[idx], opt, lookup_r, url_r) {
+                            Ok(_) => {
+                                fetched_r.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(e) => Self::record_error(err_r, e),
                         }
-                        pb_ref.inc(1);
+                        pb_r.inc(1);
                     });
                 }
             });
         }
 
         pb.finish_and_clear();
+        if let Some(err) = first_error.into_inner().unwrap() {
+            return Err(err);
+        }
+
         Ok(FetchResult {
             total_packages,
             already_cached,
@@ -307,7 +333,7 @@ impl CrateFetcher {
         })
     }
 
-    fn execute_unpack_job(&self, job: UnpackJob) -> bool {
+    fn execute_unpack_job(&self, job: UnpackJob) -> Result<()> {
         match job {
             UnpackJob::Archive(pkg, bytes, _lock) => self
                 .store
@@ -317,15 +343,14 @@ impl CrateFetcher {
                     &bytes,
                     pkg.checksum.as_deref().unwrap_or(""),
                 )
-                .is_ok(),
-            UnpackJob::CopyDir(pkg, src_dir, _lock) => {
-                let target_dir = self.store.package_dir(&pkg.name, &pkg.version);
-                SourceStore::copy_dir_recursive(&src_dir, &target_dir).is_ok()
-            }
+                .map(|_| ()),
+            UnpackJob::CopyDir(pkg, src_dir, _lock) => self
+                .store
+                .stage_copy_dir(&pkg.name, &pkg.version, &src_dir)
+                .map(|_| ()),
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn stage_package_download(
         &self,
         pkg: &CargoLockPackage,
@@ -333,46 +358,37 @@ impl CrateFetcher {
         lookup: &RegistryLookup,
         base_url: &str,
         tx: &mpsc::Sender<UnpackJob>,
-        fetched: &AtomicUsize,
-        deferred: &Mutex<Vec<CargoLockPackage>>,
-        pb: &indicatif::ProgressBar,
-    ) {
+    ) -> Result<Option<bool>> {
         if self.store.has_source(&pkg.name, &pkg.version) {
-            fetched.fetch_add(1, Ordering::Relaxed);
-            pb.inc(1);
-            return;
+            return Ok(Some(true));
         }
         let lock_path = self.store.lock_path(&pkg.name, &pkg.version);
-        let lock = match FileLock::try_acquire_exclusive(&lock_path) {
-            Ok(Some(l)) => l,
-            Ok(None) => {
-                deferred.lock().unwrap().push(pkg.clone());
-                return;
-            }
-            Err(_) => return,
+        let Some(lock) = FileLock::try_acquire_exclusive(&lock_path)? else {
+            return Ok(Some(false));
         };
         if self.store.has_source(&pkg.name, &pkg.version) {
-            fetched.fetch_add(1, Ordering::Relaxed);
-            pb.inc(1);
-            return;
+            return Ok(Some(true));
         }
         if let Some(bytes) = lookup
             .find_in_cache(&pkg.name, &pkg.version)
             .and_then(|p| fs::read(p).ok())
         {
             let _ = tx.send(UnpackJob::Archive(pkg.clone(), bytes, lock));
-            return;
+            return Ok(None);
         }
         if let Some(src_dir) = lookup.find_in_src(&pkg.name, &pkg.version) {
             let _ = tx.send(UnpackJob::CopyDir(pkg.clone(), src_dir, lock));
-            return;
+            return Ok(None);
         }
-        if !opt.offline {
-            if let Ok(bytes) = self.download_crate_bytes(base_url, &pkg.name, &pkg.version) {
-                let _ = tx.send(UnpackJob::Archive(pkg.clone(), bytes, lock));
-                return;
-            }
+        if opt.offline {
+            bail!(
+                "Package {}-{} not found in local cache and offline mode was requested",
+                pkg.name,
+                pkg.version
+            );
         }
-        pb.inc(1);
+        let bytes = self.download_crate_bytes(base_url, &pkg.name, &pkg.version)?;
+        let _ = tx.send(UnpackJob::Archive(pkg.clone(), bytes, lock));
+        Ok(None)
     }
 }

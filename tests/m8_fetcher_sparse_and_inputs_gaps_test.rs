@@ -79,6 +79,7 @@ fn test_m8_fetcher_no_cargo_cache_and_recheck_lock() {
         "[package]\nname = \"test_pkg_nonexistent_xyz_12345\"\nversion = \"1.0.0\"\n",
     )
     .unwrap();
+    fs::write(pkg_dir.join(".mitts-ok"), "ok\n").unwrap();
 
     let res_cached = fetcher.fetch_package(&pkg, &opt_offline);
     assert!(res_cached.is_ok());

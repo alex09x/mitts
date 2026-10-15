@@ -38,76 +38,67 @@ pub fn find_crate_source_dir(name: &str, version: &str, source: Option<&str>) ->
         }
     }
 
-    if let Ok(home) = std::env::var("HOME") {
-        let home_path = Path::new(&home);
-
-        let find_in_git = || -> Option<PathBuf> {
-            let git_src = home_path.join(".cargo").join("git").join("checkouts");
-            if !git_src.is_dir() {
-                return None;
-            }
-            if let Ok(repos) = std::fs::read_dir(&git_src) {
-                for repo in repos.flatten() {
-                    let repo_path = repo.path();
-                    if let Ok(commits) = std::fs::read_dir(&repo_path) {
-                        for commit in commits.flatten() {
-                            let commit_dir_name = commit.file_name();
-                            let commit_str = commit_dir_name.to_string_lossy();
-                            if let Some(exp) = expected_hash {
-                                if !exp.starts_with(commit_str.as_ref())
-                                    && !commit_str.starts_with(exp)
-                                {
-                                    continue;
-                                }
+    let find_in_git = |git_src: &Path| -> Option<PathBuf> {
+        if !git_src.is_dir() {
+            return None;
+        }
+        if let Ok(repos) = std::fs::read_dir(git_src) {
+            for repo in repos.flatten() {
+                let repo_path = repo.path();
+                if let Ok(commits) = std::fs::read_dir(&repo_path) {
+                    for commit in commits.flatten() {
+                        let commit_dir_name = commit.file_name();
+                        let commit_str = commit_dir_name.to_string_lossy();
+                        if let Some(exp) = expected_hash {
+                            if !exp.starts_with(commit_str.as_ref()) && !commit_str.starts_with(exp)
+                            {
+                                continue;
                             }
-                            let commit_path = commit.path();
-                            if commit_path.is_dir() {
-                                let c_toml = commit_path.join("Cargo.toml");
-                                if c_toml.is_file() {
-                                    if let Ok(content) = std::fs::read_to_string(&c_toml) {
-                                        if content.contains(&format!("name = \"{}\"", name)) {
-                                            return Some(commit_path);
-                                        }
+                        }
+                        let commit_path = commit.path();
+                        if commit_path.is_dir() {
+                            let c_toml = commit_path.join("Cargo.toml");
+                            if c_toml.is_file() {
+                                if let Ok(content) = std::fs::read_to_string(&c_toml) {
+                                    if content.contains(&format!("name = \"{}\"", name)) {
+                                        return Some(commit_path);
                                     }
                                 }
-                                // Check subdirectories (e.g. crates/* or nested packages)
-                                if let Ok(subs) = std::fs::read_dir(&commit_path) {
-                                    for sub in subs.flatten() {
-                                        let sub_path = sub.path();
-                                        if sub_path.is_dir() {
-                                            let s_name = sub.file_name();
-                                            let s_str = s_name.to_string_lossy();
-                                            if s_str.starts_with('.') || s_str == "target" {
-                                                continue;
-                                            }
-                                            let sub_toml = sub_path.join("Cargo.toml");
-                                            if sub_toml.is_file() {
-                                                if let Ok(content) =
-                                                    std::fs::read_to_string(&sub_toml)
+                            }
+                            if let Ok(subs) = std::fs::read_dir(&commit_path) {
+                                for sub in subs.flatten() {
+                                    let sub_path = sub.path();
+                                    if sub_path.is_dir() {
+                                        let s_name = sub.file_name();
+                                        let s_str = s_name.to_string_lossy();
+                                        if s_str.starts_with('.') || s_str == "target" {
+                                            continue;
+                                        }
+                                        let sub_toml = sub_path.join("Cargo.toml");
+                                        if sub_toml.is_file() {
+                                            if let Ok(content) = std::fs::read_to_string(&sub_toml)
+                                            {
+                                                if content.contains(&format!("name = \"{}\"", name))
                                                 {
-                                                    if content
-                                                        .contains(&format!("name = \"{}\"", name))
-                                                    {
-                                                        return Some(sub_path);
-                                                    }
+                                                    return Some(sub_path);
                                                 }
                                             }
-                                            if s_str == "crates" {
-                                                if let Ok(nested) = std::fs::read_dir(&sub_path) {
-                                                    for n in nested.flatten() {
-                                                        let n_path = n.path();
-                                                        if n_path.is_dir() {
-                                                            let n_toml = n_path.join("Cargo.toml");
-                                                            if n_toml.is_file() {
-                                                                if let Ok(content) =
-                                                                    std::fs::read_to_string(&n_toml)
-                                                                {
-                                                                    if content.contains(&format!(
-                                                                        "name = \"{}\"",
-                                                                        name
-                                                                    )) {
-                                                                        return Some(n_path);
-                                                                    }
+                                        }
+                                        if s_str == "crates" {
+                                            if let Ok(nested) = std::fs::read_dir(&sub_path) {
+                                                for n in nested.flatten() {
+                                                    let n_path = n.path();
+                                                    if n_path.is_dir() {
+                                                        let n_toml = n_path.join("Cargo.toml");
+                                                        if n_toml.is_file() {
+                                                            if let Ok(content) =
+                                                                std::fs::read_to_string(&n_toml)
+                                                            {
+                                                                if content.contains(&format!(
+                                                                    "name = \"{}\"",
+                                                                    name
+                                                                )) {
+                                                                    return Some(n_path);
                                                                 }
                                                             }
                                                         }
@@ -122,15 +113,31 @@ pub fn find_crate_source_dir(name: &str, version: &str, source: Option<&str>) ->
                     }
                 }
             }
-            None
-        };
+        }
+        None
+    };
 
-        if is_git {
-            if let Some(path) = find_in_git() {
-                return Some(path);
+    if is_git {
+        if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+            let ch_git = Path::new(&cargo_home).join("git").join("checkouts");
+            if let Some(p) = find_in_git(&ch_git) {
+                return Some(p);
             }
         }
+        if let Ok(home) = std::env::var("HOME") {
+            let home_git = Path::new(&home)
+                .join(".cargo")
+                .join("git")
+                .join("checkouts");
+            if let Some(p) = find_in_git(&home_git) {
+                return Some(p);
+            }
+        }
+        return None;
+    }
 
+    if let Ok(home) = std::env::var("HOME") {
+        let home_path = Path::new(&home);
         let cargo_src = home_path.join(".cargo").join("registry").join("src");
         if let Ok(entries) = std::fs::read_dir(&cargo_src) {
             for entry in entries.flatten() {
@@ -151,7 +158,8 @@ pub fn find_crate_source_dir(name: &str, version: &str, source: Option<&str>) ->
         }
 
         if !is_git && !is_registry {
-            if let Some(path) = find_in_git() {
+            let home_git = home_path.join(".cargo").join("git").join("checkouts");
+            if let Some(path) = find_in_git(&home_git) {
                 return Some(path);
             }
         }
@@ -167,7 +175,7 @@ pub(crate) type ResolvedPackageManifest<'a> = (
 );
 
 /// Resolves source directories and parses `Cargo.toml` manifests for selected packages in parallel,
-/// batch-fetching any missing remote packages via `CrateFetcher::fetch_all`.
+/// batch-fetching any missing crates.io packages via `CrateFetcher::fetch_all`.
 pub(crate) fn resolve_selected_package_manifests<'a>(
     selected_packages: &[(&'a super::lockfile::CargoLockPackage, bool)],
     workspace_manifests: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
@@ -191,7 +199,10 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
             .filter(|(pkg, is_ws)| {
                 !*is_ws
                     && !path_dependencies.contains_key(&pkg.name)
-                    && pkg.source.is_some()
+                    && pkg
+                        .source
+                        .as_deref()
+                        .is_some_and(CrateFetcher::is_crates_io_registry_source)
                     && !f.store().has_source(&pkg.name, &pkg.version)
                     && find_crate_source_dir(&pkg.name, &pkg.version, pkg.source.as_deref())
                         .is_none()
@@ -216,8 +227,15 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
         } else if let Some((dir, toml)) = path_dependencies.get(&pkg.name) {
             Some((*pkg, false, dir.clone(), toml.clone()))
         } else {
-            let is_git = pkg.source.as_deref().is_some_and(|s| s.starts_with("git"));
-            let resolved_dir = if !is_git
+            let can_use_store = pkg
+                .source
+                .as_deref()
+                .is_none_or(CrateFetcher::is_crates_io_registry_source);
+            let is_crates_io = pkg
+                .source
+                .as_deref()
+                .is_some_and(CrateFetcher::is_crates_io_registry_source);
+            let resolved_dir = if can_use_store
                 && store
                     .as_ref()
                     .is_some_and(|st| st.has_source(&pkg.name, &pkg.version))
@@ -227,11 +245,13 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
                 find_crate_source_dir(&pkg.name, &pkg.version, pkg.source.as_deref())
             {
                 dir
-            } else {
+            } else if is_crates_io {
                 fetcher
                     .as_ref()?
                     .fetch_package(pkg, &FetchOptions::default())
                     .ok()??
+            } else {
+                return None;
             };
             let toml = CargoToml::from_file(&resolved_dir.join("Cargo.toml")).unwrap_or_default();
             Some((*pkg, false, resolved_dir, toml))

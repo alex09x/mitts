@@ -16,13 +16,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static STAGING_SEQ: AtomicU64 = AtomicU64::new(0);
 
+/// Marker file written as the final step in staging before atomic `rename` into the store.
+pub const MITTS_OK_MARKER: &str = ".mitts-ok";
+
 /// Thread-safe global content store for downloaded and unpacked crate sources.
-/// Stored packages reside at `{root}/{crate_name}-{version}/` with zero workspace pollution.
+/// Stored packages reside at `{root}/{crate_name}-{version}/` with zero workspace or Cargo registry pollution.
 #[derive(Debug, Clone)]
 pub struct SourceStore {
     root: PathBuf,
     locks_dir: PathBuf,
-    cargo_cache_mirror: Option<PathBuf>,
 }
 
 impl SourceStore {
@@ -34,40 +36,14 @@ impl SourceStore {
         fs::create_dir_all(&locks_dir)
             .with_context(|| format!("Failed to create source locks dir at {:?}", locks_dir))?;
 
-        let cargo_cache_mirror = Self::resolve_cargo_cache_mirror(&root);
-
-        Ok(Self {
-            root,
-            locks_dir,
-            cargo_cache_mirror,
-        })
+        Ok(Self { root, locks_dir })
     }
 
-    /// If `root` is a Cargo registry `src/<index>` directory, resolves the matching `cache/<index>` dir once.
-    fn resolve_cargo_cache_mirror(root: &Path) -> Option<PathBuf> {
-        let index_name = root.file_name()?;
-        let src_dir = root.parent()?;
-        if src_dir.file_name()?.to_str()? != "src" {
-            return None;
-        }
-        let registry_dir = src_dir.parent()?;
-        let cache_dir = registry_dir.join("cache").join(index_name);
-        if cache_dir.is_dir() {
-            Some(cache_dir)
-        } else {
-            None
-        }
-    }
-
-    /// Default global store location: uses `~/.cargo/registry/src/index.crates.io-*` if present,
-    /// otherwise `$MITTS_CACHE_DIR/sources` or `~/.cache/mitts/sources`.
+    /// Default global store location: uses `$MITTS_CACHE_DIR/sources` or `~/.cache/mitts/sources`.
+    /// Never writes into `$CARGO_HOME/registry`.
     pub fn default_store() -> Result<Self> {
         if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
             return Self::new(PathBuf::from(val).join("sources"));
-        }
-
-        if let Some(cargo_src) = Self::discover_cargo_registry_src() {
-            return Self::new(cargo_src);
         }
 
         let base_dir = if let Ok(home) = std::env::var("HOME") {
@@ -79,45 +55,47 @@ impl SourceStore {
         Self::new(base_dir.join("sources"))
     }
 
-    /// Discovers active standard ~/.cargo/registry/src/index.crates.io-* directory if present.
+    /// Read-only discovery of active standard ~/.cargo/registry/src/index.crates.io-* directory if present.
     pub fn discover_cargo_registry_src() -> Option<PathBuf> {
-        let home = std::env::var("HOME").ok()?;
-        let reg_src = Path::new(&home).join(".cargo").join("registry").join("src");
+        let reg_src = if let Ok(ch) = std::env::var("CARGO_HOME") {
+            PathBuf::from(ch).join("registry").join("src")
+        } else {
+            let home = std::env::var("HOME").ok()?;
+            Path::new(&home).join(".cargo").join("registry").join("src")
+        };
         if reg_src.is_dir() {
             if let Ok(entries) = fs::read_dir(&reg_src) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("index.crates.io-") {
+                    if name.starts_with("index.crates.io-") && entry.path().is_dir() {
                         return Some(entry.path());
                     }
                 }
             }
-            let default_dir = reg_src.join("index.crates.io-1949cf8c6b5b557f");
-            let _ = fs::create_dir_all(&default_dir);
-            return Some(default_dir);
         }
         None
     }
 
-    /// Discovers active standard ~/.cargo/registry/cache/index.crates.io-* directory if present.
+    /// Read-only discovery of active standard ~/.cargo/registry/cache/index.crates.io-* directory if present.
     pub fn discover_cargo_registry_cache() -> Option<PathBuf> {
-        let home = std::env::var("HOME").ok()?;
-        let reg_cache = Path::new(&home)
-            .join(".cargo")
-            .join("registry")
-            .join("cache");
+        let reg_cache = if let Ok(ch) = std::env::var("CARGO_HOME") {
+            PathBuf::from(ch).join("registry").join("cache")
+        } else {
+            let home = std::env::var("HOME").ok()?;
+            Path::new(&home)
+                .join(".cargo")
+                .join("registry")
+                .join("cache")
+        };
         if reg_cache.is_dir() {
             if let Ok(entries) = fs::read_dir(&reg_cache) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("index.crates.io-") {
+                    if name.starts_with("index.crates.io-") && entry.path().is_dir() {
                         return Some(entry.path());
                     }
                 }
             }
-            let default_dir = reg_cache.join("index.crates.io-1949cf8c6b5b557f");
-            let _ = fs::create_dir_all(&default_dir);
-            return Some(default_dir);
         }
         None
     }
@@ -127,7 +105,7 @@ impl SourceStore {
         &self.root
     }
 
-    /// Locks directory used for single-flight download coordination.
+    /// Locks directory used for single-flight download coordination and atomic staging.
     pub fn locks_dir(&self) -> &Path {
         &self.locks_dir
     }
@@ -142,12 +120,87 @@ impl SourceStore {
         self.locks_dir.join(format!("{}-{}.lock", name, version))
     }
 
-    /// Checks whether the crate source is already unpacked and ready (single stat syscall).
+    /// Checks whether the crate source is already atomically unpacked and ready (`.mitts-ok` + `Cargo.toml`).
     pub fn has_source(&self, name: &str, version: &str) -> bool {
-        self.package_dir(name, version).join("Cargo.toml").is_file()
+        let dir = self.package_dir(name, version);
+        dir.join(MITTS_OK_MARKER).is_file() && dir.join("Cargo.toml").is_file()
     }
 
-    /// Unpacks a downloaded `.crate` (tar.gz) archive into the store after verifying its SHA-256 checksum.
+    fn next_staging_dir(&self, name: &str, version: &str, suffix: &str) -> PathBuf {
+        let seq = STAGING_SEQ.fetch_add(1, Ordering::Relaxed);
+        self.locks_dir.join(format!(
+            "{}-{}-{}-{}.{}",
+            name,
+            version,
+            std::process::id(),
+            seq,
+            suffix
+        ))
+    }
+
+    /// Atomically publishes `src_to_move` (inside `staging_root` on the same filesystem) to `{root}/{name}-{version}`.
+    fn publish_staged_dir(
+        &self,
+        name: &str,
+        version: &str,
+        staging_root: &Path,
+        src_to_move: &Path,
+    ) -> Result<PathBuf> {
+        let target_dir = self.package_dir(name, version);
+        if !src_to_move.join("Cargo.toml").is_file() {
+            let _ = fs::remove_dir_all(staging_root);
+            bail!(
+                "Extracted crate {}-{} is missing Cargo.toml in {:?}",
+                name,
+                version,
+                target_dir
+            );
+        }
+
+        if let Err(e) = fs::write(src_to_move.join(MITTS_OK_MARKER), b"ok\n") {
+            let _ = fs::remove_dir_all(staging_root);
+            return Err(e).with_context(|| {
+                format!("Failed to write {} in {:?}", MITTS_OK_MARKER, src_to_move)
+            });
+        }
+
+        if self.has_source(name, version) {
+            let _ = fs::remove_dir_all(staging_root);
+            return Ok(target_dir);
+        }
+
+        // If an incomplete/legacy directory exists without `.mitts-ok`, move it aside atomically before rename.
+        if target_dir.exists() && !self.has_source(name, version) {
+            let trash_dir = self.next_staging_dir(name, version, "trash");
+            if fs::rename(&target_dir, &trash_dir).is_ok() {
+                let _ = fs::remove_dir_all(&trash_dir);
+            }
+        }
+
+        match fs::rename(src_to_move, &target_dir) {
+            Ok(()) => {
+                if src_to_move != staging_root {
+                    let _ = fs::remove_dir_all(staging_root);
+                }
+                Ok(target_dir)
+            }
+            Err(e) => {
+                let _ = fs::remove_dir_all(staging_root);
+                if self.has_source(name, version) {
+                    return Ok(target_dir);
+                }
+                Err(e).with_context(|| {
+                    format!(
+                        "Failed to atomically publish crate {}-{} to {:?}",
+                        name, version, target_dir
+                    )
+                })
+            }
+        }
+    }
+
+    /// Unpacks a downloaded `.crate` (tar.gz) archive into a staging directory after verifying its
+    /// SHA-256 checksum, writes `.mitts-ok`, and atomically renames it into the store.
     pub fn unpack_archive(
         &self,
         name: &str,
@@ -173,21 +226,7 @@ impl SourceStore {
             return Ok(target_dir);
         }
 
-        if let Some(ref cargo_cache) = self.cargo_cache_mirror {
-            let crate_archive = cargo_cache.join(format!("{}-{}.crate", name, version));
-            if !crate_archive.is_file() {
-                let _ = fs::write(&crate_archive, archive_bytes);
-            }
-        }
-
-        let seq = STAGING_SEQ.fetch_add(1, Ordering::Relaxed);
-        let staging_dir = self.locks_dir.join(format!(
-            "{}-{}-{}-{}.staging",
-            name,
-            version,
-            std::process::id(),
-            seq
-        ));
+        let staging_dir = self.next_staging_dir(name, version, "staging");
         fs::create_dir_all(&staging_dir)
             .with_context(|| format!("Failed to create staging dir {:?}", staging_dir))?;
 
@@ -205,7 +244,6 @@ impl SourceStore {
             });
         }
 
-        // Standard .crate archive has a root directory matching `{name}-{version}`
         let nested_dir = staging_dir.join(format!("{}-{}", name, version));
         let src_to_move = if nested_dir.join("Cargo.toml").is_file() {
             nested_dir
@@ -213,34 +251,29 @@ impl SourceStore {
             staging_dir.clone()
         };
 
-        if target_dir.exists() {
-            let _ = fs::remove_dir_all(&target_dir);
+        self.publish_staged_dir(name, version, &staging_dir, &src_to_move)
+    }
+
+    /// Stages a copy of an existing unpacked crate directory on the store's filesystem,
+    /// writes `.mitts-ok`, and atomically renames it into `{root}/{name}-{version}`.
+    pub fn stage_copy_dir(&self, name: &str, version: &str, src_dir: &Path) -> Result<PathBuf> {
+        let target_dir = self.package_dir(name, version);
+        if self.has_source(name, version) {
+            return Ok(target_dir);
         }
 
-        if let Err(e) = fs::rename(&src_to_move, &target_dir) {
-            // Fallback: cross-device or permission copy
-            Self::copy_dir_recursive(&src_to_move, &target_dir).with_context(|| {
-                format!(
-                    "Failed to move unpacked crate to destination {:?}: {}",
-                    target_dir, e
-                )
-            })?;
-        }
-
-        if fs::remove_dir(&staging_dir).is_err() {
+        let staging_dir = self.next_staging_dir(name, version, "staging");
+        if let Err(e) = Self::copy_dir_recursive(src_dir, &staging_dir) {
             let _ = fs::remove_dir_all(&staging_dir);
+            return Err(e).with_context(|| {
+                format!(
+                    "Failed to stage copy from {:?} to {:?}",
+                    src_dir, staging_dir
+                )
+            });
         }
 
-        if !self.has_source(name, version) {
-            bail!(
-                "Extracted crate {}-{} is missing Cargo.toml in {:?}",
-                name,
-                version,
-                target_dir
-            );
-        }
-
-        Ok(target_dir)
+        self.publish_staged_dir(name, version, &staging_dir, &staging_dir)
     }
 
     /// Recursively copies a directory to the destination.
@@ -260,7 +293,7 @@ impl SourceStore {
     }
 }
 
-/// Pre-resolved local Cargo registry index directories to avoid per-crate `read_dir` syscalls.
+/// Pre-resolved local Cargo registry index directories (strictly read-only).
 pub struct RegistryLookup {
     cache_index_dirs: Vec<PathBuf>,
     src_index_dirs: Vec<PathBuf>,
@@ -271,12 +304,8 @@ impl RegistryLookup {
         let mut reg_roots = Vec::new();
         if let Ok(ch) = std::env::var("CARGO_HOME") {
             reg_roots.push(PathBuf::from(ch).join("registry"));
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            let p = PathBuf::from(home).join(".cargo").join("registry");
-            if !reg_roots.contains(&p) {
-                reg_roots.push(p);
-            }
+        } else if let Ok(home) = std::env::var("HOME") {
+            reg_roots.push(PathBuf::from(home).join(".cargo").join("registry"));
         }
 
         let mut cache_index_dirs = Vec::new();
@@ -320,6 +349,6 @@ impl RegistryLookup {
         self.src_index_dirs
             .iter()
             .map(|dir| dir.join(&dir_name))
-            .find(|c| c.join("Cargo.toml").is_file())
+            .find(|c| c.join("Cargo.toml").is_file() && c.join(".cargo-ok").is_file())
     }
 }

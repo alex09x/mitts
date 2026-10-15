@@ -115,6 +115,7 @@ fn test_m8_source_store_has_source_and_locks() {
         "[package]\nname=\"existing-pkg\"\n",
     )
     .unwrap();
+    fs::write(pkg_dir.join(".mitts-ok"), "ok\n").unwrap();
 
     assert!(store.has_source("existing-pkg", "1.0.0"));
     assert!(!store.has_source("nonexistent-pkg", "1.0.0"));

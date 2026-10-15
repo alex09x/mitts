@@ -128,6 +128,7 @@ fn test_m8_fetcher_fetch_all_multi_package_parallel() {
             format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\nedition = \"2021\"\n"),
         )
         .unwrap();
+        fs::write(pkg_dir.join(".cargo-ok"), "{\"v\":1}").unwrap();
         fs::write(pkg_dir.join("src/lib.rs"), "pub fn ok() {}\n").unwrap();
     }
 

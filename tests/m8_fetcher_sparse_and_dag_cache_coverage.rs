@@ -81,6 +81,7 @@ fn test_m8_fetcher_offline_error_and_cached_accounting() {
         "[package]\nname = \"cached-crate\"\nversion = \"2.0.0\"\n",
     )
     .unwrap();
+    fs::write(pkg_dir.join(".mitts-ok"), "ok\n").unwrap();
 
     let cached_pkg = CargoLockPackage {
         name: "cached-crate".to_string(),

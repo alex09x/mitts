@@ -31,6 +31,10 @@ fn test_m8_source_store_has_source_and_missing() {
         "[package]\nname = \"nonexistent\"\nversion = \"1.0.0\"",
     )
     .unwrap();
+    // Cargo.toml without .mitts-ok marker is treated as incomplete
+    assert!(!store.has_source("nonexistent", "1.0.0"));
+
+    fs::write(pkg_dir.join(".mitts-ok"), "ok\n").unwrap();
     assert!(store.has_source("nonexistent", "1.0.0"));
 }
 
@@ -111,19 +115,32 @@ fn test_m8_source_store_flat_archive_and_copy_dir_recursive() {
 fn test_m8_source_store_discover_cargo_registry_paths() {
     let tmp = TempDir::new().unwrap();
     let fake_home = tmp.path().join("home");
-    let fake_reg_src = fake_home.join(".cargo").join("registry").join("src");
-    let fake_reg_cache = fake_home.join(".cargo").join("registry").join("cache");
+    let fake_reg_src = fake_home
+        .join(".cargo")
+        .join("registry")
+        .join("src")
+        .join("index.crates.io-1949cf8c6b5b557f");
+    let fake_reg_cache = fake_home
+        .join(".cargo")
+        .join("registry")
+        .join("cache")
+        .join("index.crates.io-1949cf8c6b5b557f");
     fs::create_dir_all(&fake_reg_src).unwrap();
     fs::create_dir_all(&fake_reg_cache).unwrap();
 
     let old_home = std::env::var("HOME").ok();
+    let old_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", fake_home.to_str().unwrap());
 
     let src_found = SourceStore::discover_cargo_registry_src();
-    assert!(src_found.is_some());
+    assert_eq!(src_found, Some(fake_reg_src));
     let cache_found = SourceStore::discover_cargo_registry_cache();
-    assert!(cache_found.is_some());
+    assert_eq!(cache_found, Some(fake_reg_cache));
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }
