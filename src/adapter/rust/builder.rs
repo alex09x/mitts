@@ -69,11 +69,27 @@ pub fn compute_options_hash(
 pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
+    let _ = std::fs::create_dir_all(&target_dir);
+    let _ = std::fs::write(target_dir.join(".mitts-target"), "mitts-target-v1\n");
     let clean_lock_path = target_dir
         .parent()
         .unwrap_or(&target_dir)
         .join(".mitts-clean.lock");
     let _clean_guard = crate::core::lock::FileLock::acquire_shared(&clean_lock_path).ok();
+    let cas_root = opt.cache_dir.as_ref().map_or_else(
+        || {
+            crate::core::cas::ContentAddressedStore::default_store()
+                .ok()
+                .map(|c| c.root().to_path_buf())
+        },
+        |cd| Some(cd.join("cas")),
+    );
+    let _gc_lease = cas_root.as_ref().and_then(|cr| {
+        crate::core::lock::FileLock::acquire_shared(
+            &crate::core::gc::CacheGc::gc_lock_path_for_cas_root(cr),
+        )
+        .ok()
+    });
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let log_path = target_dir.join("build.log");
     let mut logger = BuildLogger::new(Some(log_path));

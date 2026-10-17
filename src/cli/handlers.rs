@@ -171,39 +171,38 @@ pub fn handle_fetch(args: &FetchArgs) -> i32 {
     }
 }
 
-pub fn handle_gc(args: &GcArgs) -> i32 {
-    let cas = match args
-        .cache_dir
-        .as_ref()
-        .map_or_else(ContentAddressedStore::default_store, |cd| {
-            ContentAddressedStore::new(cd.join("cas"))
-        }) {
-        Ok(s) => s,
-        Err(e) => {
-            Ui::report_error(&e);
-            return 1;
-        }
-    };
-    let ac = match args
-        .cache_dir
-        .as_ref()
-        .map_or_else(ActionCache::default_cache, |cd| {
-            ActionCache::new(cd.join("ac"))
-        }) {
-        Ok(c) => c,
-        Err(e) => {
-            Ui::report_error(&e);
-            return 1;
-        }
-    };
+fn open_cas_and_ac(
+    cache_dir: Option<&std::path::PathBuf>,
+) -> anyhow::Result<(ContentAddressedStore, ActionCache)> {
+    let cas = cache_dir.map_or_else(ContentAddressedStore::default_store, |cd| {
+        ContentAddressedStore::new(cd.join("cas"))
+    })?;
+    let ac = cache_dir.map_or_else(ActionCache::default_cache, |cd| {
+        ActionCache::new(cd.join("ac"))
+    })?;
+    Ok((cas, ac))
+}
 
-    let gc = CacheGc::new(&cas, &ac);
+pub fn handle_gc(args: &GcArgs) -> i32 {
+    let (cas, ac) = match open_cas_and_ac(args.cache_dir.as_ref()) {
+        Ok(pair) => pair,
+        Err(e) => {
+            Ui::report_error(&e);
+            return 1;
+        }
+    };
     let opts = GcOptions {
         max_bytes: args.max_bytes,
         max_age: args.max_age_secs.map(std::time::Duration::from_secs),
     };
-
-    match gc.prune(&opts) {
+    match CacheGc::new(&cas, &ac).prune(&opts) {
+        Ok(report) if report.skipped_active_build => {
+            println!(
+                "mitts: GC skipped — active build lease held ({} bytes retained)",
+                report.bytes_retained
+            );
+            0
+        }
         Ok(report) => {
             println!(
                 "mitts: GC completed — {} examined, {} pruned ({} bytes freed, {} bytes retained)",
@@ -224,6 +223,7 @@ pub fn handle_gc(args: &GcArgs) -> i32 {
 pub fn handle_clean(args: &CleanArgs) -> i32 {
     let opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
+        target_dir: args.target_dir.clone(),
         ..Default::default()
     };
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
@@ -234,26 +234,52 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         }
     };
     let project_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
-    let mitts_dir = if let Some(ref td) = args.target_dir {
-        if td.file_name().is_some_and(|n| n == "mitts")
-            || td.join("build.log").exists()
-            || !td.join("mitts").exists()
-        {
-            td.clone()
-        } else {
-            td.join("mitts")
+    let mitts_dir = match RustAdapter::resolve_target_dir(&manifest_path, &opt) {
+        Ok(d) => d,
+        Err(err) => {
+            Ui::report_error(&err);
+            return 1;
         }
-    } else if let Some(cargo_td) =
-        std::env::var_os("CARGO_TARGET_DIR").map(std::path::PathBuf::from)
-    {
-        if cargo_td.file_name().is_some_and(|n| n == "mitts") {
-            cargo_td
-        } else {
-            cargo_td.join("mitts")
-        }
-    } else {
-        project_dir.join("target").join("mitts")
     };
+    let ws_root = crate::adapter::rust::compiler_resolve::find_workspace_root(&manifest_path);
+    let mitts_abs = if mitts_dir.is_absolute() {
+        mitts_dir.clone()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(&mitts_dir)
+    };
+    let mitts_c = mitts_abs.canonicalize().unwrap_or(mitts_abs);
+    let proj_c = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let ws_c = ws_root.canonicalize().unwrap_or(ws_root);
+    let home_c = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .map(|p| p.canonicalize().unwrap_or(p));
+    if mitts_c == std::path::Path::new("/")
+        || home_c.as_ref().is_some_and(|h| mitts_c == *h)
+        || proj_c.starts_with(&mitts_c)
+        || ws_c.starts_with(&mitts_c)
+    {
+        eprintln!(
+            "mitts error: refusing to clean unsafe target directory: {}",
+            mitts_dir.display()
+        );
+        return 1;
+    }
+    if mitts_dir.exists() {
+        let has_marker = mitts_dir.join(".mitts-target").is_file()
+            || (args.target_dir.is_none()
+                && (mitts_dir.join("build.log").is_file()
+                    || mitts_dir.join("build-dev.lock").is_file()
+                    || mitts_dir.join("build-release.lock").is_file()));
+        if !has_marker {
+            eprintln!(
+                "mitts error: refusing to clean unowned directory without Mitts marker (.mitts-target): {}",
+                mitts_dir.display()
+            );
+            return 1;
+        }
+    }
     let legacy_mitts_dir = project_dir.join(".mitts");
 
     Ui::header("clean");
@@ -277,40 +303,32 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
             "test-release",
         ]
     };
+    if args.release && mitts_dir.exists() {
+        let _ = std::fs::write(mitts_dir.join(".mitts-target"), "mitts-target-v1\n");
+    }
     for profile in profiles {
         let _ = std::fs::remove_file(FastBuildLock::lock_path_in_target(&mitts_dir, profile));
     }
+    let badge = Ui::badge_cached();
     if args.release {
-        Ui::stage_item(
-            true,
-            &Ui::badge_cached(),
-            "Removed fast build lock (release)",
-        );
+        Ui::stage_item(true, &badge, "Removed fast build lock (release)");
     } else {
         let _ = std::fs::remove_file(legacy_mitts_dir.join("build.lock"));
-        Ui::stage_item(true, &Ui::badge_cached(), "Removed fast build locks");
+        Ui::stage_item(true, &badge, "Removed fast build locks");
     }
-    for log_file in [
-        mitts_dir.join("build.log"),
-        legacy_mitts_dir.join("build.log"),
-    ] {
-        let _ = std::fs::remove_file(log_file);
-    }
+    let _ = std::fs::remove_file(mitts_dir.join("build.log"));
+    let _ = std::fs::remove_file(legacy_mitts_dir.join("build.log"));
 
     if args.release {
         let rel_dir = mitts_dir.join("release");
         if rel_dir.exists() {
             let _ = std::fs::remove_dir_all(&rel_dir);
-            Ui::stage_item(
-                true,
-                &Ui::badge_cached(),
-                "Removed target/mitts/release directory",
-            );
+            Ui::stage_item(true, &badge, "Removed target/mitts/release directory");
         }
     } else {
         if mitts_dir.exists() {
             let _ = std::fs::remove_dir_all(&mitts_dir);
-            Ui::stage_item(true, &Ui::badge_cached(), "Removed target/mitts directory");
+            Ui::stage_item(true, &badge, "Removed target/mitts directory");
         }
         if legacy_mitts_dir.exists() {
             let _ = std::fs::remove_dir_all(&legacy_mitts_dir);
@@ -322,36 +340,17 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     }
 
     if args.cache {
-        let cas = args
-            .cache_dir
-            .as_ref()
-            .map_or_else(ContentAddressedStore::default_store, |cd| {
-                ContentAddressedStore::new(cd.join("cas"))
-            });
-        let ac = args
-            .cache_dir
-            .as_ref()
-            .map_or_else(ActionCache::default_cache, |cd| {
-                ActionCache::new(cd.join("ac"))
-            });
-        if let (Ok(cas), Ok(ac)) = (cas, ac) {
+        if let Ok((cas, ac)) = open_cas_and_ac(args.cache_dir.as_ref()) {
             let _ = CacheGc::new(&cas, &ac).prune(&GcOptions {
                 max_bytes: Some(0),
                 max_age: None,
             });
-            Ui::stage_item(
-                true,
-                &Ui::badge_cached(),
-                "Pruned global CAS and Action Cache",
-            );
+            Ui::stage_item(true, &badge, "Pruned global CAS and Action Cache");
         }
     }
 
-    Ui::finish(
-        "clean",
-        "ok",
-        &format!("workspace: {}", project_dir.display()),
-    );
+    let ws_msg = format!("workspace: {}", project_dir.display());
+    Ui::finish("clean", "ok", &ws_msg);
     0
 }
 
@@ -374,9 +373,8 @@ fn is_stray_tmp_link_file(entry: &std::fs::DirEntry) -> bool {
     if !name.starts_with('.') || !name.contains(".tmp_link.") {
         return false;
     }
-    let parts: Vec<&str> = name.rsplitn(3, '.').collect();
-    parts
-        .get(1)
+    name.rsplit('.')
+        .nth(1)
         .and_then(|p| p.parse::<u32>().ok())
         .is_some_and(is_pid_stale)
 }

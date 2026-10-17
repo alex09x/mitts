@@ -178,37 +178,70 @@ pub fn handle_fmt(args: &FmtArgs) -> i32 {
         }
     };
     if args.all {
-        let mut extra_dirs = Vec::new();
-        let mut scan_deps =
+        let mut queue = std::collections::VecDeque::new();
+        let mut visited_dirs = std::collections::HashSet::new();
+        for (_, m_dir) in &members {
+            visited_dirs.insert(m_dir.canonicalize().unwrap_or_else(|_| m_dir.clone()));
+            queue.push_back(m_dir.clone());
+        }
+        let enqueue_deps =
             |base: &Path,
-             deps: &HashMap<String, crate::adapter::rust::manifest::TomlDependency>| {
+             deps: &HashMap<String, crate::adapter::rust::manifest::TomlDependency>,
+             queue: &mut std::collections::VecDeque<PathBuf>,
+             visited: &mut std::collections::HashSet<PathBuf>| {
                 for dep in deps.values() {
                     if let crate::adapter::rust::manifest::TomlDependency::Detailed(ref d) = dep {
                         if let Some(ref rel) = d.path {
                             let dep_dir = base.join(rel);
                             if dep_dir.join("Cargo.toml").is_file() {
-                                extra_dirs.push(dep_dir);
+                                let canon =
+                                    dep_dir.canonicalize().unwrap_or_else(|_| dep_dir.clone());
+                                if visited.insert(canon) {
+                                    queue.push_back(dep_dir);
+                                }
                             }
                         }
                     }
                 }
             };
         if let Some(ref ws) = root_toml.workspace {
-            scan_deps(project_dir, &ws.dependencies);
+            enqueue_deps(project_dir, &ws.dependencies, &mut queue, &mut visited_dirs);
         }
-        for (_, m_dir) in &members {
-            if let Ok(t) = CargoToml::from_file(&m_dir.join("Cargo.toml")) {
-                scan_deps(m_dir, &t.dependencies);
-                scan_deps(m_dir, &t.dev_dependencies);
-                scan_deps(m_dir, &t.build_dependencies);
+        while let Some(dir) = queue.pop_front() {
+            let m_path = dir.join("Cargo.toml");
+            let t = match CargoToml::from_file(&m_path) {
+                Ok(t) => t,
+                Err(err) => {
+                    Ui::report_error(&err);
+                    return 1;
+                }
+            };
+            enqueue_deps(&dir, &t.dependencies, &mut queue, &mut visited_dirs);
+            enqueue_deps(&dir, &t.dev_dependencies, &mut queue, &mut visited_dirs);
+            enqueue_deps(&dir, &t.build_dependencies, &mut queue, &mut visited_dirs);
+            for target_cfg in t.target.values() {
+                enqueue_deps(
+                    &dir,
+                    &target_cfg.dependencies,
+                    &mut queue,
+                    &mut visited_dirs,
+                );
+                enqueue_deps(
+                    &dir,
+                    &target_cfg.dev_dependencies,
+                    &mut queue,
+                    &mut visited_dirs,
+                );
+                enqueue_deps(
+                    &dir,
+                    &target_cfg.build_dependencies,
+                    &mut queue,
+                    &mut visited_dirs,
+                );
             }
-        }
-        for dep_dir in extra_dirs {
-            if let Ok(t) = CargoToml::from_file(&dep_dir.join("Cargo.toml")) {
-                if let Some(pkg) = t.package {
-                    if !members.iter().any(|(n, _)| n == &pkg.name) {
-                        members.push((pkg.name, dep_dir));
-                    }
+            if let Some(pkg) = t.package {
+                if !members.iter().any(|(n, _)| n == &pkg.name) {
+                    members.push((pkg.name, dir));
                 }
             }
         }
@@ -222,7 +255,13 @@ pub fn handle_fmt(args: &FmtArgs) -> i32 {
             }
         }
         let m_path = member_dir.join("Cargo.toml");
-        let toml = CargoToml::from_file(&m_path).unwrap_or_default();
+        let toml = match CargoToml::from_file(&m_path) {
+            Ok(t) => t,
+            Err(err) => {
+                Ui::report_error(&err);
+                return 1;
+            }
+        };
         let pkg_edition = toml
             .package
             .as_ref()

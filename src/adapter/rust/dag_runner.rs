@@ -38,6 +38,10 @@ pub fn run_native_dag_build(
         Some(ref cd) => ActionCache::new(cd.join("ac"))?,
         None => ActionCache::default_cache()?,
     };
+    let _gc_lease = crate::core::lock::FileLock::acquire_shared(
+        &crate::core::gc::CacheGc::gc_lock_path_for_cas_root(cas.root()),
+    )
+    .ok();
 
     let dag = CompilationDag::from_explanation(explanation)?;
     let _ = dag.topological_waves()?;
@@ -73,6 +77,7 @@ pub fn run_native_dag_build(
 
     let target_dir = explanation.target_directory.clone();
     fs::create_dir_all(&target_dir)?;
+    let _ = fs::write(target_dir.join(".mitts-target"), "mitts-target-v1\n");
 
     let profile_name = if opt.release { "release" } else { "debug" };
     let target_index = Arc::new(Mutex::new(crate::core::TargetArtifactIndex::load(

@@ -180,12 +180,12 @@ pub fn compute_unit_flags_with_ws(
     release: bool,
     ws_root: Option<&Path>,
 ) -> anyhow::Result<Vec<String>> {
-    let is_host = unit.for_host
-        || matches!(
-            unit.kind.as_str(),
-            "proc-macro" | "custom-build" | "build-script"
-        );
-    let is_primary_target = unit.is_primary && (!unit.for_host || unit.kind == "proc-macro");
+    let is_host_kind = matches!(
+        unit.kind.as_str(),
+        "proc-macro" | "custom-build" | "build-script"
+    );
+    let is_host = unit.for_host || is_host_kind;
+    let is_primary_target = unit.is_primary && (!unit.for_host || is_host_kind);
     let mut u_flags = Vec::new();
     let mut i = 0;
     while i < effective_flags.len() {

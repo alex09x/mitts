@@ -108,10 +108,15 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("rlib");
+            let disambig = if ext == "rmeta" {
+                format!("{action_key}-m")
+            } else {
+                action_key.to_string()
+            };
             let named = ctx.cas.named_artifact_path_with_disambiguator(
                 &unit.target_name,
                 &hash,
-                action_key,
+                &disambig,
                 ext,
             )?;
 

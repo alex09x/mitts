@@ -127,8 +127,10 @@ impl RustAdapter {
         };
 
         // Ensure target directory has CACHEDIR.TAG and .gitignore so IDEs/tools treat it as build cache
-        if let Some(parent) = target_dir.parent() {
-            let _ = Self::ensure_target_dir_tags(parent);
+        if opt.target_dir.is_none() {
+            if let Some(parent) = target_dir.parent() {
+                let _ = Self::ensure_target_dir_tags(parent);
+            }
         }
 
         Ok(target_dir)

@@ -75,7 +75,6 @@ pub fn try_restore_from_cache_with_directives(
     if !ctx.is_cache_enabled || action_key.contains(":unhashable:") {
         return Ok(false);
     }
-
     let is_mutable = super::unit_inputs::is_mutable_unit(unit);
     let ws_root = if is_mutable {
         Some(super::compiler::find_workspace_root(&unit.manifest_path))
@@ -86,13 +85,11 @@ pub fn try_restore_from_cache_with_directives(
         .as_ref()
         .map(|r| crate::core::hash::Sha256::digest(r.to_string_lossy().as_bytes()));
 
-    // 1. Resolve candidate action keys (manifest match or direct key)
     let mut candidate_keys = Vec::new();
     if is_mutable {
         if let Ok(Some(manifest)) = ctx.ac.get_manifest(action_key) {
             let has_build = super::unit_env::unit_has_build_script(unit);
             if has_build && current_directives.is_none() {
-                // Fail-closed: unit with build.rs cannot be restored from manifest without current run directives
                 return Ok(false);
             }
             let mut unit_env = super::unit_env::compute_unit_rustc_env_with_target(
@@ -286,10 +283,22 @@ pub fn try_restore_from_cache_with_directives(
                 }
 
                 if matches!(ext, "rlib" | "dylib" | "so" | "rmeta") {
+                    let is_meta_only = ext == "rmeta"
+                        && !entry.outputs.iter().any(|o| {
+                            matches!(
+                                o.relative_path.extension().and_then(|e| e.to_str()),
+                                Some("rlib" | "dylib" | "so")
+                            )
+                        });
+                    let disambig = if is_meta_only {
+                        format!("{action_key}-m")
+                    } else {
+                        action_key.to_string()
+                    };
                     let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
                         &unit.target_name,
                         &out.cas_hash,
-                        action_key,
+                        &disambig,
                         ext,
                     ) else {
                         return Ok(false);

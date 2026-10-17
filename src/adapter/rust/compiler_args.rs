@@ -37,8 +37,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     };
     let edition = inv.unit.edition.as_deref().unwrap_or("2015");
     let short_key = &inv.action_key[..inv.action_key.len().min(16)];
-    let is_primary_target =
-        inv.unit.is_primary && (!inv.unit.for_host || inv.unit.kind == "proc-macro");
+    let is_host_kind = matches!(
+        inv.unit.kind.as_str(),
+        "proc-macro" | "custom-build" | "build-script"
+    );
+    let is_primary_target = inv.unit.is_primary && (!inv.unit.for_host || is_host_kind);
     let compiler_bin = if inv.mode == BuildMode::Clippy && is_primary_target {
         resolve_clippy_driver()
     } else {
@@ -79,11 +82,12 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     cmd.arg(&actual_src);
     cmd.args(["--edition", edition]);
 
-    let is_bin = inv.unit.kind == "bin";
+    let is_build_script = matches!(inv.unit.kind.as_str(), "custom-build" | "build-script");
+    let is_bin = inv.unit.kind == "bin" || is_build_script;
     let is_test = inv.unit.kind == "test" || inv.unit.kind == "custom-test";
     let is_proc_macro = inv.unit.kind == "proc-macro";
-    let is_check_only =
-        (inv.mode == BuildMode::Check || inv.mode == BuildMode::Clippy) && !inv.unit.for_host;
+    let is_check_only = (inv.mode == BuildMode::Check || inv.mode == BuildMode::Clippy)
+        && (!inv.unit.for_host || (inv.mode == BuildMode::Clippy && is_build_script));
 
     let meta_arg = format!("metadata={short_key}");
     let extra_fn_arg = format!("extra-filename=-{short_key}");

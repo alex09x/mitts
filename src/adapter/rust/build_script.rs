@@ -21,6 +21,30 @@ pub use super::build_script_directives::{
     compute_build_script_key, detect_default_target_triple, get_target_cfgs, BuildScriptDirectives,
 };
 
+/// Resolves the path to a compilation unit's `build.rs` script if present and enabled.
+pub fn resolve_build_script_path(unit: &PlannedCompilationUnit) -> Option<PathBuf> {
+    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
+    let build_rs = match pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()) {
+        Some(TomlBuild::Disabled(false)) => return None,
+        Some(TomlBuild::Path(ref rel_p)) => pkg_dir.join(rel_p),
+        _ => {
+            let standard = pkg_dir.join("build.rs");
+            if standard.is_file() {
+                standard
+            } else {
+                let nested = pkg_dir.join("build").join("build.rs");
+                if nested.is_file() {
+                    nested
+                } else {
+                    return None;
+                }
+            }
+        }
+    };
+    build_rs.is_file().then_some(build_rs)
+}
+
 /// Executes a crate's `build.rs` build script in an isolated sandbox with CAS caching.
 pub fn execute_build_script(
     unit: &PlannedCompilationUnit,
@@ -33,26 +57,9 @@ pub fn execute_build_script(
 ) -> Result<BuildScriptDirectives> {
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
-    let build_rs = match pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()) {
-        Some(TomlBuild::Disabled(false)) => return Ok(BuildScriptDirectives::default()),
-        Some(TomlBuild::Path(ref rel_p)) => pkg_dir.join(rel_p),
-        _ => {
-            let standard = pkg_dir.join("build.rs");
-            if standard.is_file() {
-                standard
-            } else {
-                let nested = pkg_dir.join("build").join("build.rs");
-                if nested.is_file() {
-                    nested
-                } else {
-                    return Ok(BuildScriptDirectives::default());
-                }
-            }
-        }
-    };
-    if !build_rs.is_file() {
+    let Some(build_rs) = resolve_build_script_path(unit) else {
         return Ok(BuildScriptDirectives::default());
-    }
+    };
 
     let target = detect_default_target_triple();
 
