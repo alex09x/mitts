@@ -54,17 +54,22 @@ impl FastBuildLock {
         options_hash: Option<&str>,
         require_complete_inputs: bool,
     ) -> FreshnessResult {
-        let path = target_dir
-            .map(|td| Self::lock_path_in_target(td, args.profile))
-            .unwrap_or_else(|| Self::lock_path(args.project_dir, args.profile));
-        let Ok(data) = fs::read(&path) else {
-            return FreshnessResult::Stale("No build.lock found".to_string());
-        };
+        Self::check_freshness_with_runtime_context(
+            args,
+            target_dir,
+            options_hash,
+            require_complete_inputs,
+        )
+        .0
+    }
 
-        let Ok(lock): Result<Self, _> = serde_json::from_slice(&data) else {
-            return FreshnessResult::Stale("Failed to parse build.lock".to_string());
-        };
-
+    pub(crate) fn validate_parsed_lock(
+        &self,
+        args: &FreshnessCheckArgs<'_>,
+        options_hash: Option<&str>,
+        require_complete_inputs: bool,
+    ) -> FreshnessResult {
+        let lock = self;
         if require_complete_inputs && !lock.has_complete_inputs {
             return FreshnessResult::Stale("Incomplete tracked inputs in build.lock".to_string());
         }
@@ -107,7 +112,6 @@ impl FastBuildLock {
             }
         }
 
-        // Check tracked extra files (include_str!, include_bytes!, #[path], rerun-if-changed)
         for (file_path, expected_hash) in &lock.tracked_extra_files {
             let full_p = args.project_dir.join(file_path);
             if expected_hash == "<missing>" {
@@ -139,7 +143,6 @@ impl FastBuildLock {
             }
         }
 
-        // Check Cargo.lock
         if let Some(ref lock_snap) = lock.cargo_lock {
             let full_p = args.project_dir.join(&lock_snap.relative_path);
             let Ok(meta) = fs::metadata(&full_p) else {
@@ -156,7 +159,6 @@ impl FastBuildLock {
             }
         }
 
-        // Check Cargo.toml manifests
         for man_snap in &lock.manifests {
             let full_p = args.project_dir.join(&man_snap.relative_path);
             let Ok(meta) = fs::metadata(&full_p) else {
@@ -179,7 +181,6 @@ impl FastBuildLock {
             }
         }
 
-        // Check source and asset files
         for src_snap in &lock.sources {
             let full_p = args.project_dir.join(&src_snap.relative_path);
             let Ok(meta) = fs::metadata(&full_p) else {
@@ -210,7 +211,6 @@ impl FastBuildLock {
             }
         }
 
-        // Check directories for added/removed files
         for dir_snap in &lock.directories {
             let full_p = args.project_dir.join(&dir_snap.relative_path);
             let Ok(meta) = fs::metadata(&full_p) else {
@@ -228,7 +228,6 @@ impl FastBuildLock {
             }
         }
 
-        // Check outputs
         for out_snap in &lock.outputs {
             let full_p = args.project_dir.join(&out_snap.relative_path);
             let Ok(meta) = fs::metadata(&full_p) else {
@@ -261,8 +260,8 @@ impl FastBuildLock {
 
         FreshnessResult::Fresh {
             action_count: lock.action_count,
-            root_binary: lock.root_binary,
-            stderr: lock.stderr,
+            root_binary: lock.root_binary.clone(),
+            stderr: lock.stderr.clone(),
         }
     }
 

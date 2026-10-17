@@ -128,20 +128,21 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         )
     {
         let lock_start = std::time::Instant::now();
-        let freshness = FastBuildLock::check_freshness_with_options(
-            &FreshnessCheckArgs {
-                project_dir,
-                profile,
-                package: &opt.package,
-                features: &opt.features,
-                no_default_features: opt.no_default_features,
-                all_features: opt.all_features,
-                toolchain_version: &toolchain.version,
-            },
-            Some(&target_dir),
-            Some(&options_hash),
-            true,
-        );
+        let (freshness, root_env, root_link_args) =
+            FastBuildLock::check_freshness_with_runtime_context(
+                &FreshnessCheckArgs {
+                    project_dir,
+                    profile,
+                    package: &opt.package,
+                    features: &opt.features,
+                    no_default_features: opt.no_default_features,
+                    all_features: opt.all_features,
+                    toolchain_version: &toolchain.version,
+                },
+                Some(&target_dir),
+                Some(&options_hash),
+                true,
+            );
 
         match freshness {
             FreshnessResult::Fresh {
@@ -175,11 +176,6 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                     }
                 }
 
-                let (root_env, root_link_args) = FastBuildLock::load_root_binary_runtime_context(
-                    project_dir,
-                    Some(&target_dir),
-                    profile,
-                );
                 let mut actions = Vec::new();
                 if let Some(ref bin) = root_binary {
                     actions.push(Action {

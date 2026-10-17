@@ -112,20 +112,34 @@ pub struct RecordStateOptions<'a> {
 }
 
 impl FastBuildLock {
-    pub fn load_root_binary_runtime_context(
-        project_dir: &Path,
+    pub fn check_freshness_with_runtime_context(
+        args: &FreshnessCheckArgs<'_>,
         target_dir: Option<&Path>,
-        profile: &str,
-    ) -> (std::collections::HashMap<String, String>, Vec<String>) {
-        let lock_path = target_dir
-            .map(|td| Self::lock_path_in_target(td, profile))
-            .unwrap_or_else(|| Self::lock_path(project_dir, profile));
-        let Ok(bytes) = std::fs::read(&lock_path) else {
-            return Default::default();
+        options_hash: Option<&str>,
+        require_complete_inputs: bool,
+    ) -> (
+        FreshnessResult,
+        std::collections::HashMap<String, String>,
+        Vec<String>,
+    ) {
+        let path = target_dir
+            .map(|td| Self::lock_path_in_target(td, args.profile))
+            .unwrap_or_else(|| Self::lock_path(args.project_dir, args.profile));
+        let Ok(data) = std::fs::read(&path) else {
+            return (
+                FreshnessResult::Stale("No build.lock found".to_string()),
+                Default::default(),
+                Vec::new(),
+            );
         };
-        let Ok(lock): Result<Self, _> = serde_json::from_slice(&bytes) else {
-            return Default::default();
+        let Ok(lock): Result<Self, _> = serde_json::from_slice(&data) else {
+            return (
+                FreshnessResult::Stale("Failed to parse build.lock".to_string()),
+                Default::default(),
+                Vec::new(),
+            );
         };
-        (lock.root_binary_env, lock.root_binary_link_args)
+        let res = lock.validate_parsed_lock(args, options_hash, require_complete_inputs);
+        (res, lock.root_binary_env, lock.root_binary_link_args)
     }
 }
