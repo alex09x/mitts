@@ -101,24 +101,37 @@ impl CargoToml {
         if autotests {
             let tests_dir = pkg_dir.join("tests");
             if let Ok(entries) = fs::read_dir(&tests_dir) {
-                let mut test_files = Vec::new();
+                let mut auto_targets = Vec::new();
                 for entry in entries.flatten() {
                     let p = entry.path();
                     if p.is_file()
                         && p.extension().and_then(|e| e.to_str()) == Some("rs")
                         && !explicit_test_paths.contains(&p)
                     {
-                        test_files.push(p);
+                        if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                            if !stem.starts_with('.') {
+                                auto_targets.push((stem.to_string(), p));
+                            }
+                        }
+                    } else if p.is_dir() {
+                        let main_rs = p.join("main.rs");
+                        if main_rs.is_file() && !explicit_test_paths.contains(&main_rs) {
+                            if let Some(dir_name) = p.file_name().and_then(|s| s.to_str()) {
+                                if !dir_name.starts_with('.') {
+                                    auto_targets.push((dir_name.to_string(), main_rs));
+                                }
+                            }
+                        }
                     }
                 }
-                test_files.sort();
-                for path in test_files {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        if stem.starts_with('.') {
-                            continue;
-                        }
+                auto_targets.sort_by(|a, b| a.0.cmp(&b.0));
+                for (name, path) in auto_targets {
+                    if !targets
+                        .iter()
+                        .any(|t| t.name == name && t.test_role == Some(TestRole::Integration))
+                    {
                         targets.push(DiscoveredTarget {
-                            name: stem.to_string(),
+                            name,
                             kind: "test".to_string(),
                             src_path: path,
                             edition: edition.clone(),

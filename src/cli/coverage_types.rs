@@ -62,8 +62,12 @@ pub struct CoverageArgs {
     pub filter: Option<String>,
 
     /// Build all targets in the workspace
-    #[arg(long)]
+    #[arg(long, visible_alias = "all")]
     pub workspace: bool,
+
+    /// Exclude packages from being tested
+    #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
+    pub exclude: Vec<String>,
 
     /// Build all targets (bins, tests, benches)
     #[arg(long)]
@@ -93,9 +97,57 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Compile, but don't run tests or collect profiles
+    #[arg(long)]
+    pub no_run: bool,
+
+    /// Run all tests regardless of failure (default is fail-fast)
+    #[arg(long)]
+    pub no_fail_fast: bool,
+
+    /// Test only the specified integration test target
+    #[arg(long = "test", action = clap::ArgAction::Append)]
+    pub test: Vec<String>,
+
+    /// Test all integration test targets
+    #[arg(long)]
+    pub tests: bool,
+
+    /// Test only the specified binary
+    #[arg(long = "bin", action = clap::ArgAction::Append)]
+    pub bin: Vec<String>,
+
+    /// Test all binary targets
+    #[arg(long)]
+    pub bins: bool,
+
+    /// Test only this package's library unit tests
+    #[arg(long)]
+    pub lib: bool,
+
+    /// Test only this package's library documentation
+    #[arg(long)]
+    pub doc: bool,
+
+    /// Run tests without capturing output (equivalent to -- --nocapture)
+    #[arg(long)]
+    pub nocapture: bool,
+
+    /// Run only tests that exactly match the filter (equivalent to -- --exact)
+    #[arg(long)]
+    pub exact: bool,
+
+    /// Run only ignored tests (equivalent to -- --ignored)
+    #[arg(long)]
+    pub ignored: bool,
+
     /// Use verbose output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// Override a configuration value (not yet supported)
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub config: Vec<String>,
 
     /// Arguments passed to the test binary runner
     #[arg(last = true)]

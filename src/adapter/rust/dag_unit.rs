@@ -15,7 +15,6 @@ use super::types::{BuildProgressEvent, PlannedCompilationUnit};
 use crate::core::action::{Action, ActionKind};
 use crate::core::lock::FileLock;
 use anyhow::{bail, Result};
-use std::collections::HashMap;
 use std::fs;
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
@@ -359,16 +358,13 @@ pub(crate) fn execute_unit(
         inputs: Vec::new(),
         outputs: action_outputs,
         args: Vec::new(),
-        env: {
-            let mut env = HashMap::from([
-                ("CARGO_PKG_NAME".into(), unit.package_name.clone()),
-                ("CARGO_PKG_VERSION".into(), unit.version.clone()),
-            ]);
-            if let Some(p) = unit.manifest_path.parent() {
-                env.insert("CARGO_MANIFEST_DIR".into(), p.to_string_lossy().into());
-            }
-            env
-        },
+        env: super::unit_env::compute_unit_rustc_env_with_target(
+            unit,
+            Some(&directives),
+            None,
+            Some(ctx.target_dir),
+            ctx.opt.release,
+        ),
         dependencies: unit.dependencies.clone(),
     });
 

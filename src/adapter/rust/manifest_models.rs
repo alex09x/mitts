@@ -151,6 +151,8 @@ pub struct TomlPackage {
     pub resolver: Option<String>,
     #[serde(default)]
     pub workspace: Option<String>,
+    #[serde(default, rename = "default-run", alias = "default_run")]
+    pub default_run: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

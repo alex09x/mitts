@@ -142,6 +142,18 @@ pub struct BuildArgs {
     #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
     pub exclude: Vec<String>,
 
+    /// Build only the specified binary
+    #[arg(long = "bin", action = clap::ArgAction::Append)]
+    pub bin: Vec<String>,
+
+    /// Build all binary targets
+    #[arg(long)]
+    pub bins: bool,
+
+    /// Build only this package's library
+    #[arg(long)]
+    pub lib: bool,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -235,6 +247,7 @@ pub mod check;
 pub mod clippy;
 pub mod coverage;
 pub mod coverage_tools;
+pub mod coverage_types;
 pub mod diagnostic;
 pub mod fmt;
 pub mod handlers;

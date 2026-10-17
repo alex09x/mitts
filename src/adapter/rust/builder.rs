@@ -287,15 +287,31 @@ fn record_state_and_trace(
         )
     {
         let mut outputs = Vec::new();
-        let mut root_binary = None;
+        let mut bin_candidates = Vec::new();
         for action in &plan.actions {
             for out in &action.outputs {
                 outputs.push(out.clone());
             }
-            if action.kind == ActionKind::CompileBin && root_binary.is_none() {
-                root_binary = action.outputs.first().cloned();
+            if action.kind == ActionKind::CompileBin {
+                if let Some(first) = action.outputs.first() {
+                    bin_candidates.push(first.clone());
+                }
             }
         }
+        bin_candidates.sort();
+        let root_binary = if let Some(req_bin) = opt.bin_targets.first() {
+            bin_candidates
+                .iter()
+                .find(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.trim_end_matches(".exe") == req_bin)
+                })
+                .cloned()
+                .or_else(|| bin_candidates.into_iter().next())
+        } else {
+            bin_candidates.into_iter().next()
+        };
         let mut extra_pkg_dirs: Vec<PathBuf> = Vec::new();
         let ws_root = super::compiler_resolve::find_workspace_root(&explanation.manifest_path);
         if ws_root != project_dir {

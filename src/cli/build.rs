@@ -34,6 +34,9 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         progress: None,
         start_dir: None,
         exclude: args.exclude.clone(),
+        bin_targets: args.bin.clone(),
+        all_bins: args.bins,
+        lib_only: args.lib,
         ..Default::default()
     }
 }

@@ -185,7 +185,34 @@ pub fn compute_unit_flags_with_ws(
     release: bool,
     ws_root: Option<&Path>,
 ) -> anyhow::Result<Vec<String>> {
-    let mut u_flags = effective_flags.to_vec();
+    let is_host = unit.for_host
+        || matches!(
+            unit.kind.as_str(),
+            "proc-macro" | "custom-build" | "build-script"
+        );
+    let mut u_flags = Vec::new();
+    let mut i = 0;
+    while i < effective_flags.len() {
+        let arg = &effective_flags[i];
+        if is_host {
+            if arg == "--target" {
+                i += 2;
+                continue;
+            }
+            if arg.starts_with("--target=") || arg == "-Cinstrument-coverage" {
+                i += 1;
+                continue;
+            }
+            if arg == "-C"
+                && effective_flags.get(i + 1).map(String::as_str) == Some("instrument-coverage")
+            {
+                i += 2;
+                continue;
+            }
+        }
+        u_flags.push(arg.clone());
+        i += 1;
+    }
     if unit.is_workspace {
         let reads_manifest_dir = unit.env_vars.iter().any(|v| v == "CARGO_MANIFEST_DIR")
             || unit.cache_eligibility.contains("untracked dynamic env");

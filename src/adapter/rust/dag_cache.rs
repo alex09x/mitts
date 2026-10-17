@@ -95,8 +95,13 @@ pub fn try_restore_from_cache_with_directives(
                 // Fail-closed: unit with build.rs cannot be restored from manifest without current run directives
                 return Ok(false);
             }
-            let mut unit_env =
-                super::unit_env::compute_unit_rustc_env(unit, current_directives, None);
+            let mut unit_env = super::unit_env::compute_unit_rustc_env_with_target(
+                unit,
+                current_directives,
+                None,
+                Some(ctx.target_dir),
+                ctx.opt.release,
+            );
             let out_dir = current_directives.and_then(|d| d.out_dir.as_deref());
             if has_build {
                 if let (Some(d), Some(out)) = (current_directives, out_dir) {
@@ -363,21 +368,13 @@ pub fn try_restore_from_cache_with_directives(
                 .map(|o| ctx.target_dir.join(&o.relative_path))
                 .collect(),
             args: Vec::new(),
-            env: unit
-                .manifest_path
-                .parent()
-                .map(|p| {
-                    (
-                        "CARGO_MANIFEST_DIR".into(),
-                        p.to_string_lossy().into_owned(),
-                    )
-                })
-                .into_iter()
-                .chain([
-                    ("CARGO_PKG_NAME".into(), unit.package_name.clone()),
-                    ("CARGO_PKG_VERSION".into(), unit.version.clone()),
-                ])
-                .collect(),
+            env: super::unit_env::compute_unit_rustc_env_with_target(
+                unit,
+                effective_dirs.as_ref(),
+                None,
+                Some(ctx.target_dir),
+                ctx.opt.release,
+            ),
             dependencies: Vec::new(),
         });
         if let Some(ref cb) = ctx.opt.progress {

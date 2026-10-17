@@ -229,20 +229,14 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             }
         }
         let mut all_features: Vec<String> = toml.features.keys().cloned().collect();
-        for (dep_name, dep_val) in &toml.dependencies {
-            if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
-                if d.optional == Some(true) {
-                    all_features.push(dep_name.clone());
-                }
-            }
-        }
-        for target_spec in toml.target.values() {
-            for (dep_name, dep_val) in &target_spec.dependencies {
-                if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
-                    if d.optional == Some(true) {
-                        all_features.push(dep_name.clone());
-                    }
-                }
+        for (dep_name, dep_val) in toml
+            .dependencies
+            .iter()
+            .chain(toml.target.values().flat_map(|t| t.dependencies.iter()))
+        {
+            if matches!(dep_val, super::manifest::TomlDependency::Detailed(d) if d.optional == Some(true))
+            {
+                all_features.push(dep_name.clone());
             }
         }
         all_features.sort();
@@ -303,45 +297,41 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     };
     cmd.current_dir(&cwd);
 
-    let unit_env =
-        super::unit_env::compute_unit_rustc_env(inv.unit, inv.directives, inv.jobserver_auth);
+    let unit_env = super::unit_env::compute_unit_rustc_env_with_target(
+        inv.unit,
+        inv.directives,
+        inv.jobserver_auth,
+        inv.target_dir,
+        inv.release,
+    );
     for (k, v) in &unit_env {
         cmd.env(k, v);
-    }
-    if is_test {
-        super::unit_env::apply_test_binary_env(
-            &mut cmd,
-            inv.unit,
-            &cwd,
-            inv.target_dir,
-            inv.release,
-        );
     }
     cmd.env("RUSTC", &compiler_bin);
     if let Some(toolchain_name) = compiler_bin
         .parent()
         .and_then(|p| p.parent())
         .and_then(|p| p.file_name())
+        .filter(|_| {
+            compiler_bin
+                .to_string_lossy()
+                .contains(".rustup/toolchains")
+        })
     {
-        if compiler_bin
-            .to_string_lossy()
-            .contains(".rustup/toolchains")
-        {
-            cmd.env("RUSTUP_TOOLCHAIN", toolchain_name);
-        }
+        cmd.env("RUSTUP_TOOLCHAIN", toolchain_name);
     }
 
-    let base_dir = if let Some(ws) = &inv.unit.workspace_root {
-        ws.clone()
-    } else if inv.unit.is_workspace {
-        find_workspace_root(&inv.unit.manifest_path)
-    } else {
-        inv.unit
-            .manifest_path
-            .parent()
-            .unwrap_or(Path::new("."))
-            .to_path_buf()
-    };
+    let base_dir = inv.unit.workspace_root.clone().unwrap_or_else(|| {
+        if inv.unit.is_workspace {
+            find_workspace_root(&inv.unit.manifest_path)
+        } else {
+            inv.unit
+                .manifest_path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .to_path_buf()
+        }
+    });
     let config_start_dir = super::cargo_config::resolve_config_start_dir(&base_dir);
     let explicit_target = super::key_flags::resolve_explicit_target_from_args_and_dir(
         inv.extra_compiler_args,
@@ -374,16 +364,23 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     if let Some(target) = explicit_target.as_ref().filter(|_| !is_host && !has_cli_t) {
         cmd.arg("--target").arg(target);
     }
-    let mut skip_next = false;
-    for arg in inv.extra_compiler_args {
-        if std::mem::take(&mut skip_next) || arg == "--workspace" || arg == "--all" {
+    let mut i = 0;
+    while i < inv.extra_compiler_args.len() {
+        let arg = &inv.extra_compiler_args[i];
+        let next = inv.extra_compiler_args.get(i + 1).map(String::as_str);
+        if arg == "--workspace"
+            || arg == "--all"
+            || (is_host && (arg.starts_with("--target=") || arg == "-Cinstrument-coverage"))
+        {
+            i += 1;
             continue;
         }
-        if is_host && (arg == "--target" || arg.starts_with("--target=")) {
-            skip_next = arg == "--target";
+        if is_host && (arg == "--target" || (arg == "-C" && next == Some("instrument-coverage"))) {
+            i += 2;
             continue;
         }
         cmd.arg(arg);
+        i += 1;
     }
     if super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace) {
         cmd.arg("--cap-lints").arg("allow");

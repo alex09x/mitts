@@ -10,130 +10,50 @@
 
 use crate::adapter::{BuildMode, RustAdapter, RustBuildOptions};
 use crate::cli::ui::Ui;
-use anyhow::{Context, Result};
-use clap::Args;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Args, Debug, Clone, Default)]
-pub struct CoverageArgs {
-    /// Path to Cargo.toml
-    #[arg(long)]
-    pub manifest_path: Option<PathBuf>,
-
-    /// Package to measure coverage for
-    #[arg(short, long)]
-    pub package: Option<String>,
-
-    /// Build and run tests in release mode
-    #[arg(short, long)]
-    pub release: bool,
-
-    /// Only print high-level coverage summary table
-    #[arg(long)]
-    pub summary_only: bool,
-
-    /// Generate HTML coverage report
-    #[arg(long)]
-    pub html: bool,
-
-    /// Generate LCOV coverage report (lcov.info)
-    #[arg(long)]
-    pub lcov: bool,
-
-    /// Generate JSON coverage report
-    #[arg(long)]
-    pub json: bool,
-
-    /// Generate plain text coverage report
-    #[arg(long)]
-    pub text: bool,
-
-    /// Output directory for HTML or LCOV reports
-    #[arg(long)]
-    pub output_dir: Option<PathBuf>,
-
-    /// Automatically open the generated HTML report
-    #[arg(long)]
-    pub open: bool,
-
-    /// Minimum line coverage percentage (fails if below threshold)
-    #[arg(long)]
-    pub fail_under_lines: Option<f64>,
-
-    /// Filter tests by name or substring
-    #[arg(value_name = "TESTNAME")]
-    pub filter: Option<String>,
-
-    /// Build all targets in the workspace
-    #[arg(long)]
-    pub workspace: bool,
-
-    /// Build all targets (bins, tests, benches)
-    #[arg(long)]
-    pub all_targets: bool,
-
-    /// Directory for all generated artifacts
-    #[arg(long)]
-    pub target_dir: Option<PathBuf>,
-
-    /// Space or comma separated list of features to activate
-    #[arg(short = 'F', long)]
-    pub features: Vec<String>,
-
-    /// Do not activate the `default` feature
-    #[arg(long)]
-    pub no_default_features: bool,
-
-    /// Activate all available features
-    #[arg(long)]
-    pub all_features: bool,
-
-    /// Do not read from or write to the shared action cache
-    #[arg(long)]
-    pub no_cache: bool,
-
-    /// Directory for the shared artifact and action cache
-    #[arg(long)]
-    pub cache_dir: Option<PathBuf>,
-
-    /// Use verbose output
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    pub verbose: u8,
-
-    /// Arguments passed to the test binary runner
-    #[arg(last = true)]
-    pub test_args: Vec<String>,
-}
-
 pub use crate::cli::coverage_tools::resolve_llvm_tool;
+pub use crate::cli::coverage_types::CoverageArgs;
 
 pub fn handle_coverage(args: &CoverageArgs) -> i32 {
+    if !args.config.is_empty() {
+        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
+        return 1;
+    }
+    if args.doc {
+        eprintln!("error: --doc is not supported with coverage");
+        return 101;
+    }
+
     let start = std::time::Instant::now();
-    let llvm_profdata = match resolve_llvm_tool("llvm-profdata") {
-        Some(p) => p,
-        None => {
-            eprintln!("mitts coverage error: llvm-profdata not found in rustlib or PATH");
-            eprintln!("Install with: rustup component add llvm-tools-preview");
-            return 1;
-        }
-    };
-    let llvm_cov = match resolve_llvm_tool("llvm-cov") {
-        Some(p) => p,
-        None => {
-            eprintln!("mitts coverage error: llvm-cov not found in rustlib or PATH");
-            eprintln!("Install with: rustup component add llvm-tools-preview");
-            return 1;
-        }
+    let (llvm_profdata, llvm_cov) = if !args.no_run {
+        let profdata = match resolve_llvm_tool("llvm-profdata") {
+            Some(p) => p,
+            None => {
+                eprintln!("mitts coverage error: llvm-profdata not found in rustlib or PATH");
+                eprintln!("Install with: rustup component add llvm-tools-preview");
+                return 1;
+            }
+        };
+        let cov = match resolve_llvm_tool("llvm-cov") {
+            Some(p) => p,
+            None => {
+                eprintln!("mitts coverage error: llvm-cov not found in rustlib or PATH");
+                eprintln!("Install with: rustup component add llvm-tools-preview");
+                return 1;
+            }
+        };
+        (Some(profdata), Some(cov))
+    } else {
+        (None, None)
     };
 
-    let profile = if args.release { "release" } else { "dev" };
-    Ui::header(&format!("coverage [{}]", profile));
-    Ui::stage_start(
-        "📊",
-        "Compiling and instrumenting test targets for LLVM coverage",
-    );
+    let mut extra_args = vec!["-C".to_string(), "instrument-coverage".to_string()];
+    if args.workspace {
+        extra_args.push("--workspace".to_string());
+    }
 
     let opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
@@ -148,11 +68,17 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         mode: BuildMode::Test,
         native: true,
         cargo: false,
-        extra_args: vec!["-C".to_string(), "instrument-coverage".to_string()],
+        extra_args,
         verbose: args.verbose,
         progress: None,
         start_dir: None,
-        ..Default::default()
+        test_targets: args.test.clone(),
+        all_tests: args.tests || args.all_targets,
+        bin_targets: args.bin.clone(),
+        all_bins: args.bins || args.all_targets,
+        lib_only: args.lib,
+        doc_only: args.doc,
+        exclude: args.exclude.clone(),
     };
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
@@ -162,13 +88,28 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
             return 1;
         }
     };
-    let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
-    let target_dir = RustAdapter::resolve_target_dir(&manifest_path, &opt)
-        .unwrap_or_else(|_| project_dir.join("target").join("mitts"));
-    let profdata_dir = target_dir.join("coverage");
-    let profraw_dir = profdata_dir.join("profraw");
-    let _ = fs::remove_dir_all(&profraw_dir);
-    let _ = fs::create_dir_all(&profraw_dir);
+    let root_dir = {
+        let p = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+        if p.as_os_str().is_empty() {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        } else {
+            fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+        }
+    };
+
+    if let Err(err) =
+        crate::adapter::rust::test_selection::validate_test_options(&opt, &manifest_path, &root_dir)
+    {
+        eprintln!("error: {:#}", err);
+        return 101;
+    }
+
+    let profile = if args.release { "release" } else { "dev" };
+    Ui::header(&format!("coverage [{}]", profile));
+    Ui::stage_start(
+        "📊",
+        "Compiling and instrumenting test targets for LLVM coverage",
+    );
 
     let (plan, result) = match RustAdapter::build(&opt) {
         Ok(res) => res,
@@ -186,139 +127,45 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         return result.exit_code;
     }
 
-    let mut test_binaries = Vec::new();
-    let mut cli_binaries: std::collections::HashMap<String, PathBuf> =
-        std::collections::HashMap::new();
-
-    for action in &plan.actions {
-        if action.kind == crate::core::ActionKind::CompileBin {
-            if action.id.contains("::test:") {
-                for out in &action.outputs {
-                    if out.is_file() {
-                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if ext != "d" && ext != "rmeta" && ext != "rlib" && ext != "pdb" {
-                            test_binaries.push((out.clone(), action.env.clone()));
-                        }
-                    }
-                }
-            } else {
-                for out in &action.outputs {
-                    if out.is_file() {
-                        let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
-                        if ext.is_empty() || ext == "exe" {
-                            if let Some(stem) = out.file_name().and_then(|s| s.to_str()) {
-                                cli_binaries
-                                    .insert(stem.trim_end_matches(".exe").to_string(), out.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if args.no_run {
+        let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
+        Ui::finish("coverage", &dur, "Instrumented test targets compiled");
+        return 0;
     }
 
-    let profile_name = if opt.release { "release" } else { "debug" };
-    let profile_dir = plan.target_directory.join(profile_name);
-
-    // Also populate cli_binaries from profile_dir for any executable CLI binaries
-    if profile_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&profile_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_file() {
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                        continue;
-                    }
-                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if !name.contains("test") && !name.contains("integration") {
-                        let bin_key = name.trim_end_matches(".exe");
-                        cli_binaries.insert(bin_key.to_string(), p);
-                    }
-                }
-            }
-        }
-    }
-
-    // Map test targets to their defining package directory and package name
-    let root_manifest = opt
-        .manifest_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
-    let root_dir = {
-        let p = root_manifest
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        if p.as_os_str().is_empty() {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        } else {
-            std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
-        }
-    };
-    let target_to_pkg = match map_targets_to_packages(&root_manifest, &root_dir) {
-        Ok(map) => map,
+    let (discovered, _) = match super::test_runner::discover_test_binaries(&plan, &opt, &root_dir) {
+        Ok(res) => res,
         Err(err) => {
             eprintln!("mitts coverage error: {:#}", err);
             return 1;
         }
     };
 
-    let profile_name = if opt.release { "release" } else { "debug" };
-    let profile_dir = plan.target_directory.join(profile_name);
-    if test_binaries.is_empty() && profile_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&profile_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_file() {
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "d" || ext == "rmeta" || ext == "rlib" || ext == "pdb" {
-                        continue;
-                    }
-                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if name.contains("test") {
-                        test_binaries.push((p, std::collections::HashMap::new()));
-                    }
-                }
-            }
-        }
-    }
-
-    test_binaries.sort_by(|a, b| a.0.cmp(&b.0));
-    test_binaries.dedup_by(|a, b| a.0 == b.0);
-
-    if test_binaries.is_empty() {
+    if discovered.test_binaries.is_empty() {
         println!("mitts coverage: no test binaries found to run");
         return 0;
     }
+
+    let profdata_dir = plan.target_directory.join("coverage");
+    let profraw_dir = profdata_dir.join(format!("profraw-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&profraw_dir);
+    let _ = fs::create_dir_all(&profraw_dir);
 
     Ui::stage_start(
         "🧪",
         &format!(
             "Running {} test binaries with profile collection",
-            test_binaries.len()
+            discovered.test_binaries.len()
         ),
     );
     let profpattern = profraw_dir.join("cov-%p-%m.profraw");
 
-    for (bin_path, env) in &mut test_binaries {
-        let bin_name = bin_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !env.contains_key("CARGO_MANIFEST_DIR") {
-            for (tname, (pname, pdir)) in &target_to_pkg {
-                if bin_name == tname || bin_name.contains(tname) {
-                    env.insert(
-                        "CARGO_MANIFEST_DIR".to_string(),
-                        pdir.to_string_lossy().to_string(),
-                    );
-                    env.insert("CARGO_PKG_NAME".to_string(), pname.clone());
-                    break;
-                }
-            }
-        }
-
+    let mut failed_exit_code: Option<i32> = None;
+    for (_, bin_path, env) in &discovered.test_binaries {
         let abs_bin = if bin_path.is_absolute() {
             bin_path.clone()
         } else {
-            root_dir.join(&*bin_path)
+            root_dir.join(bin_path)
         };
         let mut cmd = Command::new(&abs_bin);
         cmd.env("LLVM_PROFILE_FILE", &profpattern);
@@ -327,7 +174,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         }
         let work_dir = if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
             if !manifest_dir.is_empty() && manifest_dir != "." {
-                if std::path::Path::new(manifest_dir).is_absolute() {
+                if Path::new(manifest_dir).is_absolute() {
                     PathBuf::from(manifest_dir)
                 } else {
                     root_dir.join(manifest_dir)
@@ -339,17 +186,32 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
             root_dir.clone()
         };
         cmd.current_dir(&work_dir);
-        for (bin_name, bin_file) in &cli_binaries {
-            let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
-            let abs_cli = if bin_file.is_absolute() {
-                bin_file.clone()
-            } else {
-                root_dir.join(bin_file)
-            };
-            cmd.env(env_var, abs_cli);
+
+        if !env.contains_key("CARGO_TARGET_TMPDIR") {
+            let tmp_dir = plan.target_directory.join("tmp");
+            let _ = fs::create_dir_all(&tmp_dir);
+            cmd.env("CARGO_TARGET_TMPDIR", tmp_dir);
         }
+
+        crate::adapter::rust::unit_env::apply_runtime_execution_env(
+            &mut cmd,
+            &work_dir,
+            env,
+            &plan,
+            args.release,
+        );
+
         if let Some(ref filter) = args.filter {
             cmd.arg(filter);
+        }
+        if args.exact && !args.test_args.iter().any(|a| a == "--exact") {
+            cmd.arg("--exact");
+        }
+        if args.ignored && !args.test_args.iter().any(|a| a == "--ignored") {
+            cmd.arg("--ignored");
+        }
+        if args.nocapture && !args.test_args.iter().any(|a| a == "--nocapture") {
+            cmd.arg("--nocapture");
         }
         for extra in &args.test_args {
             cmd.arg(extra);
@@ -357,6 +219,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         let status = match cmd.status() {
             Ok(s) => s,
             Err(err) => {
+                let _ = fs::remove_dir_all(&profraw_dir);
                 eprintln!(
                     "mitts coverage error: failed executing {:?}: {}",
                     bin_path, err
@@ -365,183 +228,45 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
             }
         };
         if !status.success() {
-            eprintln!("mitts coverage: test failure in {:?}", bin_path);
-            return status.code().unwrap_or(1);
-        }
-    }
-
-    // Merge .profraw files into .profdata
-    let merged_profdata = profdata_dir.join("mitts.profdata");
-    let mut merge_cmd = Command::new(&llvm_profdata);
-    merge_cmd.arg("merge").arg("-sparse");
-
-    let mut raw_count = 0;
-    if let Ok(entries) = fs::read_dir(&profraw_dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.extension().and_then(|e| e.to_str()) == Some("profraw") {
-                merge_cmd.arg(&p);
-                raw_count += 1;
-            }
-        }
-    }
-
-    if raw_count == 0 {
-        eprintln!("mitts coverage error: no .profraw profile files generated during test run");
-        return 1;
-    }
-
-    merge_cmd.arg("-o").arg(&merged_profdata);
-    let merge_status = merge_cmd
-        .status()
-        .map_err(|e| anyhow::anyhow!("merge failed: {}", e));
-    if merge_status.is_err() || !merge_status.unwrap().success() {
-        eprintln!("mitts coverage error: failed to merge raw profiles with llvm-profdata");
-        return 1;
-    }
-
-    // Generate coverage report via llvm-cov
-    let mut cov_cmd = Command::new(&llvm_cov);
-    let out_dir = args
-        .output_dir
-        .clone()
-        .unwrap_or_else(|| profdata_dir.join("report"));
-
-    if args.html {
-        let _ = fs::create_dir_all(&out_dir);
-        cov_cmd.arg("show");
-        cov_cmd.arg(format!("--instr-profile={}", merged_profdata.display()));
-        cov_cmd.arg(format!("--output-dir={}", out_dir.display()));
-        cov_cmd.arg("--format=html");
-        cov_cmd.arg("--show-line-counts-or-regions");
-    } else if args.lcov {
-        let lcov_path = out_dir.join("lcov.info");
-        if let Some(parent) = lcov_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        cov_cmd.arg("export");
-        cov_cmd.arg(format!("--instr-profile={}", merged_profdata.display()));
-        cov_cmd.arg("--format=lcov");
-    } else if args.json {
-        cov_cmd.arg("export");
-        cov_cmd.arg(format!("--instr-profile={}", merged_profdata.display()));
-    } else {
-        cov_cmd.arg("report");
-        cov_cmd.arg(format!("--instr-profile={}", merged_profdata.display()));
-        cov_cmd.arg("--use-color");
-    }
-
-    cov_cmd.arg(&test_binaries[0].0);
-    for (extra_bin, _) in &test_binaries[1..] {
-        cov_cmd.arg(format!("--object={}", extra_bin.display()));
-    }
-    cov_cmd.arg(r"--ignore-filename-regex=(/.cargo/|/rustc/|/target/|\.mitts/)");
-
-    let cov_status = if args.lcov {
-        let lcov_path = out_dir.join("lcov.info");
-        match cov_cmd.output() {
-            Ok(out) => {
-                if out.status.success() {
-                    let _ = fs::write(&lcov_path, &out.stdout);
-                }
-                out.status
-            }
-            Err(err) => {
-                eprintln!("mitts coverage error: failed to run llvm-cov: {}", err);
-                return 1;
-            }
-        }
-    } else {
-        println!();
-        match cov_cmd.status() {
-            Ok(s) => s,
-            Err(err) => {
-                eprintln!("mitts coverage error: failed to run llvm-cov: {}", err);
-                return 1;
-            }
-        }
-    };
-
-    if let Some(threshold) = args.fail_under_lines {
-        let mut check_cmd = Command::new(&llvm_cov);
-        check_cmd.arg("export").arg("--summary-only");
-        check_cmd.arg(format!("--instr-profile={}", merged_profdata.display()));
-        check_cmd.arg(&test_binaries[0].0);
-        for (extra_bin, _) in &test_binaries[1..] {
-            check_cmd.arg(format!("--object={}", extra_bin.display()));
-        }
-        check_cmd.arg(r"--ignore-filename-regex=(/.cargo/|/rustc/|/target/|\.mitts/)");
-        if let Ok(check_out) = check_cmd.output() {
-            if check_out.status.success() {
-                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&check_out.stdout) {
-                    let pct = v
-                        .get("data")
-                        .and_then(|d| d.get(0))
-                        .and_then(|d0| d0.get("totals"))
-                        .and_then(|tot| tot.get("lines"))
-                        .and_then(|lines| lines.get("percent"))
-                        .and_then(|p| p.as_f64())
-                        .unwrap_or(0.0);
-                    if pct < threshold {
-                        eprintln!(
-                            "mitts coverage error: line coverage {:.2}% is below threshold {:.2}%",
-                            pct, threshold
-                        );
-                        return 1;
-                    }
-                    println!(
-                        "mitts coverage: line coverage {:.2}% meets threshold {:.2}%",
-                        pct, threshold
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                if let Some(sig) = status.signal() {
+                    eprintln!(
+                        "error: test failed, to rerun pass `--test {}`\n\nCaused by:\n  process didn't exit successfully: `{}` (signal: {})",
+                        bin_path.file_name().and_then(|s| s.to_str()).unwrap_or("test"),
+                        abs_bin.display(),
+                        sig
                     );
                 }
             }
+            eprintln!("mitts coverage: test failure in {:?}", bin_path);
+            let code = status.code().unwrap_or(101);
+            if !args.no_fail_fast {
+                let _ = fs::remove_dir_all(&profraw_dir);
+                return code;
+            }
+            if failed_exit_code.is_none() {
+                failed_exit_code = Some(code);
+            }
         }
     }
 
-    let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-    if args.html {
-        Ui::stage_item(
-            true,
-            &Ui::badge_cached(),
-            &format!("HTML report saved to {}", out_dir.display()),
-        );
-        if args.open {
-            let index = out_dir.join("index.html");
-            let _ = Command::new("open").arg(&index).status();
-        }
+    if let Some(code) = failed_exit_code {
+        let _ = fs::remove_dir_all(&profraw_dir);
+        return code;
     }
-    Ui::finish("coverage", &dur, "Coverage report completed");
 
-    cov_status.code().unwrap_or(0)
-}
-
-fn map_targets_to_packages(
-    root_manifest: &Path,
-    root_dir: &Path,
-) -> Result<std::collections::HashMap<String, (String, PathBuf)>> {
-    let mut target_to_pkg = std::collections::HashMap::new();
-    let root_toml = crate::adapter::rust::manifest::CargoToml::from_file(root_manifest)
-        .with_context(|| format!("failed to read root manifest {}", root_manifest.display()))?;
-    let members = root_toml
-        .discover_workspace_members(root_dir)
-        .with_context(|| {
-            format!(
-                "failed to discover workspace members for {}",
-                root_dir.display()
-            )
-        })?;
-    for (pkg_name, pkg_dir) in members {
-        let member_manifest = pkg_dir.join("Cargo.toml");
-        let toml = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
-            .with_context(|| {
-                format!(
-                    "failed to read workspace member manifest {}",
-                    member_manifest.display()
-                )
-            })?;
-        for tt in toml.discover_test_targets(&pkg_dir) {
-            target_to_pkg.insert(tt.name.clone(), (pkg_name.clone(), pkg_dir.clone()));
-        }
-    }
-    Ok(target_to_pkg)
+    let ws_root = crate::adapter::rust::compiler_resolve::find_workspace_root(&manifest_path);
+    crate::cli::coverage_tools::merge_and_report_coverage(
+        args,
+        llvm_profdata.as_deref().unwrap(),
+        llvm_cov.as_deref().unwrap(),
+        &profdata_dir,
+        &profraw_dir,
+        &ws_root,
+        &discovered.test_binaries,
+        &discovered.cli_binaries,
+        start,
+    )
 }

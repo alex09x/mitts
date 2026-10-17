@@ -13,7 +13,7 @@ use crate::adapter::RustBuildOptions;
 use crate::cli::ui::Ui;
 use crate::core::action::{ActionKind, BuildPlan};
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -31,8 +31,9 @@ pub fn discover_test_binaries(
 ) -> Result<(DiscoveredBinaries, usize)> {
     let mut test_binaries = Vec::new();
     let mut cli_binaries = HashMap::new();
+    let mut pkg_cli_bins: HashMap<String, Vec<(String, PathBuf)>> = HashMap::new();
 
-    // 1. Collect compiled binaries from plan actions
+    // 1. Collect compiled test and CLI binaries strictly from plan actions (never stale target/ scan)
     for action in &plan.actions {
         if action.kind == ActionKind::CompileBin {
             if action.id.contains("::test:") || action.id.contains("::custom-test:") {
@@ -46,11 +47,22 @@ pub fn discover_test_binaries(
                     }
                 }
             } else {
+                let pkg_name = action
+                    .env
+                    .get("CARGO_PKG_NAME")
+                    .cloned()
+                    .unwrap_or_default();
                 for out in &action.outputs {
                     if is_executable_binary(out) {
                         if let Some(stem) = out.file_name().and_then(|s| s.to_str()) {
-                            cli_binaries
-                                .insert(stem.trim_end_matches(".exe").to_string(), out.clone());
+                            let bin_name = stem.trim_end_matches(".exe").to_string();
+                            cli_binaries.insert(bin_name.clone(), out.clone());
+                            if !pkg_name.is_empty() {
+                                pkg_cli_bins
+                                    .entry(pkg_name.clone())
+                                    .or_default()
+                                    .push((bin_name, out.clone()));
+                            }
                         }
                     }
                 }
@@ -58,13 +70,43 @@ pub fn discover_test_binaries(
         }
     }
 
-    // 2. Discover declared test targets and declared CLI binary targets from manifests
+    let tmp_dir = if plan.target_directory.is_absolute() {
+        plan.target_directory.join("tmp")
+    } else {
+        root_dir.join(&plan.target_directory).join("tmp")
+    };
+    let _ = std::fs::create_dir_all(&tmp_dir);
+
+    for (_, _, env) in &mut test_binaries {
+        env.insert(
+            "CARGO_TARGET_TMPDIR".to_string(),
+            tmp_dir.to_string_lossy().to_string(),
+        );
+        // Remove any compile-time CARGO_BIN_EXE_* before inserting only binaries built in this plan for the same package
+        env.retain(|k, _| !k.starts_with("CARGO_BIN_EXE_"));
+        if let Some(pkg_name) = env.get("CARGO_PKG_NAME").cloned() {
+            if let Some(bins) = pkg_cli_bins.get(&pkg_name) {
+                for (b_name, b_path) in bins {
+                    let abs_cli = if b_path.is_absolute() {
+                        b_path.clone()
+                    } else {
+                        root_dir.join(b_path)
+                    };
+                    env.insert(
+                        format!("CARGO_BIN_EXE_{}", b_name),
+                        abs_cli.to_string_lossy().to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    // 2. Count declared test targets from manifests
     let root_manifest = opt
         .manifest_path
         .clone()
         .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
     let mut manifest_test_target_count = 0;
-    let mut declared_bin_names: HashSet<String> = HashSet::new();
 
     let root_toml = crate::adapter::rust::manifest::CargoToml::from_file(&root_manifest)
         .with_context(|| format!("failed to read root manifest {}", root_manifest.display()))?;
@@ -96,30 +138,6 @@ pub fn discover_test_binaries(
         let mut test_targets = toml.discover_test_targets(&pkg_dir);
         crate::adapter::rust::test_selection::select_test_targets(&mut test_targets, opt);
         manifest_test_target_count += test_targets.len();
-        for t in toml.discover_targets(&pkg_dir) {
-            if t.kind == "bin" {
-                declared_bin_names.insert(t.name);
-            }
-        }
-    }
-
-    let profile_name = if opt.release { "release" } else { "debug" };
-    let profile_dir = plan.target_directory.join(profile_name);
-
-    // 3. Populate any missing CLI binaries from profile_dir matching declared binary targets
-    if profile_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&profile_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if is_executable_binary(&p) {
-                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    let bin_key = name.trim_end_matches(".exe");
-                    if declared_bin_names.contains(bin_key) {
-                        cli_binaries.insert(bin_key.to_string(), p);
-                    }
-                }
-            }
-        }
     }
 
     test_binaries.sort_by(|a, b| a.1.cmp(&b.1));
@@ -136,12 +154,33 @@ pub fn discover_test_binaries(
 
 /// Executes all discovered test binaries sequentially and returns the final exit code.
 pub fn execute_test_binaries(
+    binaries: DiscoveredBinaries,
+    declared_test_count: usize,
+    args: &TestArgs,
+    root_dir: &Path,
+    start: std::time::Instant,
+    profile: &str,
+) -> i32 {
+    execute_test_binaries_with_plan(
+        binaries,
+        declared_test_count,
+        args,
+        root_dir,
+        start,
+        profile,
+        None,
+    )
+}
+
+/// Executes all discovered test binaries with full build plan runtime library/env context.
+pub fn execute_test_binaries_with_plan(
     mut binaries: DiscoveredBinaries,
     declared_test_count: usize,
     args: &TestArgs,
     root_dir: &Path,
     start: std::time::Instant,
     profile: &str,
+    plan: Option<&BuildPlan>,
 ) -> i32 {
     if args.no_run {
         let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
@@ -174,9 +213,16 @@ pub fn execute_test_binaries(
         return 0;
     }
 
-    if !binaries.test_binaries.is_empty() {
-        println!();
-    }
+    println!();
+    let default_plan = BuildPlan {
+        target_directory: args
+            .target_dir
+            .clone()
+            .unwrap_or_else(|| root_dir.join("target").join("mitts")),
+        ..Default::default()
+    };
+    let effective_plan = plan.unwrap_or(&default_plan);
+
     let mut failure_code: Option<i32> = None;
     let mut failed_harness: Option<String> = None;
     for (desc, bin_path, env) in &mut binaries.test_binaries {
@@ -185,10 +231,6 @@ pub fn execute_test_binaries(
         } else {
             root_dir.join(&*bin_path)
         };
-        let mut cmd = Command::new(&abs_bin);
-        for (k, v) in env.iter() {
-            cmd.env(k, v);
-        }
         let work_dir = if let Some(manifest_dir) = env.get("CARGO_MANIFEST_DIR") {
             if !manifest_dir.is_empty() && manifest_dir != "." {
                 if Path::new(manifest_dir).is_absolute() {
@@ -202,17 +244,27 @@ pub fn execute_test_binaries(
         } else {
             root_dir.to_path_buf()
         };
-        cmd.current_dir(&work_dir);
 
-        cmd.env("CARGO_TARGET_DIR", root_dir.join("target").join("mitts"));
-        for (bin_name, bin_file) in &binaries.cli_binaries {
-            let env_var = format!("CARGO_BIN_EXE_{}", bin_name.replace('-', "_"));
-            let abs_cli = if bin_file.is_absolute() {
-                bin_file.clone()
-            } else {
-                root_dir.join(bin_file)
-            };
-            cmd.env(env_var, abs_cli);
+        let mut cmd = Command::new(&abs_bin);
+        cmd.current_dir(&work_dir);
+        crate::adapter::rust::unit_env::apply_runtime_execution_env(
+            &mut cmd,
+            &work_dir,
+            env,
+            effective_plan,
+            args.release,
+        );
+
+        // Fallback for unit tests constructing DiscoveredBinaries manually without CARGO_PKG_NAME
+        if !env.contains_key("CARGO_PKG_NAME") {
+            for (bin_name, bin_file) in &binaries.cli_binaries {
+                let abs_cli = if bin_file.is_absolute() {
+                    bin_file.clone()
+                } else {
+                    root_dir.join(bin_file)
+                };
+                cmd.env(format!("CARGO_BIN_EXE_{}", bin_name), abs_cli);
+            }
         }
 
         if let Some(ref filter) = args.filter {
@@ -230,19 +282,6 @@ pub fn execute_test_binaries(
         for extra in &args.test_args {
             if extra != "--nocapture" && extra != "--exact" && extra != "--ignored" {
                 cmd.arg(extra);
-            }
-        }
-
-        let cargo_bin = crate::adapter::rust::compiler::resolve_cargo();
-        if env.get("CARGO").is_none() {
-            cmd.env("CARGO", &cargo_bin);
-        }
-        if let Some(parent) = cargo_bin.parent().filter(|p| !p.as_os_str().is_empty()) {
-            let current_path = std::env::var_os("PATH").unwrap_or_default();
-            let mut paths = vec![parent.to_path_buf()];
-            paths.extend(std::env::split_paths(&current_path));
-            if let Ok(new_path) = std::env::join_paths(paths) {
-                cmd.env("PATH", new_path);
             }
         }
 
@@ -264,6 +303,17 @@ pub fn execute_test_binaries(
         };
 
         if !status.success() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                if let Some(sig) = status.signal() {
+                    eprintln!(
+                        "mitts test: process {} terminated by signal {}",
+                        bin_path.display(),
+                        sig
+                    );
+                }
+            }
             if failure_code.is_none() {
                 failure_code = Some(status.code().unwrap_or(101));
                 failed_harness = Some(desc.clone());

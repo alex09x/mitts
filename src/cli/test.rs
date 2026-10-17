@@ -186,6 +186,8 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         let cov_args = crate::cli::coverage::CoverageArgs {
             manifest_path: args.manifest_path.clone(),
             package: args.package.clone(),
+            workspace: args.workspace,
+            exclude: args.exclude.clone(),
             release: args.release,
             target_dir: args.target_dir.clone(),
             features: args.features.clone(),
@@ -193,8 +195,20 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             all_features: args.all_features,
             no_cache: args.no_cache,
             cache_dir: args.cache_dir.clone(),
+            no_run: args.no_run,
+            no_fail_fast: args.no_fail_fast,
             filter: args.filter.clone(),
+            test: args.test.clone(),
+            tests: args.tests,
+            bin: args.bin.clone(),
+            bins: args.bins,
+            lib: args.lib,
+            doc: args.doc,
+            nocapture: args.nocapture,
+            exact: args.exact,
+            ignored: args.ignored,
             verbose: args.verbose,
+            config: args.config.clone(),
             test_args: args.test_args.clone(),
             ..Default::default()
         };
@@ -311,22 +325,21 @@ pub fn handle_test(args: &TestArgs) -> i32 {
                 }
             };
 
-        exit_code = super::test_runner::execute_test_binaries(
+        exit_code = super::test_runner::execute_test_binaries_with_plan(
             binaries,
             declared_test_count,
             args,
             &root_dir,
             start,
             profile,
+            Some(&plan),
         );
         if exit_code != 0 && !args.no_fail_fast {
-            let test_duration = test_start.elapsed();
-            let total_duration = start.elapsed();
             if std::env::var_os("MITTS_TIMINGS").is_some() || args.verbose > 0 {
                 crate::core::metrics::print_timings(
                     compile_duration,
-                    test_duration,
-                    total_duration,
+                    test_start.elapsed(),
+                    start.elapsed(),
                 );
             }
             return exit_code;
@@ -335,12 +348,8 @@ pub fn handle_test(args: &TestArgs) -> i32 {
 
     if super::test_doctest::should_run_doctests(args) {
         match super::test_doctest::execute_doctests(&opt, args, &plan, &root_dir, profile) {
-            Ok(Some(doc_fail)) => {
-                if exit_code == 0 {
-                    exit_code = doc_fail;
-                }
-            }
-            Ok(None) => {}
+            Ok(Some(doc_fail)) if exit_code == 0 => exit_code = doc_fail,
+            Ok(_) => {}
             Err(err) => {
                 eprintln!("mitts error executing doctests: {}", err);
                 if exit_code == 0 {
@@ -350,10 +359,12 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         }
     }
 
-    let test_duration = test_start.elapsed();
-    let total_duration = start.elapsed();
     if std::env::var_os("MITTS_TIMINGS").is_some() || args.verbose > 0 {
-        crate::core::metrics::print_timings(compile_duration, test_duration, total_duration);
+        crate::core::metrics::print_timings(
+            compile_duration,
+            test_start.elapsed(),
+            start.elapsed(),
+        );
     }
 
     exit_code
@@ -365,26 +376,19 @@ mod tests {
 
     #[test]
     fn test_test_progress_callback_all_events() {
-        let cb_none = create_test_progress_callback(None);
-        cb_none.0(BuildProgressEvent::InitTotal {
-            total: 3,
-            cached: 1,
-        });
-        cb_none.0(BuildProgressEvent::Compiling("test_crate".to_string()));
-        cb_none.0(BuildProgressEvent::UnitFinished);
-        cb_none.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
-        cb_none.0(BuildProgressEvent::Diagnostic("diag".to_string()));
-
-        let pb = Ui::create_build_progress("dev");
-        let cb_some = create_test_progress_callback(Some(pb.clone()));
-        cb_some.0(BuildProgressEvent::InitTotal {
-            total: 3,
-            cached: 1,
-        });
-        cb_some.0(BuildProgressEvent::Compiling("test_crate".to_string()));
-        cb_some.0(BuildProgressEvent::UnitFinished);
-        cb_some.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
-        cb_some.0(BuildProgressEvent::Diagnostic("diag".to_string()));
-        pb.finish_and_clear();
+        for pb in [None, Some(Ui::create_build_progress("dev"))] {
+            let cb = create_test_progress_callback(pb.clone());
+            cb.0(BuildProgressEvent::InitTotal {
+                total: 3,
+                cached: 1,
+            });
+            cb.0(BuildProgressEvent::Compiling("test_crate".to_string()));
+            cb.0(BuildProgressEvent::UnitFinished);
+            cb.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
+            cb.0(BuildProgressEvent::Diagnostic("diag".to_string()));
+            if let Some(p) = pb {
+                p.finish_and_clear();
+            }
+        }
     }
 }
