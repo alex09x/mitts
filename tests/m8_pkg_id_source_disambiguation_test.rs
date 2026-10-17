@@ -359,7 +359,7 @@ fn test_two_major_versions_of_same_crate_with_distinct_features_and_b7_cfg_pruni
     }
     let proj = temp.path().join("proj");
     fs::create_dir_all(proj.join("src")).unwrap();
-    fs::write(proj.join("Cargo.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[features]\ndefault = [\"std\"]\nstd = [\"foo/std\"]\n[dependencies]\nfoo2 = { package = \"foo\", version = \"2\" }\n[target.'cfg(mitts_never_target)'.dependencies]\nfoo = \"1\"\n").unwrap();
+    fs::write(proj.join("Cargo.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[features]\ndefault = [\"std\"]\nstd = [\"foo/std\"]\nfoo = []\n[dependencies]\nfoo2 = { package = \"foo\", version = \"2\" }\n[target.'cfg(mitts_never_target)'.dependencies]\nfoo = \"1\"\n").unwrap();
     fs::write(proj.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
     fs::write(proj.join("Cargo.lock"), "version = 3\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\ndependencies = [\"foo 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)\", \"foo 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)\"]\n[[package]]\nname = \"foo\"\nversion = \"1.0.5\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n[[package]]\nname = \"foo\"\nversion = \"2.1.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n").unwrap();
     let opt = RustBuildOptions {
@@ -371,6 +371,7 @@ fn test_two_major_versions_of_same_crate_with_distinct_features_and_b7_cfg_pruni
         .expect("explain_plan must ignore cfg-pruned foo 1.0.5 cleanly");
     let app_unit = plan.units.iter().find(|u| u.package_name == "app").unwrap();
     assert_eq!(app_unit.dependencies, vec![format!("{id2}::lib:foo")]);
+    assert_eq!(app_unit.features, vec!["default", "foo", "std"]);
 }
 
 #[test]
