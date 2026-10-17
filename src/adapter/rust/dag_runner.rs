@@ -276,6 +276,7 @@ pub fn run_native_dag_build(
                 unit_link_args: snapshot_map(&completed_link_args),
                 tracked_extra_files: tracked_extra_files.lock().unwrap().clone(),
                 tracked_env_vars: tracked_env_vars.lock().unwrap().clone(),
+                inputs_incomplete: true,
             },
             result,
         ));
@@ -316,6 +317,10 @@ pub fn run_native_dag_build(
 
     let extra_files_snap = tracked_extra_files.lock().unwrap().clone();
     let env_vars_snap = tracked_env_vars.lock().unwrap().clone();
+    let has_untracked_env = explanation
+        .units
+        .iter()
+        .any(|u| u.cache_eligibility.contains("untracked dynamic env"));
 
     Ok((
         BuildPlan {
@@ -327,6 +332,7 @@ pub fn run_native_dag_build(
             unit_link_args: snapshot_map(&completed_link_args),
             tracked_extra_files: extra_files_snap,
             tracked_env_vars: env_vars_snap,
+            inputs_incomplete: n_tainted > 0 || has_untracked_env,
         },
         result,
     ))

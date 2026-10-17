@@ -27,6 +27,7 @@ pub(crate) fn mtime_parts(meta: &fs::Metadata) -> (u64, u32) {
 pub(crate) fn collect_project_files(
     root_dir: &Path,
     current_dir: &Path,
+    target_dir: Option<&Path>,
     manifests: &mut Vec<FileSnapshot>,
     sources: &mut Vec<FileSnapshot>,
     directories: &mut Vec<FileSnapshot>,
@@ -52,6 +53,9 @@ pub(crate) fn collect_project_files(
 
     for entry in entries.flatten() {
         let path = entry.path();
+        if target_dir.is_some_and(|td| path == td) {
+            continue;
+        }
         let fname = entry.file_name();
         let fname_str = fname.to_string_lossy();
 
@@ -67,7 +71,7 @@ pub(crate) fn collect_project_files(
         };
 
         if meta.is_dir() {
-            collect_project_files(root_dir, &path, manifests, sources, directories)?;
+            collect_project_files(root_dir, &path, target_dir, manifests, sources, directories)?;
         } else if meta.is_file() {
             if fname_str.ends_with(".tmp")
                 || fname_str.ends_with(".swp")

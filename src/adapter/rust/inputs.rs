@@ -49,7 +49,7 @@ pub fn discover_clippy_config(start_dir: &Path) -> Option<PathBuf> {
 /// Returns true only when `package_dir` is an immutable external dependency directory:
 /// 1. Official Cargo registry source (`$CARGO_HOME/registry/src/...` or `~/.cargo/registry/src/...`) with `.cargo-ok`, OR
 /// 2. Mitts source store (`$MITTS_CACHE_DIR/sources/...` or `~/.cache/mitts/sources/...`) with `.mitts-ok`, OR
-/// 3. Official Cargo git checkout (`$CARGO_HOME/git/checkouts/...` or `.../git/checkouts/...`).
+/// 3. Official Cargo git checkout (`$CARGO_HOME/git/checkouts/...`) with `.cargo-ok`.
 pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool {
     if is_workspace {
         return false;
@@ -57,26 +57,23 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
     let cargo_home =
         crate::core::SourceStore::active_cargo_home().unwrap_or_else(|| PathBuf::from(".cargo"));
     let cargo_registry_src = cargo_home.join("registry").join("src");
-    let in_cargo_registry = package_dir.starts_with(&cargo_registry_src)
-        || package_dir.ancestors().any(|a| a.ends_with("registry/src"));
-    let has_cargo_ok = package_dir.join(".cargo-ok").is_file();
+    let in_cargo_registry =
+        package_dir.starts_with(&cargo_registry_src) && package_dir.join(".cargo-ok").is_file();
 
     let cargo_git_checkouts = cargo_home.join("git").join("checkouts");
     let in_cargo_git = package_dir.starts_with(&cargo_git_checkouts)
-        || package_dir
+        && package_dir
             .ancestors()
-            .any(|a| a.ends_with("git/checkouts"));
+            .take_while(|a| a.starts_with(&cargo_git_checkouts) && *a != cargo_git_checkouts)
+            .any(|a| a.join(".cargo-ok").is_file());
 
     let mitts_sources = crate::core::SourceStore::default_root();
     let in_mitts_sources = package_dir.starts_with(&mitts_sources)
-        || package_dir
-            .ancestors()
-            .any(|a| a.ends_with("mitts/sources") || a.ends_with("mitts/cache/sources"));
-    let has_mitts_ok = package_dir
-        .join(crate::core::source_store::MITTS_OK_MARKER)
-        .is_file();
+        && package_dir
+            .join(crate::core::source_store::MITTS_OK_MARKER)
+            .is_file();
 
-    (in_cargo_registry && has_cargo_ok) || (in_mitts_sources && has_mitts_ok) || in_cargo_git
+    in_cargo_registry || in_mitts_sources || in_cargo_git
 }
 
 pub fn hash_package_common_inputs(

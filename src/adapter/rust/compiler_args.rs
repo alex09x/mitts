@@ -91,46 +91,42 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
 
     if is_test {
         if inv.unit.kind == "custom-test" {
-            cmd.arg("--crate-type").arg("bin");
-            cmd.arg("--cfg").arg("test");
+            cmd.args(["--crate-type", "bin", "--cfg", "test"]);
         } else {
             cmd.arg("--test");
         }
-        cmd.arg("--emit=dep-info,link");
-        cmd.arg("--extern").arg("proc_macro");
-        cmd.arg("--out-dir").arg(inv.out_dir);
+        cmd.args(["--emit=dep-info,link", "--extern", "proc_macro"]);
     } else if is_proc_macro {
-        cmd.arg("--crate-type").arg("proc-macro");
-        cmd.arg("--extern").arg("proc_macro");
-        cmd.arg("-C").arg("prefer-dynamic");
-        cmd.arg("--emit=dep-info,link");
+        cmd.args([
+            "--crate-type",
+            "proc-macro",
+            "--extern",
+            "proc_macro",
+            "-C",
+            "prefer-dynamic",
+            "--emit=dep-info,link",
+        ]);
         cmd.arg("-C").arg(format!("metadata={}", short_key));
         cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
-        cmd.arg("--out-dir").arg(inv.out_dir);
     } else if (inv.mode == BuildMode::Check || inv.mode == BuildMode::Clippy)
         && inv.unit.is_workspace
     {
-        if is_bin {
-            cmd.arg("--crate-type").arg("bin");
-            cmd.arg("--emit=dep-info,metadata");
+        let (ct, emit) = if is_bin {
+            ("bin", "--emit=dep-info,metadata")
         } else {
-            cmd.arg("--crate-type").arg("rlib");
-            cmd.arg("--emit=dep-info,metadata,link");
-        }
+            ("rlib", "--emit=dep-info,metadata,link")
+        };
+        cmd.args(["--crate-type", ct, emit]);
         cmd.arg("-C").arg(format!("metadata={}", short_key));
         cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
-        cmd.arg("--out-dir").arg(inv.out_dir);
     } else if is_bin {
-        cmd.arg("--crate-type").arg("bin");
-        cmd.arg("--emit=dep-info,link");
-        cmd.arg("--out-dir").arg(inv.out_dir);
+        cmd.args(["--crate-type", "bin", "--emit=dep-info,link"]);
     } else {
-        cmd.arg("--crate-type").arg("rlib");
-        cmd.arg("--emit=dep-info,metadata,link");
+        cmd.args(["--crate-type", "rlib", "--emit=dep-info,metadata,link"]);
         cmd.arg("-C").arg(format!("metadata={}", short_key));
         cmd.arg("-C").arg(format!("extra-filename=-{}", short_key));
-        cmd.arg("--out-dir").arg(inv.out_dir);
     }
+    cmd.arg("--out-dir").arg(inv.out_dir);
 
     let profile = super::profile::resolve_unit_profile(
         &inv.unit.manifest_path,
@@ -152,32 +148,41 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     if let Some(ref p) = profile
         .panic
         .as_ref()
-        .filter(|_| !inv.unit.for_host && !is_proc_macro && !is_test)
+        .filter(|_| !inv.unit.for_host && !is_proc_macro && !is_test && inv.mode != BuildMode::Test)
     {
         cmd.arg("-C").arg(format!("panic={}", p));
     }
     if let Some(cgu) = profile.codegen_units {
         cmd.arg("-C").arg(format!("codegen-units={}", cgu));
     }
+    let is_lto_target = matches!(
+        inv.unit.kind.as_str(),
+        "bin" | "cdylib" | "staticlib" | "dylib"
+    );
     if let Some(ref lto_mode) = profile
         .lto
         .as_ref()
-        .filter(|_| !inv.unit.for_host && is_bin && inv.mode == BuildMode::Build)
+        .filter(|_| !inv.unit.for_host && is_lto_target && inv.mode == BuildMode::Build)
     {
         cmd.arg("-C").arg(format!("lto={}", lto_mode));
     }
-    if let Some(ref strip_mode) = profile.strip.as_ref().filter(|s| s.as_str() != "none") {
+    let is_linked =
+        is_bin || is_test || is_proc_macro || matches!(inv.unit.kind.as_str(), "cdylib" | "dylib");
+    if let Some(ref strip_mode) = profile
+        .strip
+        .as_ref()
+        .filter(|s| is_linked && s.as_str() != "none")
+    {
         cmd.arg("-C").arg(format!("strip={}", strip_mode));
     }
-    if let Some(oc) = profile.overflow_checks {
-        cmd.arg("-C")
-            .arg(format!("overflow-checks={}", if oc { "on" } else { "off" }));
+    if profile.opt_level != "0" && profile.debug_assertions {
+        cmd.arg("-C").arg("debug-assertions=on");
+    } else if profile.opt_level == "0" && !profile.debug_assertions {
+        cmd.arg("-C").arg("debug-assertions=off");
     }
-    if let Some(da) = profile.debug_assertions {
-        cmd.arg("-C").arg(format!(
-            "debug-assertions={}",
-            if da { "on" } else { "off" }
-        ));
+    if profile.overflow_checks != profile.debug_assertions {
+        let v = if profile.overflow_checks { "on" } else { "off" };
+        cmd.arg("-C").arg(format!("overflow-checks={}", v));
     }
 
     let pkg_dir = inv.unit.manifest_path.parent().unwrap_or(Path::new("."));

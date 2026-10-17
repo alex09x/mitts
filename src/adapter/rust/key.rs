@@ -347,13 +347,13 @@ fn load_lock_checksums(manifest_path: &Path) -> HashMap<String, String> {
         if let Ok(lock) = super::lockfile::CargoLock::from_file(&lp) {
             for pkg in lock.packages {
                 if let Some(cksum) = pkg.checksum.filter(|c| !c.is_empty()) {
-                    if let Some(src) = pkg.source.filter(|s| !s.is_empty()) {
-                        map.insert(
-                            format!("{} {} ({})", pkg.name, pkg.version, src),
-                            cksum.clone(),
-                        );
-                    }
-                    map.entry(format!("{} {}", pkg.name, pkg.version))
+                    let pkg_id = super::features::format_package_id(
+                        &pkg.name,
+                        &pkg.version,
+                        pkg.source.as_deref(),
+                    );
+                    map.insert(pkg_id, cksum.clone());
+                    map.entry(format!("{}@{}", pkg.name, pkg.version))
                         .or_insert(cksum);
                 }
             }

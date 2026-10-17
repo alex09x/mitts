@@ -102,6 +102,19 @@ pub fn execute_build_script(
     let s_clean = s_str.trim_end_matches('/');
     compile_cmd.arg(format!("--remap-path-prefix={}/=/mitts/build_rs/", s_clean));
     compile_cmd.arg(format!("--remap-path-prefix={}=/mitts/build_rs", s_clean));
+    let profile = super::profile::resolve_unit_profile(
+        &unit.manifest_path,
+        &unit.package_name,
+        unit.is_workspace,
+        true,
+        release,
+        unit.workspace_root.as_deref(),
+    )?;
+    if profile.opt_level != "0" {
+        compile_cmd
+            .arg("-C")
+            .arg(format!("opt-level={}", profile.opt_level));
+    }
     compile_cmd
         .arg("--crate-name")
         .arg("build_script_build")
@@ -111,9 +124,27 @@ pub fn execute_build_script(
         .arg("--edition")
         .arg(unit.edition.as_deref().unwrap_or("2015"))
         .arg("-C")
+        .arg(format!("debuginfo={}", profile.debuginfo))
+        .arg("-C")
         .arg("embed-bitcode=no")
         .arg("-C")
-        .arg("codegen-units=256")
+        .arg(format!(
+            "codegen-units={}",
+            profile.codegen_units.unwrap_or(256)
+        ));
+    if let Some(ref strip_mode) = profile.strip.as_ref().filter(|s| s.as_str() != "none") {
+        compile_cmd.arg("-C").arg(format!("strip={}", strip_mode));
+    }
+    if profile.opt_level != "0" && profile.debug_assertions {
+        compile_cmd.arg("-C").arg("debug-assertions=on");
+    } else if profile.opt_level == "0" && !profile.debug_assertions {
+        compile_cmd.arg("-C").arg("debug-assertions=off");
+    }
+    if profile.overflow_checks != profile.debug_assertions {
+        let v = if profile.overflow_checks { "on" } else { "off" };
+        compile_cmd.arg("-C").arg(format!("overflow-checks={}", v));
+    }
+    compile_cmd
         .arg("-o")
         .arg(&bin_path)
         .env("CARGO_MANIFEST_DIR", pkg_dir)

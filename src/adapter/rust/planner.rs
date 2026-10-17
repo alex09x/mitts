@@ -25,6 +25,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
+    let ws_root = super::compiler_resolve::find_workspace_root(&manifest_path);
     let toolchain = RustAdapter::detect_toolchain()?;
     let t_toolchain = std::time::Instant::now();
     let s_toolchain = super::compiler_resolve::rustc_subproc_stats();
@@ -44,7 +45,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         true,
         false,
         opt.release,
-        Some(project_dir),
+        Some(ws_root.as_path()),
     )?;
 
     let members = root_toml.discover_workspace_members(project_dir)?;
@@ -322,7 +323,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         &package_features,
         opt,
         is_primary_pkg,
-        Some(project_dir),
+        Some(ws_root.as_path()),
     );
     let t_units = std::time::Instant::now();
     let s_units = super::compiler_resolve::rustc_subproc_stats();

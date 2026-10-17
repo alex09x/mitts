@@ -198,7 +198,7 @@ impl FastBuildLock {
                 ));
             }
             if let Some(ref expected_sha) = src_snap.sha256 {
-                if meta.len() <= 65536 {
+                if meta.len() <= 1024 * 1024 {
                     let cur_sha = fs::read(&full_p).ok().map(|b| Sha256::digest(&b));
                     if cur_sha.as_ref() != Some(expected_sha) {
                         return FreshnessResult::Stale(format!(
@@ -303,6 +303,7 @@ impl FastBuildLock {
         collect_project_files(
             args.project_dir,
             args.project_dir,
+            ext.target_dir,
             &mut manifests,
             &mut sources,
             &mut directories,
@@ -321,6 +322,7 @@ impl FastBuildLock {
                 collect_project_files(
                     args.project_dir,
                     &canon_extra,
+                    ext.target_dir,
                     &mut manifests,
                     &mut sources,
                     &mut directories,

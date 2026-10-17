@@ -30,7 +30,7 @@ pub fn compute_build_script_key(
     extern_crates: &[(String, PathBuf)],
 ) -> Result<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v6:");
+    hasher.update(b"build_script_v7:");
     hasher.update(unit.package_id.as_bytes());
     hasher.update(b":");
     hasher.update(unit.package_name.as_bytes());
@@ -47,6 +47,24 @@ pub fn compute_build_script_key(
     })?;
     hasher.update(&script_bytes);
     hasher.update(if release { b":release:" } else { b":dev:" });
+    let profile = super::profile::resolve_unit_profile(
+        &unit.manifest_path,
+        &unit.package_name,
+        unit.is_workspace,
+        true,
+        release,
+        unit.workspace_root.as_deref(),
+    )?;
+    let prof_stamp = format!(
+        ":prof:{}:{}:{:?}:{:?}:{}:{}:",
+        profile.opt_level,
+        profile.debuginfo,
+        profile.codegen_units,
+        profile.strip,
+        profile.debug_assertions,
+        profile.overflow_checks
+    );
+    hasher.update(prof_stamp.as_bytes());
     hasher.update(target.as_bytes());
     hasher.update(b":rustc:");
     let verbose_rustc = get_rustc_verbose_version()?;

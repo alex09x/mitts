@@ -327,39 +327,44 @@ pub fn extract_unit_extra_inputs(
     let cleaned_staging = clean_path(staging_dir);
     let staging_out = clean_path(&staging_dir.join("out"));
     let explicit_out = out_dir.map(clean_path);
-    if let Ok(entries) = fs::read_dir(staging_dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.extension().is_some_and(|e| e == "d") {
-                let parsed = super::dep_info::parse_dep_info_full(&p, Some(root))?;
-                for file_path in parsed.files {
-                    let cleaned_file = clean_path(&file_path);
-                    if is_file_in_unit_coarse_inputs(unit, pkg_dir, &cleaned_file) {
-                        continue;
-                    }
-                    let norm_path = if let Some(rel) = explicit_out
-                        .as_ref()
-                        .and_then(|d_out| cleaned_file.strip_prefix(d_out).ok())
-                        .or_else(|| cleaned_file.strip_prefix(&staging_out).ok())
-                        .or_else(|| cleaned_file.strip_prefix(&cleaned_staging).ok())
-                    {
-                        format!("out:{}", rel.display())
-                    } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
-                        format!("ws:{}", rel.display())
-                    } else {
-                        cleaned_file.to_string_lossy().to_string()
-                    };
-                    extra_inputs.push((norm_path, Sha256::digest_file(&file_path)?));
+    let entries = fs::read_dir(staging_dir)
+        .with_context(|| format!("Failed to read staging directory {:?}", staging_dir))?;
+    let mut found_d = false;
+    for entry in entries {
+        let p = entry?.path();
+        if p.extension().is_some_and(|e| e == "d") {
+            found_d = true;
+            let parsed = super::dep_info::parse_dep_info_full(&p, Some(root))?;
+            for file_path in parsed.files {
+                let cleaned_file = clean_path(&file_path);
+                if is_file_in_unit_coarse_inputs(unit, pkg_dir, &cleaned_file) {
+                    continue;
                 }
-                for (var, val_opt) in parsed.env_deps {
-                    let hash = match (var.as_str(), out_dir_purity) {
-                        ("OUT_DIR", Some(purity)) => Sha256::digest(purity.out_dir_hash.as_bytes()),
-                        _ => Sha256::digest(val_opt.as_deref().unwrap_or("__UNSET__").as_bytes()),
-                    };
-                    extra_inputs.push((format!("env:{var}"), hash));
-                }
+                let norm_path = if let Some(rel) = explicit_out
+                    .as_ref()
+                    .and_then(|d_out| cleaned_file.strip_prefix(d_out).ok())
+                    .or_else(|| cleaned_file.strip_prefix(&staging_out).ok())
+                    .or_else(|| cleaned_file.strip_prefix(&cleaned_staging).ok())
+                {
+                    format!("out:{}", rel.display())
+                } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
+                    format!("ws:{}", rel.display())
+                } else {
+                    cleaned_file.to_string_lossy().to_string()
+                };
+                extra_inputs.push((norm_path, Sha256::digest_file(&file_path)?));
+            }
+            for (var, val_opt) in parsed.env_deps {
+                let hash = match (var.as_str(), out_dir_purity) {
+                    ("OUT_DIR", Some(purity)) => Sha256::digest(purity.out_dir_hash.as_bytes()),
+                    _ => Sha256::digest(val_opt.as_deref().unwrap_or("__UNSET__").as_bytes()),
+                };
+                extra_inputs.push((format!("env:{var}"), hash));
             }
         }
+    }
+    if !found_d {
+        anyhow::bail!("No .d dep-info found in {:?}", staging_dir);
     }
     extra_inputs.sort_by(|a, b| a.0.cmp(&b.0));
     extra_inputs.dedup_by(|a, b| a.0 == b.0);

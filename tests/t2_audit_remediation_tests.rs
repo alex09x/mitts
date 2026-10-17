@@ -268,9 +268,14 @@ edition = "2021"
 
 #[test]
 fn test_b3_immutable_pkg_detection_and_package_id_checksum_disambiguation() {
+    let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempdir().unwrap();
+    let cargo_home = dir.path().join(".cargo-home");
+    unsafe {
+        std::env::set_var("CARGO_HOME", &cargo_home);
+    }
 
-    // (a) Vendored crate with .cargo-ok in vendor/foo must be treated as mutable.
+    // (a) Vendored crate with .cargo-ok in vendor/foo or local git/checkouts path outside CARGO_HOME must be mutable.
     let vendor_foo = dir.path().join("vendor").join("foo");
     fs::create_dir_all(vendor_foo.join("src")).unwrap();
     fs::write(
@@ -285,8 +290,15 @@ fn test_b3_immutable_pkg_detection_and_package_id_checksum_disambiguation() {
         !is_immutable_package_dir(&vendor_foo, false),
         "vendor/foo with .cargo-ok must NOT be treated as an immutable global cache dir"
     );
+    let fake_git_local = dir.path().join("local/git/checkouts/foo");
+    fs::create_dir_all(&fake_git_local).unwrap();
+    assert!(
+        !is_immutable_package_dir(&fake_git_local, false),
+        "Path ending in git/checkouts outside CARGO_HOME must NOT be treated as immutable"
+    );
+
     let unit_vendor = PlannedCompilationUnit {
-        package_id: "foo 0.1.0".to_string(),
+        package_id: "foo@0.1.0".to_string(),
         package_name: "foo".to_string(),
         version: "0.1.0".to_string(),
         target_name: "foo".to_string(),
@@ -310,11 +322,11 @@ fn test_b3_immutable_pkg_detection_and_package_id_checksum_disambiguation() {
         "Editing vendor/foo/src/lib.rs must invalidate unit inputs even when .cargo-ok exists"
     );
 
-    // (b) Multi-crate git checkout under .../git/checkouts/repo-xxxx/<rev>/crates/foo
-    let git_crate = dir
-        .path()
-        .join("git/checkouts/repo-1234/abcdef1/crates/foo");
+    // (b) Multi-crate git checkout under $CARGO_HOME/git/checkouts/repo-xxxx/<rev>/crates/foo with .cargo-ok
+    let checkout_root = cargo_home.join("git/checkouts/repo-1234/abcdef1");
+    let git_crate = checkout_root.join("crates/foo");
     fs::create_dir_all(git_crate.join("src")).unwrap();
+    fs::write(checkout_root.join(".cargo-ok"), "").unwrap();
     fs::write(
         git_crate.join("Cargo.toml"),
         "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
@@ -326,9 +338,9 @@ fn test_b3_immutable_pkg_detection_and_package_id_checksum_disambiguation() {
     let mut unit_git_a = unit_vendor.clone();
     unit_git_a.manifest_path = git_crate.join("Cargo.toml");
     unit_git_a.src_path = git_crate.join("src/lib.rs");
-    unit_git_a.package_id = "foo 0.1.0 (git+https://example.com/repo#abcdef1)".to_string();
+    unit_git_a.package_id = "foo@0.1.0 (git+https://example.com/repo#abcdef1)".to_string();
     let mut unit_git_b = unit_git_a.clone();
-    unit_git_b.package_id = "foo 0.1.0 (git+https://example.com/repo#9999999)".to_string();
+    unit_git_b.package_id = "foo@0.1.0 (git+https://example.com/repo#9999999)".to_string();
 
     let git_entry = compute_package_cache_entry(&git_crate, None, false).unwrap();
     let git_in_a =
@@ -406,7 +418,7 @@ split-debuginfo = "packed"
     );
     fs::remove_file(&cfg_file).unwrap();
 
-    // 3. Supported profile keys propagate to both compiler_args and key_flags.
+    // 3. Supported profile keys propagate to both compiler_args and key_flags using Cargo rules.
     fs::write(
         &manifest,
         r#"[package]
@@ -421,7 +433,8 @@ codegen-units = 4
 lto = "thin"
 strip = "symbols"
 overflow-checks = false
-debug-assertions = false
+debug-assertions = true
+incremental = true
 debug = 1
 "#,
     )
@@ -431,7 +444,7 @@ debug = 1
     fs::write(src_dir.join("main.rs"), "fn main() {}\n").unwrap();
 
     let unit = PlannedCompilationUnit {
-        package_id: "b4_pkg 0.1.0".to_string(),
+        package_id: "b4_pkg@0.1.0".to_string(),
         package_name: "b4_pkg".to_string(),
         version: "0.1.0".to_string(),
         target_name: "b4_pkg".to_string(),
@@ -452,6 +465,7 @@ debug = 1
     )
     .unwrap();
     for expected in [
+        "SCHEMA_VERSION=rust_key_v3",
         "DEBUGINFO=1",
         "OPT_LEVEL=2",
         "PANIC=abort",
@@ -459,7 +473,7 @@ debug = 1
         "LTO=thin",
         "STRIP=symbols",
         "OVERFLOW_CHECKS=false",
-        "DEBUG_ASSERTIONS=false",
+        "DEBUG_ASSERTIONS=true",
     ] {
         assert!(
             flags.iter().any(|f| f == expected),
@@ -497,8 +511,8 @@ debug = 1
         "codegen-units=4",
         "lto=thin",
         "strip=symbols",
+        "debug-assertions=on",
         "overflow-checks=off",
-        "debug-assertions=off",
     ] {
         assert!(
             args.iter().any(|a| a == expected),
@@ -510,6 +524,185 @@ debug = 1
     assert!(
         !args.iter().any(|a| a == "embed-bitcode=no"),
         "embed-bitcode=no must be omitted when LTO is enabled"
+    );
+}
+
+#[test]
+fn test_r1_r2_r3_profile_defaults_test_mode_panic_and_incomplete_inputs_lock() {
+    let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempdir().unwrap();
+    unsafe {
+        std::env::set_var("CARGO_HOME", dir.path().join(".cargo-home"));
+        std::env::set_var("MITTS_CACHE_DIR", dir.path().join(".mitts-cache"));
+    }
+
+    // R1(a): [profile.dev] opt-level = 1 keeps cfg!(debug_assertions) == true
+    let r1a_dir = dir.path().join("r1a");
+    fs::create_dir_all(r1a_dir.join("src")).unwrap();
+    fs::write(
+        r1a_dir.join("Cargo.toml"),
+        r#"[package]
+name = "r1a"
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev]
+opt-level = 1
+"#,
+    )
+    .unwrap();
+    fs::write(
+        r1a_dir.join("src/main.rs"),
+        "fn main() { print!(\"{}\", cfg!(debug_assertions)); }\n",
+    )
+    .unwrap();
+    let opt_r1a = base_options(r1a_dir.join("Cargo.toml"), r1a_dir.join("target"));
+    RustAdapter::build(&opt_r1a).unwrap();
+    let out_r1a = std::process::Command::new(r1a_dir.join("target/debug/r1a"))
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out_r1a.stdout), "true");
+
+    // R1(b): release build with build.rs compiles build.rs with cfg!(debug_assertions) == false
+    let r1b_dir = dir.path().join("r1b");
+    fs::create_dir_all(r1b_dir.join("src")).unwrap();
+    fs::write(
+        r1b_dir.join("Cargo.toml"),
+        "[package]\nname = \"r1b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(
+        r1b_dir.join("build.rs"),
+        r#"fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    let out = std::env::var("OUT_DIR").unwrap();
+    std::fs::write(format!("{}/host_da.txt", out), format!("{}", cfg!(debug_assertions))).unwrap();
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        r1b_dir.join("src/main.rs"),
+        "fn main() { print!(\"{}\", include_str!(concat!(env!(\"OUT_DIR\"), \"/host_da.txt\"))); }\n",
+    )
+    .unwrap();
+    let mut opt_r1b = base_options(r1b_dir.join("Cargo.toml"), r1b_dir.join("target"));
+    opt_r1b.release = true;
+    RustAdapter::build(&opt_r1b).unwrap();
+    let out_r1b = std::process::Command::new(r1b_dir.join("target/release/r1b"))
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out_r1b.stdout), "false");
+
+    // R2: [profile.dev] panic = "abort" must not pass -C panic=abort in BuildMode::Test
+    let r2_dir = dir.path().join("r2");
+    fs::create_dir_all(r2_dir.join("src")).unwrap();
+    fs::write(
+        r2_dir.join("Cargo.toml"),
+        r#"[package]
+name = "r2"
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev]
+panic = "abort"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        r2_dir.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn it_works() { assert_eq!(super::add(2, 2), 4); }\n}\n",
+    )
+    .unwrap();
+    let mut opt_r2 = base_options(r2_dir.join("Cargo.toml"), r2_dir.join("target"));
+    opt_r2.mode = BuildMode::Test;
+    let (plan_r2, res_r2) = RustAdapter::build(&opt_r2).unwrap();
+    assert!(
+        res_r2.success,
+        "BuildMode::Test with panic=abort must succeed"
+    );
+    let test_bin = plan_r2
+        .actions
+        .iter()
+        .filter(|a| a.kind == mitts::core::action::ActionKind::CompileBin)
+        .flat_map(|a| &a.outputs)
+        .next()
+        .expect("Expected compiled test binary");
+    let test_out = std::process::Command::new(test_bin).output().unwrap();
+    assert!(test_out.status.success(), "Compiled test binary must pass");
+
+    // R3: missing .d or untracked build script marks has_complete_inputs = false in build.lock
+    let empty_stage = dir.path().join("empty_stage");
+    fs::create_dir_all(&empty_stage).unwrap();
+    let unit_r3 = PlannedCompilationUnit {
+        package_id: "r1a@0.1.0".to_string(),
+        package_name: "r1a".to_string(),
+        version: "0.1.0".to_string(),
+        target_name: "r1a".to_string(),
+        kind: "bin".to_string(),
+        src_path: r1a_dir.join("src/main.rs"),
+        manifest_path: r1a_dir.join("Cargo.toml"),
+        is_workspace: true,
+        ..Default::default()
+    };
+    assert!(
+        mitts::adapter::rust::dag_unit_publish::extract_unit_extra_inputs(
+            &unit_r3,
+            &empty_stage,
+            Some(&r1a_dir),
+            None,
+            None,
+        )
+        .is_err(),
+        "extract_unit_extra_inputs must fail when staging_dir has no .d file"
+    );
+
+    let r3_dir = dir.path().join("r3");
+    fs::create_dir_all(r3_dir.join("src")).unwrap();
+    fs::write(
+        r3_dir.join("Cargo.toml"),
+        "[package]\nname = \"r3\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(
+        r3_dir.join("src/main.rs"),
+        "macro_rules! k { () => { \"DYN_KEY\" }; }\nfn main() { let _ = option_env!(k!()); }\n",
+    )
+    .unwrap();
+    let opt_r3 = base_options(r3_dir.join("Cargo.toml"), r3_dir.join("target"));
+    let (plan_r3, _) = RustAdapter::build(&opt_r3).unwrap();
+    assert!(
+        plan_r3.inputs_incomplete,
+        "BuildPlan must mark inputs_incomplete = true when unit inputs are incomplete"
+    );
+    let lock_bytes = fs::read(FastBuildLock::lock_path_in_target(
+        &r3_dir.join("target"),
+        "dev",
+    ))
+    .unwrap();
+    let lock: FastBuildLock = serde_json::from_slice(&lock_bytes).unwrap();
+    assert!(
+        !lock.has_complete_inputs,
+        "FastBuildLock must record has_complete_inputs = false"
+    );
+    let fresh = FastBuildLock::check_freshness_with_options(
+        &mitts::core::FreshnessCheckArgs {
+            project_dir: &r3_dir,
+            profile: "dev",
+            package: &None,
+            features: &[],
+            no_default_features: false,
+            all_features: false,
+            toolchain_version: &lock.toolchain_version,
+        },
+        Some(&r3_dir.join("target")),
+        lock.options_hash.as_deref(),
+        true,
+    );
+    assert!(
+        matches!(fresh, mitts::core::FreshnessResult::Stale(ref msg) if msg.contains("Incomplete tracked inputs")),
+        "Expected Stale(Incomplete tracked inputs), got {:?}",
+        fresh
     );
 }
 

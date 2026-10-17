@@ -79,4 +79,7 @@ pub struct BuildPlan {
     /// Extra tracked environment variables (name -> Option<value>) from unit env!/option_env!, dep-info env-dep, and build script rerun-if-env-changed.
     #[serde(default)]
     pub tracked_env_vars: BTreeMap<String, Option<String>>,
+    /// Whether any mutable unit had incomplete/tainted input tracking during execution.
+    #[serde(default)]
+    pub inputs_incomplete: bool,
 }

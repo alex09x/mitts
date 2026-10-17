@@ -334,7 +334,7 @@ fn record_state_and_trace(
                 extra_package_dirs: &extra_pkg_dirs,
                 tracked_extra_files: Some(&plan.tracked_extra_files),
                 tracked_env_vars: Some(&plan.tracked_env_vars),
-                has_complete_inputs: true,
+                has_complete_inputs: !plan.inputs_incomplete,
             },
         );
     }

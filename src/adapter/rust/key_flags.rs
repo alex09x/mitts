@@ -221,7 +221,7 @@ pub fn compute_unit_flags_with_ws(
             u_flags.push(format!("REMAP_OUT_DIR=/mitts/out/{}", clean_crate));
         }
     }
-    u_flags.push("SCHEMA_VERSION=rust_key_v2".to_string());
+    u_flags.push("SCHEMA_VERSION=rust_key_v3".to_string());
     let ws_for_profile = unit.workspace_root.as_deref().or(ws_root);
     let profile = super::profile::resolve_unit_profile(
         &unit.manifest_path,
@@ -242,7 +242,9 @@ pub fn compute_unit_flags_with_ws(
         u_flags.push(format!("OPT_LEVEL={}", profile.opt_level));
     }
     if let Some(ref p) = profile.panic.as_ref().filter(|_| {
-        !unit.for_host && !matches!(unit.kind.as_str(), "proc-macro" | "test" | "custom-test")
+        !unit.for_host
+            && mode != BuildMode::Test
+            && !matches!(unit.kind.as_str(), "proc-macro" | "test" | "custom-test")
     }) {
         u_flags.push(format!("PANIC={}", p));
     }
@@ -252,15 +254,19 @@ pub fn compute_unit_flags_with_ws(
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| !unit.for_host) {
         u_flags.push(format!("LTO={}", lto_mode));
     }
-    if let Some(ref strip_mode) = profile.strip {
+    let is_linked = matches!(
+        unit.kind.as_str(),
+        "bin" | "cdylib" | "dylib" | "proc-macro" | "test" | "custom-test"
+    );
+    if let Some(ref strip_mode) = profile
+        .strip
+        .as_ref()
+        .filter(|s| is_linked && s.as_str() != "none")
+    {
         u_flags.push(format!("STRIP={}", strip_mode));
     }
-    if let Some(oc) = profile.overflow_checks {
-        u_flags.push(format!("OVERFLOW_CHECKS={}", oc));
-    }
-    if let Some(da) = profile.debug_assertions {
-        u_flags.push(format!("DEBUG_ASSERTIONS={}", da));
-    }
+    u_flags.push(format!("OVERFLOW_CHECKS={}", profile.overflow_checks));
+    u_flags.push(format!("DEBUG_ASSERTIONS={}", profile.debug_assertions));
     u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
     u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
     u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));

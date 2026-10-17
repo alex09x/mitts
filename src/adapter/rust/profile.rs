@@ -30,8 +30,8 @@ pub struct UnitProfileSettings {
     pub codegen_units: Option<u32>,
     pub lto: Option<String>,
     pub strip: Option<String>,
-    pub overflow_checks: Option<bool>,
-    pub debug_assertions: Option<bool>,
+    pub overflow_checks: bool,
+    pub debug_assertions: bool,
 }
 
 type ProfileCacheKey = (PathBuf, String, u64);
@@ -93,8 +93,9 @@ pub fn resolve_unit_profile(
 
     let profile_name = if release { "release" } else { "dev" };
     let upper_prof = if release { "RELEASE" } else { "DEV" };
-    let default_debug = if release || for_host { 0 } else { 2 };
+    let default_debug = if release { 0 } else { 2 };
     let default_opt = if release && !for_host { "3" } else { "0" };
+    let default_assertions = !release;
 
     let loaded = if let Some(ws) = &effective_ws_root {
         let stamp = compute_profile_files_stamp(ws);
@@ -127,9 +128,7 @@ pub fn resolve_unit_profile(
     let bo_tbl = for_host
         .then(|| loaded.build_overrides.get(profile_name))
         .flatten();
-    let top_tbl = (!for_host)
-        .then(|| loaded.profiles.get(profile_name))
-        .flatten();
+    let top_tbl = loaded.profiles.get(profile_name);
 
     let lookup_unit_val = |key: &str| -> Option<&toml::Value> {
         pkg_tbl
@@ -138,37 +137,40 @@ pub fn resolve_unit_profile(
             .or_else(|| bo_tbl.and_then(|t| t.get(key)))
     };
 
-    let resolve_overridable = |key: &str, env_suffix: &str| -> Option<toml::Value> {
-        if let Some(v) = lookup_unit_val(key) {
-            return Some(v.clone());
-        }
-        if !for_host {
-            let env_key = format!("CARGO_PROFILE_{}_{}", upper_prof, env_suffix);
-            if let Some(s) = read_env_non_empty(&env_key) {
-                return Some(s.parse::<toml::Value>().unwrap_or(toml::Value::String(s)));
-            }
-            if let Some(v) = top_tbl.and_then(|t| t.get(key)) {
+    let resolve_overridable =
+        |key: &str, env_suffix: &str, inherit_top_for_host: bool| -> Option<toml::Value> {
+            if let Some(v) = lookup_unit_val(key) {
                 return Some(v.clone());
             }
-        }
-        None
-    };
+            if !for_host || inherit_top_for_host {
+                let env_key = format!("CARGO_PROFILE_{}_{}", upper_prof, env_suffix);
+                if let Some(s) = read_env_non_empty(&env_key) {
+                    return Some(s.parse::<toml::Value>().unwrap_or(toml::Value::String(s)));
+                }
+                if let Some(v) = top_tbl.and_then(|t| t.get(key)) {
+                    return Some(v.clone());
+                }
+            }
+            None
+        };
 
-    let debuginfo = resolve_overridable("debug", "DEBUG")
+    let debuginfo = resolve_overridable("debug", "DEBUG", true)
         .map(|v| parse_debug_value(&v, default_debug))
         .unwrap_or(default_debug);
-    let opt_level = resolve_overridable("opt-level", "OPT_LEVEL")
+    let opt_level = resolve_overridable("opt-level", "OPT_LEVEL", false)
         .and_then(|v| parse_opt_level_value(&v))
         .unwrap_or_else(|| default_opt.to_string());
-    let codegen_units = resolve_overridable("codegen-units", "CODEGEN_UNITS")
+    let codegen_units = resolve_overridable("codegen-units", "CODEGEN_UNITS", false)
         .and_then(|v| v.as_integer())
         .filter(|i| *i >= 1)
         .map(|i| i as u32);
-    let strip = resolve_overridable("strip", "STRIP").and_then(|v| parse_strip_value(&v));
-    let overflow_checks =
-        resolve_overridable("overflow-checks", "OVERFLOW_CHECKS").and_then(|v| v.as_bool());
-    let debug_assertions =
-        resolve_overridable("debug-assertions", "DEBUG_ASSERTIONS").and_then(|v| v.as_bool());
+    let strip = resolve_overridable("strip", "STRIP", true).and_then(|v| parse_strip_value(&v));
+    let overflow_checks = resolve_overridable("overflow-checks", "OVERFLOW_CHECKS", true)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(default_assertions);
+    let debug_assertions = resolve_overridable("debug-assertions", "DEBUG_ASSERTIONS", true)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(default_assertions);
 
     let panic = (!for_host)
         .then(|| {
@@ -253,10 +255,11 @@ fn parse_opt_level_value(val: &toml::Value) -> Option<String> {
 
 fn parse_lto_value(val: &toml::Value) -> Option<String> {
     match val {
-        toml::Value::Boolean(false) => Some("off".to_string()),
+        toml::Value::Boolean(false) => None,
         toml::Value::Boolean(true) => Some("fat".to_string()),
         toml::Value::String(s) => match s.as_str() {
-            "false" | "off" => Some("off".to_string()),
+            "false" => None,
+            "off" => Some("off".to_string()),
             "true" | "fat" | "yes" => Some("fat".to_string()),
             "thin" => Some("thin".to_string()),
             _ => None,
@@ -289,15 +292,13 @@ fn load_workspace_and_config_profiles(
     files.extend(super::cargo_config::discover_cargo_config_files(
         &config_dir,
     ));
-    for path in files {
-        if path.is_file() {
-            let content = std::fs::read_to_string(&path)
-                .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", path.display(), e))?;
-            let val: toml::Value = content
-                .parse()
-                .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", path.display(), e))?;
-            ingest_profiles_from_toml(&val, &mut resolved, &path, active_profile)?;
-        }
+    for path in files.into_iter().filter(|p| p.is_file()) {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", path.display(), e))?;
+        let val: toml::Value = content
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", path.display(), e))?;
+        ingest_profiles_from_toml(&val, &mut resolved, &path, active_profile)?;
     }
     Ok(resolved)
 }
@@ -319,21 +320,19 @@ fn validate_profile_table(
             "opt-level" => parse_opt_level_value(val).is_some(),
             "codegen-units" => val.as_integer().is_some_and(|i| i >= 1),
             "strip" => parse_strip_value(val).is_some(),
-            "overflow-checks" | "debug-assertions" => val.is_bool(),
-            "incremental" => val.as_bool() == Some(false),
+            "overflow-checks" | "debug-assertions" | "incremental" => val.is_bool(),
             "panic" if allow_top_only => matches!(val.as_str(), Some("unwind") | Some("abort")),
-            "lto" if allow_top_only => parse_lto_value(val).is_some(),
+            "lto" if allow_top_only => {
+                val.as_bool() == Some(false)
+                    || val.as_str() == Some("false")
+                    || parse_lto_value(val).is_some()
+            }
             "package" | "build-override" if allow_top_only => val.is_table(),
             _ => false,
         };
         if !valid {
-            return Err(RustAdapterError::UnsupportedOption(format!(
-                "{}.{} in {}",
-                scope,
-                key,
-                source_path.display()
-            ))
-            .into());
+            let msg = format!("{}.{} in {}", scope, key, source_path.display());
+            return Err(RustAdapterError::UnsupportedOption(msg).into());
         }
     }
     Ok(())
