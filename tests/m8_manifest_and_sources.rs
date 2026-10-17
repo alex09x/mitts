@@ -104,6 +104,7 @@ fn test_m8_source_lookup_registry_and_git() {
         "[package]\nname = \"foo-bar\"\nversion = \"1.2.3\"\n",
     )
     .unwrap();
+    fs::write(reg_dir.join(".cargo-ok"), "").unwrap();
 
     let git_dir = temp_home
         .path()

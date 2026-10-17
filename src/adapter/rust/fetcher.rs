@@ -96,7 +96,7 @@ impl CrateFetcher {
         Ok(body_bytes)
     }
 
-    fn validate_non_crates_io(pkg: &CargoLockPackage) -> Result<Option<PathBuf>> {
+    pub(crate) fn validate_non_crates_io(pkg: &CargoLockPackage) -> Result<Option<PathBuf>> {
         let Some(ref src) = pkg.source else {
             return Ok(None);
         };

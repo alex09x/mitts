@@ -93,6 +93,8 @@ impl NativeResolver {
                                 }
                             }
                         }
+                        // NativeResolver only resolves crates.io sparse-index packages; git dependencies
+                        // require an existing Cargo.lock (`cargo generate-lockfile` / `cargo fetch`).
                         TomlDependency::Detailed(d)
                             if d.git.is_some() || d.optional.unwrap_or(false) => {}
                         TomlDependency::Simple(req) => {

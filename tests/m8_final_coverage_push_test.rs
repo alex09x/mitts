@@ -266,7 +266,11 @@ version = "2.0.0"
     .unwrap();
     let orig_home = std::env::var("HOME").ok();
     std::env::set_var("HOME", &fake_home);
-    let found = find_crate_source_dir("non_git_checkout_crate", "2.0.0", None);
+    let found = find_crate_source_dir(
+        "non_git_checkout_crate",
+        "2.0.0",
+        Some("git+https://github.com/org/repo#commit-456"),
+    );
     assert_eq!(found, Some(checkout));
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);

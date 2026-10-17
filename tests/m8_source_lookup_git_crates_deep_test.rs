@@ -69,16 +69,16 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     let found_root = find_crate_source_dir("root_pkg", "1.0.0", Some(root_source));
     assert_eq!(found_root, Some(root_commit.clone()));
 
-    // Fallback search when is_git is false (e.g. source is None or crates.io registry)
+    // Non-git source must NOT fall back to git checkouts
     let found_fallback = find_crate_source_dir("root_pkg", "1.0.0", None);
-    assert_eq!(found_fallback, Some(root_commit));
+    assert_eq!(found_fallback, None);
 
     // Not found when commit hash mismatch
     let bad_hash_source = "git+https://github.com/foo/bar?branch=main#ffffffff";
     let found_bad = find_crate_source_dir("sub_pkg", "0.1.0", Some(bad_hash_source));
     assert!(found_bad.is_none());
 
-    // 5. Cargo registry source lookup
+    // 5. Cargo registry source lookup (requires .cargo-ok)
     let reg_dir = home
         .join(".cargo")
         .join("registry")
@@ -91,6 +91,7 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
         "[package]\nname = \"serde_json\"\n",
     )
     .unwrap();
+    fs::write(reg_dir.join(".cargo-ok"), "").unwrap();
 
     let found_reg = find_crate_source_dir(
         "serde_json",
@@ -99,7 +100,7 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     );
     assert_eq!(found_reg, Some(reg_dir));
 
-    // 6. Mitts cache source lookup
+    // 6. Mitts cache source lookup (requires .mitts-ok)
     let mitts_dir = home
         .join(".cache")
         .join("mitts")
@@ -111,6 +112,7 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
         "[package]\nname = \"tokio\"\n",
     )
     .unwrap();
+    fs::write(mitts_dir.join(".mitts-ok"), "ok\n").unwrap();
 
     let found_mitts = find_crate_source_dir("tokio", "1.30.0", None);
     assert_eq!(found_mitts, Some(mitts_dir));

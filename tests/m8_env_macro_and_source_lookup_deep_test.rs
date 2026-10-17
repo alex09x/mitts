@@ -110,11 +110,12 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
         "[package]\nname = \"mitts_pkg\"\n",
     )
     .unwrap();
+    fs::write(mitts_pkg.join(".mitts-ok"), "ok\n").unwrap();
 
     let found_mitts = find_crate_source_dir("mitts_pkg", "0.2.0", None);
     assert_eq!(found_mitts, Some(mitts_pkg));
 
-    // 2. Non-git package found via git checkouts fallback (!is_git)
+    // 2. Git package found via git checkouts with matching commit hash
     let checkouts = home.join(".cargo").join("git").join("checkouts");
     let repo_dir = checkouts.join("fallback-repo-1234");
     let commit_dir = repo_dir.join("feedbeef1234");
@@ -125,7 +126,11 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
     )
     .unwrap();
 
-    let found_fallback = find_crate_source_dir("git_fallback_pkg", "1.0.0", None);
+    let found_fallback = find_crate_source_dir(
+        "git_fallback_pkg",
+        "1.0.0",
+        Some("git+https://github.com/org/fallback-repo#feedbeef1234"),
+    );
     assert_eq!(found_fallback, Some(commit_dir));
 
     // 3. Non-existent package returns None

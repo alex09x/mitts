@@ -108,9 +108,9 @@ fn test_m8_source_lookup_git_crates_and_expected_hash() {
     );
     assert_eq!(mismatch, None);
 
-    // 3. Fallback when source is not git (is_git = false)
+    // 3. Non-git source must NOT fall back to git checkouts
     let non_git = find_crate_source_dir("pkg-in-git", "0.5.0", None);
-    assert_eq!(non_git, Some(nested_crate));
+    assert_eq!(non_git, None);
 
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);

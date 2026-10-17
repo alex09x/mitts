@@ -80,6 +80,21 @@ impl<'a> CacheGc<'a> {
 
     /// Runs garbage collection respecting storage quotas, age limits, and active locks.
     pub fn prune(&self, opts: &GcOptions) -> Result<GcReport> {
+        if let Some(cache_root) = self.cas.root().parent() {
+            let sources_dir = cache_root.join("sources");
+            if sources_dir.is_dir() {
+                if let Ok(store) = super::source_store::SourceStore::new(sources_dir) {
+                    let _ = store.cleanup_dead_staging();
+                }
+            }
+        }
+        let default_sources = super::source_store::SourceStore::default_root();
+        if default_sources.is_dir() {
+            if let Ok(store) = super::source_store::SourceStore::new(default_sources) {
+                let _ = store.cleanup_dead_staging();
+            }
+        }
+
         let objects_dir = self.cas.root().join("objects");
         if !objects_dir.is_dir() {
             return Ok(GcReport::default());

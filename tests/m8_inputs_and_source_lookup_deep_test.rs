@@ -185,6 +185,7 @@ version = "1.2.0"
 "#,
     )
     .unwrap();
+    fs::write(mitts_pkg.join(".mitts-ok"), "ok\n").unwrap();
 
     let found_mitts = find_crate_source_dir("mitts_cached_pkg", "1.2.0", None);
     assert_eq!(found_mitts, Some(mitts_pkg));

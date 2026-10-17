@@ -85,12 +85,12 @@ fn test_m8_fetcher_cargo_registry_src_and_cache_fallbacks() {
         .join(".cargo")
         .join("registry")
         .join("src")
-        .join("index-1234");
+        .join("index.crates.io-1234");
     let reg_cache = fake_home
         .join(".cargo")
         .join("registry")
         .join("cache")
-        .join("index-1234");
+        .join("index.crates.io-1234");
     fs::create_dir_all(&reg_src).unwrap();
     fs::create_dir_all(&reg_cache).unwrap();
 
@@ -175,6 +175,7 @@ fn test_m8_source_lookup_git_and_mitts_cache() {
         "[package]\nname = \"mitts-cached-lib\"\nversion = \"0.9.0\"\n",
     )
     .unwrap();
+    fs::write(pkg_dir.join(".mitts-ok"), "ok\n").unwrap();
 
     let found = find_crate_source_dir("mitts-cached-lib", "0.9.0", None);
     assert_eq!(found, Some(pkg_dir));

@@ -66,6 +66,7 @@ version = "1.2.0"
 "#,
     )
     .unwrap();
+    fs::write(mitts_crate.join(".mitts-ok"), "ok\n").unwrap();
 
     let found_mitts = find_crate_source_dir("mitts_lib", "1.2.0", None);
     assert_eq!(found_mitts, Some(mitts_crate));

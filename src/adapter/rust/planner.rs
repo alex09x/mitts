@@ -20,9 +20,11 @@ use std::path::{Path, PathBuf};
 
 /// Derives the effective build plan and compilation units natively without invoking Cargo.
 pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplanation> {
+    let t0 = std::time::Instant::now();
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let toolchain = RustAdapter::detect_toolchain()?;
+    let t_toolchain = std::time::Instant::now();
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
 
     let root_toml = CargoToml::from_file(&manifest_path)
@@ -88,6 +90,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         }
     }
 
+    let t_workspace = std::time::Instant::now();
     let lock_path = project_dir
         .ancestors()
         .map(|p| p.join("Cargo.lock"))
@@ -117,12 +120,18 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     for (name, (_dir, manifest)) in &workspace_manifests {
-        if !lockfile.packages.iter().any(|p| &p.name == name) {
-            let ver = manifest
-                .package
-                .as_ref()
-                .and_then(|p| p.version.clone())
-                .unwrap_or_else(|| "0.1.0".to_string());
+        let ver = manifest
+            .package
+            .as_ref()
+            .and_then(|p| p.version.clone())
+            .unwrap_or_else(|| "0.1.0".to_string());
+        if let Some(existing) = lockfile
+            .packages
+            .iter_mut()
+            .find(|p| &p.name == name && p.source.is_none())
+        {
+            existing.version = ver;
+        } else if !lockfile.packages.iter().any(|p| &p.name == name) {
             let mut deps = Vec::new();
             let mut all_deps: Vec<(&String, &super::manifest::TomlDependency)> =
                 manifest.dependencies.iter().collect();
@@ -151,6 +160,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             });
         }
     }
+    let t_lockfile = std::time::Instant::now();
 
     // Select root packages and collect all reachable transitive dependencies
     let selected_packages = select_transitive_packages(
@@ -160,6 +170,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         project_dir,
         opt,
     )?;
+    let t_select = std::time::Instant::now();
 
     let resolved_packages = super::source_lookup::resolve_selected_package_manifests(
         &selected_packages,
@@ -167,7 +178,8 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         &path_dependencies,
         opt.cache_dir.as_deref(),
         lockfile.version,
-    );
+    )?;
+    let t_resolve = std::time::Instant::now();
 
     // Determine root packages being targeted by the build
     let target_pkg = opt.package.as_deref();
@@ -236,6 +248,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml)?;
     let package_features =
         resolve_package_features_with_resolver(&feature_inputs, opt, Some(&ws_resolver))?;
+    let t_features = std::time::Instant::now();
 
     // Pass 1: Build compilation units with assigned features (Resolver 2 decoupled host/target)
     let mut units = super::planner_units::build_planned_units(
@@ -246,6 +259,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         is_primary_pkg,
         Some(project_dir),
     );
+    let t_units = std::time::Instant::now();
 
     // Pass 2: Resolve exact unit dependencies matching library or proc-macro targets
     let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
@@ -304,6 +318,24 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         units.retain(|u| u.kind != "test-deps");
     }
     prune_unreachable_units(&mut units, &root_unit_ids);
+    let t_deps = std::time::Instant::now();
+
+    if std::env::var_os("MITTS_TIMINGS").is_some() {
+        eprintln!(
+            "[mitts::timings] explain_plan: toolchain={:.2}ms workspace={:.2}ms lockfile={:.2}ms select={:.2}ms resolve_manifests={:.2}ms features={:.2}ms units={:.2}ms deps={:.2}ms total={:.2}ms (pkgs={}, units={})",
+            t_toolchain.duration_since(t0).as_secs_f64() * 1000.0,
+            t_workspace.duration_since(t_toolchain).as_secs_f64() * 1000.0,
+            t_lockfile.duration_since(t_workspace).as_secs_f64() * 1000.0,
+            t_select.duration_since(t_lockfile).as_secs_f64() * 1000.0,
+            t_resolve.duration_since(t_select).as_secs_f64() * 1000.0,
+            t_features.duration_since(t_resolve).as_secs_f64() * 1000.0,
+            t_units.duration_since(t_features).as_secs_f64() * 1000.0,
+            t_deps.duration_since(t_units).as_secs_f64() * 1000.0,
+            t_deps.duration_since(t0).as_secs_f64() * 1000.0,
+            resolved_packages.len(),
+            units.len(),
+        );
+    }
 
     let profile = if opt.release { "release" } else { "debug" }.to_string();
 

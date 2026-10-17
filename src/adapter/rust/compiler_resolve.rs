@@ -30,14 +30,14 @@ static RESOLVED_CARGO: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new()
 static RESOLVED_HOST_TRIPLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub fn resolve_cargo() -> PathBuf {
+    if let Ok(p) = std::env::var("CARGO") {
+        let pb = PathBuf::from(p);
+        if pb.is_file() {
+            return pb;
+        }
+    }
     RESOLVED_CARGO
         .get_or_init(|| {
-            if let Ok(p) = std::env::var("CARGO") {
-                let pb = PathBuf::from(p);
-                if pb.is_file() {
-                    return pb;
-                }
-            }
             if let Ok(paths) = std::env::var("PATH") {
                 for dir in std::env::split_paths(&paths) {
                     let p = dir.join("cargo");
@@ -73,11 +73,11 @@ pub fn resolve_host_triple() -> &'static str {
 }
 
 pub fn resolve_rustc() -> PathBuf {
+    if let Ok(p) = std::env::var("RUSTC") {
+        return PathBuf::from(p);
+    }
     RESOLVED_RUSTC
         .get_or_init(|| {
-            if let Ok(p) = std::env::var("RUSTC") {
-                return PathBuf::from(p);
-            }
             let home_cargo_rustup = std::env::var("HOME")
                 .ok()
                 .map(|h| PathBuf::from(h).join(".cargo/bin/rustup"));
@@ -119,11 +119,11 @@ pub fn resolve_rustc() -> PathBuf {
 }
 
 pub fn resolve_clippy_driver() -> PathBuf {
+    if let Ok(p) = std::env::var("CLIPPY_DRIVER") {
+        return PathBuf::from(p);
+    }
     RESOLVED_CLIPPY
         .get_or_init(|| {
-            if let Ok(p) = std::env::var("CLIPPY_DRIVER") {
-                return PathBuf::from(p);
-            }
             let home_cargo_rustup = std::env::var("HOME")
                 .ok()
                 .map(|h| PathBuf::from(h).join(".cargo/bin/rustup"));
@@ -157,11 +157,11 @@ pub fn resolve_clippy_driver() -> PathBuf {
 }
 
 pub fn resolve_rustdoc() -> PathBuf {
+    if let Ok(p) = std::env::var("RUSTDOC") {
+        return PathBuf::from(p);
+    }
     RESOLVED_RUSTDOC
         .get_or_init(|| {
-            if let Ok(p) = std::env::var("RUSTDOC") {
-                return PathBuf::from(p);
-            }
             let home_cargo_rustup = std::env::var("HOME")
                 .ok()
                 .map(|h| PathBuf::from(h).join(".cargo/bin/rustup"));

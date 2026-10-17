@@ -109,6 +109,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct CfgCacheKey {
+    rustc: PathBuf,
     for_host: bool,
     explicit_target: Option<String>,
     start_dir: PathBuf,
@@ -116,18 +117,21 @@ struct CfgCacheKey {
 
 type CachedCfgResult = Result<Arc<HashSet<String>>, String>;
 type CfgCacheMap = HashMap<CfgCacheKey, CachedCfgResult>;
+type BaseCfgCacheKey = (PathBuf, Option<String>);
 
 static CFG_CACHE: OnceLock<Mutex<CfgCacheMap>> = OnceLock::new();
-static BASE_CFG_CACHE: OnceLock<Mutex<HashMap<Option<String>, CachedCfgResult>>> = OnceLock::new();
+static BASE_CFG_CACHE: OnceLock<Mutex<HashMap<BaseCfgCacheKey, CachedCfgResult>>> = OnceLock::new();
 
 pub fn get_base_cfg_atoms(explicit_target: Option<&str>) -> Result<Arc<HashSet<String>>, String> {
     let cache = BASE_CFG_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let key = explicit_target.map(|s| s.to_string());
-    let mut guard = cache.lock().unwrap();
-    if let Some(cached) = guard.get(&key) {
-        return cached.clone();
-    }
     let rustc = crate::adapter::rust::compiler_resolve::resolve_rustc();
+    let key = (rustc.clone(), explicit_target.map(|s| s.to_string()));
+    {
+        let guard = cache.lock().unwrap();
+        if let Some(cached) = guard.get(&key) {
+            return cached.clone();
+        }
+    }
     let mut cmd = std::process::Command::new(&rustc);
     cmd.arg("--print").arg("cfg");
     if let Some(target) = explicit_target {
@@ -156,6 +160,10 @@ pub fn get_base_cfg_atoms(explicit_target: Option<&str>) -> Result<Arc<HashSet<S
         }
         Ok(Arc::new(atoms))
     })();
+    let mut guard = cache.lock().unwrap();
+    if let Some(cached) = guard.get(&key) {
+        return cached.clone();
+    }
     guard.insert(key, res.clone());
     res
 }
@@ -214,7 +222,9 @@ pub fn get_cfg_atoms(
     start_dir: &Path,
 ) -> Result<Arc<HashSet<String>>, RustAdapterError> {
     let cache = CFG_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let rustc = crate::adapter::rust::compiler_resolve::resolve_rustc();
     let key = CfgCacheKey {
+        rustc,
         for_host,
         explicit_target: explicit_target.map(|s| s.to_string()),
         start_dir: start_dir.to_path_buf(),

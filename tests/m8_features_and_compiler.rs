@@ -92,6 +92,7 @@ fn test_m8_source_lookup_cache_and_nested_git() {
         "[package]\nname = \"cached-pkg\"\nversion = \"1.0.0\"\n",
     )
     .unwrap();
+    fs::write(mitts_src.join(".mitts-ok"), "ok\n").unwrap();
 
     // 2. git repo with crates/nested
     let git_nested = temp_home

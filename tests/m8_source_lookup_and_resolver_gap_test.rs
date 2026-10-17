@@ -53,9 +53,9 @@ version = "0.2.0"
     );
     assert_eq!(found, Some(nested_crate.clone()));
 
-    // 2. Non-git source (source: None) falling back to find_in_git()
+    // 2. Non-git source (source: None) must NOT fall back to find_in_git()
     let found_fallback = find_crate_source_dir("my_nested", "0.2.0", None);
-    assert_eq!(found_fallback, Some(nested_crate));
+    assert_eq!(found_fallback, None);
 
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);

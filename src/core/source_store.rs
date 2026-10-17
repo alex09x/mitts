@@ -39,65 +39,65 @@ impl SourceStore {
         Ok(Self { root, locks_dir })
     }
 
-    /// Default global store location: uses `$MITTS_CACHE_DIR/sources` or `~/.cache/mitts/sources`.
-    /// Never writes into `$CARGO_HOME/registry`.
-    pub fn default_store() -> Result<Self> {
+    /// Returns the default store root path without creating directories on disk.
+    pub fn default_root() -> PathBuf {
         if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
-            return Self::new(PathBuf::from(val).join("sources"));
+            return PathBuf::from(val).join("sources");
         }
-
         let base_dir = if let Ok(home) = std::env::var("HOME") {
             PathBuf::from(home).join(".cache").join("mitts")
         } else {
             PathBuf::from("target").join("mitts").join("cache")
         };
+        base_dir.join("sources")
+    }
 
-        Self::new(base_dir.join("sources"))
+    /// Default global store location: uses `$MITTS_CACHE_DIR/sources` or `~/.cache/mitts/sources`.
+    /// Never writes into `$CARGO_HOME/registry`.
+    pub fn default_store() -> Result<Self> {
+        Self::new(Self::default_root())
+    }
+
+    /// Resolves the active Cargo home directory (`$CARGO_HOME` if explicitly set, otherwise `$HOME/.cargo`).
+    pub fn active_cargo_home() -> Option<PathBuf> {
+        let cur_home = std::env::var_os("HOME").map(PathBuf::from);
+        if let Some(ch) = std::env::var_os("CARGO_HOME").map(PathBuf::from) {
+            let is_stale_host_default = cur_home.as_ref().is_some_and(|h| {
+                ch.parent().is_some_and(|p| p != h)
+                    && ch.file_name().is_some_and(|n| n == ".cargo")
+                    && std::env::var("USER").ok().is_some_and(|u| {
+                        ch == Path::new("/home").join(&u).join(".cargo")
+                            || ch == Path::new("/Users").join(&u).join(".cargo")
+                    })
+            });
+            if !is_stale_host_default {
+                return Some(ch);
+            }
+        }
+        cur_home.map(|h| h.join(".cargo"))
+    }
+
+    fn discover_cargo_registry_subdir(sub: &str) -> Option<PathBuf> {
+        let dir = Self::active_cargo_home()?.join("registry").join(sub);
+        for entry in fs::read_dir(dir).ok()?.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if (name.starts_with("index.crates.io-") || name.starts_with("github.com-"))
+                && entry.path().is_dir()
+            {
+                return Some(entry.path());
+            }
+        }
+        None
     }
 
     /// Read-only discovery of active standard ~/.cargo/registry/src/index.crates.io-* directory if present.
     pub fn discover_cargo_registry_src() -> Option<PathBuf> {
-        let reg_src = if let Ok(ch) = std::env::var("CARGO_HOME") {
-            PathBuf::from(ch).join("registry").join("src")
-        } else {
-            let home = std::env::var("HOME").ok()?;
-            Path::new(&home).join(".cargo").join("registry").join("src")
-        };
-        if reg_src.is_dir() {
-            if let Ok(entries) = fs::read_dir(&reg_src) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("index.crates.io-") && entry.path().is_dir() {
-                        return Some(entry.path());
-                    }
-                }
-            }
-        }
-        None
+        Self::discover_cargo_registry_subdir("src")
     }
 
     /// Read-only discovery of active standard ~/.cargo/registry/cache/index.crates.io-* directory if present.
     pub fn discover_cargo_registry_cache() -> Option<PathBuf> {
-        let reg_cache = if let Ok(ch) = std::env::var("CARGO_HOME") {
-            PathBuf::from(ch).join("registry").join("cache")
-        } else {
-            let home = std::env::var("HOME").ok()?;
-            Path::new(&home)
-                .join(".cargo")
-                .join("registry")
-                .join("cache")
-        };
-        if reg_cache.is_dir() {
-            if let Ok(entries) = fs::read_dir(&reg_cache) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("index.crates.io-") && entry.path().is_dir() {
-                        return Some(entry.path());
-                    }
-                }
-            }
-        }
-        None
+        Self::discover_cargo_registry_subdir("cache")
     }
 
     /// Root directory of the source store.
@@ -120,10 +120,14 @@ impl SourceStore {
         self.locks_dir.join(format!("{}-{}.lock", name, version))
     }
 
+    /// Checks whether a candidate directory is atomically unpacked and ready (`.mitts-ok` + `Cargo.toml`).
+    pub fn is_valid_source_dir(dir: &Path) -> bool {
+        dir.join(MITTS_OK_MARKER).is_file() && dir.join("Cargo.toml").is_file()
+    }
+
     /// Checks whether the crate source is already atomically unpacked and ready (`.mitts-ok` + `Cargo.toml`).
     pub fn has_source(&self, name: &str, version: &str) -> bool {
-        let dir = self.package_dir(name, version);
-        dir.join(MITTS_OK_MARKER).is_file() && dir.join("Cargo.toml").is_file()
+        Self::is_valid_source_dir(&self.package_dir(name, version))
     }
 
     fn next_staging_dir(&self, name: &str, version: &str, suffix: &str) -> PathBuf {
@@ -136,6 +140,49 @@ impl SourceStore {
             seq,
             suffix
         ))
+    }
+
+    /// Removes orphaned `.staging` and `.trash` directories in `.locks` whose owning PID is no longer alive.
+    pub fn cleanup_dead_staging(&self) -> usize {
+        let Ok(entries) = fs::read_dir(&self.locks_dir) else {
+            return 0;
+        };
+        let mut removed = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let fname = entry.file_name().to_string_lossy().to_string();
+            let Some(stem) = fname
+                .strip_suffix(".staging")
+                .or_else(|| fname.strip_suffix(".trash"))
+            else {
+                continue;
+            };
+            let mut parts = stem.rsplitn(3, '-');
+            let _seq = parts.next();
+            let Some(pid_str) = parts.next() else {
+                continue;
+            };
+            let Ok(pid) = pid_str.parse::<u32>() else {
+                continue;
+            };
+            if pid == std::process::id() {
+                continue;
+            }
+            #[cfg(unix)]
+            let is_dead = unsafe {
+                libc::kill(pid as i32, 0) == -1
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            };
+            #[cfg(not(unix))]
+            let is_dead = false;
+            if is_dead && fs::remove_dir_all(&path).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
     }
 
     /// Atomically publishes `src_to_move` (inside `staging_root` on the same filesystem) to `{root}/{name}-{version}`.
@@ -173,7 +220,11 @@ impl SourceStore {
         if target_dir.exists() && !self.has_source(name, version) {
             let trash_dir = self.next_staging_dir(name, version, "trash");
             if fs::rename(&target_dir, &trash_dir).is_ok() {
-                let _ = fs::remove_dir_all(&trash_dir);
+                if trash_dir.join(MITTS_OK_MARKER).is_file() {
+                    let _ = fs::rename(&trash_dir, &target_dir);
+                } else {
+                    let _ = fs::remove_dir_all(&trash_dir);
+                }
             }
         }
 
@@ -190,10 +241,7 @@ impl SourceStore {
                     return Ok(target_dir);
                 }
                 Err(e).with_context(|| {
-                    format!(
-                        "Failed to atomically publish crate {}-{} to {:?}",
-                        name, version, target_dir
-                    )
+                    format!("Failed to atomically publish crate {name}-{version} to {target_dir:?}")
                 })
             }
         }
@@ -211,13 +259,7 @@ impl SourceStore {
         if !expected_checksum.is_empty() {
             let actual_checksum = Sha256::digest(archive_bytes);
             if actual_checksum != expected_checksum {
-                bail!(
-                    "Checksum mismatch for crate {}-{}: expected {}, got {}",
-                    name,
-                    version,
-                    expected_checksum,
-                    actual_checksum
-                );
+                bail!("Checksum mismatch for crate {name}-{version}: expected {expected_checksum}, got {actual_checksum}");
             }
         }
 
@@ -228,7 +270,7 @@ impl SourceStore {
 
         let staging_dir = self.next_staging_dir(name, version, "staging");
         fs::create_dir_all(&staging_dir)
-            .with_context(|| format!("Failed to create staging dir {:?}", staging_dir))?;
+            .with_context(|| format!("Failed to create staging dir {staging_dir:?}"))?;
 
         let gz = flate2::read::GzDecoder::new(archive_bytes);
         let mut archive = tar::Archive::new(gz);
@@ -237,10 +279,7 @@ impl SourceStore {
         if let Err(e) = archive.unpack(&staging_dir) {
             let _ = fs::remove_dir_all(&staging_dir);
             return Err(e).with_context(|| {
-                format!(
-                    "Failed to unpack crate archive in-memory for {}-{}",
-                    name, version
-                )
+                format!("Failed to unpack crate archive in-memory for {name}-{version}")
             });
         }
 
@@ -301,35 +340,33 @@ pub struct RegistryLookup {
 
 impl RegistryLookup {
     pub fn discover(exclude_store_root: &Path) -> Self {
-        let mut reg_roots = Vec::new();
-        if let Ok(ch) = std::env::var("CARGO_HOME") {
-            reg_roots.push(PathBuf::from(ch).join("registry"));
-        } else if let Ok(home) = std::env::var("HOME") {
-            reg_roots.push(PathBuf::from(home).join(".cargo").join("registry"));
-        }
-
         let mut cache_index_dirs = Vec::new();
         let mut src_index_dirs = Vec::new();
+        let is_crates_io_dir = |entry: &fs::DirEntry| -> bool {
+            let name = entry.file_name().to_string_lossy().to_string();
+            (name.starts_with("index.crates.io-") || name.starts_with("github.com-"))
+                && entry.path().is_dir()
+        };
 
-        for reg_dir in reg_roots {
+        if let Some(reg_dir) = SourceStore::active_cargo_home().map(|ch| ch.join("registry")) {
             if let Ok(entries) = fs::read_dir(reg_dir.join("cache")) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        cache_index_dirs.push(path);
-                    }
-                }
+                cache_index_dirs.extend(
+                    entries
+                        .flatten()
+                        .filter(&is_crates_io_dir)
+                        .map(|e| e.path()),
+                );
             }
             if let Ok(entries) = fs::read_dir(reg_dir.join("src")) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path != exclude_store_root && path.is_dir() {
-                        src_index_dirs.push(path);
-                    }
-                }
+                src_index_dirs.extend(
+                    entries
+                        .flatten()
+                        .filter(&is_crates_io_dir)
+                        .map(|e| e.path())
+                        .filter(|p| p != exclude_store_root),
+                );
             }
         }
-
         Self {
             cache_index_dirs,
             src_index_dirs,
