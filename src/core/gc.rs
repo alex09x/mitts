@@ -288,8 +288,13 @@ impl<'a> CacheGc<'a> {
                                 })
                                 .unwrap_or(SystemTime::UNIX_EPOCH);
 
+                            let effective_max_age = if active_keys.is_empty() {
+                                max_age
+                            } else {
+                                max_age.max(Duration::from_secs(3600))
+                            };
                             if let Ok(age) = now.duration_since(effective_time) {
-                                if age > max_age {
+                                if age > effective_max_age {
                                     // P2: Atomically unpublish first by renaming to .gc.<exec_key>.<pid>
                                     // so concurrent readers (which skip dot-files) never observe partial removals.
                                     let pid = std::process::id();

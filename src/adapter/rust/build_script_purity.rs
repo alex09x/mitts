@@ -28,6 +28,11 @@ pub struct BuildScriptPurity {
 
 /// Extracts the set of relative file paths inside `OUT_DIR` that are referenced in the unit's
 /// `.d` dep-info file(s) inside `staging_dir`.
+///
+/// Note: Path-leak byte scanning covers only `OUT_DIR` files tracked in the unit's `.d` dep-info
+/// (`include!`, `include_str!`, `include_bytes!`). Files in `OUT_DIR` read at runtime or by
+/// untracked proc-macros are still content-hashed in `out_dir_hash`, but are not byte-scanned
+/// for clone-path leaks.
 pub fn extract_out_dir_files_from_dep_info(
     staging_dir: &Path,
     out_dir: &Path,
