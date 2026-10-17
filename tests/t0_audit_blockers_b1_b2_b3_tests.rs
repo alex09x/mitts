@@ -308,23 +308,27 @@ fn test_t0_b3_missing_git_dependency_fails_explain_with_cargo_fetch_error() {
 fn test_t0_n1_and_n2_dead_pid_staging_cleanup() {
     let tmp = TempDir::new().unwrap();
     let store = SourceStore::new(tmp.path().join("sources")).unwrap();
-
-    // Dead PID (i32::MAX / 2 = 1073741823 does not exist on POSIX systems)
     let dead_staging = store.locks_dir().join("foo-0.1.0-99999999-0.staging");
     let dead_trash = store.locks_dir().join("foo-0.1.0-99999999-1.trash");
+    let fresh_dead = store.locks_dir().join("foo-0.1.0-99999999-2.staging");
     let live_staging = store
         .locks_dir()
         .join(format!("foo-0.1.0-{}-0.staging", std::process::id()));
 
-    fs::create_dir_all(&dead_staging).unwrap();
-    fs::create_dir_all(&dead_trash).unwrap();
-    fs::create_dir_all(&live_staging).unwrap();
+    for dir in [&dead_staging, &dead_trash, &fresh_dead, &live_staging] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let stale_time = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+    for dir in [&dead_staging, &dead_trash, &live_staging] {
+        fs::File::open(dir)
+            .unwrap()
+            .set_modified(stale_time)
+            .unwrap();
+    }
 
-    let removed = store.cleanup_dead_staging();
-    assert_eq!(removed, 2);
-    assert!(!dead_staging.exists());
-    assert!(!dead_trash.exists());
-    assert!(live_staging.exists());
+    assert_eq!(store.cleanup_dead_staging(), 2);
+    assert!(!dead_staging.exists() && !dead_trash.exists());
+    assert!(fresh_dead.exists() && live_staging.exists());
 }
 
 #[test]

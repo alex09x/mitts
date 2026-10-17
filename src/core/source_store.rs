@@ -133,7 +133,8 @@ impl SourceStore {
         ))
     }
 
-    /// Removes orphaned `.staging` and `.trash` directories in `.locks` whose owning PID is no longer alive.
+    /// Removes orphaned `.staging` and `.trash` directories in `.locks` whose owning PID is no
+    /// longer alive (`ESRCH`) and whose `mtime` is older than 1 hour (safe across container PID namespaces).
     pub fn cleanup_dead_staging(&self) -> usize {
         let Ok(entries) = fs::read_dir(&self.locks_dir) else {
             return 0;
@@ -169,7 +170,13 @@ impl SourceStore {
             };
             #[cfg(not(unix))]
             let is_dead = false;
-            if is_dead && fs::remove_dir_all(&path).is_ok() {
+            let is_stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|mtime| std::time::SystemTime::now().duration_since(mtime).ok())
+                .is_some_and(|age| age >= std::time::Duration::from_secs(3600));
+            if is_dead && is_stale && fs::remove_dir_all(&path).is_ok() {
                 removed += 1;
             }
         }
