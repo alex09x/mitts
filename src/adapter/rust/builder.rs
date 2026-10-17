@@ -67,7 +67,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     }
 
     let toolchain = logger.measure("toolchain", "Detected rustc toolchain", || {
-        RustAdapter::detect_toolchain()
+        RustAdapter::detect_toolchain_in_dir(Some(project_dir))
     })?;
 
     // Fast build lock pre-flight check: if zero project files changed, return in microsecond time.

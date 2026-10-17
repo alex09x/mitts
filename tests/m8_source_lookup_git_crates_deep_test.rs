@@ -205,3 +205,189 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
         std::env::set_var("HOME", h);
     }
 }
+
+#[test]
+#[cfg(unix)]
+fn test_t0_b4_detect_toolchain_no_disk_cache_and_fast_lock_invalidation() {
+    use mitts::adapter::RustAdapter;
+    use mitts::core::build_lock::{
+        FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs,
+    };
+    use std::os::unix::fs::PermissionsExt;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempDir::new().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    let mock_rustc = temp.path().join("mock_rustc.sh");
+    fs::write(
+        &mock_rustc,
+        "#!/bin/sh\nif [ -f rust-toolchain.toml ]; then\n  tc=$(grep channel rust-toolchain.toml | cut -d'\"' -f2)\nelse\n  tc=${RUSTUP_TOOLCHAIN:-stable}\nfi\necho \"rustc 1.99.0-$tc (deadbeef 2026-01-01)\"\necho \"host: x86_64-unknown-linux-gnu\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&mock_rustc, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let proj_a = temp.path().join("proj_a");
+    let proj_b = temp.path().join("proj_b");
+    fs::create_dir_all(proj_a.join("src")).unwrap();
+    fs::create_dir_all(proj_b.join("src")).unwrap();
+    fs::write(
+        proj_a.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.84.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        proj_b.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"nightly-2026-05-01\"\n",
+    )
+    .unwrap();
+    fs::write(
+        proj_a.join("Cargo.toml"),
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(proj_a.join("src/lib.rs"), "pub fn a() {}\n").unwrap();
+
+    let old_home = std::env::var_os("HOME");
+    let old_rustc = std::env::var_os("RUSTC");
+    std::env::set_var("HOME", &home);
+    std::env::set_var("RUSTC", &mock_rustc);
+
+    let tc_a = RustAdapter::detect_toolchain_in_dir(Some(&proj_a)).unwrap();
+    let tc_b = RustAdapter::detect_toolchain_in_dir(Some(&proj_b)).unwrap();
+    assert_eq!(tc_a.version, "rustc 1.99.0-1.84.0 (deadbeef 2026-01-01)");
+    assert_eq!(
+        tc_b.version,
+        "rustc 1.99.0-nightly-2026-05-01 (deadbeef 2026-01-01)"
+    );
+    assert!(
+        !home.join(".mitts/cache/toolchain_v1.json").exists(),
+        "unsound disk cache toolchain_v1.json must not be created"
+    );
+
+    let out_rlib = proj_a.join("target/debug/liba.rlib");
+    fs::create_dir_all(out_rlib.parent().unwrap()).unwrap();
+    fs::write(&out_rlib, b"rlib").unwrap();
+
+    FastBuildLock::record_state(&RecordStateArgs {
+        project_dir: &proj_a,
+        profile: "dev",
+        package: &None,
+        features: &[],
+        no_default_features: false,
+        all_features: false,
+        toolchain_version: &tc_a.version,
+        action_count: 1,
+        root_binary: None,
+        outputs: &[out_rlib],
+        stderr: None,
+    })
+    .unwrap();
+
+    let fresh_same = FastBuildLock::check_freshness(&FreshnessCheckArgs {
+        project_dir: &proj_a,
+        profile: "dev",
+        package: &None,
+        features: &[],
+        no_default_features: false,
+        all_features: false,
+        toolchain_version: &tc_a.version,
+    });
+    assert!(matches!(fresh_same, FreshnessResult::Fresh { .. }));
+
+    let fresh_after_tc_switch = FastBuildLock::check_freshness(&FreshnessCheckArgs {
+        project_dir: &proj_a,
+        profile: "dev",
+        package: &None,
+        features: &[],
+        no_default_features: false,
+        all_features: false,
+        toolchain_version: &tc_b.version,
+    });
+    assert!(
+        matches!(fresh_after_tc_switch, FreshnessResult::Stale(_)),
+        "FastBuildLock must not return Fresh after toolchain version changes"
+    );
+
+    if let Some(r) = old_rustc {
+        std::env::set_var("RUSTC", r);
+    } else {
+        std::env::remove_var("RUSTC");
+    }
+    if let Some(h) = old_home {
+        std::env::set_var("HOME", h);
+    }
+}
+
+#[test]
+fn test_t0_r3_path_and_crates_io_same_name_resolved_by_source_and_version() {
+    use mitts::adapter::rust::types::RustBuildOptions;
+    use mitts::adapter::RustAdapter;
+    use mitts::core::source_store::MITTS_OK_MARKER;
+
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempDir::new().unwrap();
+    let mitts_cache = temp.path().join("mitts_cache");
+
+    // Seed crates.io foo-1.0.0 and bar-0.1.0 in Mitts SourceStore
+    for (name, ver, dep) in [("foo", "1.0.0", ""), ("bar", "0.1.0", "foo = \"1.0.0\"\n")] {
+        let dir = mitts_cache.join(format!("sources/{}-{}", name, ver));
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"{ver}\"\nedition = \"2021\"\n\n[dependencies]\n{dep}"),
+        )
+        .unwrap();
+        fs::write(dir.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        fs::write(dir.join(MITTS_OK_MARKER), "ok\n").unwrap();
+    }
+
+    let proj = temp.path().join("proj");
+    let foo_fork = proj.join("foo-fork");
+    fs::create_dir_all(proj.join("src")).unwrap();
+    fs::create_dir_all(foo_fork.join("src")).unwrap();
+    fs::write(
+        foo_fork.join("Cargo.toml"),
+        "[package]\nname = \"foo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(foo_fork.join("src/lib.rs"), "pub fn local_fork() {}\n").unwrap();
+
+    fs::write(
+        proj.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfoo = { path = \"foo-fork\" }\nbar = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(proj.join("src/lib.rs"), "pub fn app() {}\n").unwrap();
+    fs::write(
+        proj.join("Cargo.lock"),
+        "version = 3\n\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\ndependencies = [\n \"bar 0.1.0\",\n \"foo 0.1.0\",\n]\n\n[[package]]\nname = \"bar\"\nversion = \"0.1.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\ndependencies = [\n \"foo 1.0.0\",\n]\n\n[[package]]\nname = \"foo\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"foo\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n",
+    )
+    .unwrap();
+
+    let plan = RustAdapter::explain_plan(&RustBuildOptions {
+        manifest_path: Some(proj.join("Cargo.toml")),
+        cache_dir: Some(mitts_cache.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+
+    let foo_01 = plan
+        .units
+        .iter()
+        .find(|u| u.package_name == "foo" && u.version == "0.1.0")
+        .expect("path dependency foo 0.1.0 must be in plan");
+    let foo_10 = plan
+        .units
+        .iter()
+        .find(|u| u.package_name == "foo" && u.version == "1.0.0")
+        .expect("crates.io foo 1.0.0 must be in plan");
+
+    assert_eq!(foo_01.manifest_path, foo_fork.join("Cargo.toml"));
+    assert_eq!(
+        foo_10.manifest_path,
+        mitts_cache.join("sources/foo-1.0.0/Cargo.toml"),
+        "crates.io foo 1.0.0 must not be substituted with path dependency foo-fork"
+    );
+}

@@ -23,9 +23,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let t0 = std::time::Instant::now();
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
-    let toolchain = RustAdapter::detect_toolchain()?;
-    let t_toolchain = std::time::Instant::now();
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
+    let toolchain = RustAdapter::detect_toolchain_in_dir(Some(project_dir))?;
+    let t_toolchain = std::time::Instant::now();
 
     let root_toml = CargoToml::from_file(&manifest_path)
         .with_context(|| format!("Failed to parse root manifest at {manifest_path:?}"))?;
@@ -101,18 +101,22 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     };
 
     // Ensure all path dependencies and workspace packages exist in the lockfile
-    for (name, (path, dep_toml)) in &path_dependencies {
-        if !lockfile.packages.iter().any(|p| &p.name == name) {
-            let ver = dep_toml
-                .package
-                .as_ref()
-                .and_then(|p| p.version.clone())
-                .unwrap_or_else(|| "0.1.0".to_string());
+    for (name, (_path, dep_toml)) in &path_dependencies {
+        let ver = dep_toml
+            .package
+            .as_ref()
+            .and_then(|p| p.version.clone())
+            .unwrap_or_else(|| "0.1.0".to_string());
+        if !lockfile
+            .packages
+            .iter()
+            .any(|p| &p.name == name && p.source.is_none() && p.version == ver)
+        {
             let deps = dep_toml.dependencies.keys().cloned().collect();
             lockfile.packages.push(CargoLockPackage {
                 name: name.clone(),
                 version: ver,
-                source: Some(format!("path+{}", path.display())),
+                source: None,
                 checksum: None,
                 dependencies: deps,
             });
@@ -131,7 +135,11 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .find(|p| &p.name == name && p.source.is_none())
         {
             existing.version = ver;
-        } else if !lockfile.packages.iter().any(|p| &p.name == name) {
+        } else if !lockfile
+            .packages
+            .iter()
+            .any(|p| &p.name == name && p.source.is_none())
+        {
             let mut deps = Vec::new();
             let mut all_deps: Vec<(&String, &super::manifest::TomlDependency)> =
                 manifest.dependencies.iter().collect();

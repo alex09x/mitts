@@ -82,53 +82,77 @@ pub use unescape::unescape_rust_string;
 use crate::core::action::{ActionResult, BuildPlan, ToolchainInfo};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
+
+type ToolchainCacheKey = (
+    PathBuf,
+    Option<OsString>,
+    Option<PathBuf>,
+    Option<String>,
+    Option<SystemTime>,
+);
+
+static TOOLCHAIN_CACHE: OnceLock<Mutex<HashMap<ToolchainCacheKey, ToolchainInfo>>> =
+    OnceLock::new();
 
 pub struct RustAdapter;
 
 impl RustAdapter {
-    /// Detects current installed rustc toolchain info.
+    /// Detects current installed rustc toolchain info for the current working directory.
     pub fn detect_toolchain() -> Result<ToolchainInfo> {
-        let rustc_path = std::env::var("RUSTC")
+        Self::detect_toolchain_in_dir(None)
+    }
+
+    /// Detects installed rustc toolchain info for `project_dir` (respecting `RUSTC`, `RUSTUP_TOOLCHAIN`,
+    /// and `rust-toolchain(.toml)` in `project_dir` ancestors) using an in-process cache only.
+    pub fn detect_toolchain_in_dir(project_dir: Option<&Path>) -> Result<ToolchainInfo> {
+        let rustc_bin = std::env::var_os("RUSTC")
+            .filter(|v| !v.is_empty())
             .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                if let Ok(home) = std::env::var("HOME") {
-                    let p = PathBuf::from(home).join(".cargo").join("bin").join("rustc");
-                    if p.is_file() {
-                        return p;
-                    }
-                }
-                PathBuf::from("rustc")
-            });
+            .unwrap_or_else(|| PathBuf::from("rustc"));
+        let work_dir = project_dir
+            .map(|p| p.to_path_buf())
+            .or_else(|| std::env::current_dir().ok());
+        let toolchain_file = work_dir.as_deref().and_then(|dir| {
+            dir.ancestors().find_map(|anc| {
+                std::fs::read_to_string(anc.join("rust-toolchain.toml"))
+                    .or_else(|_| std::fs::read_to_string(anc.join("rust-toolchain")))
+                    .ok()
+            })
+        });
+        let rustc_mtime = std::fs::metadata(&rustc_bin)
+            .and_then(|m| m.modified())
+            .ok();
+        let key: ToolchainCacheKey = (
+            rustc_bin.clone(),
+            std::env::var_os("RUSTUP_TOOLCHAIN"),
+            work_dir.clone(),
+            toolchain_file,
+            rustc_mtime,
+        );
 
-        let cache_dir = std::env::var("HOME")
-            .map(|h| PathBuf::from(h).join(".mitts").join("cache"))
-            .unwrap_or_else(|_| PathBuf::from(".mitts"));
-        let cache_file = cache_dir.join("toolchain_v1.json");
-
-        if let Ok(meta) = std::fs::metadata(&rustc_path) {
-            if let Ok(mtime) = meta.modified() {
-                let mtime_secs = mtime
-                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                if let Ok(data) = std::fs::read(&cache_file) {
-                    if let Ok((cached_mtime, info)) =
-                        serde_json::from_slice::<(u64, ToolchainInfo)>(&data)
-                    {
-                        if cached_mtime == mtime_secs {
-                            return Ok(info);
-                        }
-                    }
-                }
-            }
+        let cache = TOOLCHAIN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Some(cached) = cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .cloned()
+        {
+            return Ok(cached);
         }
 
-        let output = Command::new("rustc")
-            .arg("-vV")
-            .output()
-            .context("Failed to invoke rustc -vV")?;
+        let mut cmd = Command::new(&rustc_bin);
+        cmd.arg("-vV");
+        if let Some(ref dir) = work_dir {
+            if dir.is_dir() {
+                cmd.current_dir(dir);
+            }
+        }
+        let output = cmd.output().context("Failed to invoke rustc -vV")?;
         let text = String::from_utf8_lossy(&output.stdout);
         let mut version_str = String::new();
         let mut target_triple = None;
@@ -152,19 +176,10 @@ impl RustAdapter {
             target_triple,
         };
 
-        if let Ok(meta) = std::fs::metadata(&rustc_path) {
-            if let Ok(mtime) = meta.modified() {
-                let mtime_secs = mtime
-                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let _ = std::fs::create_dir_all(&cache_dir);
-                let _ = std::fs::write(
-                    &cache_file,
-                    serde_json::to_vec(&(mtime_secs, &info)).unwrap_or_default(),
-                );
-            }
-        }
+        cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, info.clone());
 
         Ok(info)
     }

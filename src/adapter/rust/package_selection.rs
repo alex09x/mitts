@@ -143,12 +143,13 @@ pub fn select_transitive_packages<'a>(
     while let Some(pkg) = to_visit.pop() {
         let key = (pkg.name.clone(), pkg.version.clone());
         if visited.insert(key) {
-            let is_ws = workspace_manifests.get(&pkg.name).is_some_and(|(_, toml)| {
-                toml.package
-                    .as_ref()
-                    .and_then(|p| p.version.as_deref())
-                    .is_none_or(|v| v == pkg.version)
-            });
+            let is_ws = pkg.source.is_none()
+                && workspace_manifests.get(&pkg.name).is_some_and(|(_, toml)| {
+                    toml.package
+                        .as_ref()
+                        .and_then(|p| p.version.as_deref())
+                        .is_none_or(|v| v == pkg.version)
+                });
             selected_packages.push((pkg, is_ws));
 
             let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
@@ -162,21 +163,23 @@ pub fn select_transitive_packages<'a>(
                 if is_target_incompatible_with_host(dep_name) {
                     continue;
                 }
-                if let Some((_, ws_toml)) = workspace_manifests.get(&pkg.name) {
-                    let has_manifest_deps = !ws_toml.dependencies.is_empty()
-                        || !ws_toml.build_dependencies.is_empty()
-                        || !ws_toml.target.is_empty()
-                        || (is_test && !ws_toml.dev_dependencies.is_empty());
-                    if has_manifest_deps
-                        && !is_declared_dependency(
-                            ws_toml,
-                            dep_name,
-                            is_test,
-                            explicit_target.as_deref(),
-                            start_dir,
-                        )?
-                    {
-                        continue;
+                if is_ws {
+                    if let Some((_, ws_toml)) = workspace_manifests.get(&pkg.name) {
+                        let has_manifest_deps = !ws_toml.dependencies.is_empty()
+                            || !ws_toml.build_dependencies.is_empty()
+                            || !ws_toml.target.is_empty()
+                            || (is_test && !ws_toml.dev_dependencies.is_empty());
+                        if has_manifest_deps
+                            && !is_declared_dependency(
+                                ws_toml,
+                                dep_name,
+                                is_test,
+                                explicit_target.as_deref(),
+                                start_dir,
+                            )?
+                        {
+                            continue;
+                        }
                     }
                 }
                 if let Some(candidates) = packages_by_name.get(dep_name) {

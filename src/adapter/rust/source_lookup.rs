@@ -150,8 +150,21 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
         .or_else(|| SourceStore::default_store().ok());
     let fetcher = store.as_ref().cloned().map(CrateFetcher::new);
 
+    let matching_path_dep = |pkg: &CargoLockPackage| -> Option<&(PathBuf, CargoToml)> {
+        if pkg.source.is_some() {
+            return None;
+        }
+        path_dependencies.get(&pkg.name).filter(|(_, toml)| {
+            toml.package
+                .as_ref()
+                .and_then(|p| p.version.as_deref())
+                .is_none_or(|v| v == pkg.version)
+        })
+    };
+
     for (pkg, is_ws) in selected_packages {
-        if !*is_ws && !path_dependencies.contains_key(&pkg.name) {
+        let is_ws_pkg = *is_ws && pkg.source.is_none();
+        if !is_ws_pkg && matching_path_dep(pkg).is_none() {
             if pkg.source.is_none() {
                 anyhow::bail!(
                     "{}-{} has no source in Cargo.lock (path/patch package) and was not found among workspace or path dependencies",
@@ -167,8 +180,9 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
         let missing: Vec<CargoLockPackage> = selected_packages
             .iter()
             .filter(|(pkg, is_ws)| {
-                !*is_ws
-                    && !path_dependencies.contains_key(&pkg.name)
+                let is_ws_pkg = *is_ws && pkg.source.is_none();
+                !is_ws_pkg
+                    && matching_path_dep(pkg).is_none()
                     && pkg
                         .source
                         .as_deref()
@@ -196,12 +210,12 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
 
     let resolve_one =
         |(pkg, is_workspace): &(&'a CargoLockPackage, bool)| -> Result<Option<ResolvedPackageManifest<'a>>> {
-            if *is_workspace {
+            if *is_workspace && pkg.source.is_none() {
                 let Some((dir, toml)) = workspace_manifests.get(&pkg.name) else {
                     return Ok(None);
                 };
                 Ok(Some((*pkg, true, dir.clone(), toml.clone())))
-            } else if let Some((dir, toml)) = path_dependencies.get(&pkg.name) {
+            } else if let Some((dir, toml)) = matching_path_dep(pkg) {
                 Ok(Some((*pkg, false, dir.clone(), toml.clone())))
             } else if pkg.source.is_none() {
                 anyhow::bail!(

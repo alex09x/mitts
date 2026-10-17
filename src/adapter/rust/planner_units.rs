@@ -30,7 +30,8 @@ pub fn build_planned_units(
     let mut units = Vec::new();
 
     for (pkg, is_workspace, pkg_dir, pkg_toml) in resolved_packages {
-        let is_local = *is_workspace || path_dependencies.contains_key(&pkg.name);
+        let is_local =
+            *is_workspace || (pkg.source.is_none() && path_dependencies.contains_key(&pkg.name));
         let is_target_pkg = opt.package.as_deref() == Some(&pkg.name);
         let is_primary = is_primary_pkg(&pkg.name);
         let mut targets = pkg_toml.discover_targets(pkg_dir);
