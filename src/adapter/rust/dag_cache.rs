@@ -68,7 +68,7 @@ pub fn try_restore_from_cache_with_directives(
     is_bin: bool,
     current_directives: Option<&BuildScriptDirectives>,
 ) -> Result<bool> {
-    if !ctx.is_cache_enabled {
+    if !ctx.is_cache_enabled || action_key.contains(":unhashable:") {
         return Ok(false);
     }
 
@@ -154,18 +154,20 @@ pub fn try_restore_from_cache_with_directives(
         }
     }
 
+    let safe_eff = crate::core::action_cache::safe_key_file_name(&effective_key);
     let meta_path = ctx
         .cas
         .root()
         .join("metadata")
-        .join(format!("{}.toml", effective_key));
+        .join(format!("{}.toml", safe_eff));
     let meta_path = if meta_path.is_file() {
         meta_path
     } else {
+        let safe_act = crate::core::action_cache::safe_key_file_name(action_key);
         ctx.cas
             .root()
             .join("metadata")
-            .join(format!("{}.toml", action_key))
+            .join(format!("{}.toml", safe_act))
     };
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
     let has_links = pkg_toml
@@ -178,6 +180,118 @@ pub fn try_restore_from_cache_with_directives(
     }
 
     if valid {
+        if is_bin {
+            let profile_name = if ctx.opt.release { "release" } else { "debug" };
+            let dest_bin =
+                super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name);
+            for out in &entry.outputs {
+                if out.executable {
+                    let rel_dest = ctx.target_dir.join(&out.relative_path);
+                    let rel_key = out.relative_path.to_string_lossy();
+                    if crate::core::target_index::check_or_restore(
+                        ctx.target_index,
+                        ctx.cas,
+                        &out.cas_hash,
+                        &rel_dest,
+                        &rel_key,
+                        true,
+                    )
+                    .is_err()
+                    {
+                        return Ok(false);
+                    }
+
+                    if rel_dest != dest_bin {
+                        let _ = crate::core::link_intra_workspace(
+                            &rel_dest,
+                            &dest_bin,
+                            &[ctx.target_dir],
+                            true,
+                        );
+                    }
+                    let clean_crate = unit.target_name.replace('-', "_");
+                    let alt_path = dest_bin.parent().unwrap_or(&dest_bin).join(&clean_crate);
+                    if alt_path != dest_bin {
+                        let _ = crate::core::link_intra_workspace(
+                            &dest_bin,
+                            &alt_path,
+                            &[ctx.target_dir],
+                            true,
+                        );
+                    }
+                    break;
+                }
+            }
+        } else {
+            let mut staged_completed: Vec<(String, PathBuf, bool)> = Vec::new();
+            for out in &entry.outputs {
+                let ext = out
+                    .relative_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("rlib");
+                if !ctx.opt.native || unit.is_workspace {
+                    let profile_name = if ctx.opt.release { "release" } else { "debug" };
+                    let deps_dir = ctx.target_dir.join(profile_name).join("deps");
+                    let _ = fs::create_dir_all(&deps_dir);
+                    let target_dep_dest = deps_dir.join(&out.relative_path);
+                    let rel_key = format!("{}/deps/{}", profile_name, out.relative_path.display());
+                    if crate::core::target_index::check_or_restore(
+                        ctx.target_index,
+                        ctx.cas,
+                        &out.cas_hash,
+                        &target_dep_dest,
+                        &rel_key,
+                        false,
+                    )
+                    .is_err()
+                    {
+                        return Ok(false);
+                    }
+                    let clean_crate = unit.target_name.replace('-', "_");
+                    let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
+                    if unhashed != target_dep_dest {
+                        let _ = crate::core::link_intra_workspace(
+                            &target_dep_dest,
+                            &unhashed,
+                            &[ctx.target_dir],
+                            false,
+                        );
+                    }
+                }
+
+                if ext == "rlib" || ext == "dylib" || ext == "so" {
+                    let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
+                        &unit.target_name,
+                        &out.cas_hash,
+                        action_key,
+                        ext,
+                    ) else {
+                        return Ok(false);
+                    };
+                    staged_completed.push((unit.unit_id(), named, true));
+                } else if ext == "rmeta" {
+                    let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
+                        &unit.target_name,
+                        &out.cas_hash,
+                        action_key,
+                        "rmeta",
+                    ) else {
+                        return Ok(false);
+                    };
+                    staged_completed.push((unit.unit_id(), named, false));
+                }
+            }
+            let mut map = ctx.completed_artifacts.lock().unwrap();
+            for (uid, named, overwrite) in staged_completed {
+                if overwrite {
+                    map.insert(uid, named);
+                } else {
+                    map.entry(uid).or_insert(named);
+                }
+            }
+        }
+
         if let Some(rk_map) = ctx.resolved_keys {
             let res_key = effective_key
                 .split(":ws_leak:")
@@ -212,101 +326,6 @@ pub fn try_restore_from_cache_with_directives(
                 ctx.completed_env,
                 ctx.completed_link_args,
             );
-        }
-
-        if is_bin {
-            let profile_name = if ctx.opt.release { "release" } else { "debug" };
-            let dest_bin =
-                super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name);
-            for out in &entry.outputs {
-                if out.executable {
-                    let rel_dest = ctx.target_dir.join(&out.relative_path);
-                    let rel_key = out.relative_path.to_string_lossy();
-                    crate::core::target_index::check_or_restore(
-                        ctx.target_index,
-                        ctx.cas,
-                        &out.cas_hash,
-                        &rel_dest,
-                        &rel_key,
-                        true,
-                    )?;
-
-                    if rel_dest != dest_bin {
-                        let _ = crate::core::link_intra_workspace(
-                            &rel_dest,
-                            &dest_bin,
-                            &[ctx.target_dir],
-                            true,
-                        );
-                    }
-                    let clean_crate = unit.target_name.replace('-', "_");
-                    let alt_path = dest_bin.parent().unwrap_or(&dest_bin).join(&clean_crate);
-                    if alt_path != dest_bin {
-                        let _ = crate::core::link_intra_workspace(
-                            &dest_bin,
-                            &alt_path,
-                            &[ctx.target_dir],
-                            true,
-                        );
-                    }
-                    break;
-                }
-            }
-        } else {
-            for out in &entry.outputs {
-                let ext = out
-                    .relative_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("rlib");
-                if !ctx.opt.native || unit.is_workspace {
-                    let profile_name = if ctx.opt.release { "release" } else { "debug" };
-                    let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                    let _ = fs::create_dir_all(&deps_dir);
-                    let target_dep_dest = deps_dir.join(&out.relative_path);
-                    let rel_key = format!("{}/deps/{}", profile_name, out.relative_path.display());
-                    let _ = crate::core::target_index::check_or_restore(
-                        ctx.target_index,
-                        ctx.cas,
-                        &out.cas_hash,
-                        &target_dep_dest,
-                        &rel_key,
-                        false,
-                    );
-                    let clean_crate = unit.target_name.replace('-', "_");
-                    let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                    if unhashed != target_dep_dest {
-                        let _ = crate::core::link_intra_workspace(
-                            &target_dep_dest,
-                            &unhashed,
-                            &[ctx.target_dir],
-                            false,
-                        );
-                    }
-                }
-
-                if ext == "rlib" || ext == "dylib" || ext == "so" {
-                    let named = ctx.cas.named_artifact_path_with_disambiguator(
-                        &unit.target_name,
-                        &out.cas_hash,
-                        action_key,
-                        ext,
-                    )?;
-                    ctx.completed_artifacts
-                        .lock()
-                        .unwrap()
-                        .insert(unit.unit_id(), named);
-                } else if ext == "rmeta" {
-                    let named = ctx.cas.named_artifact_path_with_disambiguator(
-                        &unit.target_name,
-                        &out.cas_hash,
-                        action_key,
-                        "rmeta",
-                    )?;
-                    let mut map = ctx.completed_artifacts.lock().unwrap();
-                    map.entry(unit.unit_id()).or_insert(named);
-                }
-            }
         }
 
         if !entry.stdout.is_empty() {

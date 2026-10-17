@@ -184,10 +184,8 @@ pub(crate) fn execute_unit(
     let meta_dir = ctx.cas.root().join("metadata");
     let _ = fs::create_dir_all(&meta_dir);
     if let Ok(toml_str) = toml::to_string(&directives) {
-        let _ = fs::write(
-            meta_dir.join(format!("{}.toml", effective_action_key)),
-            toml_str,
-        );
+        let safe_meta_key = crate::core::action_cache::safe_key_file_name(&effective_action_key);
+        let _ = fs::write(meta_dir.join(format!("{}.toml", safe_meta_key)), toml_str);
     }
     super::dag_unit_build_script::record_completed_directives(
         &unit.unit_id(),
@@ -240,9 +238,12 @@ pub(crate) fn execute_unit(
                 ws_root.as_deref(),
                 build_purity_opt.as_ref(),
                 directives.out_dir.as_deref(),
-            );
-            if let (Some(rk), Some(rk_map)) = (early_rk, ctx.resolved_keys) {
-                rk_map.lock().unwrap().insert(unit.unit_id(), rk);
+            )
+            .unwrap_or_else(|| {
+                super::dag_unit_publish::taint_unhashable_key(&effective_action_key)
+            });
+            if let Some(rk_map) = ctx.resolved_keys {
+                rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
             }
 
             if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {

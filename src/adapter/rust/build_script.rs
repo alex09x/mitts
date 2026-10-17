@@ -201,36 +201,47 @@ pub fn execute_build_script(
         compile_cmd
             .arg("-L")
             .arg(format!("dependency={}", artifacts.display()));
-
-        let mut build_dep_names: Vec<String> =
-            pkg_toml.build_dependencies.keys().cloned().collect();
-        for target_spec in pkg_toml.target.values() {
-            for dep in target_spec.build_dependencies.keys() {
-                build_dep_names.push(dep.clone());
-            }
+    }
+    let is_dep_active = |dep_name: &str, dep_val: &super::manifest::TomlDependency| -> bool {
+        let is_opt = matches!(
+            dep_val,
+            super::manifest::TomlDependency::Detailed(ref d) if d.optional == Some(true)
+        );
+        if !is_opt {
+            return true;
         }
-        for dep in &build_dep_names {
-            let clean = dep.replace('-', "_");
-            if !extern_crates
-                .iter()
-                .any(|(c, _)| c.replace('-', "_") == clean)
-            {
-                if let Ok(entries) = fs::read_dir(artifacts) {
-                    let prefix = format!("lib{}-", clean);
-                    for entry in entries.flatten() {
-                        let fname = entry.file_name();
-                        let fstr = fname.to_string_lossy();
-                        if fstr.starts_with(&prefix) && fstr.ends_with(".rlib") {
-                            compile_cmd.arg("--extern").arg(format!(
-                                "{}={}",
-                                clean,
-                                entry.path().display()
-                            ));
-                            break;
-                        }
-                    }
+        let dep_pref = format!("dep:{dep_name}");
+        let norm_pref = format!("dep:{}", dep_name.replace('-', "_"));
+        features
+            .iter()
+            .any(|f| f == dep_name || f == &dep_pref || f == &norm_pref)
+    };
+    let mut active_build_deps: Vec<String> = pkg_toml
+        .build_dependencies
+        .iter()
+        .filter(|(k, v)| is_dep_active(k, v))
+        .map(|(k, _)| k.clone())
+        .collect();
+    for (target_key, target_spec) in &pkg_toml.target {
+        if super::target_filter::eval_base_target_cfg(target_key, Some(&target)).unwrap_or(false) {
+            for (k, v) in &target_spec.build_dependencies {
+                if is_dep_active(k, v) {
+                    active_build_deps.push(k.clone());
                 }
             }
+        }
+    }
+    for dep in &active_build_deps {
+        let clean = dep.replace('-', "_");
+        if !extern_crates
+            .iter()
+            .any(|(c, _)| c.replace('-', "_") == clean)
+        {
+            bail!(
+                "Active build-dependency '{}' for '{}' was not resolved in extern_crates",
+                dep,
+                unit.package_name
+            );
         }
     }
 

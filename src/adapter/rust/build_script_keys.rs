@@ -30,7 +30,9 @@ pub fn compute_build_script_key(
     extern_crates: &[(String, PathBuf)],
 ) -> Result<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v5:");
+    hasher.update(b"build_script_v6:");
+    hasher.update(unit.package_id.as_bytes());
+    hasher.update(b":");
     hasher.update(unit.package_name.as_bytes());
     hasher.update(b":");
     hasher.update(unit.version.as_bytes());
@@ -105,22 +107,35 @@ pub fn compute_build_script_key(
             hasher.update(v.as_bytes());
         }
     }
-    if unit.is_workspace {
-        let pkg_dir = unit.manifest_path.parent().with_context(|| {
-            format!(
-                "Manifest path '{}' has no parent directory",
-                unit.manifest_path.display()
-            )
-        })?;
+    let pkg_source = super::features::parse_package_id_source(&unit.package_id);
+    let is_registry =
+        pkg_source.is_some_and(|s| s.starts_with("registry+") || s.starts_with("sparse+"));
+    let pkg_dir = unit.manifest_path.parent().with_context(|| {
+        format!(
+            "Manifest path '{}' has no parent directory",
+            unit.manifest_path.display()
+        )
+    })?;
+    if unit.is_workspace || !is_registry {
         let base_inputs = hash_package_full_inputs(pkg_dir, None, true).with_context(|| {
             format!(
-                "Failed to hash workspace package inputs for '{}' at {}",
+                "Failed to hash package inputs for '{}' at {}",
                 unit.package_name,
                 pkg_dir.display()
             )
         })?;
         for (path, digest) in base_inputs {
             hasher.update(b":ws_input:");
+            hasher.update(path.as_bytes());
+            hasher.update(b"=");
+            hasher.update(digest.as_bytes());
+        }
+    } else if let Some(build_dir) = build_rs.parent().filter(|p| *p != pkg_dir) {
+        let mut build_inputs = Vec::new();
+        super::inputs::scan_dir_inputs(build_dir, pkg_dir, &mut build_inputs)?;
+        build_inputs.sort_by(|a, b| a.0.cmp(&b.0));
+        for (path, digest) in build_inputs {
+            hasher.update(b":build_dir_input:");
             hasher.update(path.as_bytes());
             hasher.update(b"=");
             hasher.update(digest.as_bytes());

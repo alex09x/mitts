@@ -51,10 +51,11 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     let mut cached_outputs = Vec::new();
     let mut action_outputs = Vec::new();
 
-    // 1. Move and publish executable binary
+    // 1. Store executable binary in CAS from staging first (N3), then materialize in target/
     if let Some(dest) = args.dest_binary {
         if let Some(ref bp) = args.output.primary_output {
             if bp.is_file() {
+                let stored_bin = ctx.cas.store_file(bp).ok();
                 if let Some(parent) = dest.parent() {
                     let _ = fs::create_dir_all(parent);
                 }
@@ -66,7 +67,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                         true,
                     );
                 }
-                if let Ok((bin_hash, bin_size)) = ctx.cas.store_file(dest) {
+                if let Some((bin_hash, bin_size)) = stored_bin {
                     let rel = dest
                         .strip_prefix(ctx.target_dir)
                         .map(PathBuf::from)
@@ -250,7 +251,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         args.out_dir,
     );
     let (extra_inputs, can_publish_cache) = match extra_inputs_res {
-        Ok(extra) => (extra, true),
+        Ok(extra) => (extra, !action_key.contains(":unhashable:")),
         Err(err) => {
             eprintln!(
                 "[mitts::warn] Unit '{}' tracked input hashing failed: {}. Discarding cache publication (fail-closed).",
@@ -265,7 +266,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     let result_key = if can_publish_cache {
         compute_composite_result_key(action_key, &extra_inputs)
     } else {
-        format!("{}:unhashable:{}", action_key, std::process::id())
+        taint_unhashable_key(action_key)
     };
 
     if let Some(rk_map) = ctx.resolved_keys {
@@ -309,6 +310,14 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     }
 
     Ok(action_outputs)
+}
+
+/// Appends a unique non-reusable `:unhashable:<nonce>` suffix to taint a key and its dependents.
+pub fn taint_unhashable_key(key: &str) -> String {
+    static TAINT_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let seq = TAINT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let nonce = super::dag_scheduler::FastPrng::from_env().next_u64() ^ seq;
+    format!("{}:unhashable:{:016x}", key, nonce)
 }
 
 pub use super::unit_inputs::{

@@ -187,6 +187,12 @@ impl WaveWorkQueue {
         let mut state = self.state_lock();
         state.fatal_error.take()
     }
+
+    /// Returns `(completed_count, total_count)` to verify all DAG nodes completed.
+    pub fn completed_and_total(&self) -> (usize, usize) {
+        let state = self.state_lock();
+        (state.completed_count, state.total_count)
+    }
 }
 
 #[cfg(test)]

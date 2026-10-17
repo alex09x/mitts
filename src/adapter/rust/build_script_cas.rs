@@ -16,12 +16,20 @@ use std::path::Path;
 use super::build_script_directives::{compute_execution_key, BuildScriptDirectives};
 
 pub fn remap_out_dir(directives: &mut BuildScriptDirectives, from: &str, to: &str) {
+    if from.is_empty() || from == to {
+        return;
+    }
     for s in &mut directives.link_searches {
-        if s == from {
-            *s = to.to_string();
+        if s.contains(from) {
+            *s = s.replace(from, to);
         }
     }
     for val in directives.envs.values_mut() {
+        if val.contains(from) {
+            *val = val.replace(from, to);
+        }
+    }
+    for val in directives.metadata.values_mut() {
         if val.contains(from) {
             *val = val.replace(from, to);
         }
@@ -77,11 +85,21 @@ pub fn try_restore_build_script_cas(
                     }
                     if restore_ok {
                         let _ = fs::write(entry_dir.join(".last_used"), b"");
-                        directives.out_dir = Some(out_dir.to_path_buf());
+                        let persistent_out = if cached_out_dir.is_dir() {
+                            cached_out_dir
+                        } else {
+                            out_dir.to_path_buf()
+                        };
+                        let persistent_str = persistent_out.to_string_lossy().to_string();
+                        if let Some(prev) = directives
+                            .out_dir
+                            .as_ref()
+                            .map(|p| p.to_string_lossy().to_string())
+                        {
+                            remap_out_dir(&mut directives, &prev, &persistent_str);
+                        }
+                        directives.out_dir = Some(persistent_out);
                         directives.links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
-                        let cached_out_str = cached_out_dir.to_string_lossy();
-                        let out_str = out_dir.to_string_lossy();
-                        remap_out_dir(&mut directives, &cached_out_str, &out_str);
                         return Some(directives);
                     }
                 }

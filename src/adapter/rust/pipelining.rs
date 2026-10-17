@@ -58,19 +58,30 @@ pub fn classify_dep_requirement(
     if is_consumer_linking {
         return DepRequirement::FullArtifact;
     }
-    // If consumer package has a build script, build dependencies must be FullArtifact (.rlib)
+    // If consumer package has a build script, all host/build dependencies (including transitive)
+    // and renamed build-dependencies must be FullArtifact (.rlib) before build.rs links.
     if package_has_build_script(&consumer.manifest_path) {
+        if dependency.for_host {
+            return DepRequirement::FullArtifact;
+        }
         if let Ok(toml) = CargoToml::from_file(&consumer.manifest_path) {
             let dep_pkg = dependency.package_name.replace('-', "_");
-            let is_build_dep = toml
-                .build_dependencies
-                .keys()
-                .any(|k| k.replace('-', "_") == dep_pkg)
-                || toml.target.values().any(|t| {
-                    t.build_dependencies
-                        .keys()
-                        .any(|k| k.replace('-', "_") == dep_pkg)
-                });
+            let matches_dep = |(k, d): (&String, &super::manifest::TomlDependency)| {
+                k.replace('-', "_") == dep_pkg
+                    || matches!(
+                        d,
+                        super::manifest::TomlDependency::Detailed(dt)
+                            if dt
+                                .package_name
+                                .as_deref()
+                                .is_some_and(|p| p.replace('-', "_") == dep_pkg)
+                    )
+            };
+            let is_build_dep = toml.build_dependencies.iter().any(matches_dep)
+                || toml
+                    .target
+                    .values()
+                    .any(|t| t.build_dependencies.iter().any(matches_dep));
             if is_build_dep {
                 return DepRequirement::FullArtifact;
             }

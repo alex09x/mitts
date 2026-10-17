@@ -225,6 +225,14 @@ pub fn run_native_dag_build(
             compile_errors.push(err);
         }
     }
+    if compile_errors.is_empty() {
+        let (done, total) = work_queue.completed_and_total();
+        if done < total {
+            compile_errors.push(format!(
+                "DAG execution stalled: only {done} of {total} compilation units completed"
+            ));
+        }
+    }
 
     if !compile_errors.is_empty() {
         let combined_error = compile_errors.join("\n");

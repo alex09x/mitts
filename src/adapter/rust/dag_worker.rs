@@ -60,14 +60,24 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             continue;
         };
         let unit = node.unit.clone();
+        let mut dep_tainted = false;
         let dep_keys: Vec<(String, String)> = {
             let map = shared.resolved_keys.lock().unwrap();
             unit.dependencies
                 .iter()
                 .filter_map(|dep_id| {
-                    map.get(dep_id)
-                        .or_else(|| shared.unit_keys.get(dep_id))
-                        .map(|k| (dep_id.clone(), k.clone()))
+                    if let Some(rk) = map.get(dep_id) {
+                        if rk.contains(":unhashable:") {
+                            dep_tainted = true;
+                        }
+                        Some((dep_id.clone(), rk.clone()))
+                    } else {
+                        dep_tainted = true;
+                        shared
+                            .unit_keys
+                            .get(dep_id)
+                            .map(|k| (dep_id.clone(), k.clone()))
+                    }
                 })
                 .collect()
         };
@@ -76,7 +86,12 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             .map(|(id, k)| (id.as_str(), k.as_str()))
             .collect();
         let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let action_key = shared.deriver.compute_dynamic_key(&unit, &dep_refs)?;
+            let base_action_key = shared.deriver.compute_dynamic_key(&unit, &dep_refs)?;
+            let action_key = if dep_tainted {
+                super::dag_unit_publish::taint_unhashable_key(&base_action_key)
+            } else {
+                base_action_key
+            };
             execute_unit(&unit, &action_key, ctx, lock_mode)
         }));
 

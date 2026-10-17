@@ -192,9 +192,10 @@ impl ActionCache {
 
         let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
+        let safe_key = safe_key_file_name(&entry.action_key);
         let tmp_path = self
             .tmp_dir
-            .join(format!("{}.{}.{}.tmp", entry.action_key, pid, counter));
+            .join(format!("{}.{}.{}.tmp", safe_key, pid, counter));
 
         fs::write(&tmp_path, json_bytes)
             .with_context(|| format!("Failed to write AC tmp entry to {:?}", tmp_path))?;
@@ -283,7 +284,7 @@ impl ActionCache {
     }
 }
 
-pub(crate) fn safe_key_file_name(key: &str) -> String {
+pub fn safe_key_file_name(key: &str) -> String {
     if key.len() > 64 {
         Sha256::digest(key.as_bytes())
     } else {

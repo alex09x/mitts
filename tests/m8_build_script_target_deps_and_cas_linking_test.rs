@@ -122,6 +122,16 @@ fn main() {
         workspace_root: None,
     };
 
+    let extern_crates = vec![
+        (
+            "build_helper".to_string(),
+            cas_artifacts.join("libbuild_helper-12345678.rlib"),
+        ),
+        (
+            "unix_helper".to_string(),
+            cas_artifacts.join("libunix_helper-87654321.rlib"),
+        ),
+    ];
     let extra_env = HashMap::new();
     let directives = execute_build_script(
         &unit,
@@ -129,7 +139,7 @@ fn main() {
         false,
         &[],
         Some(&cas_artifacts),
-        &[],
+        &extern_crates,
         Some(&extra_env),
     )
     .unwrap();

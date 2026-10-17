@@ -16,18 +16,30 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::thread;
 
 pub(crate) fn create_staging_dir(cas_root: &Path, clean_crate: &str) -> Result<PathBuf> {
-    let tid: String = format!("{:?}", thread::current().id())
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .collect();
-    let s = cas_root
-        .join("tmp")
-        .join(format!("stage_{clean_crate}_{}_{tid}", std::process::id()));
-    fs::create_dir_all(&s)?;
-    Ok(s)
+    static STAGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let tmp_root = cas_root.join("tmp");
+    fs::create_dir_all(&tmp_root)?;
+    let mut rng = super::dag_scheduler::FastPrng::from_env();
+    for _ in 0..64 {
+        let seq = STAGE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nonce = rng.next_u64() ^ seq;
+        let s = tmp_root.join(format!(
+            "stage_{clean_crate}_{}_{:016x}",
+            std::process::id(),
+            nonce
+        ));
+        match fs::create_dir(&s) {
+            Ok(()) => return Ok(s),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    bail!(
+        "Failed to create unique staging directory in {:?}",
+        tmp_root
+    )
 }
 
 pub(crate) fn run_build_script_if_needed(
