@@ -129,7 +129,7 @@ pub fn resolve_extern_crates_with_target(
                                 } else if d.git.is_some() {
                                     src.starts_with("git+")
                                 } else {
-                                    src.starts_with("registry+")
+                                    src.starts_with("registry+") || src.starts_with("sparse+")
                                 }
                             }
                             _ => true,

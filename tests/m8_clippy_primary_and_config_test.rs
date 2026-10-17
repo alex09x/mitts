@@ -139,8 +139,10 @@ version = "0.1.0"
     let key_ctx_core =
         mitts::adapter::rust::key::derive_unit_action_key_context(&opt_core, &plan_core).unwrap();
 
-    let core_dep_key = key_ctx_app.compute_dynamic_key(core_dep_unit, &[]);
-    let core_prim_key = key_ctx_core.compute_dynamic_key(core_primary_unit, &[]);
+    let core_dep_key = key_ctx_app.compute_dynamic_key(core_dep_unit, &[]).unwrap();
+    let core_prim_key = key_ctx_core
+        .compute_dynamic_key(core_primary_unit, &[])
+        .unwrap();
     assert_ne!(
         core_dep_key, core_prim_key,
         "Primary and dependency builds of member crate must have distinct action keys"

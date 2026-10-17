@@ -76,23 +76,22 @@ impl UnitKeyDeriver {
         &self,
         unit: &PlannedCompilationUnit,
         dep_keys: &[(&str, &str)],
-    ) -> String {
+    ) -> Result<String> {
         let u_id = unit.unit_id();
-        let unit_inputs = match self.inputs_by_unit.get(&u_id) {
-            Some(i) => i,
-            None => {
-                return self
-                    .initial_base_keys
-                    .get(&u_id)
-                    .cloned()
-                    .unwrap_or_else(|| u_id.clone());
-            }
-        };
+        let unit_inputs = self.inputs_by_unit.get(&u_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Missing tracked inputs for unit '{}'; refusing to derive ActionKey from unhashed unit ID",
+                u_id
+            )
+        })?;
         let source_refs: Vec<(&str, &str)> = unit_inputs
             .iter()
             .map(|(p, h)| (p.as_str(), h.as_str()))
             .collect();
 
+        // normalize_unit_id_without_source unconditionally strips ` (<source>)` from the label;
+        // when two packages share `(name, version)`, both entries remain in `dep_hashes` with distinct
+        // SHA-256 hashes and are sorted deterministically by the `(label, hash)` pair.
         let normalized_deps: Vec<(String, &str)> = dep_keys
             .iter()
             .map(|(id, k)| (super::features::normalize_unit_id_without_source(id), *k))
@@ -108,7 +107,7 @@ impl UnitKeyDeriver {
             None => &[],
         };
 
-        ActionCache::derive_action_key(
+        Ok(ActionCache::derive_action_key(
             &self.toolchain_version,
             &self.target_triple,
             &self.profile,
@@ -116,7 +115,7 @@ impl UnitKeyDeriver {
             &unit.features,
             &source_refs,
             &dep_hashes,
-        )
+        ))
     }
 }
 

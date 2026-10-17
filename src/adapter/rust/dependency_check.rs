@@ -62,6 +62,88 @@ pub fn parse_package_spec(spec: &str) -> (&str, Option<&str>, Option<&str>) {
     (name, Some(version), source)
 }
 
+/// Resolves a `Cargo.lock` dependency spec `(req_ver, req_src)` against candidates
+/// of the same package name using `(version, source)`.
+///
+/// Disambiguation order when multiple candidates match `(req_ver, req_src)`:
+/// 1. Exact single match -> `Ok(Some(idx))`.
+/// 2. Explicit `req_ver` without `req_src` (`"foo 1.0.0"`) -> unique local/path candidate (`source = None`).
+/// 3. Implicit `req_ver = None, req_src = None` (`"foo"`) when all matches share the same version ->
+///    unique candidate matching `parent_source`.
+/// 4. Otherwise -> `Err`. When `fail_on_no_match && !candidates.is_empty()` and `0` candidates matched,
+///    also returns `Err` (inconsistent lockfile edge).
+pub fn resolve_candidate_by_spec<'a, T, F>(
+    candidates: &'a [T],
+    get_ver_src: F,
+    req_ver: Option<&str>,
+    req_src: Option<&str>,
+    parent_source: Option<&str>,
+    fail_on_no_match: bool,
+    dep_label: &str,
+) -> Result<Option<usize>, String>
+where
+    F: Fn(&'a T) -> (&'a str, Option<&'a str>),
+{
+    let matches: Vec<usize> = candidates
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, cand)| {
+            let (ver, src) = get_ver_src(cand);
+            (req_ver.is_none_or(|v| ver == v) && req_src.is_none_or(|s| src == Some(s)))
+                .then_some(idx)
+        })
+        .collect();
+    match matches.len() {
+        0 => {
+            if fail_on_no_match && !candidates.is_empty() {
+                Err(format!(
+                    "Unresolved dependency specification '{}' in Cargo.lock (0 of {} candidates matched version={:?} source={:?})",
+                    dep_label,
+                    candidates.len(),
+                    req_ver,
+                    req_src
+                ))
+            } else {
+                Ok(None)
+            }
+        }
+        1 => Ok(Some(matches[0])),
+        _ => {
+            if req_ver.is_some() && req_src.is_none() {
+                let local_only: Vec<usize> = matches
+                    .iter()
+                    .copied()
+                    .filter(|&i| get_ver_src(&candidates[i]).1.is_none())
+                    .collect();
+                if local_only.len() == 1 {
+                    return Ok(Some(local_only[0]));
+                }
+            } else if req_ver.is_none()
+                && req_src.is_none()
+                && matches.iter().all(|&i| {
+                    get_ver_src(&candidates[i]).0 == get_ver_src(&candidates[matches[0]]).0
+                })
+            {
+                if let Some(ps) = parent_source {
+                    let same_src: Vec<usize> = matches
+                        .iter()
+                        .copied()
+                        .filter(|&i| get_ver_src(&candidates[i]).1 == Some(ps))
+                        .collect();
+                    if same_src.len() == 1 {
+                        return Ok(Some(same_src[0]));
+                    }
+                }
+            }
+            Err(format!(
+                "Ambiguous dependency specification '{}' in Cargo.lock ({} matching packages found; specify version and source)",
+                dep_label,
+                matches.len()
+            ))
+        }
+    }
+}
+
 /// Checks if a package manifest has an active dependency on `dep_name`,
 /// filtering out inactive optional dependencies, foreign target cfgs, and dev-dependencies for non-test units.
 pub fn has_active_dependency(

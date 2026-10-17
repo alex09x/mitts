@@ -12,7 +12,9 @@ use mitts::adapter::rust::dag_unit_externs::resolve_extern_crates;
 use mitts::adapter::rust::features::{resolve_package_features, PackageFeatureContext};
 use mitts::adapter::rust::lockfile::{CargoLock, CargoLockPackage};
 use mitts::adapter::rust::manifest::CargoToml;
-use mitts::adapter::rust::package_selection::{parse_dep_spec, select_transitive_packages};
+use mitts::adapter::rust::package_selection::{
+    parse_dep_spec, resolve_lock_dep_candidate, select_transitive_packages,
+};
 use mitts::adapter::rust::planner_deps::resolve_unit_dependencies;
 use mitts::adapter::rust::types::{PlannedCompilationUnit, RustBuildOptions};
 use mitts::adapter::RustAdapter;
@@ -54,15 +56,7 @@ fn test_two_foo_1_0_0_packages_path_fork_and_crates_io_isolated_features_and_act
     fs::create_dir_all(reg_foo_dir.join("src")).unwrap();
     fs::write(
         reg_foo_dir.join("Cargo.toml"),
-        r#"[package]
-name = "foo"
-version = "1.0.0"
-edition = "2021"
-
-[features]
-reg_feat = []
-shared_unused = []
-"#,
+        "[package]\nname = \"foo\"\nversion = \"1.0.0\"\nedition = \"2021\"\n[features]\nreg_feat = []\nshared_unused = []\n",
     )
     .unwrap();
     fs::write(
@@ -79,15 +73,7 @@ shared_unused = []
     fs::create_dir_all(foo_fork.join("src")).unwrap();
     fs::write(
         foo_fork.join("Cargo.toml"),
-        r#"[package]
-name = "foo"
-version = "1.0.0"
-edition = "2021"
-
-[features]
-local_feat = []
-shared_unused = []
-"#,
+        "[package]\nname = \"foo\"\nversion = \"1.0.0\"\nedition = \"2021\"\n[features]\nlocal_feat = []\nshared_unused = []\n",
     )
     .unwrap();
     fs::write(
@@ -103,7 +89,6 @@ shared_unused = []
 name = "app"
 version = "0.1.0"
 edition = "2021"
-
 [dependencies]
 foo_local = { package = "foo", path = "foo-fork", features = ["local_feat"] }
 foo_reg = { package = "foo", version = "1.0.0", features = ["reg_feat"] }
@@ -114,19 +99,13 @@ foo_reg = { package = "foo", version = "1.0.0", features = ["reg_feat"] }
     fs::write(
         proj.join("Cargo.lock"),
         r#"version = 3
-
 [[package]]
 name = "app"
 version = "0.1.0"
-dependencies = [
- "foo 1.0.0",
- "foo 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
+dependencies = ["foo 1.0.0", "foo 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)"]
 [[package]]
 name = "foo"
 version = "1.0.0"
-
 [[package]]
 name = "foo"
 version = "1.0.0"
@@ -224,29 +203,14 @@ fn test_ambiguous_dep_spec_fails_closed_across_selection_features_and_deps() {
         version: 3,
         packages: vec![pkg_app.clone(), pkg_foo_reg.clone(), pkg_foo_git.clone()],
     };
-
     let app_toml = CargoToml::parse(
-        r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-foo = "1.0.0"
-"#,
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nfoo = \"1.0.0\"\n",
     )
     .unwrap();
-    let foo_toml = CargoToml::parse(
-        r#"[package]
-name = "foo"
-version = "1.0.0"
-"#,
-    )
-    .unwrap();
-
+    let foo_toml = CargoToml::parse("[package]\nname = \"foo\"\nversion = \"1.0.0\"\n").unwrap();
     let mut ws_manifests = HashMap::new();
     ws_manifests.insert("app".to_string(), (PathBuf::from("."), app_toml.clone()));
 
-    // 1. select_transitive_packages must fail closed on ambiguous spec
     let sel_err = select_transitive_packages(
         &lockfile,
         &ws_manifests,
@@ -260,56 +224,50 @@ version = "1.0.0"
         "unexpected error: {sel_err}"
     );
 
-    // 2. resolve_package_features must fail closed on ambiguous spec
     let app_deps = vec!["foo 1.0.0".to_string()];
+    let make_ctx = |name, version, source, is_ws, toml, deps| PackageFeatureContext {
+        name,
+        version,
+        source,
+        is_workspace: is_ws,
+        is_root: is_ws,
+        toml,
+        dependencies: deps,
+    };
     let feat_ctxs = vec![
-        PackageFeatureContext {
-            name: "app",
-            version: "0.1.0",
-            source: None,
-            is_workspace: true,
-            is_root: true,
-            toml: &app_toml,
-            dependencies: &app_deps,
-        },
-        PackageFeatureContext {
-            name: "foo",
-            version: "1.0.0",
-            source: pkg_foo_reg.source.as_deref(),
-            is_workspace: false,
-            is_root: false,
-            toml: &foo_toml,
-            dependencies: &[],
-        },
-        PackageFeatureContext {
-            name: "foo",
-            version: "1.0.0",
-            source: pkg_foo_git.source.as_deref(),
-            is_workspace: false,
-            is_root: false,
-            toml: &foo_toml,
-            dependencies: &[],
-        },
+        make_ctx("app", "0.1.0", None, true, &app_toml, &app_deps),
+        make_ctx(
+            "foo",
+            "1.0.0",
+            pkg_foo_reg.source.as_deref(),
+            false,
+            &foo_toml,
+            &[][..],
+        ),
+        make_ctx(
+            "foo",
+            "1.0.0",
+            pkg_foo_git.source.as_deref(),
+            false,
+            &foo_toml,
+            &[][..],
+        ),
     ];
     let feat_err = resolve_package_features(&feat_ctxs, &RustBuildOptions::default())
         .expect_err("resolve_package_features must fail closed on ambiguous foo 1.0.0");
-    assert!(
-        feat_err.to_string().contains("Ambiguous dependency"),
-        "unexpected error: {feat_err}"
-    );
+    assert!(feat_err.to_string().contains("Ambiguous dependency"));
 
-    // 3. resolve_unit_dependencies must fail closed on ambiguous library units
-    let make_lib_unit = |pkg_id: &str| PlannedCompilationUnit {
+    let make_unit = |pkg_id: &str, name: &str, ver: &str, is_ws: bool| PlannedCompilationUnit {
         package_id: pkg_id.to_string(),
-        package_name: "foo".to_string(),
-        version: "1.0.0".to_string(),
-        target_name: "foo".to_string(),
+        package_name: name.to_string(),
+        version: ver.to_string(),
+        target_name: name.to_string(),
         kind: "lib".to_string(),
         src_path: PathBuf::from("src/lib.rs"),
-        manifest_path: PathBuf::from("Cargo.toml"),
+        manifest_path: PathBuf::from("non_existent_Cargo.toml"),
         cache_eligibility: "eligible".to_string(),
-        is_workspace: false,
-        is_primary: false,
+        is_workspace: is_ws,
+        is_primary: is_ws,
         env_vars: Vec::new(),
         dependencies: Vec::new(),
         edition: Some("2021".to_string()),
@@ -318,26 +276,19 @@ version = "1.0.0"
         workspace_root: None,
     };
     let mut units = vec![
-        PlannedCompilationUnit {
-            package_id: "app@0.1.0".to_string(),
-            package_name: "app".to_string(),
-            version: "0.1.0".to_string(),
-            target_name: "app".to_string(),
-            kind: "lib".to_string(),
-            src_path: PathBuf::from("src/lib.rs"),
-            manifest_path: PathBuf::from(" non_existent_Cargo.toml"),
-            cache_eligibility: "eligible".to_string(),
-            is_workspace: true,
-            is_primary: true,
-            env_vars: Vec::new(),
-            dependencies: Vec::new(),
-            edition: Some("2021".to_string()),
-            features: Vec::new(),
-            for_host: false,
-            workspace_root: None,
-        },
-        make_lib_unit("foo@1.0.0 (registry+https://github.com/rust-lang/crates.io-index)"),
-        make_lib_unit("foo@1.0.0 (git+https://github.com/example/foo#111111)"),
+        make_unit("app@0.1.0", "app", "0.1.0", true),
+        make_unit(
+            "foo@1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+            "foo",
+            "1.0.0",
+            false,
+        ),
+        make_unit(
+            "foo@1.0.0 (git+https://github.com/example/foo#111111)",
+            "foo",
+            "1.0.0",
+            false,
+        ),
     ];
     let selected = vec![
         (&pkg_app, true),
@@ -346,9 +297,68 @@ version = "1.0.0"
     ];
     let dep_err = resolve_unit_dependencies(&mut units, &selected, None, Path::new("."))
         .expect_err("resolve_unit_dependencies must fail closed on ambiguous foo 1.0.0");
+    assert!(dep_err.to_string().contains("Ambiguous dependency"));
+
     assert!(
-        dep_err.to_string().contains("Ambiguous unit dependency"),
-        "unexpected error: {dep_err}"
+        resolve_lock_dep_candidate("foo 9.9.9", "foo", Some("9.9.9"), None, &[&pkg_foo_reg])
+            .is_err()
+    );
+}
+
+#[test]
+fn test_two_major_versions_of_same_crate_with_distinct_features() {
+    let reg = Some("registry+https://github.com/rust-lang/crates.io-index");
+    let app_toml = CargoToml::parse(
+        r#"[package]
+name = "app"
+version = "0.1.0"
+[features]
+default = ["use_v2"]
+use_v2 = ["foo2/v2_feat"]
+[dependencies]
+foo = { version = "1", features = ["v1_feat"] }
+foo2 = { package = "foo", version = "2", optional = true }
+"#,
+    )
+    .unwrap();
+    let foo1_toml = CargoToml::parse(
+        "[package]\nname = \"foo\"\nversion = \"1.0.5\"\n[features]\nv1_feat = []\nv2_feat = []\n",
+    )
+    .unwrap();
+    let foo2_toml = CargoToml::parse(
+        "[package]\nname = \"foo\"\nversion = \"2.1.0\"\n[features]\nv1_feat = []\nv2_feat = []\n",
+    )
+    .unwrap();
+    let app_deps = vec![
+        "foo 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)".to_string(),
+        "foo 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)".to_string(),
+    ];
+    let make_ctx = |name, version, source, is_ws, toml, deps| PackageFeatureContext {
+        name,
+        version,
+        source,
+        is_workspace: is_ws,
+        is_root: is_ws,
+        toml,
+        dependencies: deps,
+    };
+    let ctxs = vec![
+        make_ctx("app", "0.1.0", None, true, &app_toml, &app_deps),
+        make_ctx("foo", "1.0.5", reg, false, &foo1_toml, &[][..]),
+        make_ctx("foo", "2.1.0", reg, false, &foo2_toml, &[][..]),
+    ];
+    let resolved = resolve_package_features(&ctxs, &RustBuildOptions::default()).unwrap();
+    assert_eq!(
+        resolved
+            .target
+            .get("foo@1.0.5 (registry+https://github.com/rust-lang/crates.io-index)"),
+        Some(&vec!["v1_feat".to_string()])
+    );
+    assert_eq!(
+        resolved
+            .target
+            .get("foo@2.1.0 (registry+https://github.com/rust-lang/crates.io-index)"),
+        Some(&vec!["v2_feat".to_string()])
     );
 }
 
@@ -359,14 +369,7 @@ fn test_broken_path_dependency_in_cargo_toml_reports_missing_path() {
     fs::create_dir_all(proj.join("src")).unwrap();
     fs::write(
         proj.join("Cargo.toml"),
-        r#"[package]
-name = "app"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-missing_dep = { path = "does-not-exist" }
-"#,
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nmissing_dep = { path = \"does-not-exist\" }\n",
     )
     .unwrap();
     fs::write(proj.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
@@ -379,6 +382,6 @@ missing_dep = { path = "does-not-exist" }
     let msg = format!("{:#}", err);
     assert!(
         msg.contains("failed to read") && msg.contains("does-not-exist"),
-        "Expected missing manifest path in error, got: {msg}"
+        "got: {msg}"
     );
 }

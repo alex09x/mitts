@@ -30,11 +30,15 @@ fn semver_or_prefix_matches(req_str: &str, ver_str: &str) -> bool {
     }
 }
 
+fn is_registry_source(s: &str) -> bool {
+    s.starts_with("registry+") || s.starts_with("sparse+")
+}
+
 fn matches_toml_dep_hint(cand: &PackageFeatureContext, dep: &TomlDependency) -> bool {
     match dep {
         TomlDependency::Simple(req_str) => {
             semver_or_prefix_matches(req_str, cand.version)
-                && cand.source.is_none_or(|s| s.starts_with("registry+"))
+                && cand.source.is_none_or(is_registry_source)
         }
         TomlDependency::Detailed(dt) => {
             let ver_ok = dt
@@ -46,7 +50,7 @@ fn matches_toml_dep_hint(cand: &PackageFeatureContext, dep: &TomlDependency) -> 
             } else if dt.git.is_some() {
                 cand.source.is_some_and(|s| s.starts_with("git+"))
             } else {
-                cand.source.is_some_and(|s| s.starts_with("registry+"))
+                cand.source.is_some_and(is_registry_source)
             };
             ver_ok && src_ok
         }
@@ -92,7 +96,7 @@ impl<'a> FeatureGraphIndex<'a> {
             for s in ctx.dependencies {
                 let (name, ver, src) = parse_dep_spec(s);
                 let entry = dep_map.entry(name.replace('-', "_")).or_default();
-                if entry.is_empty() || (entry[0].0 == ver && !entry.contains(&(ver, src))) {
+                if !entry.contains(&(ver, src)) {
                     entry.push((ver, src));
                 }
             }
@@ -121,53 +125,20 @@ impl<'a> FeatureGraphIndex<'a> {
         req_src: Option<&str>,
         cand_indices: &[usize],
     ) -> Result<Option<usize>, RustAdapterError> {
-        let matches: Vec<usize> = cand_indices
-            .iter()
-            .copied()
-            .filter(|&i| {
+        let idx = crate::adapter::rust::dependency_check::resolve_candidate_by_spec(
+            cand_indices,
+            |&i| {
                 let p = &self.packages[i];
-                req_ver.is_none_or(|v| p.version == v)
-                    && req_src.is_none_or(|s| p.source == Some(s))
-            })
-            .collect();
-        match matches.len() {
-            0 => Ok(None),
-            1 => Ok(Some(matches[0])),
-            _ => {
-                if req_ver.is_some() && req_src.is_none() {
-                    let local_only: Vec<usize> = matches
-                        .iter()
-                        .copied()
-                        .filter(|&i| self.packages[i].source.is_none())
-                        .collect();
-                    if local_only.len() == 1 {
-                        return Ok(Some(local_only[0]));
-                    }
-                } else if req_ver.is_none()
-                    && req_src.is_none()
-                    && matches
-                        .iter()
-                        .all(|&i| self.packages[i].version == self.packages[matches[0]].version)
-                {
-                    if let Some(ps) = self.packages[pkg_idx].source {
-                        let same_src: Vec<usize> = matches
-                            .iter()
-                            .copied()
-                            .filter(|&i| self.packages[i].source == Some(ps))
-                            .collect();
-                        if same_src.len() == 1 {
-                            return Ok(Some(same_src[0]));
-                        }
-                    }
-                }
-                Err(RustAdapterError::MetadataFailed(format!(
-                    "Ambiguous dependency '{}' in package '{}' ({} matching packages; specify version and source)",
-                    dep_name,
-                    self.pkg_ids[pkg_idx],
-                    matches.len()
-                )))
-            }
-        }
+                (p.version, p.source)
+            },
+            req_ver,
+            req_src,
+            self.packages[pkg_idx].source,
+            true,
+            dep_name,
+        )
+        .map_err(RustAdapterError::MetadataFailed)?;
+        Ok(idx.map(|i| cand_indices[i]))
     }
 
     pub fn resolve_dep_id_with_hint(

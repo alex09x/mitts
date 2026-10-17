@@ -221,65 +221,43 @@ pub fn resolve_unit_dependencies_with_manifests(
                                 })))
                 });
 
-                let resolve_for_flag = |flag: bool| -> Result<
+                let resolve_for_flag = |flag: bool,
+                                        fail_zero: bool|
+                 -> Result<
                     Option<String>,
                     crate::adapter::rust::types::RustAdapterError,
                 > {
                     let Some(candidates) = lib_units_by_name.get(&(dep_clean.clone(), flag)) else {
                         return Ok(None);
                     };
-                    let matches: Vec<&LibCandidate> = candidates
-                        .iter()
-                        .filter(|(ver, src, _)| {
-                            dep_ver.is_none_or(|v| ver == v)
-                                && dep_src.is_none_or(|s| src.as_deref() == Some(s))
-                        })
-                        .collect();
-                    match matches.len() {
-                        0 => Ok(None),
-                        1 => Ok(Some(matches[0].2.clone())),
-                        _ => {
-                            if dep_ver.is_some() && dep_src.is_none() {
-                                let local_only: Vec<&&LibCandidate> =
-                                    matches.iter().filter(|(_, src, _)| src.is_none()).collect();
-                                if local_only.len() == 1 {
-                                    return Ok(Some(local_only[0].2.clone()));
-                                }
-                            } else if dep_ver.is_none()
-                                && dep_src.is_none()
-                                && matches.iter().all(|(v, _, _)| v == &matches[0].0)
-                            {
-                                if let Some(ps) = pkg.source.as_deref() {
-                                    let same_src: Vec<&&LibCandidate> = matches
-                                        .iter()
-                                        .filter(|(_, src, _)| src.as_deref() == Some(ps))
-                                        .collect();
-                                    if same_src.len() == 1 {
-                                        return Ok(Some(same_src[0].2.clone()));
-                                    }
-                                }
-                            }
-                            Err(
-                                crate::adapter::rust::types::RustAdapterError::MetadataFailed(
-                                    format!(
-                                    "Ambiguous unit dependency '{}' ({} matching library units)",
-                                    dep_spec,
-                                    matches.len()
-                                ),
-                                ),
-                            )
-                        }
-                    }
+                    let idx = super::dependency_check::resolve_candidate_by_spec(
+                        candidates,
+                        |(ver, src, _)| (ver.as_str(), src.as_deref()),
+                        dep_ver,
+                        dep_src,
+                        pkg.source.as_deref(),
+                        fail_zero,
+                        dep_spec,
+                    )
+                    .map_err(crate::adapter::rust::types::RustAdapterError::MetadataFailed)?;
+                    Ok(idx.map(|i| candidates[i].2.clone()))
                 };
 
                 let resolve_dep = |for_host: bool| -> Result<
                     Option<String>,
                     crate::adapter::rust::types::RustAdapterError,
                 > {
-                    if let Some(uid) = resolve_for_flag(for_host)? {
+                    if let Some(uid) = resolve_for_flag(for_host, false)? {
                         Ok(Some(uid))
+                    } else if let Some(uid) = resolve_for_flag(!for_host, false)? {
+                        Ok(Some(uid))
+                    } else if lib_units_by_name
+                        .get(&(dep_clean.clone(), for_host))
+                        .is_some_and(|c| !c.is_empty())
+                    {
+                        resolve_for_flag(for_host, true)
                     } else {
-                        resolve_for_flag(!for_host)
+                        resolve_for_flag(!for_host, true)
                     }
                 };
 

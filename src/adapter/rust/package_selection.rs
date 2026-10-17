@@ -235,55 +235,22 @@ pub fn resolve_lock_dep_candidate<'a>(
 fn resolve_lock_dep_for_parent<'a>(
     parent_source: Option<&str>,
     dep_spec: &str,
-    dep_name: &str,
+    _dep_name: &str,
     dep_ver: Option<&str>,
     dep_src: Option<&str>,
     candidates: &[&'a CargoLockPackage],
 ) -> Result<Option<&'a CargoLockPackage>> {
-    let matches: Vec<&'a CargoLockPackage> = candidates
-        .iter()
-        .copied()
-        .filter(|p| {
-            dep_ver.is_none_or(|v| p.version == v)
-                && dep_src.is_none_or(|s| p.source.as_deref() == Some(s))
-        })
-        .collect();
-    match matches.len() {
-        0 => Ok(None),
-        1 => Ok(Some(matches[0])),
-        _ => {
-            if dep_ver.is_some() && dep_src.is_none() {
-                let local_only: Vec<&'a CargoLockPackage> = matches
-                    .iter()
-                    .copied()
-                    .filter(|p| p.source.is_none())
-                    .collect();
-                if local_only.len() == 1 {
-                    return Ok(Some(local_only[0]));
-                }
-            } else if dep_ver.is_none()
-                && dep_src.is_none()
-                && matches.iter().all(|p| p.version == matches[0].version)
-            {
-                if let Some(ps) = parent_source {
-                    let same_src: Vec<&'a CargoLockPackage> = matches
-                        .iter()
-                        .copied()
-                        .filter(|p| p.source.as_deref() == Some(ps))
-                        .collect();
-                    if same_src.len() == 1 {
-                        return Ok(Some(same_src[0]));
-                    }
-                }
-            }
-            bail!(
-                "Ambiguous dependency specification '{}' in Cargo.lock ({} matching '{}' packages found; specify version and source)",
-                dep_spec,
-                matches.len(),
-                dep_name
-            )
-        }
-    }
+    let idx = super::dependency_check::resolve_candidate_by_spec(
+        candidates,
+        |p| (p.version.as_str(), p.source.as_deref()),
+        dep_ver,
+        dep_src,
+        parent_source,
+        true,
+        dep_spec,
+    )
+    .map_err(|msg| anyhow::anyhow!("{msg}"))?;
+    Ok(idx.map(|i| candidates[i]))
 }
 
 /// Formats a canonical package ID incorporating `(name, version, source)`.
@@ -301,8 +268,10 @@ pub fn parse_package_id_source(package_id: &str) -> Option<&str> {
     tail.strip_prefix('(')?.strip_suffix(')')
 }
 
-/// Strips the ` (<source>)` component from a `unit_id` (`pkg_id::kind:target[:host]`)
-/// so that normalized unit labels are source-independent when hashing dependency edges.
+/// Unconditionally strips the ` (<source>)` suffix from a `unit_id` (`pkg_id::kind:target[:host]`).
+/// When a consumer depends on two packages with the same `(name, version)` from different sources,
+/// `dep_hashes` contains two entries with the same normalized label and distinct SHA-256 hashes,
+/// sorted deterministically by the `(label, hash)` pair.
 pub fn normalize_unit_id_without_source(unit_id: &str) -> String {
     if let Some((pkg_id, rest)) = unit_id.split_once("::") {
         if let Some((name_ver, _)) = pkg_id.split_once(" (") {

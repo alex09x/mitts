@@ -113,12 +113,26 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .as_ref()
             .and_then(|p| p.version.clone())
             .unwrap_or_else(|| "0.0.0".to_string());
-        if let Some(existing) = lockfile
+        if lockfile
             .packages
-            .iter_mut()
-            .find(|p| &p.name == name && p.source.is_none())
+            .iter()
+            .any(|p| &p.name == name && p.source.is_none() && p.version == ver)
         {
-            existing.version = ver;
+            continue;
+        }
+        let local_count = lockfile
+            .packages
+            .iter()
+            .filter(|p| &p.name == name && p.source.is_none())
+            .count();
+        if local_count == 1 {
+            if let Some(existing) = lockfile
+                .packages
+                .iter_mut()
+                .find(|p| &p.name == name && p.source.is_none())
+            {
+                existing.version = ver;
+            }
         } else {
             let mut deps: Vec<String> = dep_toml.dependencies.keys().cloned().collect();
             deps.sort();
@@ -140,17 +154,27 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .as_ref()
             .and_then(|p| p.version.clone())
             .unwrap_or_else(|| "0.0.0".to_string());
-        if let Some(existing) = lockfile
-            .packages
-            .iter_mut()
-            .find(|p| &p.name == name && p.source.is_none())
-        {
-            existing.version = ver;
-        } else if !lockfile
+        if lockfile
             .packages
             .iter()
-            .any(|p| &p.name == name && p.source.is_none())
+            .any(|p| &p.name == name && p.source.is_none() && p.version == ver)
         {
+            continue;
+        }
+        let local_count = lockfile
+            .packages
+            .iter()
+            .filter(|p| &p.name == name && p.source.is_none())
+            .count();
+        if local_count == 1 {
+            if let Some(existing) = lockfile
+                .packages
+                .iter_mut()
+                .find(|p| &p.name == name && p.source.is_none())
+            {
+                existing.version = ver;
+            }
+        } else {
             let mut deps = Vec::new();
             let mut all_deps: Vec<(&String, &super::manifest::TomlDependency)> =
                 manifest.dependencies.iter().collect();

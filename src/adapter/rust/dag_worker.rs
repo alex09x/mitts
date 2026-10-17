@@ -75,9 +75,8 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             .iter()
             .map(|(id, k)| (id.as_str(), k.as_str()))
             .collect();
-        let action_key = shared.deriver.compute_dynamic_key(&unit, &dep_refs);
-
         let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let action_key = shared.deriver.compute_dynamic_key(&unit, &dep_refs)?;
             execute_unit(&unit, &action_key, ctx, lock_mode)
         }));
 
