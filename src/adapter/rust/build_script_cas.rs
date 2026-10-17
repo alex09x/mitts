@@ -75,33 +75,23 @@ pub fn try_restore_build_script_cas(
         if let Ok(content) = fs::read_to_string(&meta_file) {
             if let Ok(mut directives) = toml::from_str::<BuildScriptDirectives>(&content) {
                 if directives.is_fresh(pkg_dir) {
-                    let mut restore_ok = true;
-                    if cached_out_dir.is_dir()
-                        && reflink_or_copy_dir_recursive(&cached_out_dir, out_dir).is_err()
+                    let _ = fs::write(entry_dir.join(".last_used"), b"");
+                    let persistent_out = if cached_out_dir.is_dir() {
+                        cached_out_dir
+                    } else {
+                        out_dir.to_path_buf()
+                    };
+                    let persistent_str = persistent_out.to_string_lossy().to_string();
+                    if let Some(prev) = directives
+                        .out_dir
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string())
                     {
-                        restore_ok = false;
-                        let _ = fs::remove_dir_all(out_dir);
-                        let _ = fs::create_dir_all(out_dir);
+                        remap_out_dir(&mut directives, &prev, &persistent_str);
                     }
-                    if restore_ok {
-                        let _ = fs::write(entry_dir.join(".last_used"), b"");
-                        let persistent_out = if cached_out_dir.is_dir() {
-                            cached_out_dir
-                        } else {
-                            out_dir.to_path_buf()
-                        };
-                        let persistent_str = persistent_out.to_string_lossy().to_string();
-                        if let Some(prev) = directives
-                            .out_dir
-                            .as_ref()
-                            .map(|p| p.to_string_lossy().to_string())
-                        {
-                            remap_out_dir(&mut directives, &prev, &persistent_str);
-                        }
-                        directives.out_dir = Some(persistent_out);
-                        directives.links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
-                        return Some(directives);
-                    }
+                    directives.out_dir = Some(persistent_out);
+                    directives.links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
+                    return Some(directives);
                 }
             }
         }

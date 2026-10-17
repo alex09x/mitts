@@ -66,6 +66,7 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             unit.dependencies
                 .iter()
                 .filter_map(|dep_id| {
+                    shared.dag.get_node(dep_id)?;
                     if let Some(rk) = map.get(dep_id) {
                         if rk.contains(":unhashable:") {
                             dep_tainted = true;

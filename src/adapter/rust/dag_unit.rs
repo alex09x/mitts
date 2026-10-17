@@ -33,6 +33,46 @@ pub(crate) fn execute_unit(
                 crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
             ));
 
+    struct ImplicitJobGuard<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for ImplicitJobGuard<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let acquire_unit_job_token = || -> Result<(
+        Option<ImplicitJobGuard<'_>>,
+        Option<crate::core::jobserver::JobToken<'_>>,
+    )> {
+        match (ctx.jobserver, ctx.is_first_job) {
+            (Some(js), Some(first_flag)) => {
+                if first_flag
+                    .compare_exchange(
+                        true,
+                        false,
+                        std::sync::atomic::Ordering::SeqCst,
+                        std::sync::atomic::Ordering::SeqCst,
+                    )
+                    .is_ok()
+                {
+                    Ok((Some(ImplicitJobGuard(first_flag)), None))
+                } else {
+                    Ok((None, js.acquire_token()?))
+                }
+            }
+            (Some(js), None) => Ok((None, js.acquire_token()?)),
+            _ => Ok((None, None)),
+        }
+    };
+
+    let has_build_script = super::unit_env::unit_has_build_script(unit);
+    let mut _implicit_job_guard = None;
+    let mut _job_token = None;
+    if has_build_script {
+        let (ig, jt) = acquire_unit_job_token()?;
+        _implicit_job_guard = ig;
+        _job_token = jt;
+    }
+
     let (current_directives, staging_dir_holder) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
 
@@ -116,33 +156,11 @@ pub(crate) fn execute_unit(
     }
 
     // 2. Acquire execution token from jobserver pool BEFORE acquiring the exclusive unit lock
-    struct ImplicitJobGuard<'a>(&'a std::sync::atomic::AtomicBool);
-    impl Drop for ImplicitJobGuard<'_> {
-        fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
+    if !has_build_script {
+        let (ig, jt) = acquire_unit_job_token()?;
+        _implicit_job_guard = ig;
+        _job_token = jt;
     }
-    let mut _implicit_job_guard = None;
-    let _job_token = match (ctx.jobserver, ctx.is_first_job) {
-        (Some(js), Some(first_flag)) => {
-            if first_flag
-                .compare_exchange(
-                    true,
-                    false,
-                    std::sync::atomic::Ordering::SeqCst,
-                    std::sync::atomic::Ordering::SeqCst,
-                )
-                .is_ok()
-            {
-                _implicit_job_guard = Some(ImplicitJobGuard(first_flag));
-                None
-            } else {
-                js.acquire_token()?
-            }
-        }
-        (Some(js), None) => js.acquire_token()?,
-        _ => None,
-    };
 
     // 3. Single-flight lock to eliminate duplicate work across processes
     let lock_path = ctx.ac.lock_path(&effective_action_key);

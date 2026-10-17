@@ -175,7 +175,6 @@ impl JobserverPool {
                         .and_then(|s| s.trim().parse::<usize>().ok())
                         .unwrap_or_else(|| token_count.max(1))
                         .max(1);
-                    Self::replenish_fifo_if_needed(fd, &slots_dir, cap);
                     (sh_pool_lock, fd, cap)
                 }
             };
@@ -201,32 +200,9 @@ impl JobserverPool {
     }
 
     #[cfg(unix)]
-    fn replenish_fifo_if_needed(fd: std::os::raw::c_int, slots_dir: &Path, capacity: usize) {
-        let mut unread: std::os::raw::c_int = 0;
-        if unsafe { libc::ioctl(fd, libc::FIONREAD, &mut unread) } != 0 || unread < 0 {
-            return;
-        }
-        let mut free_slots = 0usize;
-        for idx in 0..capacity {
-            let slot_path = slots_dir.join(format!("slot_{}.lock", idx));
-            if let Ok(Some(lock)) = FileLock::try_acquire_exclusive(&slot_path) {
-                free_slots += 1;
-                drop(lock);
-            }
-        }
-        let current = unread as usize;
-        if current < free_slots {
-            let missing = free_slots - current;
-            let buf = vec![b'|'; missing];
-            unsafe {
-                let _ = libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len());
-            }
-        }
-    }
-
-    #[cfg(unix)]
     fn acquire_managed_slot(slots_dir: &Path, capacity: usize) -> Result<FileLock> {
         let cap = capacity.max(1);
+        let mut sleep_ms = 1u64;
         loop {
             let start = NEXT_SLOT.fetch_add(1, Ordering::Relaxed);
             for offset in 0..cap {
@@ -240,7 +216,8 @@ impl JobserverPool {
                 let slot_path = slots_dir.join("slot_0.lock");
                 return FileLock::acquire_exclusive(&slot_path);
             }
-            std::thread::sleep(Duration::from_millis(1));
+            std::thread::sleep(Duration::from_millis(sleep_ms));
+            sleep_ms = (sleep_ms * 2).min(50);
         }
     }
 

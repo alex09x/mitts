@@ -226,3 +226,46 @@ fn test_b4_sigkill_token_holder_does_not_leak_or_hang_jobserver_or_build() {
     assert!(res.success, "Build after SIGKILL failed: {}", res.stderr);
     drop(keep_alive_pool);
 }
+
+#[test]
+#[cfg(unix)]
+fn test_b4b_follower_does_not_inflate_rustc_fifo_tokens() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_root = temp.path().join("cache");
+    let capacity = 4usize;
+
+    let leader = JobserverPool::create_managed(&cache_root, capacity).unwrap();
+    let fifo_path = cache_root.join("jobserver").join("pool.fifo");
+    let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+
+    // Simulate running `rustc` processes holding k = 3 tokens from the FIFO while only 0 worker slots are held
+    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
+    assert!(fd >= 0);
+    let mut held = [0u8; 3];
+    let n_read = unsafe { libc::read(fd, held.as_mut_ptr() as *mut libc::c_void, 3) };
+    assert_eq!(n_read, 3);
+
+    // Start followers while `rustc` holds those 3 FIFO tokens
+    let follower1 = JobserverPool::create_managed(&cache_root, capacity).unwrap();
+    let follower2 = JobserverPool::create_managed(&cache_root, capacity).unwrap();
+
+    // `rustc` returns its 3 held tokens to the FIFO
+    let n_written = unsafe { libc::write(fd, held.as_ptr() as *const libc::c_void, 3) };
+    assert_eq!(n_written, 3);
+
+    let mut unread: std::os::raw::c_int = 0;
+    let rc = unsafe { libc::ioctl(fd, libc::FIONREAD, &mut unread) };
+    assert_eq!(rc, 0);
+    unsafe {
+        libc::close(fd);
+    }
+
+    assert!(
+        (unread as usize) <= capacity,
+        "FIFO tokens inflated beyond capacity {}: unread={}",
+        capacity,
+        unread
+    );
+    assert_eq!(unread as usize, capacity);
+    drop((follower2, follower1, leader));
+}
