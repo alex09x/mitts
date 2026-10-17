@@ -115,7 +115,36 @@ pub(crate) fn execute_unit(
         return Ok(UnitExecutionStatus::Success);
     }
 
-    // 2. Single-flight lock to eliminate duplicate work across processes
+    // 2. Acquire execution token from jobserver pool BEFORE acquiring the exclusive unit lock
+    struct ImplicitJobGuard<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for ImplicitJobGuard<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let mut _implicit_job_guard = None;
+    let _job_token = match (ctx.jobserver, ctx.is_first_job) {
+        (Some(js), Some(first_flag)) => {
+            if first_flag
+                .compare_exchange(
+                    true,
+                    false,
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                )
+                .is_ok()
+            {
+                _implicit_job_guard = Some(ImplicitJobGuard(first_flag));
+                None
+            } else {
+                js.acquire_token()?
+            }
+        }
+        (Some(js), None) => js.acquire_token()?,
+        _ => None,
+    };
+
+    // 3. Single-flight lock to eliminate duplicate work across processes
     let lock_path = ctx.ac.lock_path(&effective_action_key);
     let _lock = match lock_mode {
         LockMode::TryLock => match FileLock::try_acquire_exclusive(&lock_path)? {
@@ -148,19 +177,6 @@ pub(crate) fn execute_unit(
             unit.package_name, unit.target_name, unit.kind
         );
     }
-
-    // Acquire execution token from jobserver pool before compiling (implicit token for 1st job)
-    let _job_token = match (ctx.jobserver, ctx.is_first_job) {
-        (Some(js), Some(first_flag)) => {
-            if first_flag.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                None
-            } else {
-                js.acquire_token()?
-            }
-        }
-        (Some(js), None) => js.acquire_token()?,
-        _ => None,
-    };
     if let Some(ref cb) = ctx.opt.progress {
         cb.0(BuildProgressEvent::Compiling(format!(
             "{} v{}",

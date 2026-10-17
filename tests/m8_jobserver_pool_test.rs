@@ -118,3 +118,111 @@ fn test_m8_jobserver_pool_none() {
     assert!(none_pool.acquire_token().unwrap().is_none());
     none_pool.release_token(b'+');
 }
+
+#[test]
+#[cfg(unix)]
+fn test_b4_sigkill_token_holder_does_not_leak_or_hang_jobserver_or_build() {
+    use mitts::adapter::rust::types::RustBuildOptions;
+    use mitts::adapter::rust::RustAdapter;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    if let Ok(child_cache) = std::env::var("MITTS_TEST_B4_CHILD_CACHE_ROOT") {
+        let cache_root = PathBuf::from(child_cache);
+        let pool = JobserverPool::create_managed(&cache_root, 2).unwrap();
+        let _t1 = pool.acquire_token().unwrap();
+        let _t2 = pool.acquire_token().unwrap();
+        fs::write(cache_root.join("child_ready"), b"1").unwrap();
+        std::thread::sleep(Duration::from_secs(60));
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let cache_root = temp.path().join("cache");
+    fs::create_dir_all(&cache_root).unwrap();
+
+    // Keep an active pool open in the parent process so `pool.lock` is continuously held
+    let keep_alive_pool = JobserverPool::create_managed(&cache_root, 2).unwrap();
+
+    // Spawn a child process that acquires ALL tokens and then gets killed with SIGKILL
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("--exact")
+        .arg("test_b4_sigkill_token_holder_does_not_leak_or_hang_jobserver_or_build")
+        .arg("--nocapture")
+        .env("MITTS_TEST_B4_CHILD_CACHE_ROOT", &cache_root)
+        .spawn()
+        .unwrap();
+
+    let ready_file = cache_root.join("child_ready");
+    let start = Instant::now();
+    while !ready_file.exists() {
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "Timed out waiting for child process to acquire jobserver tokens"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    // Kill the token-holding child with SIGKILL while `keep_alive_pool` still holds `pool.lock`
+    child.kill().unwrap();
+    let _ = child.wait().unwrap();
+
+    // Verify all tokens were reclaimed by the kernel and can be re-acquired without hanging
+    let cache_root_clone = cache_root.clone();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let follower = JobserverPool::create_managed(&cache_root_clone, 2).unwrap();
+        let t1 = follower.acquire_token().unwrap();
+        let t2 = follower.acquire_token().unwrap();
+        assert!(t1.is_some() && t2.is_some());
+        drop((t1, t2));
+        let _ = tx.send(());
+    });
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("JobserverPool hung after SIGKILLed token holder");
+
+    // Verify a subsequent multi-crate native DAG build completes cleanly using the same cache_root
+    let ws = temp.path().join("ws");
+    let dir_a = ws.join("a");
+    let dir_b = ws.join("b");
+    fs::create_dir_all(dir_a.join("src")).unwrap();
+    fs::create_dir_all(dir_b.join("src")).unwrap();
+    fs::write(
+        ws.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir_a.join("Cargo.toml"),
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(dir_a.join("src/lib.rs"), "pub fn a() -> u32 { 7 }\n").unwrap();
+    fs::write(
+        dir_b.join("Cargo.toml"),
+        "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\na = { path = \"../a\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir_b.join("src/lib.rs"),
+        "pub fn b() -> u32 { a::a() + 1 }\n",
+    )
+    .unwrap();
+    fs::write(
+        ws.join("Cargo.lock"),
+        "version = 3\n[[package]]\nname = \"a\"\nversion = \"0.1.0\"\n[[package]]\nname = \"b\"\nversion = \"0.1.0\"\ndependencies = [\"a\"]\n",
+    )
+    .unwrap();
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(ws.join("Cargo.toml")),
+        native: true,
+        cache_dir: Some(cache_root),
+        ..Default::default()
+    };
+    let (_, res) = RustAdapter::build_native(&opt).unwrap();
+    assert!(res.success, "Build after SIGKILL failed: {}", res.stderr);
+    drop(keep_alive_pool);
+}

@@ -12,6 +12,10 @@ use crate::core::lock::FileLock;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+static NEXT_SLOT: AtomicUsize = AtomicUsize::new(0);
 
 /// Global or process-level jobserver coordination pool for rustc codegen units.
 #[derive(Debug)]
@@ -26,10 +30,13 @@ pub enum JobserverPool {
         #[cfg(unix)]
         owned: bool,
     },
-    /// Global or process managed FIFO token pool.
+    /// Global or process managed token pool backed by kernel-reclaimed flock slots
+    /// for worker concurrency and a replenished FIFO for child `rustc` codegen threads.
     Managed {
         _lock: FileLock,
         fifo_path: PathBuf,
+        slots_dir: PathBuf,
+        capacity: usize,
         #[cfg(unix)]
         open_fd: std::os::raw::c_int,
         auth: String,
@@ -38,22 +45,24 @@ pub enum JobserverPool {
     None,
 }
 
-/// RAII token guard returning the token back to the FIFO on drop.
+/// RAII token guard returning the token or kernel slot lock on drop.
 pub struct JobToken<'a> {
     pool: &'a JobserverPool,
     byte: u8,
+    slot_lock: Option<FileLock>,
 }
 
 impl<'a> Drop for JobToken<'a> {
     fn drop(&mut self) {
-        self.pool.release_token(self.byte);
+        if self.slot_lock.take().is_none() {
+            self.pool.release_token(self.byte);
+        }
     }
 }
 
 impl JobserverPool {
-    /// Discovers an existing jobserver or creates a managed shared FIFO pool.
+    /// Discovers an existing jobserver or creates a managed token pool.
     pub fn acquire_or_create(cache_root: &Path, token_count: usize) -> Result<Self> {
-        // 1. Check for inherited jobserver from CARGO_MAKEFLAGS or MAKEFLAGS
         if let Ok(flags) = std::env::var("CARGO_MAKEFLAGS").or_else(|_| std::env::var("MAKEFLAGS"))
         {
             for token in flags.split_whitespace() {
@@ -96,27 +105,30 @@ impl JobserverPool {
         }
     }
 
-    /// Creates or connects to a managed shared FIFO token pool under `cache_root/jobserver`.
+    /// Creates or connects to a managed token pool under `cache_root/jobserver`.
+    /// Worker tokens use kernel `flock` slot files (`slots/slot_{i}.lock`) so tokens held by
+    /// processes killed via `SIGKILL` or OOM are automatically reclaimed by the OS kernel.
     pub fn create_managed(cache_root: &Path, token_count: usize) -> Result<Self> {
         #[cfg(unix)]
         {
             let js_dir = cache_root.join("jobserver");
-            fs::create_dir_all(&js_dir)
-                .with_context(|| format!("Failed to create jobserver directory {:?}", js_dir))?;
+            let slots_dir = js_dir.join("slots");
+            fs::create_dir_all(&slots_dir)
+                .with_context(|| format!("Failed to create jobserver directory {:?}", slots_dir))?;
 
             let init_lock_path = js_dir.join("init.lock");
             let pool_lock_path = js_dir.join("pool.lock");
             let fifo_path = js_dir.join("pool.fifo");
+            let cap_path = js_dir.join("pool.cap");
 
             let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap_or(""))
                 .context("Invalid FIFO path for CString")?;
 
-            // P3: Acquire exclusive lock on init.lock to serialize leader election
             let init_lock = FileLock::acquire_exclusive(&init_lock_path)?;
 
-            let (pool_lock, fd) = match FileLock::try_acquire_exclusive(&pool_lock_path)? {
+            let (pool_lock, fd, capacity) = match FileLock::try_acquire_exclusive(&pool_lock_path)?
+            {
                 Some(ex_pool_lock) => {
-                    // Leader: no active builds hold pool.lock, safe to re-create and re-seed FIFO
                     if fifo_path.exists() {
                         let _ = fs::remove_file(&fifo_path);
                     }
@@ -134,8 +146,8 @@ impl JobserverPool {
                             .with_context(|| format!("Failed to open FIFO {:?}", fifo_path));
                     }
 
-                    // Seed tokens: write token_count bytes into the FIFO
                     let tokens = token_count.max(1);
+                    let _ = fs::write(&cap_path, tokens.to_string());
                     let buf = vec![b'|'; tokens];
                     let written =
                         unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
@@ -149,28 +161,33 @@ impl JobserverPool {
                     }
 
                     drop(ex_pool_lock);
-                    // Acquire shared lock on pool.lock before releasing init_lock
                     let sh_pool_lock = FileLock::acquire_shared(&pool_lock_path)?;
-                    (sh_pool_lock, fd)
+                    (sh_pool_lock, fd, tokens)
                 }
                 None => {
-                    // Follower: wait for leader, acquire shared lock on pool.lock
                     let sh_pool_lock = FileLock::acquire_shared(&pool_lock_path)?;
                     let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
                     if fd < 0 {
                         return Ok(Self::None);
                     }
-                    (sh_pool_lock, fd)
+                    let cap = fs::read_to_string(&cap_path)
+                        .ok()
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                        .unwrap_or_else(|| token_count.max(1))
+                        .max(1);
+                    Self::replenish_fifo_if_needed(fd, &slots_dir, cap);
+                    (sh_pool_lock, fd, cap)
                 }
             };
 
-            // Release init_lock only after shared pool_lock is held
             drop(init_lock);
 
             let auth = format!("fifo:{}", fifo_path.display());
             Ok(Self::Managed {
                 _lock: pool_lock,
                 fifo_path,
+                slots_dir,
+                capacity,
                 open_fd: fd,
                 auth,
             })
@@ -180,6 +197,50 @@ impl JobserverPool {
         {
             let _ = (cache_root, token_count);
             Ok(Self::None)
+        }
+    }
+
+    #[cfg(unix)]
+    fn replenish_fifo_if_needed(fd: std::os::raw::c_int, slots_dir: &Path, capacity: usize) {
+        let mut unread: std::os::raw::c_int = 0;
+        if unsafe { libc::ioctl(fd, libc::FIONREAD, &mut unread) } != 0 || unread < 0 {
+            return;
+        }
+        let mut free_slots = 0usize;
+        for idx in 0..capacity {
+            let slot_path = slots_dir.join(format!("slot_{}.lock", idx));
+            if let Ok(Some(lock)) = FileLock::try_acquire_exclusive(&slot_path) {
+                free_slots += 1;
+                drop(lock);
+            }
+        }
+        let current = unread as usize;
+        if current < free_slots {
+            let missing = free_slots - current;
+            let buf = vec![b'|'; missing];
+            unsafe {
+                let _ = libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len());
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn acquire_managed_slot(slots_dir: &Path, capacity: usize) -> Result<FileLock> {
+        let cap = capacity.max(1);
+        loop {
+            let start = NEXT_SLOT.fetch_add(1, Ordering::Relaxed);
+            for offset in 0..cap {
+                let idx = (start.wrapping_add(offset)) % cap;
+                let slot_path = slots_dir.join(format!("slot_{}.lock", idx));
+                if let Some(lock) = FileLock::try_acquire_exclusive(&slot_path)? {
+                    return Ok(lock);
+                }
+            }
+            if cap == 1 {
+                let slot_path = slots_dir.join("slot_0.lock");
+                return FileLock::acquire_exclusive(&slot_path);
+            }
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 
@@ -221,24 +282,33 @@ impl JobserverPool {
         (None, None, false)
     }
 
-    /// Acquires a single execution token from the jobserver FIFO (blocking).
+    /// Acquires a single execution token from the jobserver pool.
     pub fn acquire_token(&self) -> Result<Option<JobToken<'_>>> {
         #[cfg(unix)]
         {
-            let read_fd = match self {
-                Self::Managed { open_fd, .. } => Some(*open_fd),
-                Self::Inherited { read_fd, .. } => *read_fd,
-                Self::None => None,
-            };
-
-            if let Some(fd) = read_fd {
-                loop {
+            match self {
+                Self::Managed {
+                    slots_dir,
+                    capacity,
+                    ..
+                } => {
+                    let lock = Self::acquire_managed_slot(slots_dir, *capacity)?;
+                    return Ok(Some(JobToken {
+                        pool: self,
+                        byte: b'|',
+                        slot_lock: Some(lock),
+                    }));
+                }
+                Self::Inherited {
+                    read_fd: Some(fd), ..
+                } => loop {
                     let mut b = 0u8;
-                    let n = unsafe { libc::read(fd, &mut b as *mut u8 as *mut libc::c_void, 1) };
+                    let n = unsafe { libc::read(*fd, &mut b as *mut u8 as *mut libc::c_void, 1) };
                     if n == 1 {
                         return Ok(Some(JobToken {
                             pool: self,
                             byte: b,
+                            slot_lock: None,
                         }));
                     }
                     if n < 0 {
@@ -254,13 +324,14 @@ impl JobserverPool {
                     return Err(anyhow::anyhow!(
                         "Unexpected EOF reading token from jobserver pipe"
                     ));
-                }
+                },
+                _ => {}
             }
         }
         Ok(None)
     }
 
-    /// Releases a previously acquired token back to the pool.
+    /// Releases a previously acquired token back to an inherited pipe/FIFO pool.
     pub fn release_token(&self, byte: u8) {
         #[cfg(unix)]
         {
