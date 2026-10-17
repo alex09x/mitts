@@ -270,6 +270,23 @@ fn propagate_package<'a>(
                     if dep_decls.is_empty() {
                         dep_decls = index.collect_manifest_dependencies(ctx.toml, &real_dep)?;
                     }
+                    if !is_weak
+                        && (ctx.toml.features.contains_key(actual_dep)
+                            || is_optional_dep(&dep_decls))
+                    {
+                        let this_req = if is_host_ctx {
+                            &mut *host_req
+                        } else {
+                            &mut *target_req
+                        };
+                        if this_req
+                            .entry(id.clone())
+                            .or_default()
+                            .insert(actual_dep.to_string())
+                        {
+                            *changed = true;
+                        }
+                    }
                     if dep_decls.is_empty()
                         && ctx.toml.target.values().any(|t| {
                             t.dependencies.contains_key(actual_dep)
@@ -284,62 +301,34 @@ fn propagate_package<'a>(
                         || has_build_dep(ctx.toml, &real_dep)
                         || index.is_dep_proc_macro_with_hint(pkg_idx, &real_dep, dep_hint)?;
 
-                    let dep_prefix = format!("dep:{}", actual_dep);
-                    let real_prefix = format!("dep:{}", real_dep);
-                    let active_set = if send_to_host {
-                        &*active_host
-                    } else {
-                        &*active_target
-                    };
-                    let cur_req = if is_host_ctx {
-                        &*host_req
-                    } else {
-                        &*target_req
-                    };
-                    let is_dep_active = if is_weak {
-                        !dep_decls.is_empty()
+                    if is_weak {
+                        let dep_prefix = format!("dep:{}", actual_dep);
+                        let real_prefix = format!("dep:{}", real_dep);
+                        let cur_req = if is_host_ctx {
+                            &*host_req
+                        } else {
+                            &*target_req
+                        };
+                        let is_dep_active = !dep_decls.is_empty()
                             && (!is_optional_dep(&dep_decls)
                                 || cur_req.get(&id).is_some_and(|s| {
                                     s.contains(actual_dep)
                                         || s.contains(&dep_prefix)
                                         || s.contains(&real_dep)
                                         || s.contains(&real_prefix)
-                                }))
-                    } else {
-                        index
-                            .resolve_dep_id_with_hint(pkg_idx, &real_dep, dep_hint)?
-                            .is_some_and(|tid| active_set.contains(&tid))
-                    };
-
-                    if is_weak {
+                                }));
                         if !is_dep_active {
                             continue;
                         }
-                    } else {
-                        if !dep_decls.is_empty() {
-                            let (act, req) = if send_to_host {
-                                (&mut *active_host, &mut *host_req)
-                            } else {
-                                (&mut *active_target, &mut *target_req)
-                            };
-                            index.activate_manifest_dep(
-                                pkg_idx, actual_dep, &dep_decls, act, req, changed,
-                            )?;
-                        }
-                        let this_req = if is_host_ctx {
-                            &mut *host_req
+                    } else if !dep_decls.is_empty() {
+                        let (act, req) = if send_to_host {
+                            (&mut *active_host, &mut *host_req)
                         } else {
-                            &mut *target_req
+                            (&mut *active_target, &mut *target_req)
                         };
-                        if (ctx.toml.features.contains_key(actual_dep)
-                            || is_optional_dep(&dep_decls))
-                            && this_req
-                                .entry(id.clone())
-                                .or_default()
-                                .insert(actual_dep.to_string())
-                        {
-                            *changed = true;
-                        }
+                        index.activate_manifest_dep(
+                            pkg_idx, actual_dep, &dep_decls, act, req, changed,
+                        )?;
                     }
 
                     if let Some(target_id) =

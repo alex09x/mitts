@@ -62,8 +62,11 @@ pub fn parse_package_spec(spec: &str) -> (&str, Option<&str>, Option<&str>) {
     (name, Some(version), source)
 }
 
-/// Resolves a `Cargo.lock` dependency spec `(req_ver, req_src)` against candidates
-/// of the same package name using `(version, source)`.
+/// Resolves a `Cargo.lock` dependency spec `(req_ver, req_src)` against same-name
+/// candidates using `(version, source)`. Order: exact `(ver, src)` -> unique local
+/// (`source == None`) when only `req_ver` is set -> unique `parent_source` match when
+/// all candidates share one version -> `Err` on ambiguity. Pass `fail_on_no_match = true`
+/// ONLY when `candidates` is the full unfiltered `Cargo.lock` list for that crate name.
 pub fn resolve_candidate_by_spec<'a, T, F>(
     candidates: &'a [T],
     get_ver_src: F,

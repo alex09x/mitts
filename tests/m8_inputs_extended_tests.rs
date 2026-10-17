@@ -10,10 +10,14 @@
 
 use mitts::adapter::rust::inputs::{append_unit_dep_info_inputs, hash_package_base_inputs};
 use std::fs;
+use std::sync::Mutex;
 use tempfile::TempDir;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_m8_inputs_ancestors_and_nested_configs() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = TempDir::new().unwrap();
     let ws_root = tmp.path().join("workspace");
     let intermediate = ws_root.join("crates");
@@ -67,6 +71,7 @@ fn test_m8_inputs_ancestors_and_nested_configs() {
 
 #[test]
 fn test_m8_inputs_cargo_home_and_file_filters() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = TempDir::new().unwrap();
     let pkg_dir = tmp.path().join("pkg");
     fs::create_dir_all(pkg_dir.join("src")).unwrap();
