@@ -120,13 +120,21 @@ pub fn resolve_unit_dependencies_with_manifests(
                     .manifest_path
                     .parent()
                     .unwrap_or(std::path::Path::new("."));
-                let (toml_opt, has_bs) = fallback_manifests
-                    .entry(unit.manifest_path.clone())
-                    .or_insert_with(|| {
-                        let t = CargoToml::from_file(&unit.manifest_path).ok();
-                        let bs = t.as_ref().is_some_and(|m| m.has_build_script(pkg_dir));
-                        (t, bs)
-                    });
+                if !fallback_manifests.contains_key(&unit.manifest_path) {
+                    let t = if unit.manifest_path.is_file() {
+                        Some(CargoToml::from_file(&unit.manifest_path).map_err(|e| {
+                            crate::adapter::rust::types::RustAdapterError::MetadataFailed(format!(
+                                "Failed to parse unit manifest at {:?}: {}",
+                                unit.manifest_path, e
+                            ))
+                        })?)
+                    } else {
+                        None
+                    };
+                    let bs = t.as_ref().is_some_and(|m| m.has_build_script(pkg_dir));
+                    fallback_manifests.insert(unit.manifest_path.clone(), (t, bs));
+                }
+                let (toml_opt, has_bs) = &fallback_manifests[&unit.manifest_path];
                 (toml_opt.as_ref(), *has_bs)
             };
 

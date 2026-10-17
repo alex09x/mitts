@@ -43,38 +43,46 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     let mut path_dependencies: HashMap<String, (PathBuf, CargoToml)> = HashMap::new();
-    let mut scan_deps =
-        |base_dir: &Path, deps: &HashMap<String, super::manifest::TomlDependency>| {
-            for (dep_name, dep_val) in deps {
-                if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
-                    if let Some(ref rel_p) = d.path {
-                        let dep_dir = base_dir.join(rel_p);
-                        let dep_manifest = dep_dir.join("Cargo.toml");
-                        if let Ok(dep_toml) = CargoToml::from_file(&dep_manifest) {
-                            let name = dep_toml
-                                .package
-                                .as_ref()
-                                .map(|p| p.name.clone())
-                                .unwrap_or_else(|| dep_name.clone());
-                            path_dependencies.insert(name, (dep_dir, dep_toml));
-                        }
+    let mut scan_deps = |base_dir: &Path,
+                         deps: &HashMap<String, super::manifest::TomlDependency>|
+     -> Result<()> {
+        for (dep_name, dep_val) in deps {
+            if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
+                if let Some(ref rel_p) = d.path {
+                    let dep_dir = base_dir.join(rel_p);
+                    let dep_manifest = dep_dir.join("Cargo.toml");
+                    if dep_manifest.is_file() {
+                        let dep_toml = CargoToml::from_file(&dep_manifest).with_context(|| {
+                            format!(
+                                "Failed to parse path dependency manifest at {:?}",
+                                dep_manifest
+                            )
+                        })?;
+                        let name = dep_toml
+                            .package
+                            .as_ref()
+                            .map(|p| p.name.clone())
+                            .unwrap_or_else(|| dep_name.clone());
+                        path_dependencies.insert(name, (dep_dir, dep_toml));
                     }
                 }
             }
-        };
+        }
+        Ok(())
+    };
 
     if let Some(ref ws) = root_toml.workspace {
-        scan_deps(project_dir, &ws.dependencies);
+        scan_deps(project_dir, &ws.dependencies)?;
     }
     let tomls_to_scan: Vec<(&Path, &CargoToml)> = std::iter::once((project_dir, &root_toml))
         .chain(workspace_manifests.values().map(|(p, t)| (p.as_path(), t)))
         .collect();
     for (base, toml) in tomls_to_scan {
-        scan_deps(base, &toml.dependencies);
-        scan_deps(base, &toml.build_dependencies);
+        scan_deps(base, &toml.dependencies)?;
+        scan_deps(base, &toml.build_dependencies)?;
         for t in toml.target.values() {
-            scan_deps(base, &t.dependencies);
-            scan_deps(base, &t.build_dependencies);
+            scan_deps(base, &t.dependencies)?;
+            scan_deps(base, &t.build_dependencies)?;
         }
     }
 
@@ -372,13 +380,12 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     let profile = if opt.release { "release" } else { "debug" }.to_string();
-    let explanation = EffectivePlanExplanation {
+
+    Ok(EffectivePlanExplanation {
         manifest_path,
         target_directory: target_dir,
         profile,
         toolchain,
         units,
-    };
-    super::key::dump_action_keys_if_requested(opt, &explanation)?;
-    Ok(explanation)
+    })
 }

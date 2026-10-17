@@ -250,8 +250,16 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
                             )
                         })?
                 };
-                let toml =
-                    CargoToml::from_file(&resolved_dir.join("Cargo.toml")).unwrap_or_default();
+                let manifest_path = resolved_dir.join("Cargo.toml");
+                let toml = CargoToml::from_file(&manifest_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to parse dependency manifest for {}-{} at {:?}: {}",
+                        pkg.name,
+                        pkg.version,
+                        manifest_path,
+                        e
+                    )
+                })?;
                 Ok(Some((*pkg, false, resolved_dir, toml)))
             }
         };

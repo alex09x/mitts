@@ -305,26 +305,3 @@ pub fn derive_unit_action_keys(
     let deriver = derive_unit_action_key_context(opt, explanation)?;
     Ok((*deriver.initial_base_keys).clone())
 }
-
-/// Optional diagnostic hook invoked when `MITTS_DUMP_ACTION_KEYS` is set.
-pub fn dump_action_keys_if_requested(
-    opt: &RustBuildOptions,
-    explanation: &EffectivePlanExplanation,
-) -> Result<()> {
-    if let Ok(keys_out) = std::env::var("MITTS_DUMP_ACTION_KEYS") {
-        let plan_to_use = if let Ok(plan_path) = std::env::var("MITTS_LOAD_PLAN_JSON") {
-            let bytes = std::fs::read(plan_path)?;
-            Some(serde_json::from_slice::<EffectivePlanExplanation>(&bytes)?)
-        } else {
-            None
-        };
-        let target_plan = plan_to_use.as_ref().unwrap_or(explanation);
-        let keys: std::collections::BTreeMap<String, String> =
-            derive_unit_action_keys(opt, target_plan)?
-                .into_iter()
-                .collect();
-        let json = serde_json::to_string_pretty(&keys)?;
-        std::fs::write(keys_out, json)?;
-    }
-    Ok(())
-}

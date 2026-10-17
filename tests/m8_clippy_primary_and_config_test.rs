@@ -362,3 +362,36 @@ edition = "2021"
         }
     }
 }
+
+#[test]
+fn test_corrupt_dependency_manifest_fails_closed_with_path() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().join("proj");
+    let cache_dir = tmp.path().join("cache");
+    let dep_dir = cache_dir.join("sources/broken-dep-0.1.0");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(dep_dir.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nbroken-dep = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+    fs::write(
+        root.join("Cargo.lock"),
+        "version = 3\n\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\ndependencies = [\n \"broken-dep\",\n]\n\n[[package]]\nname = \"broken-dep\"\nversion = \"0.1.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"0000000000000000000000000000000000000000000000000000000000000000\"\n",
+    )
+    .unwrap();
+    let broken_toml = dep_dir.join("Cargo.toml");
+    fs::write(&broken_toml, "[package\nname = \"broken-dep\"\n").unwrap();
+    fs::write(dep_dir.join(".mitts-ok"), "").unwrap();
+    fs::write(dep_dir.join("src/lib.rs"), "").unwrap();
+
+    let opt = RustBuildOptions {
+        manifest_path: Some(root.join("Cargo.toml")),
+        cache_dir: Some(cache_dir),
+        ..Default::default()
+    };
+    let err = format!("{:#}", RustAdapter::explain_plan(&opt).unwrap_err());
+    assert!(err.contains(&broken_toml.display().to_string()), "{err}");
+}
