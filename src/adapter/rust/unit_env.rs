@@ -332,8 +332,18 @@ pub fn apply_runtime_execution_env(
 
     for var_name in ["LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
         let mut paths = lib_dirs.clone();
-        if let Some(existing) = std::env::var_os(var_name) {
-            paths.extend(std::env::split_paths(&existing));
+        match std::env::var_os(var_name) {
+            Some(ref existing) if !existing.is_empty() => {
+                paths.extend(std::env::split_paths(existing));
+            }
+            _ if var_name == "DYLD_FALLBACK_LIBRARY_PATH" => {
+                if let Some(home) = std::env::var_os("HOME") {
+                    paths.push(PathBuf::from(home).join("lib"));
+                }
+                paths.push(PathBuf::from("/usr/local/lib"));
+                paths.push(PathBuf::from("/usr/lib"));
+            }
+            _ => {}
         }
         if let Ok(joined) = std::env::join_paths(paths) {
             cmd.env(var_name, joined);

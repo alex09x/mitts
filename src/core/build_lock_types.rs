@@ -57,6 +57,10 @@ pub struct FastBuildLock {
     pub outputs: Vec<FileSnapshot>,
     #[serde(default)]
     pub stderr: Option<String>,
+    #[serde(default)]
+    pub root_binary_env: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub root_binary_link_args: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -103,4 +107,25 @@ pub struct RecordStateOptions<'a> {
     pub tracked_extra_files: Option<&'a BTreeMap<PathBuf, String>>,
     pub tracked_env_vars: Option<&'a BTreeMap<String, Option<String>>>,
     pub has_complete_inputs: bool,
+    pub root_binary_env: Option<&'a std::collections::HashMap<String, String>>,
+    pub root_binary_link_args: &'a [String],
+}
+
+impl FastBuildLock {
+    pub fn load_root_binary_runtime_context(
+        project_dir: &Path,
+        target_dir: Option<&Path>,
+        profile: &str,
+    ) -> (std::collections::HashMap<String, String>, Vec<String>) {
+        let lock_path = target_dir
+            .map(|td| Self::lock_path_in_target(td, profile))
+            .unwrap_or_else(|| Self::lock_path(project_dir, profile));
+        let Ok(bytes) = std::fs::read(&lock_path) else {
+            return Default::default();
+        };
+        let Ok(lock): Result<Self, _> = serde_json::from_slice(&bytes) else {
+            return Default::default();
+        };
+        (lock.root_binary_env, lock.root_binary_link_args)
+    }
 }

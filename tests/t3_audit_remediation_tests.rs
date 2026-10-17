@@ -241,6 +241,17 @@ rust-version = "1.75"
     )
     .unwrap();
 
+    let custom_lib_dir = root.join("custom_native_lib");
+    fs::create_dir_all(&custom_lib_dir).unwrap();
+    fs::write(
+        root.join("build.rs"),
+        format!(
+            "fn main() {{\n    println!(\"cargo:rustc-env=CUSTOM_BUILD_VAR=from_build_script\");\n    println!(\"cargo:rustc-link-search=native={}\");\n}}\n",
+            custom_lib_dir.display()
+        ),
+    )
+    .unwrap();
+
     let check_body = r#"
     assert_eq!(std::env::var("CARGO_PKG_NAME").unwrap(), "env-check-pkg");
     assert_eq!(std::env::var("CARGO_PKG_VERSION").unwrap(), "1.2.3-alpha.1");
@@ -254,12 +265,16 @@ rust-version = "1.75"
     assert_eq!(std::env::var("CARGO_PKG_REPOSITORY").unwrap(), "https://github.com/alex09x/mitts");
     assert_eq!(std::env::var("CARGO_PKG_LICENSE").unwrap(), "MIT OR Apache-2.0");
     assert_eq!(std::env::var("CARGO_PKG_RUST_VERSION").unwrap(), "1.75");
+    assert_eq!(std::env::var("CUSTOM_BUILD_VAR").unwrap(), "from_build_script");
     assert!(!std::env::var("CARGO_MANIFEST_DIR").unwrap().is_empty());
     assert!(!std::env::var("CARGO").unwrap().is_empty());
     let ld_path = std::env::var("LD_LIBRARY_PATH").unwrap();
     assert!(ld_path.contains("deps"), "LD_LIBRARY_PATH missing deps: {}", ld_path);
+    assert!(ld_path.contains("custom_native_lib"), "LD_LIBRARY_PATH missing custom_native_lib: {}", ld_path);
     let dyld_path = std::env::var("DYLD_FALLBACK_LIBRARY_PATH").unwrap();
     assert!(dyld_path.contains("deps"), "DYLD_FALLBACK_LIBRARY_PATH missing deps: {}", dyld_path);
+    assert!(dyld_path.contains("custom_native_lib"), "DYLD_FALLBACK_LIBRARY_PATH missing custom_native_lib: {}", dyld_path);
+    assert!(dyld_path.contains("/usr/local/lib"), "DYLD_FALLBACK_LIBRARY_PATH missing /usr/local/lib: {}", dyld_path);
 "#;
 
     fs::write(
@@ -272,23 +287,25 @@ rust-version = "1.75"
     .unwrap();
 
     let target_dir = root.join("target");
-    let cache_dir = root.join("cache");
 
     let run_args = RunArgs {
         build_args: BuildArgs {
             manifest_path: Some(manifest_path.clone()),
             target_dir: Some(target_dir.clone()),
-            cache_dir: Some(cache_dir.clone()),
+            cache_dir: None,
             ..Default::default()
         },
         trailing_args: Vec::new(),
     };
+    // 1. Cold build + run
+    assert_eq!(handle_run(&run_args), 0);
+    // 2. Warm fast_lock=1 hit must still restore CUSTOM_BUILD_VAR and custom_native_lib in LD_LIBRARY_PATH
     assert_eq!(handle_run(&run_args), 0);
 
     let test_args = TestArgs {
         manifest_path: Some(manifest_path),
         target_dir: Some(target_dir),
-        cache_dir: Some(cache_dir),
+        cache_dir: None,
         ..Default::default()
     };
     assert_eq!(handle_test(&test_args), 0);

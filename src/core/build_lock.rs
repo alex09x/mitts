@@ -380,6 +380,8 @@ impl FastBuildLock {
             tracked_env_vars: ext.tracked_env_vars.cloned().unwrap_or_default(),
             outputs: output_snaps,
             stderr: args.stderr.map(|s| s.to_string()),
+            root_binary_env: ext.root_binary_env.cloned().unwrap_or_default(),
+            root_binary_link_args: ext.root_binary_link_args.to_vec(),
         };
         let temp_p = lock_dir.join(format!(
             "build-{}.lock.tmp.{}",

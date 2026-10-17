@@ -196,6 +196,7 @@ fn test_b1_external_path_dep_and_incomplete_inputs_fail_closed() {
             tracked_extra_files: None,
             tracked_env_vars: None,
             has_complete_inputs: false,
+            ..Default::default()
         },
     )
     .unwrap();

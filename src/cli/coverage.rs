@@ -252,13 +252,8 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         }
     }
 
-    if let Some(code) = failed_exit_code {
-        let _ = fs::remove_dir_all(&profraw_dir);
-        return code;
-    }
-
     let ws_root = crate::adapter::rust::compiler_resolve::find_workspace_root(&manifest_path);
-    crate::cli::coverage_tools::merge_and_report_coverage(
+    let report_code = crate::cli::coverage_tools::merge_and_report_coverage(
         args,
         llvm_profdata.as_deref().unwrap(),
         llvm_cov.as_deref().unwrap(),
@@ -268,5 +263,6 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         &discovered.test_binaries,
         &discovered.cli_binaries,
         start,
-    )
+    );
+    failed_exit_code.unwrap_or(report_code)
 }

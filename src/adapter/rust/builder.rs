@@ -20,7 +20,7 @@ use crate::core::build_lock::{
 use crate::core::build_logger::BuildLogger;
 use crate::core::hash::Sha256;
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Computes a deterministic SHA-256 hash of all build-affecting `RustBuildOptions` fields.
@@ -175,6 +175,11 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                     }
                 }
 
+                let (root_env, root_link_args) = FastBuildLock::load_root_binary_runtime_context(
+                    project_dir,
+                    Some(&target_dir),
+                    profile,
+                );
                 let mut actions = Vec::new();
                 if let Some(ref bin) = root_binary {
                     actions.push(Action {
@@ -185,15 +190,20 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                         inputs: Vec::new(),
                         outputs: vec![bin.clone()],
                         args: Vec::new(),
-                        env: HashMap::new(),
+                        env: root_env,
                         dependencies: Vec::new(),
                     });
+                }
+                let mut unit_link_args = BTreeMap::new();
+                if !root_link_args.is_empty() {
+                    unit_link_args.insert("root-bin".to_string(), root_link_args);
                 }
                 let plan = BuildPlan {
                     actions,
                     target_directory: target_dir,
                     artifacts: Default::default(),
                     unit_cfgs: Default::default(),
+                    unit_link_args,
                     ..Default::default()
                 };
                 let result = ActionResult {
@@ -326,6 +336,23 @@ fn record_state_and_trace(
             }
         }
 
+        let root_binary_env = root_binary.as_ref().and_then(|rb| {
+            plan.actions
+                .iter()
+                .find(|a| a.outputs.contains(rb))
+                .map(|a| &a.env)
+        });
+        let mut root_binary_link_args: Vec<String> = plan
+            .unit_link_args
+            .values()
+            .flat_map(|v| v.iter().cloned())
+            .collect();
+        for art in plan.artifacts.values() {
+            if let Some(parent) = art.parent() {
+                root_binary_link_args.push(format!("-L{}", parent.display()));
+            }
+        }
+
         let _ = FastBuildLock::record_state_with_options(
             &RecordStateArgs {
                 project_dir,
@@ -351,6 +378,8 @@ fn record_state_and_trace(
                 tracked_extra_files: Some(&plan.tracked_extra_files),
                 tracked_env_vars: Some(&plan.tracked_env_vars),
                 has_complete_inputs: !plan.inputs_incomplete,
+                root_binary_env,
+                root_binary_link_args: &root_binary_link_args,
             },
         );
     }

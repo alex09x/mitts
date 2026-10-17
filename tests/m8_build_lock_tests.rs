@@ -78,6 +78,8 @@ fn test_m8_build_lock_profile_package_feature_toolchain_mismatch() {
         tracked_env_vars: std::collections::BTreeMap::new(),
         outputs: vec![],
         stderr: None,
+        root_binary_env: Default::default(),
+        root_binary_link_args: Vec::new(),
         action_count: 5,
         root_binary: Some(PathBuf::from("target/dev/app")),
     };
