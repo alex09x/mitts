@@ -96,6 +96,8 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
     let temp = TempDir::new().unwrap();
     let home = temp.path();
     let old_home = std::env::var_os("HOME");
+    let old_ch = std::env::var_os("CARGO_HOME");
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", home);
 
     // 1. Package in ~/.cache/mitts/sources/<name>-<version>
@@ -107,12 +109,16 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
     fs::create_dir_all(&mitts_pkg).unwrap();
     fs::write(
         mitts_pkg.join("Cargo.toml"),
-        "[package]\nname = \"mitts_pkg\"\n",
+        "[package]\nname = \"mitts_pkg\"\nversion = \"0.2.0\"\n",
     )
     .unwrap();
     fs::write(mitts_pkg.join(".mitts-ok"), "ok\n").unwrap();
 
-    let found_mitts = find_crate_source_dir("mitts_pkg", "0.2.0", None);
+    let found_mitts = find_crate_source_dir(
+        "mitts_pkg",
+        "0.2.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert_eq!(found_mitts, Some(mitts_pkg));
 
     // 2. Git package found via git checkouts with matching commit hash
@@ -137,6 +143,9 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
     let not_found = find_crate_source_dir("totally_unknown_crate", "0.0.1", None);
     assert_eq!(not_found, None);
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

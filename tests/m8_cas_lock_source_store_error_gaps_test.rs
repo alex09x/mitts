@@ -181,11 +181,16 @@ fn test_m8_source_store_error_handling_and_registry_discovery() {
     fs::create_dir_all(&reg_cache).unwrap();
 
     let old_home = std::env::var_os("HOME");
+    let old_ch = std::env::var_os("CARGO_HOME");
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", &home);
 
     let found_src = SourceStore::discover_cargo_registry_src();
     let found_cache = SourceStore::discover_cargo_registry_cache();
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

@@ -165,6 +165,8 @@ fn test_m8_source_lookup_git_and_mitts_cache() {
     fs::create_dir_all(&mitts_sources).unwrap();
 
     let old_home = std::env::var("HOME").ok();
+    let old_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", fake_home.to_str().unwrap());
 
     // Create a package in ~/.cache/mitts/sources
@@ -177,12 +179,19 @@ fn test_m8_source_lookup_git_and_mitts_cache() {
     .unwrap();
     fs::write(pkg_dir.join(".mitts-ok"), "ok\n").unwrap();
 
-    let found = find_crate_source_dir("mitts-cached-lib", "0.9.0", None);
+    let found = find_crate_source_dir(
+        "mitts-cached-lib",
+        "0.9.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert_eq!(found, Some(pkg_dir));
 
     let not_found = find_crate_source_dir("missing-lib", "0.1.0", None);
     assert!(not_found.is_none());
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

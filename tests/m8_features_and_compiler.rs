@@ -112,9 +112,15 @@ fn test_m8_source_lookup_cache_and_nested_git() {
     .unwrap();
 
     let orig_home = std::env::var("HOME").ok();
+    let orig_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", temp_home.path());
 
-    let found_cached = find_crate_source_dir("cached-pkg", "1.0.0", None);
+    let found_cached = find_crate_source_dir(
+        "cached-pkg",
+        "1.0.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert_eq!(found_cached, Some(mitts_src));
 
     let found_nested = find_crate_source_dir(
@@ -124,6 +130,9 @@ fn test_m8_source_lookup_cache_and_nested_git() {
     );
     assert_eq!(found_nested, Some(git_nested));
 
+    if let Some(ch) = orig_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
     }

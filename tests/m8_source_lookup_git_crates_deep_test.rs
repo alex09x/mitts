@@ -17,6 +17,8 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     let temp = TempDir::new().unwrap();
     let home = temp.path();
     let old_home = std::env::var_os("HOME");
+    let old_ch = std::env::var_os("CARGO_HOME");
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", home);
 
     let checkouts = home.join(".cargo").join("git").join("checkouts");
@@ -114,7 +116,11 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     .unwrap();
     fs::write(mitts_dir.join(".mitts-ok"), "ok\n").unwrap();
 
-    let found_mitts = find_crate_source_dir("tokio", "1.30.0", None);
+    let found_mitts = find_crate_source_dir(
+        "tokio",
+        "1.30.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert_eq!(found_mitts, Some(mitts_dir));
 
     // 7. Missing checkouts directory
@@ -132,6 +138,9 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     let res_none = find_crate_source_dir("any_crate", "1.0.0", None);
     assert!(res_none.is_none());
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

@@ -326,3 +326,63 @@ fn test_t0_n1_and_n2_dead_pid_staging_cleanup() {
     assert!(!dead_trash.exists());
     assert!(live_staging.exists());
 }
+
+#[test]
+fn test_t0_r1_patch_or_path_package_without_source_never_uses_crates_io_store() {
+    with_isolated_env(|root, _cargo_home, mitts_cache| {
+        // Seed a valid crates.io copy of foo-1.2.3 in Mitts SourceStore with .mitts-ok
+        let store_dir = mitts_cache.join("sources/foo-1.2.3");
+        fs::create_dir_all(store_dir.join("src")).unwrap();
+        fs::write(
+            store_dir.join("Cargo.toml"),
+            "[package]\nname = \"foo\"\nversion = \"1.2.3\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(store_dir.join("src/lib.rs"), "pub fn from_crates_io() {}\n").unwrap();
+        fs::write(store_dir.join(MITTS_OK_MARKER), "ok\n").unwrap();
+
+        // source == None must never resolve from SourceStore or Cargo registry
+        assert_eq!(find_crate_source_dir("foo", "1.2.3", None), None);
+
+        // Workspace patching foo via [patch.crates-io] -> Cargo.lock has foo 1.2.3 without source
+        let proj = root.join("proj_r1");
+        fs::create_dir_all(proj.join("src")).unwrap();
+        fs::write(
+            proj.join("Cargo.toml"),
+            "[package]\nname = \"proj-r1\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfoo = \"1.2.3\"\n\n[patch.crates-io]\nfoo = { path = \"vendor/foo\" }\n",
+        )
+        .unwrap();
+        fs::write(proj.join("src/lib.rs"), "pub fn app() {}\n").unwrap();
+        fs::write(
+            proj.join("Cargo.lock"),
+            "version = 3\n\n[[package]]\nname = \"foo\"\nversion = \"1.2.3\"\n\n[[package]]\nname = \"proj-r1\"\nversion = \"0.1.0\"\ndependencies = [\"foo\"]\n",
+        )
+        .unwrap();
+
+        let opt = RustBuildOptions {
+            manifest_path: Some(proj.join("Cargo.toml")),
+            cache_dir: Some(mitts_cache.to_path_buf()),
+            ..Default::default()
+        };
+        let err = RustAdapter::explain_plan(&opt).expect_err(
+            "explain_plan must reject source == None package outside workspace/path_dependencies instead of substituting crates.io copy",
+        );
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("foo-1.2.3 has no source in Cargo.lock (path/patch package)"),
+            "unexpected error: {}",
+            msg
+        );
+    });
+}
+
+#[test]
+fn test_t0_r2_active_cargo_home_honors_explicit_cargo_home_even_when_home_differs() {
+    with_isolated_env(|_root, _cargo_home, _mitts_cache| {
+        let user = std::env::var("USER").unwrap_or_else(|_| "tester".to_string());
+        let explicit_ch = std::path::PathBuf::from(format!("/home/{}/.cargo", user));
+        std::env::set_var("HOME", "/tmp/x");
+        std::env::set_var("CARGO_HOME", &explicit_ch);
+        assert_eq!(SourceStore::active_cargo_home(), Some(explicit_ch));
+    });
+}

@@ -90,6 +90,8 @@ fn test_m8_source_lookup_git_crates_and_expected_hash() {
     .unwrap();
 
     let old_home = std::env::var("HOME").ok();
+    let old_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", fake_home);
 
     // 1. With expected hash matching (full commit starts with short commit dir)
@@ -112,6 +114,9 @@ fn test_m8_source_lookup_git_crates_and_expected_hash() {
     let non_git = find_crate_source_dir("pkg-in-git", "0.5.0", None);
     assert_eq!(non_git, None);
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

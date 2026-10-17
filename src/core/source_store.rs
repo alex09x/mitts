@@ -60,21 +60,12 @@ impl SourceStore {
 
     /// Resolves the active Cargo home directory (`$CARGO_HOME` if explicitly set, otherwise `$HOME/.cargo`).
     pub fn active_cargo_home() -> Option<PathBuf> {
-        let cur_home = std::env::var_os("HOME").map(PathBuf::from);
-        if let Some(ch) = std::env::var_os("CARGO_HOME").map(PathBuf::from) {
-            let is_stale_host_default = cur_home.as_ref().is_some_and(|h| {
-                ch.parent().is_some_and(|p| p != h)
-                    && ch.file_name().is_some_and(|n| n == ".cargo")
-                    && std::env::var("USER").ok().is_some_and(|u| {
-                        ch == Path::new("/home").join(&u).join(".cargo")
-                            || ch == Path::new("/Users").join(&u).join(".cargo")
-                    })
-            });
-            if !is_stale_host_default {
-                return Some(ch);
-            }
+        if let Some(ch) = std::env::var_os("CARGO_HOME").filter(|v| !v.is_empty()) {
+            return Some(PathBuf::from(ch));
         }
-        cur_home.map(|h| h.join(".cargo"))
+        std::env::var_os("HOME")
+            .filter(|v| !v.is_empty())
+            .map(|h| PathBuf::from(h).join(".cargo"))
     }
 
     fn discover_cargo_registry_subdir(sub: &str) -> Option<PathBuf> {

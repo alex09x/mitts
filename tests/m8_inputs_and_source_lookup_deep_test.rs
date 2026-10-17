@@ -128,6 +128,8 @@ fn test_m8_source_lookup_commit_root_subfolder_and_mitts_cache() {
     let temp = TempDir::new().unwrap();
     let home = temp.path().join("home_src");
     std::env::set_var("HOME", &home);
+    let orig_ch = std::env::var_os("CARGO_HOME");
+    std::env::remove_var("CARGO_HOME");
 
     let checkouts = home.join(".cargo").join("git").join("checkouts");
     let repo_dir = checkouts.join("my-repo-123");
@@ -187,9 +189,16 @@ version = "1.2.0"
     .unwrap();
     fs::write(mitts_pkg.join(".mitts-ok"), "ok\n").unwrap();
 
-    let found_mitts = find_crate_source_dir("mitts_cached_pkg", "1.2.0", None);
+    let found_mitts = find_crate_source_dir(
+        "mitts_cached_pkg",
+        "1.2.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert_eq!(found_mitts, Some(mitts_pkg));
 
+    if let Some(ch) = orig_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
     } else {

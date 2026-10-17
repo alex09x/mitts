@@ -60,12 +60,17 @@ version = "0.3.0"
     )
     .unwrap();
 
+    let orig_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", root.display().to_string());
     let found = find_crate_source_dir(
         "nested-pkg",
         "0.3.0",
         Some("git+https://github.com/example/repo#abcdef0123456789"),
     );
+    if let Some(ch) = orig_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     assert!(
         found.is_some(),
         "should discover crate in nested crates/ directory"

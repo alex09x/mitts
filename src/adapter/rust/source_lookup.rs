@@ -105,16 +105,6 @@ pub(crate) fn find_crate_source_dir_with_store(
                 .join("checkouts");
             find_in_git_checkouts(&git_src, name, expected_hash)
         }
-        None => {
-            let store_root = store
-                .map(|st| st.root().to_path_buf())
-                .unwrap_or_else(SourceStore::default_root);
-            let candidate = store_root.join(format!("{}-{}", name, version));
-            if SourceStore::is_valid_source_dir(&candidate) {
-                return Some(candidate);
-            }
-            RegistryLookup::discover(&store_root).find_in_src(name, version)
-        }
         Some(s) if CrateFetcher::is_crates_io_registry_source(s) => {
             let store_root = store
                 .map(|st| st.root().to_path_buf())
@@ -125,7 +115,7 @@ pub(crate) fn find_crate_source_dir_with_store(
             }
             RegistryLookup::discover(&store_root).find_in_src(name, version)
         }
-        Some(_) => None,
+        None | Some(_) => None,
     }
 }
 
@@ -157,6 +147,13 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
 
     for (pkg, is_ws) in selected_packages {
         if !*is_ws && !path_dependencies.contains_key(&pkg.name) {
+            if pkg.source.is_none() {
+                anyhow::bail!(
+                    "{}-{} has no source in Cargo.lock (path/patch package) and was not found among workspace or path dependencies",
+                    pkg.name,
+                    pkg.version
+                );
+            }
             CrateFetcher::validate_non_crates_io(pkg)?;
         }
     }
@@ -202,17 +199,11 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
             } else if let Some((dir, toml)) = path_dependencies.get(&pkg.name) {
                 Ok(Some((*pkg, false, dir.clone(), toml.clone())))
             } else if pkg.source.is_none() {
-                let Some(resolved_dir) = find_crate_source_dir_with_store(
-                    &pkg.name,
-                    &pkg.version,
-                    None,
-                    store.as_ref(),
-                ) else {
-                    return Ok(None);
-                };
-                let toml =
-                    CargoToml::from_file(&resolved_dir.join("Cargo.toml")).unwrap_or_default();
-                Ok(Some((*pkg, false, resolved_dir, toml)))
+                anyhow::bail!(
+                    "{}-{} has no source in Cargo.lock (path/patch package) and was not found among workspace or path dependencies",
+                    pkg.name,
+                    pkg.version
+                );
             } else {
                 let resolved_dir = if let Some(dir) = CrateFetcher::validate_non_crates_io(pkg)? {
                     dir

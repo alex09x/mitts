@@ -111,6 +111,8 @@ fn test_m8_source_lookup_git_crates_and_fallbacks() {
     fs::create_dir_all(&fake_home).unwrap();
 
     let old_home = std::env::var("HOME").ok();
+    let old_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", &fake_home);
 
     // 1. Setup git checkouts structure with nested crates/
@@ -158,9 +160,16 @@ fn test_m8_source_lookup_git_crates_and_fallbacks() {
     .unwrap();
     fs::write(mitts_src.join(".mitts-ok"), "ok\n").unwrap();
 
-    let found_mitts = find_crate_source_dir("cached-dep", "0.5.0", None);
+    let found_mitts = find_crate_source_dir(
+        "cached-dep",
+        "0.5.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert_eq!(found_mitts, Some(mitts_src));
 
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     } else {

@@ -23,9 +23,11 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 fn test_m8_source_lookup_git_crates_nested_and_non_git_fallback() {
     let _guard = ENV_LOCK.lock().unwrap();
     let orig_home = std::env::var("HOME").ok();
+    let orig_ch = std::env::var("CARGO_HOME").ok();
 
     let temp = TempDir::new().unwrap();
     let home = temp.path().join("fake_home");
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", &home);
 
     let git_commit = home
@@ -57,6 +59,9 @@ version = "0.2.0"
     let found_fallback = find_crate_source_dir("my_nested", "0.2.0", None);
     assert_eq!(found_fallback, None);
 
+    if let Some(ch) = orig_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
     } else {

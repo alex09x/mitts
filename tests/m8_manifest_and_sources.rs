@@ -122,9 +122,15 @@ fn test_m8_source_lookup_registry_and_git() {
 
     // Set HOME to temp_home
     let orig_home = std::env::var("HOME").ok();
+    let orig_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", temp_home.path());
 
-    let found_reg = find_crate_source_dir("foo-bar", "1.2.3", None);
+    let found_reg = find_crate_source_dir(
+        "foo-bar",
+        "1.2.3",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert!(found_reg.is_some(), "Should find registry crate");
     assert_eq!(found_reg.unwrap(), reg_dir);
 
@@ -137,6 +143,9 @@ fn test_m8_source_lookup_registry_and_git() {
     assert_eq!(found_git.unwrap(), git_dir);
 
     // Restore HOME
+    if let Some(ch) = orig_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
     }

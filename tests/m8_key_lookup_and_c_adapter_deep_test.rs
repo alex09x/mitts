@@ -24,6 +24,8 @@ fn test_m8_source_lookup_comprehensive_hierarchies() {
 
     let fake_home = root.join("fake_home");
     let prev_home = std::env::var("HOME").ok();
+    let prev_ch = std::env::var("CARGO_HOME").ok();
+    std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", &fake_home);
 
     // 1. Nested git crate under crates/sub_crate
@@ -68,13 +70,20 @@ version = "1.2.0"
     .unwrap();
     fs::write(mitts_crate.join(".mitts-ok"), "ok\n").unwrap();
 
-    let found_mitts = find_crate_source_dir("mitts_lib", "1.2.0", None);
+    let found_mitts = find_crate_source_dir(
+        "mitts_lib",
+        "1.2.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    );
     assert_eq!(found_mitts, Some(mitts_crate));
 
     // 3. Not found anywhere
     let not_found = find_crate_source_dir("missing_ghost_pkg", "9.9.9", None);
     assert!(not_found.is_none());
 
+    if let Some(ch) = prev_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
     if let Some(h) = prev_home {
         std::env::set_var("HOME", h);
     }
