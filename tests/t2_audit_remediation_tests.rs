@@ -741,3 +741,70 @@ fn test_n1_n3_dep_info_escaped_spaces_and_safe_manifest_atomic_save() {
     let loaded = ActionManifest::from_file(&dest_manifest).unwrap().unwrap();
     assert_eq!(loaded.entries[0].result_key, "result_hash");
 }
+
+#[test]
+fn test_f1_f3_host_debuginfo_default_and_rpath_false() {
+    let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempdir().unwrap();
+    unsafe {
+        std::env::set_var("CARGO_HOME", dir.path().join(".cargo-home"));
+        std::env::remove_var("CARGO_PROFILE_DEV_DEBUG");
+        std::env::remove_var("CARGO_PROFILE_RELEASE_DEBUG");
+    }
+
+    // 1. Host unit in dev defaults to debuginfo = 0 and does NOT inherit top-level [profile.dev] debug = 2
+    let manifest = dir.path().join("Cargo.toml");
+    fs::write(
+        &manifest,
+        r#"[package]
+name = "f1_pkg"
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev]
+debug = 2
+
+[profile.release]
+rpath = false
+"#,
+    )
+    .unwrap();
+    let target_prof =
+        resolve_unit_profile(&manifest, "f1_pkg", true, false, false, Some(dir.path())).unwrap();
+    assert_eq!(target_prof.debuginfo, 2);
+    let host_prof =
+        resolve_unit_profile(&manifest, "f1_pkg", true, true, false, Some(dir.path())).unwrap();
+    assert_eq!(
+        host_prof.debuginfo, 0,
+        "Host unit must default to debuginfo = 0 and not inherit top-level [profile.dev] debug"
+    );
+
+    // 2. [profile.release] rpath = false is accepted as a no-op
+    let rel_prof =
+        resolve_unit_profile(&manifest, "f1_pkg", true, false, true, Some(dir.path())).unwrap();
+    assert_eq!(rel_prof.opt_level, "3");
+
+    // 3. [profile.release] rpath = true is rejected as UnsupportedOption
+    fs::write(
+        &manifest,
+        r#"[package]
+name = "f1_pkg"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+rpath = true
+"#,
+    )
+    .unwrap();
+    let err =
+        resolve_unit_profile(&manifest, "f1_pkg", true, false, true, Some(dir.path())).unwrap_err();
+    let adapter_err = err
+        .downcast_ref::<RustAdapterError>()
+        .expect("Expected RustAdapterError");
+    assert!(
+        matches!(adapter_err, RustAdapterError::UnsupportedOption(msg) if msg.contains("profile.release.rpath")),
+        "Expected UnsupportedOption for rpath = true, got {:?}",
+        adapter_err
+    );
+}

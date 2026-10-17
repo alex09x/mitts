@@ -93,7 +93,7 @@ pub fn resolve_unit_profile(
 
     let profile_name = if release { "release" } else { "dev" };
     let upper_prof = if release { "RELEASE" } else { "DEV" };
-    let default_debug = if release { 0 } else { 2 };
+    let default_debug = if release || for_host { 0 } else { 2 };
     let default_opt = if release && !for_host { "3" } else { "0" };
     let default_assertions = !release;
 
@@ -154,7 +154,7 @@ pub fn resolve_unit_profile(
             None
         };
 
-    let debuginfo = resolve_overridable("debug", "DEBUG", true)
+    let debuginfo = resolve_overridable("debug", "DEBUG", false)
         .map(|v| parse_debug_value(&v, default_debug))
         .unwrap_or(default_debug);
     let opt_level = resolve_overridable("opt-level", "OPT_LEVEL", false)
@@ -322,6 +322,7 @@ fn validate_profile_table(
             "strip" => parse_strip_value(val).is_some(),
             "overflow-checks" | "debug-assertions" | "incremental" => val.is_bool(),
             "panic" if allow_top_only => matches!(val.as_str(), Some("unwind") | Some("abort")),
+            "rpath" if allow_top_only => val.as_bool() == Some(false),
             "lto" if allow_top_only => {
                 val.as_bool() == Some(false)
                     || val.as_str() == Some("false")
@@ -361,13 +362,8 @@ fn ingest_profiles_from_toml(
                 let s = format!("profile.{prof_name}.build-override");
                 validate_profile_table(&s, bo, false, source_path)?;
             }
-            merge_table(
-                resolved
-                    .build_overrides
-                    .entry(prof_name.clone())
-                    .or_default(),
-                bo,
-            );
+            let bo_map = &mut resolved.build_overrides;
+            merge_table(bo_map.entry(prof_name.clone()).or_default(), bo);
         }
         if let Some(pkg_table) = tbl.get("package").and_then(|p| p.as_table()) {
             for (pkg_k, pkg_v) in pkg_table {

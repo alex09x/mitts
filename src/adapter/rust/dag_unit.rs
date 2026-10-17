@@ -242,7 +242,7 @@ pub(crate) fn execute_unit(
     let output = if let Some(cb) = ctx.on_metadata_ready {
         invocation.execute_pipelined(|rmeta_path| {
             let (final_key, final_purity) = resolve_post_rustc();
-            let ws_root = if unit.is_workspace {
+            let ws_root = if super::unit_inputs::is_mutable_unit(unit) {
                 Some(super::compiler::find_workspace_root(&unit.manifest_path))
             } else {
                 None
