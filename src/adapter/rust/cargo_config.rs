@@ -349,7 +349,7 @@ rustflags = ["--cfg", "linux_flag"]
 
     #[test]
     fn test_extract_target_cfg_evaluation_and_invalid_syntax() {
-        let host = super::super::compiler_resolve::resolve_host_triple();
+        let host = super::super::compiler_resolve::try_resolve_host_triple().unwrap();
         let content = r#"
 [target.'cfg(any(unix, windows))']
 rustflags = ["--cfg", "matched_cfg"]
@@ -358,7 +358,7 @@ rustflags = ["--cfg", "matched_cfg"]
 rustflags = ["--cfg", "unmatched_cfg"]
 "#;
         let val: toml::Value = toml::from_str(content).unwrap();
-        let extracted = extract_rustflags_from_toml(&val, host, Path::new("custom.toml")).unwrap();
+        let extracted = extract_rustflags_from_toml(&val, &host, Path::new("custom.toml")).unwrap();
         assert_eq!(extracted.target.unwrap(), vec!["--cfg", "matched_cfg"]);
 
         let bad_content = r#"
@@ -366,7 +366,7 @@ rustflags = ["--cfg", "unmatched_cfg"]
 rustflags = ["--cfg", "bad_cfg"]
 "#;
         let bad_val: toml::Value = toml::from_str(bad_content).unwrap();
-        let res = extract_rustflags_from_toml(&bad_val, host, Path::new("custom.toml"));
+        let res = extract_rustflags_from_toml(&bad_val, &host, Path::new("custom.toml"));
         assert!(res.is_err());
     }
 }

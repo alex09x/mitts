@@ -168,15 +168,14 @@ fn test_m8_derive_unit_action_keys_cycle_fallback() {
         workspace_root: None,
     };
 
-    let explanation = EffectivePlanExplanation {
+    let mut explanation = EffectivePlanExplanation {
         manifest_path: cargo_toml,
         target_directory: tmp.path().join("target"),
         profile: "dev".to_string(),
-        toolchain: ToolchainInfo {
-            name: "rustc".to_string(),
-            version: "rustc 1.85.0".to_string(),
-            target_triple: Some("x86_64-unknown-linux-gnu".to_string()),
-        },
+        toolchain: mitts::adapter::rust::compiler_resolve::active_toolchain()
+            .unwrap()
+            .toolchain
+            .clone(),
         units: vec![unit_a, unit_b],
     };
 
@@ -185,4 +184,12 @@ fn test_m8_derive_unit_action_keys_cycle_fallback() {
     assert_eq!(keys.len(), 2);
     assert!(keys.contains_key("cycle-a@0.1.0::lib:cycle_a"));
     assert!(keys.contains_key("cycle-b@0.1.0::lib:cycle_b"));
+
+    explanation.toolchain = ToolchainInfo {
+        name: "rustc".to_string(),
+        version: "rustc 1.85.0-mismatch".to_string(),
+        target_triple: Some("x86_64-unknown-linux-gnu".to_string()),
+    };
+    let err = derive_unit_action_keys(&opt, &explanation).unwrap_err();
+    assert!(err.to_string().contains("does not match active compiler"));
 }

@@ -201,6 +201,7 @@ pub fn try_resolve_host_triple() -> Result<String> {
 }
 
 /// Resolves the host target triple from the shared `active_toolchain()` `-vV` probe.
+#[doc(hidden)]
 pub fn resolve_host_triple() -> &'static str {
     RESOLVED_HOST_TRIPLE.get_or_init(|| {
         try_resolve_host_triple().expect("Failed to resolve host triple via rustc -vV")

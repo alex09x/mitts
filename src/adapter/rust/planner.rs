@@ -103,7 +103,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     };
 
     // Ensure all path dependencies and workspace packages exist in the lockfile
-    for (name, (_path, dep_toml)) in &path_dependencies {
+    let mut sorted_path_deps: Vec<_> = path_dependencies.iter().collect();
+    sorted_path_deps.sort_by_key(|(name, _)| *name);
+    for (name, (_path, dep_toml)) in sorted_path_deps {
         let ver = dep_toml
             .package
             .as_ref()
@@ -114,7 +116,8 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .iter()
             .any(|p| &p.name == name && p.source.is_none() && p.version == ver)
         {
-            let deps = dep_toml.dependencies.keys().cloned().collect();
+            let mut deps: Vec<String> = dep_toml.dependencies.keys().cloned().collect();
+            deps.sort();
             lockfile.packages.push(CargoLockPackage {
                 name: name.clone(),
                 version: ver,
@@ -125,7 +128,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         }
     }
 
-    for (name, (_dir, manifest)) in &workspace_manifests {
+    let mut sorted_ws_manifests: Vec<_> = workspace_manifests.iter().collect();
+    sorted_ws_manifests.sort_by_key(|(name, _)| *name);
+    for (name, (_dir, manifest)) in sorted_ws_manifests {
         let ver = manifest
             .package
             .as_ref()
@@ -161,6 +166,8 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                     deps.push(real_name.to_string());
                 }
             }
+            deps.sort();
+            deps.dedup();
             lockfile.packages.push(CargoLockPackage {
                 name: name.clone(),
                 version: ver,

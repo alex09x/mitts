@@ -183,7 +183,7 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
 fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
     use mitts::adapter::rust::build_script_keys::get_rustc_verbose_version;
     use mitts::adapter::rust::compiler_resolve::{
-        active_toolchain, resolve_host_triple, resolve_rustc, rustc_vv_call_count, toolchain_for,
+        active_toolchain, resolve_rustc, rustc_vv_call_count, toolchain_for,
         try_resolve_host_triple,
     };
     use mitts::adapter::rust::types::RustBuildOptions;
@@ -198,7 +198,7 @@ fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
     fs::create_dir_all(&home).unwrap();
 
     // 1. B5 invariant: resolve_rustc(), toolchain_for(&resolved), active_toolchain(),
-    // detect_toolchain(), resolve_host_triple(), and get_rustc_verbose_version() share one -vV probe.
+    // detect_toolchain(), try_resolve_host_triple(), and get_rustc_verbose_version() share one -vV probe.
     let resolved_path = resolve_rustc();
     let probed = toolchain_for(&resolved_path).unwrap();
     let vv_before = rustc_vv_call_count();
@@ -206,7 +206,7 @@ fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
     assert_eq!(active_toolchain().unwrap(), probed);
     let detected = RustAdapter::detect_toolchain().unwrap();
     assert_eq!(detected, probed.toolchain);
-    assert_eq!(resolve_host_triple(), probed.host_triple);
+    assert_eq!(try_resolve_host_triple().unwrap(), probed.host_triple);
     assert_eq!(get_rustc_verbose_version().unwrap(), probed.verbose_version);
     assert_eq!(rustc_vv_call_count(), vv_before);
 

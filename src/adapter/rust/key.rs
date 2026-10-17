@@ -118,9 +118,13 @@ pub fn derive_unit_action_key_context(
     opt: &RustBuildOptions,
     explanation: &EffectivePlanExplanation,
 ) -> Result<UnitKeyDeriver> {
-    let _active_tc = super::compiler_resolve::active_toolchain()?;
-    if explanation.toolchain.version.is_empty() || explanation.toolchain.version == "rustc" {
-        anyhow::bail!("Refusing to derive action keys with unverified toolchain version");
+    let active_tc = super::compiler_resolve::active_toolchain()?;
+    if explanation.toolchain.version != active_tc.toolchain.version {
+        anyhow::bail!(
+            "Plan toolchain version ({:?}) does not match active compiler ({:?})",
+            explanation.toolchain.version,
+            active_tc.toolchain.version
+        );
     }
     let mut unit_keys: HashMap<String, String> = HashMap::new();
 

@@ -14,7 +14,6 @@ use mitts::adapter::rust::source_lookup::find_crate_source_dir;
 use mitts::adapter::rust::types::{
     EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions,
 };
-use mitts::core::action::ToolchainInfo;
 use std::fs;
 
 #[test]
@@ -107,11 +106,10 @@ edition = "2021"
     .unwrap();
     fs::write(root.join("src/lib.rs"), b"pub fn f() {}").unwrap();
 
-    let toolchain = ToolchainInfo {
-        name: "rustc".to_string(),
-        version: "1.80.0".to_string(),
-        target_triple: Some("x86_64-unknown-linux-gnu".to_string()),
-    };
+    let toolchain = mitts::adapter::rust::compiler_resolve::active_toolchain()
+        .unwrap()
+        .toolchain
+        .clone();
 
     // Set relevant env vars
     std::env::set_var("RUSTFLAGS", "-C target-cpu=native");

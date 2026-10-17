@@ -36,6 +36,10 @@ pub fn select_transitive_packages<'a>(
             .push(pkg);
     }
 
+    let mut sorted_ws: Vec<(&String, &(std::path::PathBuf, CargoToml))> =
+        workspace_manifests.iter().collect();
+    sorted_ws.sort_by_key(|(name, _)| *name);
+
     // Determine root packages to compile
     let mut root_pkgs: Vec<&'a CargoLockPackage> = Vec::new();
     if let Some(ref target_pkg) = opt.package {
@@ -49,7 +53,7 @@ pub fn select_transitive_packages<'a>(
         .iter()
         .any(|a| a == "--workspace" || a == "--all")
     {
-        for (name, (_member_dir, ws_toml)) in workspace_manifests {
+        for &(name, (_member_dir, ws_toml)) in &sorted_ws {
             let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
             let pkgs = packages_by_name.get(name).ok_or_else(|| {
                 anyhow::anyhow!("Workspace member package '{name}' not found in Cargo.lock")
@@ -81,7 +85,7 @@ pub fn select_transitive_packages<'a>(
                 } else {
                     project_dir.join(member_pat)
                 };
-                for (name, (dir, ws_toml)) in workspace_manifests {
+                for &(name, (dir, ws_toml)) in &sorted_ws {
                     if dir == &member_dir || (member_pat == "." && dir == project_dir) {
                         let ws_version =
                             ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
@@ -116,7 +120,7 @@ pub fn select_transitive_packages<'a>(
         }
 
         if root_pkgs.is_empty() {
-            for (name, (_member_dir, ws_toml)) in workspace_manifests {
+            for &(name, (_member_dir, ws_toml)) in &sorted_ws {
                 let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                 if let Some(pkgs) = packages_by_name.get(name) {
                     if let Some(ver) = ws_version {
@@ -139,6 +143,12 @@ pub fn select_transitive_packages<'a>(
     let mut selected_packages: Vec<(&'a CargoLockPackage, bool)> = Vec::new();
     let mut visited: HashSet<(String, String)> = HashSet::new();
     let mut to_visit: Vec<&'a CargoLockPackage> = root_pkgs;
+    let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
+    let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
+    let start_dir = opt
+        .start_dir
+        .as_deref()
+        .unwrap_or(std::path::Path::new("."));
 
     while let Some(pkg) = to_visit.pop() {
         let key = (pkg.name.clone(), pkg.version.clone());
@@ -152,12 +162,6 @@ pub fn select_transitive_packages<'a>(
                 });
             selected_packages.push((pkg, is_ws));
 
-            let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
-            let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
-            let start_dir = opt
-                .start_dir
-                .as_deref()
-                .unwrap_or(std::path::Path::new("."));
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
                 if is_target_incompatible_with_host(dep_name) {

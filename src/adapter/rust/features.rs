@@ -65,14 +65,15 @@ pub fn resolve_package_features_with_resolver(
     opt: &RustBuildOptions,
     ws_resolver: Option<&str>,
 ) -> Result<ResolvedFeatures, RustAdapterError> {
+    let mut index = FeatureGraphIndex::build(packages, opt);
     let mut target_requested: HashMap<String, HashSet<String>> = HashMap::new();
     let mut host_requested: HashMap<String, HashSet<String>> = HashMap::new();
     let mut active_target_packages: HashSet<String> = HashSet::new();
     let mut active_host_packages: HashSet<String> = HashSet::new();
 
     // 1. Initial feature requests from root packages and CLI options
-    for ctx in packages {
-        let id = ctx.id();
+    for (idx, ctx) in packages.iter().enumerate() {
+        let id = &index.pkg_ids[idx];
         if ctx.is_root {
             active_target_packages.insert(id.clone());
             let target_set = target_requested.entry(id.clone()).or_default();
@@ -92,45 +93,33 @@ pub fn resolve_package_features_with_resolver(
     }
 
     // 2. Fixed-point propagation loop: activate dependencies and expand features
+    let is_test = opt.mode == crate::adapter::BuildMode::Test;
     let mut changed = true;
     while changed {
         changed = false;
-        // Propagate target graph
-        for ctx in packages {
-            let id = ctx.id();
-            if !active_target_packages.contains(&id) {
-                continue;
+        for is_host_ctx in [false, true] {
+            for (idx, ctx) in packages.iter().enumerate() {
+                let active_set = if is_host_ctx {
+                    &active_host_packages
+                } else {
+                    &active_target_packages
+                };
+                if !active_set.contains(&index.pkg_ids[idx]) {
+                    continue;
+                }
+                propagate_package(
+                    idx,
+                    ctx,
+                    &mut index,
+                    is_test,
+                    is_host_ctx,
+                    &mut active_target_packages,
+                    &mut active_host_packages,
+                    &mut target_requested,
+                    &mut host_requested,
+                    &mut changed,
+                )?;
             }
-            propagate_package(
-                ctx,
-                packages,
-                opt,
-                false,
-                &mut active_target_packages,
-                &mut active_host_packages,
-                &mut target_requested,
-                &mut host_requested,
-                &mut changed,
-            )?;
-        }
-
-        // Propagate host graph
-        for ctx in packages {
-            let id = ctx.id();
-            if !active_host_packages.contains(&id) {
-                continue;
-            }
-            propagate_package(
-                ctx,
-                packages,
-                opt,
-                true,
-                &mut active_target_packages,
-                &mut active_host_packages,
-                &mut target_requested,
-                &mut host_requested,
-                &mut changed,
-            )?;
         }
     }
 
@@ -161,8 +150,18 @@ pub fn resolve_package_features_with_resolver(
     }
 
     // 3. Build finalized feature maps
-    let target = finalize_feature_map(packages, target_requested, &active_target_packages);
-    let host = finalize_feature_map(packages, host_requested, &active_host_packages);
+    let target = finalize_feature_map(
+        packages,
+        &index.pkg_ids,
+        target_requested,
+        &active_target_packages,
+    );
+    let host = finalize_feature_map(
+        packages,
+        &index.pkg_ids,
+        host_requested,
+        &active_host_packages,
+    );
 
     Ok(ResolvedFeatures {
         target,
@@ -173,10 +172,11 @@ pub fn resolve_package_features_with_resolver(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn propagate_package(
-    ctx: &PackageFeatureContext,
-    packages: &[PackageFeatureContext],
-    opt: &RustBuildOptions,
+fn propagate_package<'a>(
+    pkg_idx: usize,
+    ctx: &'a PackageFeatureContext<'a>,
+    index: &mut FeatureGraphIndex<'a>,
+    is_test: bool,
     is_host_ctx: bool,
     active_target: &mut HashSet<String>,
     active_host: &mut HashSet<String>,
@@ -184,117 +184,69 @@ fn propagate_package(
     host_req: &mut HashMap<String, HashSet<String>>,
     changed: &mut bool,
 ) -> Result<(), RustAdapterError> {
-    let id = ctx.id();
-    let is_test = opt.mode == crate::adapter::BuildMode::Test;
+    let id = index.pkg_ids[pkg_idx].clone();
     let mut runtime_deps: Vec<(&String, &TomlDependency)> = ctx.toml.dependencies.iter().collect();
     let mut build_deps: Vec<(&String, &TomlDependency)> =
         ctx.toml.build_dependencies.iter().collect();
     if is_test && ctx.is_root && !is_host_ctx {
         runtime_deps.extend(&ctx.toml.dev_dependencies);
     }
-    let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
-    let start_dir = opt
-        .start_dir
-        .as_deref()
-        .unwrap_or(std::path::Path::new("."));
 
     for (spec, t) in &ctx.toml.target {
-        let target_incompat =
-            crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
-                spec,
-                is_host_ctx,
-                explicit_target.as_deref(),
-                start_dir,
-            )?;
-        if !target_incompat {
+        if !index.is_target_incompat(spec, is_host_ctx)? {
             runtime_deps.extend(&t.dependencies);
             if is_test && ctx.is_root && !is_host_ctx {
                 runtime_deps.extend(&t.dev_dependencies);
             }
         }
-        let host_incompat =
-            crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
-                spec,
-                true,
-                explicit_target.as_deref(),
-                start_dir,
-            )?;
-        if !host_incompat {
+        if !index.is_target_incompat(spec, true)? {
             build_deps.extend(&t.build_dependencies);
         }
     }
 
     // (A) Activate non-optional dependencies
     for (dep_key, dep) in runtime_deps {
-        let is_opt = match dep {
-            TomlDependency::Simple(_) => false,
-            TomlDependency::Detailed(d) => d.optional.unwrap_or(false),
-        };
+        let is_opt = matches!(dep, TomlDependency::Detailed(d) if d.optional.unwrap_or(false));
         if !is_opt {
-            let target_is_pm = resolve_dep_id_from_ctx(ctx, packages, dep_key)
-                .and_then(|tid| packages.iter().find(|p| p.id() == tid))
-                .is_some_and(|p| p.is_proc_macro());
-            if is_host_ctx || target_is_pm {
-                activate_dep_instance(ctx, packages, dep_key, dep, active_host, host_req, changed);
+            let to_host = is_host_ctx || index.is_dep_proc_macro(pkg_idx, dep_key);
+            let (act, req) = if to_host {
+                (&mut *active_host, &mut *host_req)
             } else {
-                activate_dep_instance(
-                    ctx,
-                    packages,
-                    dep_key,
-                    dep,
-                    active_target,
-                    target_req,
-                    changed,
-                );
-            }
+                (&mut *active_target, &mut *target_req)
+            };
+            index.activate_dep_instance(pkg_idx, dep_key, dep, act, req, changed);
         }
     }
 
     for (dep_key, dep) in build_deps {
-        let is_opt = match dep {
-            TomlDependency::Simple(_) => false,
-            TomlDependency::Detailed(d) => d.optional.unwrap_or(false),
-        };
+        let is_opt = matches!(dep, TomlDependency::Detailed(d) if d.optional.unwrap_or(false));
         if !is_opt {
-            activate_dep_instance(ctx, packages, dep_key, dep, active_host, host_req, changed);
+            index.activate_dep_instance(pkg_idx, dep_key, dep, active_host, host_req, changed);
         }
     }
 
     // (B) Expand active features
-    let req_map = if is_host_ctx {
+    let current_feats = if is_host_ctx {
         &*host_req
     } else {
         &*target_req
-    };
-    let current_feats = req_map.get(&id).cloned().unwrap_or_default();
-    let aliases = ctx.toml.dependency_aliases();
+    }
+    .get(&id)
+    .cloned()
+    .unwrap_or_default();
 
     for feat in &current_feats {
-        let deps =
-            collect_manifest_dependencies(ctx.toml, feat, explicit_target.as_deref(), start_dir)?;
+        let deps = index.collect_manifest_dependencies(ctx.toml, feat)?;
         if is_optional_dep(&deps) {
-            let is_build = ctx.toml.build_dependencies.contains_key(feat)
-                || ctx
-                    .toml
-                    .target
-                    .values()
-                    .any(|t| t.build_dependencies.contains_key(feat));
-            let is_pm = resolve_dep_id_from_ctx(ctx, packages, feat)
-                .and_then(|tid| packages.iter().find(|p| p.id() == tid))
-                .is_some_and(|p| p.is_proc_macro());
-            if is_host_ctx || is_build || is_pm {
-                activate_manifest_dep(ctx, packages, feat, &deps, active_host, host_req, changed);
+            let to_host = is_host_ctx
+                || has_build_dep(ctx.toml, feat)
+                || index.is_dep_proc_macro(pkg_idx, feat);
+            let (act, req) = if to_host {
+                (&mut *active_host, &mut *host_req)
             } else {
-                activate_manifest_dep(
-                    ctx,
-                    packages,
-                    feat,
-                    &deps,
-                    active_target,
-                    target_req,
-                    changed,
-                );
-            }
+                (&mut *active_target, &mut *target_req)
+            };
+            index.activate_manifest_dep(pkg_idx, feat, &deps, act, req, changed);
         }
 
         if let Some(sub_feats) = ctx.toml.features.get(feat) {
@@ -303,35 +255,20 @@ fn propagate_package(
                     let is_weak = dep.ends_with('?');
                     let dep_unweak = dep.strip_suffix('?').unwrap_or(dep);
                     let actual_dep = dep_unweak.strip_prefix("dep:").unwrap_or(dep_unweak);
-                    let real_dep = aliases
+                    let real_dep: String = index.aliases_by_idx[pkg_idx]
                         .alias_to_real
                         .get(actual_dep)
-                        .map(|s| s.as_str())
-                        .unwrap_or(actual_dep);
-                    let mut dep_decls = collect_manifest_dependencies(
-                        ctx.toml,
-                        actual_dep,
-                        explicit_target.as_deref(),
-                        start_dir,
-                    )?;
+                        .cloned()
+                        .unwrap_or_else(|| actual_dep.to_string());
+                    let mut dep_decls =
+                        index.collect_manifest_dependencies(ctx.toml, actual_dep)?;
                     if dep_decls.is_empty() {
-                        dep_decls = collect_manifest_dependencies(
-                            ctx.toml,
-                            real_dep,
-                            explicit_target.as_deref(),
-                            start_dir,
-                        )?;
+                        dep_decls = index.collect_manifest_dependencies(ctx.toml, &real_dep)?;
                     }
-                    let is_build = ctx.toml.build_dependencies.contains_key(actual_dep)
-                        || ctx.toml.build_dependencies.contains_key(real_dep)
-                        || ctx.toml.target.values().any(|t| {
-                            t.build_dependencies.contains_key(actual_dep)
-                                || t.build_dependencies.contains_key(real_dep)
-                        });
-                    let is_pm = resolve_dep_id_from_ctx(ctx, packages, real_dep)
-                        .and_then(|tid| packages.iter().find(|p| p.id() == tid))
-                        .is_some_and(|p| p.is_proc_macro());
-                    let send_to_host = is_host_ctx || is_build || is_pm;
+                    let send_to_host = is_host_ctx
+                        || has_build_dep(ctx.toml, actual_dep)
+                        || has_build_dep(ctx.toml, &real_dep)
+                        || index.is_dep_proc_macro(pkg_idx, &real_dep);
 
                     let dep_prefix = format!("dep:{}", actual_dep);
                     let real_prefix = format!("dep:{}", real_dep);
@@ -351,11 +288,12 @@ fn propagate_package(
                                 || cur_req.get(&id).is_some_and(|s| {
                                     s.contains(actual_dep)
                                         || s.contains(&dep_prefix)
-                                        || s.contains(real_dep)
+                                        || s.contains(&real_dep)
                                         || s.contains(&real_prefix)
                                 }))
                     } else {
-                        resolve_dep_id_from_ctx(ctx, packages, real_dep)
+                        index
+                            .resolve_dep_id_from_idx(pkg_idx, &real_dep)
                             .is_some_and(|tid| active_set.contains(&tid))
                     };
 
@@ -370,8 +308,8 @@ fn propagate_package(
                             } else {
                                 (&mut *active_target, &mut *target_req)
                             };
-                            activate_manifest_dep(
-                                ctx, packages, actual_dep, &dep_decls, act, req, changed,
+                            index.activate_manifest_dep(
+                                pkg_idx, actual_dep, &dep_decls, act, req, changed,
                             );
                         }
                         let this_req = if is_host_ctx {
@@ -390,7 +328,7 @@ fn propagate_package(
                         }
                     }
 
-                    if let Some(target_id) = resolve_dep_id_from_ctx(ctx, packages, real_dep) {
+                    if let Some(target_id) = index.resolve_dep_id_from_idx(pkg_idx, &real_dep) {
                         let dst_req = if send_to_host {
                             &mut *host_req
                         } else {
@@ -417,28 +355,16 @@ fn propagate_package(
                     if norm != *sub {
                         this_req.entry(id.clone()).or_default().insert(norm);
                     }
-                    let is_build = ctx.toml.build_dependencies.contains_key(dep_name)
-                        || ctx
-                            .toml
-                            .target
-                            .values()
-                            .any(|t| t.build_dependencies.contains_key(dep_name));
-                    let is_pm = resolve_dep_id_from_ctx(ctx, packages, dep_name)
-                        .and_then(|tid| packages.iter().find(|p| p.id() == tid))
-                        .is_some_and(|p| p.is_proc_macro());
-                    let send_to_host = is_host_ctx || is_build || is_pm;
+                    let send_to_host = is_host_ctx
+                        || has_build_dep(ctx.toml, dep_name)
+                        || index.is_dep_proc_macro(pkg_idx, dep_name);
                     let (act, req) = if send_to_host {
                         (&mut *active_host, &mut *host_req)
                     } else {
                         (&mut *active_target, &mut *target_req)
                     };
-                    let deps = collect_manifest_dependencies(
-                        ctx.toml,
-                        dep_name,
-                        explicit_target.as_deref(),
-                        start_dir,
-                    )?;
-                    activate_manifest_dep(ctx, packages, dep_name, &deps, act, req, changed);
+                    let deps = index.collect_manifest_dependencies(ctx.toml, dep_name)?;
+                    index.activate_manifest_dep(pkg_idx, dep_name, &deps, act, req, changed);
                 } else {
                     let this_req = if is_host_ctx {
                         &mut *host_req
@@ -448,63 +374,21 @@ fn propagate_package(
                     if this_req.entry(id.clone()).or_default().insert(sub.clone()) {
                         *changed = true;
                     }
-                    let deps = collect_manifest_dependencies(
-                        ctx.toml,
-                        sub,
-                        explicit_target.as_deref(),
-                        start_dir,
-                    )?;
+                    let deps = index.collect_manifest_dependencies(ctx.toml, sub)?;
                     if is_optional_dep(&deps) {
-                        let is_build = ctx.toml.build_dependencies.contains_key(sub)
-                            || ctx
-                                .toml
-                                .target
-                                .values()
-                                .any(|t| t.build_dependencies.contains_key(sub));
-                        let is_pm = resolve_dep_id_from_ctx(ctx, packages, sub)
-                            .and_then(|tid| packages.iter().find(|p| p.id() == tid))
-                            .is_some_and(|p| p.is_proc_macro());
-                        let send_to_host = is_host_ctx || is_build || is_pm;
+                        let send_to_host = is_host_ctx
+                            || has_build_dep(ctx.toml, sub)
+                            || index.is_dep_proc_macro(pkg_idx, sub);
                         let (act, req) = if send_to_host {
                             (&mut *active_host, &mut *host_req)
                         } else {
                             (&mut *active_target, &mut *target_req)
                         };
-                        activate_manifest_dep(ctx, packages, sub, &deps, act, req, changed);
+                        index.activate_manifest_dep(pkg_idx, sub, &deps, act, req, changed);
                     }
                 }
             }
         }
     }
     Ok(())
-}
-
-fn finalize_feature_map(
-    packages: &[PackageFeatureContext],
-    mut requested: HashMap<String, HashSet<String>>,
-    _active_packages: &HashSet<String>,
-) -> HashMap<String, Vec<String>> {
-    let mut result = HashMap::new();
-    for ctx in packages {
-        let id = ctx.id();
-        let feats = requested.remove(&id).unwrap_or_default();
-        let mut list: Vec<String> = Vec::new();
-        for f in feats {
-            if f.starts_with("dep:")
-                || (f == "default" && !ctx.toml.features.contains_key("default"))
-            {
-                continue;
-            }
-            if ctx.toml.features.contains_key(&f)
-                || (is_any_optional_dep(ctx.toml, &f) && is_implicit_feature(ctx.toml, &f))
-            {
-                list.push(f);
-            }
-        }
-        list.sort();
-        list.dedup();
-        result.insert(id, list.clone());
-        result.entry(ctx.name.to_string()).or_insert(list);
-    }
-    result
 }
