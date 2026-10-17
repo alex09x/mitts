@@ -53,6 +53,7 @@ fn test_all_features_scoped_to_package_when_package_specified() {
         PackageFeatureContext {
             name: "pkg_a",
             version: "0.1.0",
+            source: None,
             is_workspace: true,
             is_root: true,
             toml: &pkg_a_toml,
@@ -61,6 +62,7 @@ fn test_all_features_scoped_to_package_when_package_specified() {
         PackageFeatureContext {
             name: "pkg_b",
             version: "0.1.0",
+            source: None,
             is_workspace: true,
             is_root: false,
             toml: &pkg_b_toml,
@@ -100,6 +102,7 @@ fn test_all_features_scoped_to_package_when_package_specified() {
         PackageFeatureContext {
             name: "pkg_a",
             version: "0.1.0",
+            source: None,
             is_workspace: true,
             is_root: true,
             toml: &pkg_a_toml,
@@ -108,6 +111,7 @@ fn test_all_features_scoped_to_package_when_package_specified() {
         PackageFeatureContext {
             name: "pkg_b",
             version: "0.1.0",
+            source: None,
             is_workspace: true,
             is_root: true,
             toml: &pkg_b_toml,
@@ -190,6 +194,7 @@ fn test_dev_dependencies_scoping_resolver_1_and_2() {
             PackageFeatureContext {
                 name: "shared_dep",
                 version: "0.1.0",
+                source: None,
                 is_workspace: false,
                 is_root: false,
                 toml: &dep_toml,
@@ -198,6 +203,7 @@ fn test_dev_dependencies_scoping_resolver_1_and_2() {
             PackageFeatureContext {
                 name: "pkg_a",
                 version: "0.1.0",
+                source: None,
                 is_workspace: true,
                 is_root: true,
                 toml: &a_toml,
@@ -206,6 +212,7 @@ fn test_dev_dependencies_scoping_resolver_1_and_2() {
             PackageFeatureContext {
                 name: "pkg_b",
                 version: "0.1.0",
+                source: None,
                 is_workspace: true,
                 is_root: false,
                 toml: &b_toml,

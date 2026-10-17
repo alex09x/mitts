@@ -26,6 +26,7 @@ fn setup_test_packages<'a>(
         PackageFeatureContext {
             name: "syn",
             version: "2.0.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: syn_toml,
@@ -34,6 +35,7 @@ fn setup_test_packages<'a>(
         PackageFeatureContext {
             name: "my_proc_macro",
             version: "0.1.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: pm_toml,
@@ -42,6 +44,7 @@ fn setup_test_packages<'a>(
         PackageFeatureContext {
             name: "my_lib",
             version: "0.1.0",
+            source: None,
             is_workspace: true,
             is_root: true,
             toml: lib_toml,

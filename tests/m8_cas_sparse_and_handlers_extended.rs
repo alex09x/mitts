@@ -114,12 +114,7 @@ fn test_m8_handlers_clean_cache_and_gc_options() {
     if fixture_manifest.is_file() {
         let explain_args = ExplainArgs {
             manifest_path: Some(fixture_manifest),
-            package: None,
-            release: false,
-            features: Vec::new(),
-            no_default_features: false,
-            all_features: false,
-            json: false,
+            ..Default::default()
         };
         assert_eq!(handle_explain(&explain_args), 0);
     }

@@ -93,7 +93,14 @@ impl UnitKeyDeriver {
             .map(|(p, h)| (p.as_str(), h.as_str()))
             .collect();
 
-        let mut dep_hashes = dep_keys.to_vec();
+        let normalized_deps: Vec<(String, &str)> = dep_keys
+            .iter()
+            .map(|(id, k)| (super::features::normalize_unit_id_without_source(id), *k))
+            .collect();
+        let mut dep_hashes: Vec<(&str, &str)> = normalized_deps
+            .iter()
+            .map(|(id, k)| (id.as_str(), *k))
+            .collect();
         dep_hashes.sort();
 
         let flags = match self.flags_by_unit.get(&u_id) {
@@ -235,12 +242,19 @@ pub fn derive_unit_action_key_context(
                     .map(|(p, h)| (p.as_str(), h.as_str()))
                     .collect();
 
-                let mut dep_hashes = Vec::new();
+                let mut normalized_deps: Vec<(String, &str)> = Vec::new();
                 for dep_id in &unit.dependencies {
                     if let Some(dep_key) = unit_keys.get(dep_id) {
-                        dep_hashes.push((dep_id.as_str(), dep_key.as_str()));
+                        normalized_deps.push((
+                            super::features::normalize_unit_id_without_source(dep_id),
+                            dep_key.as_str(),
+                        ));
                     }
                 }
+                let mut dep_hashes: Vec<(&str, &str)> = normalized_deps
+                    .iter()
+                    .map(|(id, k)| (id.as_str(), *k))
+                    .collect();
                 dep_hashes.sort();
 
                 let u_flags = &flags_by_unit[&u_id];

@@ -32,6 +32,20 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
         }
     };
 
+    if let Some(ref keys_path) = args.keys {
+        let keys_res = crate::adapter::rust::key::derive_unit_action_keys(&opt, &explanation)
+            .and_then(|map| {
+                let btree: std::collections::BTreeMap<String, String> = map.into_iter().collect();
+                let json = serde_json::to_string_pretty(&btree)?;
+                std::fs::write(keys_path, json)?;
+                Ok(())
+            });
+        if let Err(err) = keys_res {
+            Ui::report_error(&err);
+            return 1;
+        }
+    }
+
     if args.json {
         match serde_json::to_string_pretty(&explanation) {
             Ok(json_str) => {
@@ -172,38 +186,31 @@ pub fn handle_fetch(args: &FetchArgs) -> i32 {
 }
 
 pub fn handle_gc(args: &GcArgs) -> i32 {
-    let cas = match args.cache_dir {
-        Some(ref cd) => match ContentAddressedStore::new(cd.join("cas")) {
-            Ok(s) => s,
-            Err(e) => {
-                Ui::report_error(&e);
-                return 1;
-            }
-        },
-        None => match ContentAddressedStore::default_store() {
-            Ok(s) => s,
-            Err(e) => {
-                Ui::report_error(&e);
-                return 1;
-            }
-        },
+    let cas_res = args
+        .cache_dir
+        .as_ref()
+        .map_or_else(ContentAddressedStore::default_store, |cd| {
+            ContentAddressedStore::new(cd.join("cas"))
+        });
+    let cas = match cas_res {
+        Ok(s) => s,
+        Err(e) => {
+            Ui::report_error(&e);
+            return 1;
+        }
     };
-
-    let ac = match args.cache_dir {
-        Some(ref cd) => match ActionCache::new(cd.join("ac")) {
-            Ok(c) => c,
-            Err(e) => {
-                Ui::report_error(&e);
-                return 1;
-            }
-        },
-        None => match ActionCache::default_cache() {
-            Ok(c) => c,
-            Err(e) => {
-                Ui::report_error(&e);
-                return 1;
-            }
-        },
+    let ac_res = args
+        .cache_dir
+        .as_ref()
+        .map_or_else(ActionCache::default_cache, |cd| {
+            ActionCache::new(cd.join("ac"))
+        });
+    let ac = match ac_res {
+        Ok(c) => c,
+        Err(e) => {
+            Ui::report_error(&e);
+            return 1;
+        }
     };
 
     let gc = CacheGc::new(&cas, &ac);
@@ -264,33 +271,25 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
             );
         }
     } else {
-        let dev_lock = FastBuildLock::lock_path(project_dir, "dev");
-        let rel_lock = FastBuildLock::lock_path(project_dir, "release");
-        let check_lock = FastBuildLock::lock_path(project_dir, "check");
-        let clippy_lock = FastBuildLock::lock_path(project_dir, "clippy");
-        let test_lock = FastBuildLock::lock_path(project_dir, "test");
-        let legacy_lock = legacy_mitts_dir.join("build.lock");
-        for lock_file in [
-            &dev_lock,
-            &rel_lock,
-            &check_lock,
-            &clippy_lock,
-            &test_lock,
-            &legacy_lock,
-        ] {
+        for profile in ["dev", "release", "check", "clippy", "test"] {
+            let lock_file = FastBuildLock::lock_path(project_dir, profile);
             if lock_file.exists() {
-                let _ = std::fs::remove_file(lock_file);
+                let _ = std::fs::remove_file(&lock_file);
             }
+        }
+        let legacy_lock = legacy_mitts_dir.join("build.lock");
+        if legacy_lock.exists() {
+            let _ = std::fs::remove_file(&legacy_lock);
         }
         Ui::stage_item(true, &Ui::badge_cached(), "Removed fast build locks");
     }
-    let log_file = mitts_dir.join("build.log");
-    if log_file.exists() {
-        let _ = std::fs::remove_file(&log_file);
-    }
-    let legacy_log = legacy_mitts_dir.join("build.log");
-    if legacy_log.exists() {
-        let _ = std::fs::remove_file(&legacy_log);
+    for log_file in [
+        mitts_dir.join("build.log"),
+        legacy_mitts_dir.join("build.log"),
+    ] {
+        if log_file.exists() {
+            let _ = std::fs::remove_file(&log_file);
+        }
     }
 
     // 2. Remove target directory

@@ -11,7 +11,7 @@
 use super::features::{resolve_package_features_with_resolver, PackageFeatureContext};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::CargoToml;
-use super::package_selection::{prune_unreachable_units, select_transitive_packages};
+use super::package_selection::select_transitive_packages;
 use super::types::{EffectivePlanExplanation, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use anyhow::{Context, Result};
@@ -51,20 +51,14 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                 if let Some(ref rel_p) = d.path {
                     let dep_dir = base_dir.join(rel_p);
                     let dep_manifest = dep_dir.join("Cargo.toml");
-                    if dep_manifest.is_file() {
-                        let dep_toml = CargoToml::from_file(&dep_manifest).with_context(|| {
-                            format!(
-                                "Failed to parse path dependency manifest at {:?}",
-                                dep_manifest
-                            )
-                        })?;
-                        let name = dep_toml
-                            .package
-                            .as_ref()
-                            .map(|p| p.name.clone())
-                            .unwrap_or_else(|| dep_name.clone());
-                        path_dependencies.insert(name, (dep_dir, dep_toml));
-                    }
+                    let dep_toml = CargoToml::from_file(&dep_manifest)
+                        .with_context(|| format!("failed to read `{}`", dep_manifest.display()))?;
+                    let name = dep_toml
+                        .package
+                        .as_ref()
+                        .map(|p| p.name.clone())
+                        .unwrap_or_else(|| dep_name.clone());
+                    path_dependencies.insert(name, (dep_dir, dep_toml));
                 }
             }
         }
@@ -119,11 +113,13 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .as_ref()
             .and_then(|p| p.version.clone())
             .unwrap_or_else(|| "0.0.0".to_string());
-        if !lockfile
+        if let Some(existing) = lockfile
             .packages
-            .iter()
-            .any(|p| &p.name == name && p.source.is_none() && p.version == ver)
+            .iter_mut()
+            .find(|p| &p.name == name && p.source.is_none())
         {
+            existing.version = ver;
+        } else {
             let mut deps: Vec<String> = dep_toml.dependencies.keys().cloned().collect();
             deps.sort();
             lockfile.packages.push(CargoLockPackage {
@@ -267,6 +263,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .map(|(pkg, is_ws, _, toml)| PackageFeatureContext {
             name: pkg.name.as_str(),
             version: pkg.version.as_str(),
+            source: pkg.source.as_deref(),
             is_workspace: *is_ws,
             is_root: is_primary_pkg(&pkg.name),
             toml,
@@ -304,51 +301,10 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
 
     // Prune compilation units not reachable from active root targets
     for u in &mut units {
-        let prim = is_primary_pkg(&u.package_name);
-        u.is_primary = prim;
+        u.is_primary = is_primary_pkg(&u.package_name);
     }
 
-    let mut root_unit_ids = Vec::new();
-    for u in &units {
-        let is_root_pkg = is_primary_pkg(&u.package_name);
-        if opt.mode == crate::adapter::rust::types::BuildMode::Test {
-            if opt.doc_only {
-                if is_root_pkg
-                    && (u.kind == "test" || u.kind == "custom-test" || u.kind == "test-deps")
-                {
-                    root_unit_ids.extend(u.dependencies.clone());
-                }
-            } else if u.kind == "test-deps" {
-                if !opt.lib_only {
-                    root_unit_ids.extend(u.dependencies.clone());
-                }
-            } else if u.kind == "test" || u.kind == "custom-test" {
-                root_unit_ids.push(u.unit_id());
-            }
-        }
-        let is_primary_or_ws = (is_root_pkg
-            && (u.kind == "lib" || u.kind == "proc-macro" || (!opt.doc_only && u.kind == "bin")))
-            || (has_all_ws
-                && u.is_workspace
-                && !opt.exclude.iter().any(|ex| ex == &u.package_name));
-        if is_primary_or_ws {
-            root_unit_ids.push(u.unit_id());
-        }
-    }
-    if root_unit_ids.is_empty() {
-        root_unit_ids.extend(
-            units
-                .iter()
-                .filter(|u| u.is_workspace && !opt.exclude.iter().any(|ex| ex == &u.package_name))
-                .map(|u| u.unit_id()),
-        );
-    }
-    if opt.doc_only {
-        units.retain(|u| u.kind != "test" && u.kind != "custom-test" && u.kind != "test-deps");
-    } else {
-        units.retain(|u| u.kind != "test-deps");
-    }
-    prune_unreachable_units(&mut units, &root_unit_ids);
+    super::planner_units::prune_plan_root_units(&mut units, opt, has_all_ws);
     let t_deps = std::time::Instant::now();
     let s_deps = super::compiler_resolve::rustc_subproc_stats();
 

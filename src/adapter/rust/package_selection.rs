@@ -9,7 +9,7 @@
  */
 
 use crate::adapter::rust::lockfile::{CargoLock, CargoLockPackage};
-use crate::adapter::rust::manifest::CargoToml;
+use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
 use crate::adapter::rust::types::RustBuildOptions;
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet};
@@ -41,10 +41,28 @@ pub fn select_transitive_packages<'a>(
     sorted_ws.sort_by_key(|(name, _)| *name);
 
     // Determine root packages to compile
+    let find_ws_pkg =
+        |pkgs: &[&'a CargoLockPackage], ws_ver: Option<&str>| -> Option<&'a CargoLockPackage> {
+            if let Some(ver) = ws_ver {
+                pkgs.iter().find(|p| p.version == ver).copied()
+            } else {
+                pkgs.first().copied()
+            }
+        };
+
     let mut root_pkgs: Vec<&'a CargoLockPackage> = Vec::new();
     if let Some(ref target_pkg) = opt.package {
         if let Some(pkgs) = packages_by_name.get(target_pkg) {
-            root_pkgs.extend(pkgs);
+            if let Some((_, ws_toml)) = workspace_manifests.get(target_pkg) {
+                let ws_ver = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
+                if let Some(m) = find_ws_pkg(pkgs, ws_ver) {
+                    root_pkgs.push(m);
+                } else {
+                    root_pkgs.extend(pkgs);
+                }
+            } else {
+                root_pkgs.extend(pkgs);
+            }
         } else {
             bail!("Package '{target_pkg}' not found in workspace lockfile");
         }
@@ -58,15 +76,10 @@ pub fn select_transitive_packages<'a>(
             let pkgs = packages_by_name.get(name).ok_or_else(|| {
                 anyhow::anyhow!("Workspace member package '{name}' not found in Cargo.lock")
             })?;
-            if let Some(ver) = ws_version {
-                let m = pkgs.iter().find(|p| p.version == ver).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Workspace member package '{name}' version {ver} not found in Cargo.lock"
-                    )
-                })?;
+            if let Some(m) = find_ws_pkg(pkgs, ws_version) {
                 root_pkgs.push(m);
-            } else if pkgs.len() == 1 {
-                root_pkgs.push(pkgs[0]);
+            } else if let Some(ver) = ws_version {
+                bail!("Workspace member package '{name}' version {ver} not found in Cargo.lock");
             } else {
                 bail!("Ambiguous workspace member package '{name}' without version in Cargo.lock");
             }
@@ -90,14 +103,12 @@ pub fn select_transitive_packages<'a>(
                         let ws_version =
                             ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                         if let Some(pkgs) = packages_by_name.get(name) {
-                            if let Some(ver) = ws_version {
-                                if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
-                                    root_pkgs.push(matching);
-                                } else if let Some(first) = pkgs.first() {
-                                    root_pkgs.push(first);
-                                }
-                            } else if let Some(first) = pkgs.first() {
-                                root_pkgs.push(first);
+                            if let Some(matching) = find_ws_pkg(pkgs, ws_version) {
+                                root_pkgs.push(matching);
+                            } else if pkgs.len() == 1 {
+                                root_pkgs.push(pkgs[0]);
+                            } else {
+                                bail!("Ambiguous workspace member package '{name}' in Cargo.lock");
                             }
                         }
                     }
@@ -107,14 +118,12 @@ pub fn select_transitive_packages<'a>(
             let root_name = &root_pkg.name;
             let root_ver = root_pkg.version.as_deref();
             if let Some(pkgs) = packages_by_name.get(root_name) {
-                if let Some(ver) = root_ver {
-                    if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
-                        root_pkgs.push(matching);
-                    } else if let Some(first) = pkgs.first() {
-                        root_pkgs.push(first);
-                    }
-                } else if let Some(first) = pkgs.first() {
-                    root_pkgs.push(first);
+                if let Some(matching) = find_ws_pkg(pkgs, root_ver) {
+                    root_pkgs.push(matching);
+                } else if pkgs.len() == 1 {
+                    root_pkgs.push(pkgs[0]);
+                } else {
+                    bail!("Ambiguous root package '{root_name}' in Cargo.lock");
                 }
             }
         }
@@ -123,14 +132,12 @@ pub fn select_transitive_packages<'a>(
             for &(name, (_member_dir, ws_toml)) in &sorted_ws {
                 let ws_version = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                 if let Some(pkgs) = packages_by_name.get(name) {
-                    if let Some(ver) = ws_version {
-                        if let Some(matching) = pkgs.iter().find(|p| p.version == ver) {
-                            root_pkgs.push(matching);
-                        } else if let Some(first) = pkgs.first() {
-                            root_pkgs.push(first);
-                        }
-                    } else if let Some(first) = pkgs.first() {
-                        root_pkgs.push(first);
+                    if let Some(matching) = find_ws_pkg(pkgs, ws_version) {
+                        root_pkgs.push(matching);
+                    } else if pkgs.len() == 1 {
+                        root_pkgs.push(pkgs[0]);
+                    } else {
+                        bail!("Ambiguous workspace member package '{name}' in Cargo.lock");
                     }
                 }
             }
@@ -141,7 +148,7 @@ pub fn select_transitive_packages<'a>(
 
     // Graph traversal: collect all reachable packages
     let mut selected_packages: Vec<(&'a CargoLockPackage, bool)> = Vec::new();
-    let mut visited: HashSet<(String, String)> = HashSet::new();
+    let mut visited: HashSet<(String, String, Option<String>)> = HashSet::new();
     let mut to_visit: Vec<&'a CargoLockPackage> = root_pkgs;
     let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
     let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
@@ -152,7 +159,7 @@ pub fn select_transitive_packages<'a>(
     let mut cfg_cache = TargetCfgCache::new();
 
     while let Some(pkg) = to_visit.pop() {
-        let key = (pkg.name.clone(), pkg.version.clone());
+        let key = (pkg.name.clone(), pkg.version.clone(), pkg.source.clone());
         if visited.insert(key) {
             let is_ws = pkg.source.is_none()
                 && workspace_manifests.get(&pkg.name).is_some_and(|(_, toml)| {
@@ -164,7 +171,7 @@ pub fn select_transitive_packages<'a>(
             selected_packages.push((pkg, is_ws));
 
             for dep_spec in &pkg.dependencies {
-                let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
+                let (dep_name, dep_ver, dep_src) = parse_dep_spec(dep_spec);
                 if is_target_incompatible_with_host(dep_name) {
                     continue;
                 }
@@ -189,15 +196,19 @@ pub fn select_transitive_packages<'a>(
                     }
                 }
                 if let Some(candidates) = packages_by_name.get(dep_name) {
-                    if let Some(ver) = dep_ver {
-                        if let Some(matching) = candidates.iter().find(|p| p.version == ver) {
-                            if !visited.contains(&(matching.name.clone(), matching.version.clone()))
-                            {
-                                to_visit.push(matching);
-                            }
-                        }
-                    } else if let Some(matching) = candidates.first() {
-                        if !visited.contains(&(matching.name.clone(), matching.version.clone())) {
+                    if let Some(matching) = resolve_lock_dep_for_parent(
+                        pkg.source.as_deref(),
+                        dep_spec,
+                        dep_name,
+                        dep_ver,
+                        dep_src,
+                        candidates,
+                    )? {
+                        if !visited.contains(&(
+                            matching.name.clone(),
+                            matching.version.clone(),
+                            matching.source.clone(),
+                        )) {
                             to_visit.push(matching);
                         }
                     }
@@ -207,6 +218,137 @@ pub fn select_transitive_packages<'a>(
     }
 
     Ok(selected_packages)
+}
+
+/// Resolves a `Cargo.lock` dependency spec against candidate packages of the same name,
+/// failing closed whenever multiple candidates remain ambiguous.
+pub fn resolve_lock_dep_candidate<'a>(
+    dep_spec: &str,
+    dep_name: &str,
+    dep_ver: Option<&str>,
+    dep_src: Option<&str>,
+    candidates: &[&'a CargoLockPackage],
+) -> Result<Option<&'a CargoLockPackage>> {
+    resolve_lock_dep_for_parent(None, dep_spec, dep_name, dep_ver, dep_src, candidates)
+}
+
+fn resolve_lock_dep_for_parent<'a>(
+    parent_source: Option<&str>,
+    dep_spec: &str,
+    dep_name: &str,
+    dep_ver: Option<&str>,
+    dep_src: Option<&str>,
+    candidates: &[&'a CargoLockPackage],
+) -> Result<Option<&'a CargoLockPackage>> {
+    let matches: Vec<&'a CargoLockPackage> = candidates
+        .iter()
+        .copied()
+        .filter(|p| {
+            dep_ver.is_none_or(|v| p.version == v)
+                && dep_src.is_none_or(|s| p.source.as_deref() == Some(s))
+        })
+        .collect();
+    match matches.len() {
+        0 => Ok(None),
+        1 => Ok(Some(matches[0])),
+        _ => {
+            if dep_ver.is_some() && dep_src.is_none() {
+                let local_only: Vec<&'a CargoLockPackage> = matches
+                    .iter()
+                    .copied()
+                    .filter(|p| p.source.is_none())
+                    .collect();
+                if local_only.len() == 1 {
+                    return Ok(Some(local_only[0]));
+                }
+            } else if dep_ver.is_none()
+                && dep_src.is_none()
+                && matches.iter().all(|p| p.version == matches[0].version)
+            {
+                if let Some(ps) = parent_source {
+                    let same_src: Vec<&'a CargoLockPackage> = matches
+                        .iter()
+                        .copied()
+                        .filter(|p| p.source.as_deref() == Some(ps))
+                        .collect();
+                    if same_src.len() == 1 {
+                        return Ok(Some(same_src[0]));
+                    }
+                }
+            }
+            bail!(
+                "Ambiguous dependency specification '{}' in Cargo.lock ({} matching '{}' packages found; specify version and source)",
+                dep_spec,
+                matches.len(),
+                dep_name
+            )
+        }
+    }
+}
+
+/// Formats a canonical package ID incorporating `(name, version, source)`.
+pub fn format_package_id(name: &str, version: &str, source: Option<&str>) -> String {
+    match source {
+        Some(s) if !s.is_empty() => format!("{name}@{version} ({s})"),
+        _ => format!("{name}@{version}"),
+    }
+}
+
+/// Extracts the `source` component from a `package_id` formatted by [`format_package_id`].
+pub fn parse_package_id_source(package_id: &str) -> Option<&str> {
+    let (_, rest) = package_id.split_once('@')?;
+    let (_, tail) = rest.split_once(' ')?;
+    tail.strip_prefix('(')?.strip_suffix(')')
+}
+
+/// Strips the ` (<source>)` component from a `unit_id` (`pkg_id::kind:target[:host]`)
+/// so that normalized unit labels are source-independent when hashing dependency edges.
+pub fn normalize_unit_id_without_source(unit_id: &str) -> String {
+    if let Some((pkg_id, rest)) = unit_id.split_once("::") {
+        if let Some((name_ver, _)) = pkg_id.split_once(" (") {
+            return format!("{name_ver}::{rest}");
+        }
+    }
+    unit_id.to_string()
+}
+
+pub fn is_implicit_feature(toml: &CargoToml, name: &str) -> bool {
+    let (n1, n2) = (
+        format!("dep:{name}"),
+        format!("dep:{}", name.replace('-', "_")),
+    );
+    !toml
+        .features
+        .values()
+        .any(|sf| sf.iter().any(|s| s == &n1 || s == &n2))
+}
+
+pub fn is_optional_dep(deps: &[&TomlDependency]) -> bool {
+    deps.iter()
+        .any(|d| matches!(d, TomlDependency::Detailed(dt) if dt.optional.unwrap_or(false)))
+}
+
+pub fn has_build_dep(toml: &CargoToml, name: &str) -> bool {
+    toml.build_dependencies.contains_key(name)
+        || toml
+            .target
+            .values()
+            .any(|t| t.build_dependencies.contains_key(name))
+}
+
+pub fn is_any_optional_dep(toml: &CargoToml, name: &str) -> bool {
+    let norm = name.replace('-', "_");
+    let check = |map: &HashMap<String, TomlDependency>| {
+        map.get(name).or_else(|| map.get(&norm)).is_some_and(
+            |d| matches!(d, TomlDependency::Detailed(dt) if dt.optional.unwrap_or(false)),
+        )
+    };
+    check(&toml.dependencies)
+        || check(&toml.build_dependencies)
+        || toml
+            .target
+            .values()
+            .any(|t| check(&t.dependencies) || check(&t.build_dependencies))
 }
 
 pub use super::dependency_check::{

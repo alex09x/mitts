@@ -70,7 +70,11 @@ pub fn resolve_extern_crates_with_target(
             let clean_dep_id = dep_id.strip_suffix(":host").unwrap_or(dep_id);
             let dep_pkg = clean_dep_id.split("::").next().unwrap_or(clean_dep_id);
             let pkg_name_only = dep_pkg.split('@').next().unwrap_or(dep_pkg);
-            let dep_version = dep_pkg.split('@').nth(1);
+            let dep_version = dep_pkg
+                .split('@')
+                .nth(1)
+                .map(|v| v.split_whitespace().next().unwrap_or(v));
+            let dep_source = super::features::parse_package_id_source(dep_pkg);
             let dep_crate = if clean_dep_id.contains(':') {
                 clean_dep_id.rsplit(':').next().unwrap_or(pkg_name_only)
             } else {
@@ -86,8 +90,15 @@ pub fn resolve_extern_crates_with_target(
                 .get(pkg_name_only)
                 .or_else(|| aliases.real_to_aliases.get(&norm_pkg))
             {
+                let find_dep = |a: &str| {
+                    pkg_toml
+                        .dependencies
+                        .get(a)
+                        .or_else(|| pkg_toml.build_dependencies.get(a))
+                        .or_else(|| pkg_toml.dev_dependencies.get(a))
+                };
                 for (alias, ver_req) in alias_list {
-                    let matches = match (ver_req, dep_version) {
+                    let ver_matches = match (ver_req, dep_version) {
                         (Some(req_str), Some(ver_str)) => {
                             if let (Ok(req), Ok(ver)) = (
                                 semver::VersionReq::parse(req_str),
@@ -100,7 +111,33 @@ pub fn resolve_extern_crates_with_target(
                         }
                         _ => true,
                     };
-                    if matches {
+                    let src_matches = if alias_list.len() > 1 {
+                        match (dep_source, find_dep(alias)) {
+                            (None, Some(super::manifest::TomlDependency::Detailed(d))) => {
+                                d.path.is_some()
+                                    || !alias_list.iter().any(|(oa, _)| {
+                                        matches!(
+                                            find_dep(oa),
+                                            Some(super::manifest::TomlDependency::Detailed(od))
+                                                if od.path.is_some()
+                                        )
+                                    })
+                            }
+                            (Some(src), Some(super::manifest::TomlDependency::Detailed(d))) => {
+                                if d.path.is_some() {
+                                    false
+                                } else if d.git.is_some() {
+                                    src.starts_with("git+")
+                                } else {
+                                    src.starts_with("registry+")
+                                }
+                            }
+                            _ => true,
+                        }
+                    } else {
+                        true
+                    };
+                    if ver_matches && src_matches {
                         matched_aliases.push(alias.clone());
                     }
                 }

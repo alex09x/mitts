@@ -89,7 +89,8 @@ pub fn build_planned_units(
             (EnvMacroDiscovery::Tracked(Vec::new()), Vec::new())
         };
         let has_untracked_env = matches!(env_discovery, EnvMacroDiscovery::UntrackedDynamic);
-        let pkg_id = format!("{}@{}", pkg.name, pkg.version);
+        let pkg_id =
+            super::features::format_package_id(&pkg.name, &pkg.version, pkg.source.as_deref());
 
         let in_target = *is_workspace
             || is_primary
@@ -322,4 +323,52 @@ fn create_unit(
         for_host,
         workspace_root: ws_root.map(|p| p.to_path_buf()),
     }
+}
+
+pub fn prune_plan_root_units(
+    units: &mut Vec<PlannedCompilationUnit>,
+    opt: &RustBuildOptions,
+    has_all_ws: bool,
+) {
+    let mut root_unit_ids = Vec::new();
+    for u in units.iter() {
+        let is_root_pkg = u.is_primary;
+        if opt.mode == crate::adapter::rust::types::BuildMode::Test {
+            if opt.doc_only {
+                if is_root_pkg
+                    && (u.kind == "test" || u.kind == "custom-test" || u.kind == "test-deps")
+                {
+                    root_unit_ids.extend(u.dependencies.clone());
+                }
+            } else if u.kind == "test-deps" {
+                if !opt.lib_only {
+                    root_unit_ids.extend(u.dependencies.clone());
+                }
+            } else if u.kind == "test" || u.kind == "custom-test" {
+                root_unit_ids.push(u.unit_id());
+            }
+        }
+        let is_primary_or_ws = (is_root_pkg
+            && (u.kind == "lib" || u.kind == "proc-macro" || (!opt.doc_only && u.kind == "bin")))
+            || (has_all_ws
+                && u.is_workspace
+                && !opt.exclude.iter().any(|ex| ex == &u.package_name));
+        if is_primary_or_ws {
+            root_unit_ids.push(u.unit_id());
+        }
+    }
+    if root_unit_ids.is_empty() {
+        root_unit_ids.extend(
+            units
+                .iter()
+                .filter(|u| u.is_workspace && !opt.exclude.iter().any(|ex| ex == &u.package_name))
+                .map(|u| u.unit_id()),
+        );
+    }
+    if opt.doc_only {
+        units.retain(|u| u.kind != "test" && u.kind != "custom-test" && u.kind != "test-deps");
+    } else {
+        units.retain(|u| u.kind != "test-deps");
+    }
+    super::planner_deps::prune_unreachable_units(units, &root_unit_ids);
 }

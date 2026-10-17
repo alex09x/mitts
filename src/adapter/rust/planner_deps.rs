@@ -40,8 +40,11 @@ pub fn resolve_unit_dependencies_with_manifests(
     explicit_target: Option<&str>,
     start_dir: &Path,
 ) -> Result<(), crate::adapter::rust::types::RustAdapterError> {
-    let mut lib_units_by_exact: HashMap<(String, String, bool), (String, PathBuf)> = HashMap::new();
-    let mut lib_units_by_name: HashMap<(String, bool), Vec<(String, String)>> = HashMap::new();
+    type ExactLibKey = (String, String, Option<String>, bool);
+    type LibCandidate = (String, Option<String>, String);
+
+    let mut lib_units_by_exact: HashMap<ExactLibKey, (String, PathBuf)> = HashMap::new();
+    let mut lib_units_by_name: HashMap<(String, bool), Vec<LibCandidate>> = HashMap::new();
     let mut proc_macro_names: HashSet<String> = HashSet::new();
 
     for unit in units.iter() {
@@ -55,46 +58,58 @@ pub fn resolve_unit_dependencies_with_manifests(
             && unit.kind != "test-deps"
         {
             let uid = unit.unit_id();
+            let unit_src =
+                super::features::parse_package_id_source(&unit.package_id).map(|s| s.to_string());
+            let clean_pkg = unit.package_name.replace('-', "_");
             lib_units_by_exact.insert(
                 (
                     unit.package_name.clone(),
                     unit.version.clone(),
+                    unit_src.clone(),
                     unit.for_host,
                 ),
                 (uid.clone(), unit.src_path.clone()),
             );
             lib_units_by_exact.insert(
                 (
-                    unit.package_name.replace('-', "_"),
+                    clean_pkg.clone(),
                     unit.version.clone(),
+                    unit_src.clone(),
                     unit.for_host,
                 ),
                 (uid.clone(), unit.src_path.clone()),
             );
 
-            lib_units_by_name
-                .entry((unit.package_name.clone(), unit.for_host))
-                .or_default()
-                .push((unit.version.clone(), uid.clone()));
-            lib_units_by_name
-                .entry((unit.package_name.replace('-', "_"), unit.for_host))
-                .or_default()
-                .push((unit.version.clone(), uid));
+            let entry = lib_units_by_name
+                .entry((clean_pkg, unit.for_host))
+                .or_default();
+            if !entry.iter().any(|(_, _, u)| u == &uid) {
+                entry.push((unit.version.clone(), unit_src, uid));
+            }
         }
     }
 
-    let mut selected_by_key: HashMap<(&str, &str), &CargoLockPackage> =
+    type PkgKey<'a> = (&'a str, &'a str, Option<&'a str>);
+    let mut selected_by_key: HashMap<PkgKey<'_>, &CargoLockPackage> =
         HashMap::with_capacity(selected_packages.len());
     for (pkg, _) in selected_packages {
         selected_by_key
-            .entry((pkg.name.as_str(), pkg.version.as_str()))
+            .entry((
+                pkg.name.as_str(),
+                pkg.version.as_str(),
+                pkg.source.as_deref(),
+            ))
             .or_insert(*pkg);
     }
 
-    let mut resolved_by_key: HashMap<(&str, &str), (PathBuf, &CargoToml, bool)> =
+    let mut resolved_by_key: HashMap<PkgKey<'_>, (PathBuf, &CargoToml, bool)> =
         HashMap::with_capacity(resolved_packages.len());
     for (pkg, _, pkg_dir, pkg_toml) in resolved_packages {
-        let key = (pkg.name.as_str(), pkg.version.as_str());
+        let key = (
+            pkg.name.as_str(),
+            pkg.version.as_str(),
+            pkg.source.as_deref(),
+        );
         resolved_by_key.entry(key).or_insert_with(|| {
             let expected_manifest = pkg_dir.join("Cargo.toml");
             let has_bs = pkg_toml.has_build_script(pkg_dir);
@@ -106,8 +121,25 @@ pub fn resolve_unit_dependencies_with_manifests(
     let mut cfg_cache = TargetCfgCache::new();
 
     for unit in units.iter_mut() {
-        let pkg_key = (unit.package_name.as_str(), unit.version.as_str());
-        let pkg_match = selected_by_key.get(&pkg_key).copied();
+        let unit_src =
+            super::features::parse_package_id_source(&unit.package_id).map(|s| s.to_string());
+        let pkg_key = (
+            unit.package_name.as_str(),
+            unit.version.as_str(),
+            unit_src.as_deref(),
+        );
+        let pkg_match = selected_by_key.get(&pkg_key).copied().or_else(|| {
+            if unit_src.is_none() {
+                let cands: Vec<&CargoLockPackage> = selected_packages
+                    .iter()
+                    .map(|(p, _)| *p)
+                    .filter(|p| p.name == unit.package_name && p.version == unit.version)
+                    .collect();
+                (cands.len() == 1).then(|| cands[0])
+            } else {
+                None
+            }
+        });
 
         let (pkg_toml_opt, has_build_script): (Option<&CargoToml>, bool) =
             if let Some((_, toml_ref, has_bs)) = resolved_by_key
@@ -143,7 +175,7 @@ pub fn resolve_unit_dependencies_with_manifests(
         let mut unit_deps = Vec::new();
         if let Some(pkg) = pkg_match {
             for dep_spec in &pkg.dependencies {
-                let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
+                let (dep_name, dep_ver, dep_src) = parse_dep_spec(dep_spec);
                 if let Some(toml) = pkg_toml_opt {
                     if !has_active_dependency_cached(
                         toml,
@@ -189,64 +221,91 @@ pub fn resolve_unit_dependencies_with_manifests(
                                 })))
                 });
 
-                let resolve_dep = |for_host: bool| -> Option<String> {
-                    if let Some(ver) = dep_ver {
-                        lib_units_by_exact
-                            .get(&(dep_name.to_string(), ver.to_string(), for_host))
-                            .or_else(|| {
-                                lib_units_by_exact.get(&(
-                                    dep_clean.clone(),
-                                    ver.to_string(),
-                                    for_host,
-                                ))
-                            })
-                            .or_else(|| {
-                                lib_units_by_exact.get(&(
-                                    dep_name.to_string(),
-                                    ver.to_string(),
-                                    !for_host,
-                                ))
-                            })
-                            .or_else(|| {
-                                lib_units_by_exact.get(&(
-                                    dep_clean.clone(),
-                                    ver.to_string(),
-                                    !for_host,
-                                ))
-                            })
-                            .map(|(uid, _)| uid.clone())
-                    } else if let Some(candidates) = lib_units_by_name
-                        .get(&(dep_name.to_string(), for_host))
-                        .or_else(|| lib_units_by_name.get(&(dep_clean.clone(), for_host)))
-                        .or_else(|| lib_units_by_name.get(&(dep_name.to_string(), !for_host)))
-                        .or_else(|| lib_units_by_name.get(&(dep_clean.clone(), !for_host)))
-                    {
-                        candidates.first().map(|(_, uid)| uid.clone())
+                let resolve_for_flag = |flag: bool| -> Result<
+                    Option<String>,
+                    crate::adapter::rust::types::RustAdapterError,
+                > {
+                    let Some(candidates) = lib_units_by_name.get(&(dep_clean.clone(), flag)) else {
+                        return Ok(None);
+                    };
+                    let matches: Vec<&LibCandidate> = candidates
+                        .iter()
+                        .filter(|(ver, src, _)| {
+                            dep_ver.is_none_or(|v| ver == v)
+                                && dep_src.is_none_or(|s| src.as_deref() == Some(s))
+                        })
+                        .collect();
+                    match matches.len() {
+                        0 => Ok(None),
+                        1 => Ok(Some(matches[0].2.clone())),
+                        _ => {
+                            if dep_ver.is_some() && dep_src.is_none() {
+                                let local_only: Vec<&&LibCandidate> =
+                                    matches.iter().filter(|(_, src, _)| src.is_none()).collect();
+                                if local_only.len() == 1 {
+                                    return Ok(Some(local_only[0].2.clone()));
+                                }
+                            } else if dep_ver.is_none()
+                                && dep_src.is_none()
+                                && matches.iter().all(|(v, _, _)| v == &matches[0].0)
+                            {
+                                if let Some(ps) = pkg.source.as_deref() {
+                                    let same_src: Vec<&&LibCandidate> = matches
+                                        .iter()
+                                        .filter(|(_, src, _)| src.as_deref() == Some(ps))
+                                        .collect();
+                                    if same_src.len() == 1 {
+                                        return Ok(Some(same_src[0].2.clone()));
+                                    }
+                                }
+                            }
+                            Err(
+                                crate::adapter::rust::types::RustAdapterError::MetadataFailed(
+                                    format!(
+                                    "Ambiguous unit dependency '{}' ({} matching library units)",
+                                    dep_spec,
+                                    matches.len()
+                                ),
+                                ),
+                            )
+                        }
+                    }
+                };
+
+                let resolve_dep = |for_host: bool| -> Result<
+                    Option<String>,
+                    crate::adapter::rust::types::RustAdapterError,
+                > {
+                    if let Some(uid) = resolve_for_flag(for_host)? {
+                        Ok(Some(uid))
                     } else {
-                        None
+                        resolve_for_flag(!for_host)
                     }
                 };
 
                 if unit.for_host || is_pm {
-                    if let Some(dep_uid) = resolve_dep(true) {
+                    if let Some(dep_uid) = resolve_dep(true)? {
                         unit_deps.push(dep_uid);
                     }
                 } else {
                     let mut matched = false;
                     if is_runtime_dep {
-                        if let Some(dep_uid) = resolve_dep(false) {
+                        if let Some(dep_uid) = resolve_dep(false)? {
                             unit_deps.push(dep_uid);
                             matched = true;
                         }
                     }
                     if is_build_dep {
-                        if let Some(dep_uid) = resolve_dep(true) {
+                        if let Some(dep_uid) = resolve_dep(true)? {
                             unit_deps.push(dep_uid);
                             matched = true;
                         }
                     }
                     if !matched {
-                        if let Some(dep_uid) = resolve_dep(false).or_else(|| resolve_dep(true)) {
+                        if let Some(dep_uid) = match resolve_dep(false)? {
+                            Some(uid) => Some(uid),
+                            None => resolve_dep(true)?,
+                        } {
                             unit_deps.push(dep_uid);
                         }
                     }
@@ -260,9 +319,19 @@ pub fn resolve_unit_dependencies_with_manifests(
             || unit.kind == "test-deps"
         {
             let self_lib_entry = lib_units_by_exact
-                .get(&(unit.package_name.clone(), unit.version.clone(), false))
+                .get(&(
+                    unit.package_name.clone(),
+                    unit.version.clone(),
+                    unit_src.clone(),
+                    false,
+                ))
                 .or_else(|| {
-                    lib_units_by_exact.get(&(unit.package_name.clone(), unit.version.clone(), true))
+                    lib_units_by_exact.get(&(
+                        unit.package_name.clone(),
+                        unit.version.clone(),
+                        unit_src.clone(),
+                        true,
+                    ))
                 });
             if let Some((uid, lib_src_path)) = self_lib_entry {
                 let is_self_lib_unit_test = unit.src_path == *lib_src_path;

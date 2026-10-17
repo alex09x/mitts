@@ -89,12 +89,14 @@ fn test_m8_package_selection_default_members_and_incompatible() {
         .any(|(pkg, is_ws)| pkg.name == "dep_normal" && !*is_ws));
 
     // Test helper parse_dep_spec
-    let (n1, v1) = parse_dep_spec("serde 1.0.190");
+    let (n1, v1, s1) = parse_dep_spec("serde 1.0.190");
     assert_eq!(n1, "serde");
     assert_eq!(v1, Some("1.0.190"));
-    let (n2, v2) = parse_dep_spec("simple_dep");
+    assert_eq!(s1, None);
+    let (n2, v2, s2) = parse_dep_spec("simple_dep");
     assert_eq!(n2, "simple_dep");
     assert_eq!(v2, None);
+    assert_eq!(s2, None);
 
     // Test platform incompatibilities
     assert!(is_target_incompatible_with_host("orbclient"));

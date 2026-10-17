@@ -34,12 +34,32 @@ fn eval_target_cfg_incompat(
     res
 }
 
-/// Parses a dependency spec string like "my-crate 0.1.0" or "my-crate" into (name, version).
-pub fn parse_package_spec(spec: &str) -> (&str, Option<&str>) {
-    let mut parts = spec.split_whitespace();
-    let name = parts.next().unwrap_or(spec);
-    let version = parts.next();
-    (name, version)
+/// Parses a dependency spec string from `Cargo.lock` into `(name, version, source)`:
+/// - `"foo"` -> `("foo", None, None)`
+/// - `"foo 1.0.0"` -> `("foo", Some("1.0.0"), None)`
+/// - `"foo 1.0.0 (registry+https://...)"` -> `("foo", Some("1.0.0"), Some("registry+https://..."))`
+pub fn parse_package_spec(spec: &str) -> (&str, Option<&str>, Option<&str>) {
+    let s = spec.trim();
+    let Some((name, after_name)) = s.split_once(char::is_whitespace) else {
+        return (s, None, None);
+    };
+    let after_name = after_name.trim_start();
+    if after_name.is_empty() {
+        return (name, None, None);
+    }
+    let Some((version, after_ver)) = after_name.split_once(char::is_whitespace) else {
+        return (name, Some(after_name), None);
+    };
+    let after_ver = after_ver.trim();
+    let source = after_ver
+        .strip_prefix('(')
+        .and_then(|inner| inner.strip_suffix(')'))
+        .or(if after_ver.is_empty() {
+            None
+        } else {
+            Some(after_ver)
+        });
+    (name, Some(version), source)
 }
 
 /// Checks if a package manifest has an active dependency on `dep_name`,

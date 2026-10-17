@@ -39,6 +39,7 @@ extra_feat = ["dep:bar"]
     let pkg_ctx = PackageFeatureContext {
         name: "my-crate",
         version: "0.1.0",
+        source: None,
         is_workspace: true,
         is_root: true,
         toml: &toml,
@@ -241,6 +242,7 @@ build_mode = []
         PackageFeatureContext {
             name: "root",
             version: "0.1.0",
+            source: None,
             is_workspace: true,
             is_root: true,
             toml: &root_toml,
@@ -249,6 +251,7 @@ build_mode = []
         PackageFeatureContext {
             name: "worker",
             version: "1.0.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: &worker_toml,
@@ -257,6 +260,7 @@ build_mode = []
         PackageFeatureContext {
             name: "dual_crate",
             version: "2.0.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: &dual_toml,

@@ -186,6 +186,10 @@ pub struct ExplainArgs {
     /// Output explanation in JSON format
     #[arg(long)]
     pub json: bool,
+
+    /// Write derived compilation unit ActionKeys (JSON) to a file
+    #[arg(long, value_name = "FILE")]
+    pub keys: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone, Default)]

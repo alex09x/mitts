@@ -31,32 +31,26 @@ fn test_m8_cli_explain_and_fetch() {
     // Explain success
     let explain_args = ExplainArgs {
         manifest_path: Some(cargo_toml.clone()),
-        package: None,
-        release: false,
-        features: Vec::new(),
-        no_default_features: false,
-        all_features: false,
-        json: false,
+        ..Default::default()
     };
     assert_eq!(handle_explain(&explain_args), 0);
 
-    // Explain JSON output
+    // Explain JSON + --keys output
+    let keys_file = tmp.path().join("keys.json");
     let explain_json = ExplainArgs {
         manifest_path: Some(cargo_toml.clone()),
         json: true,
+        keys: Some(keys_file.clone()),
         ..Default::default()
     };
     assert_eq!(handle_explain(&explain_json), 0);
+    let keys_content = fs::read_to_string(&keys_file).unwrap();
+    assert!(keys_content.contains("::lib:"));
 
     // Explain missing manifest
     let explain_missing = ExplainArgs {
         manifest_path: Some(tmp.path().join("NonExistent.toml")),
-        package: None,
-        release: false,
-        features: Vec::new(),
-        no_default_features: false,
-        all_features: false,
-        json: false,
+        ..Default::default()
     };
     assert_eq!(handle_explain(&explain_missing), 1);
 

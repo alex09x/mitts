@@ -9,6 +9,9 @@
  */
 
 use super::features_helpers::*;
+pub use super::features_helpers::{
+    format_package_id, normalize_unit_id_without_source, parse_package_id_source,
+};
 use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
 use crate::adapter::rust::types::{RustAdapterError, RustBuildOptions};
 use std::collections::{HashMap, HashSet};
@@ -17,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 pub struct PackageFeatureContext<'a> {
     pub name: &'a str,
     pub version: &'a str,
+    pub source: Option<&'a str>,
     pub is_workspace: bool,
     pub is_root: bool,
     pub toml: &'a CargoToml,
@@ -25,7 +29,7 @@ pub struct PackageFeatureContext<'a> {
 
 impl<'a> PackageFeatureContext<'a> {
     pub fn id(&self) -> String {
-        format!("{}@{}", self.name, self.version)
+        format_package_id(self.name, self.version, self.source)
     }
 
     pub fn is_proc_macro(&self) -> bool {
@@ -208,20 +212,21 @@ fn propagate_package<'a>(
     for (dep_key, dep) in runtime_deps {
         let is_opt = matches!(dep, TomlDependency::Detailed(d) if d.optional.unwrap_or(false));
         if !is_opt {
-            let to_host = is_host_ctx || index.is_dep_proc_macro(pkg_idx, dep_key);
+            let to_host =
+                is_host_ctx || index.is_dep_proc_macro_with_hint(pkg_idx, dep_key, Some(dep))?;
             let (act, req) = if to_host {
                 (&mut *active_host, &mut *host_req)
             } else {
                 (&mut *active_target, &mut *target_req)
             };
-            index.activate_dep_instance(pkg_idx, dep_key, dep, act, req, changed);
+            index.activate_dep_instance(pkg_idx, dep_key, dep, act, req, changed)?;
         }
     }
 
     for (dep_key, dep) in build_deps {
         let is_opt = matches!(dep, TomlDependency::Detailed(d) if d.optional.unwrap_or(false));
         if !is_opt {
-            index.activate_dep_instance(pkg_idx, dep_key, dep, active_host, host_req, changed);
+            index.activate_dep_instance(pkg_idx, dep_key, dep, active_host, host_req, changed)?;
         }
     }
 
@@ -240,13 +245,13 @@ fn propagate_package<'a>(
         if is_optional_dep(&deps) {
             let to_host = is_host_ctx
                 || has_build_dep(ctx.toml, feat)
-                || index.is_dep_proc_macro(pkg_idx, feat);
+                || index.is_dep_proc_macro_with_hint(pkg_idx, feat, deps.first().copied())?;
             let (act, req) = if to_host {
                 (&mut *active_host, &mut *host_req)
             } else {
                 (&mut *active_target, &mut *target_req)
             };
-            index.activate_manifest_dep(pkg_idx, feat, &deps, act, req, changed);
+            index.activate_manifest_dep(pkg_idx, feat, &deps, act, req, changed)?;
         }
 
         if let Some(sub_feats) = ctx.toml.features.get(feat) {
@@ -265,10 +270,11 @@ fn propagate_package<'a>(
                     if dep_decls.is_empty() {
                         dep_decls = index.collect_manifest_dependencies(ctx.toml, &real_dep)?;
                     }
+                    let dep_hint = dep_decls.first().copied();
                     let send_to_host = is_host_ctx
                         || has_build_dep(ctx.toml, actual_dep)
                         || has_build_dep(ctx.toml, &real_dep)
-                        || index.is_dep_proc_macro(pkg_idx, &real_dep);
+                        || index.is_dep_proc_macro_with_hint(pkg_idx, &real_dep, dep_hint)?;
 
                     let dep_prefix = format!("dep:{}", actual_dep);
                     let real_prefix = format!("dep:{}", real_dep);
@@ -293,7 +299,7 @@ fn propagate_package<'a>(
                                 }))
                     } else {
                         index
-                            .resolve_dep_id_from_idx(pkg_idx, &real_dep)
+                            .resolve_dep_id_with_hint(pkg_idx, &real_dep, dep_hint)?
                             .is_some_and(|tid| active_set.contains(&tid))
                     };
 
@@ -310,7 +316,7 @@ fn propagate_package<'a>(
                             };
                             index.activate_manifest_dep(
                                 pkg_idx, actual_dep, &dep_decls, act, req, changed,
-                            );
+                            )?;
                         }
                         let this_req = if is_host_ctx {
                             &mut *host_req
@@ -328,13 +334,15 @@ fn propagate_package<'a>(
                         }
                     }
 
-                    if let Some(target_id) = index.resolve_dep_id_from_idx(pkg_idx, &real_dep) {
-                        let dst_req = if send_to_host {
+                    if let Some(target_id) =
+                        index.resolve_dep_id_with_hint(pkg_idx, &real_dep, dep_hint)?
+                    {
+                        let dst = if send_to_host {
                             &mut *host_req
                         } else {
                             &mut *target_req
                         };
-                        if dst_req
+                        if dst
                             .entry(target_id)
                             .or_default()
                             .insert(dep_feat.to_string())
@@ -342,29 +350,6 @@ fn propagate_package<'a>(
                             *changed = true;
                         }
                     }
-                } else if let Some(dep_name) = sub.strip_prefix("dep:") {
-                    let this_req = if is_host_ctx {
-                        &mut *host_req
-                    } else {
-                        &mut *target_req
-                    };
-                    if this_req.entry(id.clone()).or_default().insert(sub.clone()) {
-                        *changed = true;
-                    }
-                    let norm = format!("dep:{}", dep_name.replace('-', "_"));
-                    if norm != *sub {
-                        this_req.entry(id.clone()).or_default().insert(norm);
-                    }
-                    let send_to_host = is_host_ctx
-                        || has_build_dep(ctx.toml, dep_name)
-                        || index.is_dep_proc_macro(pkg_idx, dep_name);
-                    let (act, req) = if send_to_host {
-                        (&mut *active_host, &mut *host_req)
-                    } else {
-                        (&mut *active_target, &mut *target_req)
-                    };
-                    let deps = index.collect_manifest_dependencies(ctx.toml, dep_name)?;
-                    index.activate_manifest_dep(pkg_idx, dep_name, &deps, act, req, changed);
                 } else {
                     let this_req = if is_host_ctx {
                         &mut *host_req
@@ -374,17 +359,28 @@ fn propagate_package<'a>(
                     if this_req.entry(id.clone()).or_default().insert(sub.clone()) {
                         *changed = true;
                     }
-                    let deps = index.collect_manifest_dependencies(ctx.toml, sub)?;
-                    if is_optional_dep(&deps) {
+                    let (dep_name, explicit_dep) = match sub.strip_prefix("dep:") {
+                        Some(d) => {
+                            let norm = format!("dep:{}", d.replace('-', "_"));
+                            if norm != *sub {
+                                this_req.entry(id.clone()).or_default().insert(norm);
+                            }
+                            (d, true)
+                        }
+                        None => (sub.as_str(), false),
+                    };
+                    let deps = index.collect_manifest_dependencies(ctx.toml, dep_name)?;
+                    if explicit_dep || is_optional_dep(&deps) {
+                        let hint = deps.first().copied();
                         let send_to_host = is_host_ctx
-                            || has_build_dep(ctx.toml, sub)
-                            || index.is_dep_proc_macro(pkg_idx, sub);
+                            || has_build_dep(ctx.toml, dep_name)
+                            || index.is_dep_proc_macro_with_hint(pkg_idx, dep_name, hint)?;
                         let (act, req) = if send_to_host {
                             (&mut *active_host, &mut *host_req)
                         } else {
                             (&mut *active_target, &mut *target_req)
                         };
-                        index.activate_manifest_dep(pkg_idx, sub, &deps, act, req, changed);
+                        index.activate_manifest_dep(pkg_idx, dep_name, &deps, act, req, changed)?;
                     }
                 }
             }

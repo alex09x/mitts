@@ -69,6 +69,7 @@ skipped = []
         PackageFeatureContext {
             name: "root-app",
             version: "0.1.0",
+            source: None,
             is_workspace: true,
             is_root: true,
             toml: &root_toml,
@@ -77,6 +78,7 @@ skipped = []
         PackageFeatureContext {
             name: "dep_a",
             version: "1.0.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: &dep_a_toml,
@@ -85,6 +87,7 @@ skipped = []
         PackageFeatureContext {
             name: "dep_b",
             version: "1.0.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: &dep_b_toml,
@@ -93,6 +96,7 @@ skipped = []
         PackageFeatureContext {
             name: "dep_inactive",
             version: "1.0.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: &dep_inactive_toml,
@@ -173,6 +177,7 @@ unix_default = []
         PackageFeatureContext {
             name: "alias-app",
             version: "0.2.0",
+            source: None,
             is_workspace: true,
             is_root: true,
             toml: &toml,
@@ -181,6 +186,7 @@ unix_default = []
         PackageFeatureContext {
             name: "actual_lib",
             version: "2.0.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: &actual_lib_toml,
@@ -189,6 +195,7 @@ unix_default = []
         PackageFeatureContext {
             name: "unix_dep",
             version: "0.5.0",
+            source: None,
             is_workspace: false,
             is_root: false,
             toml: &unix_dep_toml,

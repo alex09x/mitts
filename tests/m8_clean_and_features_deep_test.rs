@@ -101,6 +101,7 @@ libc = { version = "0.2", optional = true }
     let ctx = PackageFeatureContext {
         name: "feat_pkg",
         version: "0.1.0",
+        source: None,
         is_workspace: true,
         is_root: true,
         toml: &toml,
@@ -126,6 +127,7 @@ libc = { version = "0.2", optional = true }
     let ctx_inactive = PackageFeatureContext {
         name: "feat_pkg",
         version: "0.1.0",
+        source: None,
         is_workspace: true,
         is_root: true,
         toml: &toml_inactive,
