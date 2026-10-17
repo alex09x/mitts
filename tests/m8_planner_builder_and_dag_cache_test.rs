@@ -102,6 +102,8 @@ edition = "2021"
         completed_env: None,
         completed_link_args: None,
         target_index: None,
+        tracked_extra_files: None,
+        tracked_env_vars: None,
     };
     assert!(!try_restore_from_cache(&unit, "key1", &ctx_no_cache, true).unwrap());
 

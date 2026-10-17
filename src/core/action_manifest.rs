@@ -56,10 +56,8 @@ impl ActionManifest {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let tmp_path = tmp_dir.join(format!(
-            "{}.{}.{}.manifest.tmp",
-            self.base_key, pid, counter
-        ));
+        let safe_base = crate::core::action_cache::safe_key_file_name(&self.base_key);
+        let tmp_path = tmp_dir.join(format!("{}.{}.{}.manifest.tmp", safe_base, pid, counter));
 
         fs::write(&tmp_path, json_bytes)
             .with_context(|| format!("Failed to write tmp manifest to {:?}", tmp_path))?;

@@ -132,7 +132,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.arg("--out-dir").arg(inv.out_dir);
     }
 
-    let debuginfo = crate::adapter::rust::key_flags::resolve_unit_debuginfo(
+    let profile = super::profile::resolve_unit_profile(
         &inv.unit.manifest_path,
         &inv.unit.package_name,
         inv.unit.is_workspace,
@@ -140,16 +140,48 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.release,
         inv.unit.workspace_root.as_deref(),
     )?;
-    if inv.release {
-        cmd.arg("-C").arg("opt-level=3");
+    if profile.opt_level != "0" || (inv.release && !inv.unit.for_host) {
+        cmd.arg("-C")
+            .arg(format!("opt-level={}", profile.opt_level));
     }
-    cmd.arg("-C").arg(format!("debuginfo={}", debuginfo));
-    cmd.arg("-C").arg("embed-bitcode=no");
+    cmd.arg("-C")
+        .arg(format!("debuginfo={}", profile.debuginfo));
+    if !matches!(profile.lto.as_deref(), Some("thin") | Some("fat")) {
+        cmd.arg("-C").arg("embed-bitcode=no");
+    }
+    if let Some(ref p) = profile
+        .panic
+        .as_ref()
+        .filter(|_| !inv.unit.for_host && !is_proc_macro && !is_test)
+    {
+        cmd.arg("-C").arg(format!("panic={}", p));
+    }
+    if let Some(cgu) = profile.codegen_units {
+        cmd.arg("-C").arg(format!("codegen-units={}", cgu));
+    }
+    if let Some(ref lto_mode) = profile
+        .lto
+        .as_ref()
+        .filter(|_| !inv.unit.for_host && is_bin && inv.mode == BuildMode::Build)
+    {
+        cmd.arg("-C").arg(format!("lto={}", lto_mode));
+    }
+    if let Some(ref strip_mode) = profile.strip.as_ref().filter(|s| s.as_str() != "none") {
+        cmd.arg("-C").arg(format!("strip={}", strip_mode));
+    }
+    if let Some(oc) = profile.overflow_checks {
+        cmd.arg("-C")
+            .arg(format!("overflow-checks={}", if oc { "on" } else { "off" }));
+    }
+    if let Some(da) = profile.debug_assertions {
+        cmd.arg("-C").arg(format!(
+            "debug-assertions={}",
+            if da { "on" } else { "off" }
+        ));
+    }
 
-    if !inv.unit.is_workspace {
-        cmd.arg("--cap-lints").arg("allow");
-    } else {
-        let pkg_dir = inv.unit.manifest_path.parent().unwrap_or(Path::new("."));
+    let pkg_dir = inv.unit.manifest_path.parent().unwrap_or(Path::new("."));
+    if !super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace) {
         let ws_root = find_workspace_root(&inv.unit.manifest_path);
         if pkg_dir.starts_with(&ws_root) {
             let ws_str = ws_root.to_string_lossy();
@@ -311,73 +343,52 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         &config_start_dir,
     );
 
+    let config_flags = super::cargo_config::load_cargo_config_rustflags(
+        &config_start_dir,
+        explicit_target.as_deref(),
+    )?;
     if super::key_flags::receives_target_rustflags(inv.unit, explicit_target.as_deref()) {
         if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
-            for flag in encoded.split('\x1f').filter(|f| !f.is_empty()) {
-                cmd.arg(flag);
-            }
+            cmd.args(encoded.split('\x1f').filter(|f| !f.is_empty()));
         } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
-            for flag in flags.split_whitespace() {
-                cmd.arg(flag);
-            }
+            cmd.args(flags.split_whitespace());
         } else {
-            let config_flags = super::cargo_config::load_cargo_config_rustflags(
-                &config_start_dir,
-                explicit_target.as_deref(),
-            )?;
-            for flag in config_flags {
-                cmd.arg(flag);
-            }
+            cmd.args(config_flags);
         }
     }
 
-    let is_host_unit = inv.unit.for_host
-        || inv.unit.kind == "proc-macro"
-        || inv.unit.kind == "custom-build"
-        || inv.unit.kind == "build-script";
-    let has_cli_target = inv
+    let is_host = inv.unit.for_host
+        || matches!(
+            inv.unit.kind.as_str(),
+            "proc-macro" | "custom-build" | "build-script"
+        );
+    let has_cli_t = inv
         .extra_compiler_args
         .iter()
         .any(|a| a == "--target" || a.starts_with("--target="));
-
-    if !is_host_unit && !has_cli_target {
-        if let Some(target) = &explicit_target {
-            cmd.arg("--target").arg(target);
-        }
+    if let Some(target) = explicit_target.as_ref().filter(|_| !is_host && !has_cli_t) {
+        cmd.arg("--target").arg(target);
     }
-
     let mut skip_next = false;
     for arg in inv.extra_compiler_args {
-        if skip_next {
-            skip_next = false;
+        if std::mem::take(&mut skip_next) || arg == "--workspace" || arg == "--all" {
             continue;
         }
-        if arg == "--workspace" || arg == "--all" {
+        if is_host && (arg == "--target" || arg.starts_with("--target=")) {
+            skip_next = arg == "--target";
             continue;
-        }
-        if is_host_unit {
-            if arg == "--target" {
-                skip_next = true;
-                continue;
-            }
-            if arg.starts_with("--target=") {
-                continue;
-            }
         }
         cmd.arg(arg);
     }
-
-    if !inv.unit.is_workspace {
+    if super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace) {
         cmd.arg("--cap-lints").arg("allow");
     }
     let is_pipelined_lib =
         inv.unit.kind == "lib" && inv.mode != BuildMode::Check && inv.mode != BuildMode::Clippy;
-
     if is_pipelined_lib {
         cmd.arg("--error-format=json").arg("--json=artifacts");
     } else {
         cmd.arg("--color=never");
     }
-
     Ok((cmd, clean_crate, is_pipelined_lib))
 }

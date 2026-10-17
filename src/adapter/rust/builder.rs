@@ -9,16 +9,61 @@
  */
 
 use super::planner::explain_plan;
-use super::types::{BuildProgressEvent, RustAdapterError, RustBuildOptions};
+use super::types::{
+    BuildProgressEvent, EffectivePlanExplanation, RustAdapterError, RustBuildOptions,
+};
 use crate::adapter::RustAdapter;
 use crate::core::action::{Action, ActionKind, ActionResult, BuildPlan};
 use crate::core::build_lock::{
-    FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs,
+    FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs, RecordStateOptions,
 };
 use crate::core::build_logger::BuildLogger;
+use crate::core::hash::Sha256;
 use anyhow::Result;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Computes a deterministic SHA-256 hash of all build-affecting `RustBuildOptions` fields.
+pub fn compute_options_hash(
+    opt: &RustBuildOptions,
+    target_dir: &Path,
+    manifest_path: &Path,
+) -> String {
+    let mut bin_targets = opt.bin_targets.clone();
+    bin_targets.sort();
+    let mut exclude = opt.exclude.clone();
+    exclude.sort();
+    let mut test_targets = opt.test_targets.clone();
+    test_targets.sort();
+    let mut features = opt.features.clone();
+    features.sort();
+
+    let payload = format!(
+        "manifest={}|target_dir={}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkg={:?}|exclude={:?}|bins={:?}|all_bins={}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
+        manifest_path.display(),
+        target_dir.display(),
+        opt.start_dir,
+        opt.release,
+        opt.mode,
+        opt.no_cache,
+        opt.native,
+        opt.cargo,
+        opt.package,
+        exclude,
+        bin_targets,
+        opt.all_bins,
+        opt.lib_only,
+        opt.doc_only,
+        test_targets,
+        opt.all_tests,
+        features,
+        opt.all_features,
+        opt.no_default_features,
+        opt.extra_args,
+        opt.cache_dir,
+    );
+    Sha256::digest(payload.as_bytes())
+}
 
 /// Executes the build purely natively with parallel rustc DAG compilation and CAS caching.
 pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
@@ -70,27 +115,33 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         RustAdapter::detect_toolchain()
     })?;
 
+    let options_hash = compute_options_hash(opt, &target_dir, &manifest_path);
+
     // Fast build lock pre-flight check: if zero project files changed, return in microsecond time.
     // Strictly restricted to Build and Check modes. In Test mode, test execution cannot be
     // cached by fast-lock because tests have runtime inputs and assertions that must be executed.
     if !opt.no_cache
         && opt.cache_dir.is_none()
-        && opt.extra_args.is_empty()
         && matches!(
             opt.mode,
             super::types::BuildMode::Build | super::types::BuildMode::Check
         )
     {
         let lock_start = std::time::Instant::now();
-        let freshness = FastBuildLock::check_freshness(&FreshnessCheckArgs {
-            project_dir,
-            profile,
-            package: &opt.package,
-            features: &opt.features,
-            no_default_features: opt.no_default_features,
-            all_features: opt.all_features,
-            toolchain_version: &toolchain.version,
-        });
+        let freshness = FastBuildLock::check_freshness_with_options(
+            &FreshnessCheckArgs {
+                project_dir,
+                profile,
+                package: &opt.package,
+                features: &opt.features,
+                no_default_features: opt.no_default_features,
+                all_features: opt.all_features,
+                toolchain_version: &toolchain.version,
+            },
+            Some(&target_dir),
+            Some(&options_hash),
+            true,
+        );
 
         match freshness {
             FreshnessResult::Fresh {
@@ -200,8 +251,11 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
 
     record_state_and_trace(
         project_dir,
+        &target_dir,
+        &options_hash,
         profile,
         opt,
+        &explanation,
         &toolchain,
         &plan,
         &result,
@@ -211,18 +265,22 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     Ok((plan, result))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_state_and_trace(
     project_dir: &Path,
+    target_dir: &Path,
+    options_hash: &str,
     profile: &str,
     opt: &RustBuildOptions,
+    explanation: &EffectivePlanExplanation,
     toolchain: &crate::core::action::ToolchainInfo,
     plan: &BuildPlan,
     result: &ActionResult,
     logger: &mut BuildLogger,
 ) {
     if result.success
+        && !opt.no_cache
         && opt.cache_dir.is_none()
-        && opt.extra_args.is_empty()
         && matches!(
             opt.mode,
             super::types::BuildMode::Build | super::types::BuildMode::Check
@@ -238,23 +296,47 @@ fn record_state_and_trace(
                 root_binary = action.outputs.first().cloned();
             }
         }
-        let _ = FastBuildLock::record_state(&RecordStateArgs {
-            project_dir,
-            profile,
-            package: &opt.package,
-            features: &opt.features,
-            no_default_features: opt.no_default_features,
-            all_features: opt.all_features,
-            toolchain_version: &toolchain.version,
-            action_count: plan.actions.len(),
-            root_binary,
-            outputs: &outputs,
-            stderr: if result.stderr.is_empty() {
-                None
-            } else {
-                Some(&result.stderr)
+        let mut extra_pkg_dirs: Vec<PathBuf> = Vec::new();
+        let ws_root = super::compiler_resolve::find_workspace_root(&explanation.manifest_path);
+        if ws_root != project_dir {
+            extra_pkg_dirs.push(ws_root);
+        }
+        for unit in &explanation.units {
+            if super::unit_inputs::is_mutable_unit(unit) {
+                let pkg_dir = super::key_flags::resolve_unit_pkg_dir(unit);
+                if pkg_dir != project_dir && !extra_pkg_dirs.contains(&pkg_dir) {
+                    extra_pkg_dirs.push(pkg_dir);
+                }
+            }
+        }
+
+        let _ = FastBuildLock::record_state_with_options(
+            &RecordStateArgs {
+                project_dir,
+                profile,
+                package: &opt.package,
+                features: &opt.features,
+                no_default_features: opt.no_default_features,
+                all_features: opt.all_features,
+                toolchain_version: &toolchain.version,
+                action_count: plan.actions.len(),
+                root_binary,
+                outputs: &outputs,
+                stderr: if result.stderr.is_empty() {
+                    None
+                } else {
+                    Some(&result.stderr)
+                },
             },
-        });
+            &RecordStateOptions {
+                target_dir: Some(target_dir),
+                options_hash: Some(options_hash),
+                extra_package_dirs: &extra_pkg_dirs,
+                tracked_extra_files: Some(&plan.tracked_extra_files),
+                tracked_env_vars: Some(&plan.tracked_env_vars),
+                has_complete_inputs: true,
+            },
+        );
     }
     let outcome = if result.success {
         "Build completed successfully"

@@ -46,6 +46,39 @@ pub fn discover_clippy_config(start_dir: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Returns true only when `package_dir` is an immutable external dependency directory:
+/// 1. Official Cargo registry source (`$CARGO_HOME/registry/src/...` or `~/.cargo/registry/src/...`) with `.cargo-ok`, OR
+/// 2. Mitts source store (`$MITTS_CACHE_DIR/sources/...` or `~/.cache/mitts/sources/...`) with `.mitts-ok`, OR
+/// 3. Official Cargo git checkout (`$CARGO_HOME/git/checkouts/...` or `.../git/checkouts/...`).
+pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool {
+    if is_workspace {
+        return false;
+    }
+    let cargo_home =
+        crate::core::SourceStore::active_cargo_home().unwrap_or_else(|| PathBuf::from(".cargo"));
+    let cargo_registry_src = cargo_home.join("registry").join("src");
+    let in_cargo_registry = package_dir.starts_with(&cargo_registry_src)
+        || package_dir.ancestors().any(|a| a.ends_with("registry/src"));
+    let has_cargo_ok = package_dir.join(".cargo-ok").is_file();
+
+    let cargo_git_checkouts = cargo_home.join("git").join("checkouts");
+    let in_cargo_git = package_dir.starts_with(&cargo_git_checkouts)
+        || package_dir
+            .ancestors()
+            .any(|a| a.ends_with("git/checkouts"));
+
+    let mitts_sources = crate::core::SourceStore::default_root();
+    let in_mitts_sources = package_dir.starts_with(&mitts_sources)
+        || package_dir
+            .ancestors()
+            .any(|a| a.ends_with("mitts/sources") || a.ends_with("mitts/cache/sources"));
+    let has_mitts_ok = package_dir
+        .join(crate::core::source_store::MITTS_OK_MARKER)
+        .is_file();
+
+    (in_cargo_registry && has_cargo_ok) || (in_mitts_sources && has_mitts_ok) || in_cargo_git
+}
+
 pub fn hash_package_common_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
@@ -53,39 +86,7 @@ pub fn hash_package_common_inputs(
 ) -> Result<Vec<(String, String)>> {
     let mut inputs = Vec::new();
 
-    // Fast-path for immutable registry dependencies:
-    // Only packages residing in official cargo cache or mitts source store are immutable.
-    let is_immutable_registry = if is_workspace {
-        false
-    } else {
-        let cargo_registry_src = std::env::var("CARGO_HOME")
-            .map(|h| PathBuf::from(h).join("registry").join("src"))
-            .unwrap_or_else(|_| {
-                std::env::var("HOME")
-                    .map(|h| PathBuf::from(h).join(".cargo").join("registry").join("src"))
-                    .unwrap_or_else(|_| PathBuf::from(".cargo/registry/src"))
-            });
-        let in_cargo_registry = package_dir.starts_with(&cargo_registry_src);
-        let has_cargo_ok = package_dir.join(".cargo-ok").is_file();
-        let in_cargo_git = package_dir
-            .ancestors()
-            .any(|a| a.ends_with(".cargo/git/checkouts"));
-        let in_mitts_sources = if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
-            package_dir.starts_with(PathBuf::from(val).join("sources"))
-        } else if let Ok(home) = std::env::var("HOME") {
-            package_dir.starts_with(
-                PathBuf::from(home)
-                    .join(".cache")
-                    .join("mitts")
-                    .join("sources"),
-            )
-        } else {
-            false
-        };
-        in_cargo_registry || has_cargo_ok || in_cargo_git || in_mitts_sources
-    };
-
-    if is_immutable_registry {
+    if is_immutable_package_dir(package_dir, is_workspace) {
         let cargo_toml = package_dir.join("Cargo.toml");
         let hash = if cargo_toml.is_file() {
             Sha256::digest_file(&cargo_toml)
@@ -270,11 +271,11 @@ pub use super::unit_inputs::{
     clean_path, compute_unit_coarse_inputs, is_file_in_unit_coarse_inputs, scan_dir_inputs,
 };
 
-/// Gathers full package base inputs including tests/, benches/, and examples/ for build scripts and impure macros.
-pub fn hash_package_full_inputs(
+fn hash_package_inputs_impl(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
     is_workspace: bool,
+    include_tests: bool,
 ) -> Result<Vec<(String, String)>> {
     let mut inputs = hash_package_common_inputs(package_dir, workspace_manifest, is_workspace)?;
     if inputs.iter().any(|(k, _)| k == "immutable_pkg") {
@@ -288,11 +289,13 @@ pub fn hash_package_full_inputs(
         let file_name = entry.file_name();
         let name_str = file_name.to_string_lossy();
         if path.is_dir() {
-            if name_str == "target"
+            let skip = name_str == "target"
                 || name_str == ".git"
                 || name_str == ".mitts"
-                || path.join("Cargo.toml").is_file()
-            {
+                || (!include_tests
+                    && (name_str == "tests" || name_str == "benches" || name_str == "examples"))
+                || path.join("Cargo.toml").is_file();
+            if skip {
                 continue;
             }
             scan_dir_inputs(&path, package_dir, &mut inputs)?;
@@ -303,40 +306,22 @@ pub fn hash_package_full_inputs(
     Ok(inputs)
 }
 
+/// Gathers full package base inputs including tests/, benches/, and examples/ for build scripts and impure macros.
+pub fn hash_package_full_inputs(
+    package_dir: &Path,
+    workspace_manifest: Option<&Path>,
+    is_workspace: bool,
+) -> Result<Vec<(String, String)>> {
+    hash_package_inputs_impl(package_dir, workspace_manifest, is_workspace, true)
+}
+
 /// Gathers package base inputs excluding tests/, benches/, and examples/ for standard compilation units.
 pub fn hash_package_base_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
     is_workspace: bool,
 ) -> Result<Vec<(String, String)>> {
-    let mut inputs = hash_package_common_inputs(package_dir, workspace_manifest, is_workspace)?;
-    if inputs.iter().any(|(k, _)| k == "immutable_pkg") {
-        return Ok(inputs);
-    }
-    let entries = fs::read_dir(package_dir)
-        .with_context(|| format!("Failed to read package directory {:?}", package_dir))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let file_name = entry.file_name();
-        let name_str = file_name.to_string_lossy();
-        if path.is_dir() {
-            if name_str == "target"
-                || name_str == ".git"
-                || name_str == ".mitts"
-                || name_str == "tests"
-                || name_str == "benches"
-                || name_str == "examples"
-                || path.join("Cargo.toml").is_file()
-            {
-                continue;
-            }
-            scan_dir_inputs(&path, package_dir, &mut inputs)?;
-        }
-    }
-    inputs.sort_by(|a, b| a.0.cmp(&b.0));
-    inputs.dedup_by(|a, b| a.0 == b.0);
-    Ok(inputs)
+    hash_package_inputs_impl(package_dir, workspace_manifest, is_workspace, false)
 }
 
 /// Appends target-specific dep-info tracked assets to base package inputs with optional workspace root for path normalization.

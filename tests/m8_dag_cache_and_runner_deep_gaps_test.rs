@@ -103,6 +103,8 @@ links = "native_zlib"
         completed_env: None,
         completed_link_args: None,
         target_index: None,
+        tracked_extra_files: None,
+        tracked_env_vars: None,
     };
 
     let action_key = "test_missing_cas_key";
@@ -224,6 +226,8 @@ links = "native_zlib"
         completed_env: None,
         completed_link_args: None,
         target_index: None,
+        tracked_extra_files: None,
+        tracked_env_vars: None,
     };
 
     let restored_with_meta = try_restore_from_cache(&unit, action_key, &ctx2, false).unwrap();
@@ -311,6 +315,8 @@ fn test_m8_dag_cache_binary_restore_copy() {
         completed_env: None,
         completed_link_args: None,
         target_index: None,
+        tracked_extra_files: None,
+        tracked_env_vars: None,
     };
 
     let (bin_hash, bin_size) = ctx.cas.store_bytes(b"mock executable content").unwrap();

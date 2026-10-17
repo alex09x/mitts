@@ -116,7 +116,8 @@ pub fn compute_build_script_key(
             unit.manifest_path.display()
         )
     })?;
-    if unit.is_workspace || !is_registry {
+    let is_immutable = super::inputs::is_immutable_package_dir(pkg_dir, unit.is_workspace);
+    if unit.is_workspace || !is_registry || !is_immutable {
         let base_inputs = hash_package_full_inputs(pkg_dir, None, true).with_context(|| {
             format!(
                 "Failed to hash package inputs for '{}' at {}",

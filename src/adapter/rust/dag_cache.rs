@@ -24,6 +24,8 @@ pub type MetadataReadyCallback<'a> = &'a (dyn Fn(&str, &Path) + Send + Sync);
 pub type CompletedCfgsMap = Arc<Mutex<HashMap<String, Vec<String>>>>;
 pub type CompletedEnvMap = Arc<Mutex<HashMap<String, HashMap<String, String>>>>;
 pub type CompletedLinkArgsMap = Arc<Mutex<HashMap<String, Vec<String>>>>;
+pub type TrackedExtraFilesMap = Arc<Mutex<std::collections::BTreeMap<PathBuf, String>>>;
+pub type TrackedEnvVarsMap = Arc<Mutex<std::collections::BTreeMap<String, Option<String>>>>;
 
 pub struct ExecutionContext<'a> {
     pub opt: &'a RustBuildOptions,
@@ -47,6 +49,8 @@ pub struct ExecutionContext<'a> {
     pub completed_env: Option<&'a CompletedEnvMap>,
     pub completed_link_args: Option<&'a CompletedLinkArgsMap>,
     pub target_index: Option<&'a Arc<Mutex<crate::core::TargetArtifactIndex>>>,
+    pub tracked_extra_files: Option<&'a TrackedExtraFilesMap>,
+    pub tracked_env_vars: Option<&'a TrackedEnvVarsMap>,
 }
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.
@@ -72,7 +76,8 @@ pub fn try_restore_from_cache_with_directives(
         return Ok(false);
     }
 
-    let ws_root = if unit.is_workspace {
+    let is_mutable = super::unit_inputs::is_mutable_unit(unit);
+    let ws_root = if is_mutable {
         Some(super::compiler::find_workspace_root(&unit.manifest_path))
     } else {
         None
@@ -83,7 +88,7 @@ pub fn try_restore_from_cache_with_directives(
 
     // 1. Resolve candidate action keys (manifest match or direct key)
     let mut candidate_keys = Vec::new();
-    if unit.is_workspace {
+    if is_mutable {
         if let Ok(Some(manifest)) = ctx.ac.get_manifest(action_key) {
             let has_build = super::unit_env::unit_has_build_script(unit);
             if has_build && current_directives.is_none() {
@@ -115,6 +120,17 @@ pub fn try_restore_from_cache_with_directives(
             if let Some(matched_res_key) =
                 manifest.find_matching_entry(ws_root.as_deref(), Some(&unit_env), out_dir)
             {
+                if let Some(matched_entry) = manifest
+                    .entries
+                    .iter()
+                    .find(|e| e.result_key == matched_res_key)
+                {
+                    super::dag_unit_publish::record_extra_inputs_in_ctx(
+                        ctx,
+                        ws_root.as_deref(),
+                        &matched_entry.extra_inputs,
+                    );
+                }
                 candidate_keys.push(matched_res_key.clone());
                 if let Some(ref h) = current_ws_hash {
                     candidate_keys.push(format!("{}:ws_leak:{}", matched_res_key, h));
@@ -264,7 +280,7 @@ pub fn try_restore_from_cache_with_directives(
                     }
                 }
 
-                if ext == "rlib" || ext == "dylib" || ext == "so" {
+                if matches!(ext, "rlib" | "dylib" | "so" | "rmeta") {
                     let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
                         &unit.target_name,
                         &out.cas_hash,
@@ -273,17 +289,7 @@ pub fn try_restore_from_cache_with_directives(
                     ) else {
                         return Ok(false);
                     };
-                    staged_completed.push((unit.unit_id(), named, true));
-                } else if ext == "rmeta" {
-                    let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
-                        &unit.target_name,
-                        &out.cas_hash,
-                        action_key,
-                        "rmeta",
-                    ) else {
-                        return Ok(false);
-                    };
-                    staged_completed.push((unit.unit_id(), named, false));
+                    staged_completed.push((unit.unit_id(), named, ext != "rmeta"));
                 }
             }
             let mut map = ctx.completed_artifacts.lock().unwrap();
@@ -357,22 +363,23 @@ pub fn try_restore_from_cache_with_directives(
                 .map(|o| ctx.target_dir.join(&o.relative_path))
                 .collect(),
             args: Vec::new(),
-            env: {
-                let mut env = HashMap::from([
+            env: unit
+                .manifest_path
+                .parent()
+                .map(|p| {
+                    (
+                        "CARGO_MANIFEST_DIR".into(),
+                        p.to_string_lossy().into_owned(),
+                    )
+                })
+                .into_iter()
+                .chain([
                     ("CARGO_PKG_NAME".into(), unit.package_name.clone()),
                     ("CARGO_PKG_VERSION".into(), unit.version.clone()),
-                ]);
-                if let Some(parent) = unit.manifest_path.parent() {
-                    env.insert(
-                        "CARGO_MANIFEST_DIR".into(),
-                        parent.to_string_lossy().to_string(),
-                    );
-                }
-                env
-            },
+                ])
+                .collect(),
             dependencies: Vec::new(),
         });
-
         if let Some(ref cb) = ctx.opt.progress {
             cb.0(BuildProgressEvent::UnitFinished);
         }
@@ -381,6 +388,5 @@ pub fn try_restore_from_cache_with_directives(
         }
         return Ok(true);
     }
-
     Ok(false)
 }

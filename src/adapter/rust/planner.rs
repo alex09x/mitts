@@ -31,6 +31,21 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
 
     let root_toml = CargoToml::from_file(&manifest_path)
         .with_context(|| format!("Failed to parse root manifest at {manifest_path:?}"))?;
+    let cfg_dir = super::cargo_config::resolve_config_start_dir_with_opt(
+        project_dir,
+        opt.start_dir.as_deref(),
+    );
+    let explicit_target =
+        super::key_flags::resolve_explicit_target_from_args_and_dir(&opt.extra_args, &cfg_dir);
+    let _ = super::cargo_config::load_cargo_config_rustflags(&cfg_dir, explicit_target.as_deref())?;
+    let _ = super::profile::resolve_unit_profile(
+        &manifest_path,
+        "",
+        true,
+        false,
+        opt.release,
+        Some(project_dir),
+    )?;
 
     let members = root_toml.discover_workspace_members(project_dir)?;
     let mut workspace_manifests: HashMap<String, (PathBuf, CargoToml)> = HashMap::new();

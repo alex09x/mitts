@@ -77,17 +77,16 @@ pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedD
             continue;
         }
 
-        let is_continuation = line.ends_with('\\');
-        let (tokens_part, line_in_deps) = if let Some((_, deps_part)) = line.split_once(':') {
+        let is_continuation = line.ends_with('\\') && !line.ends_with("\\\\");
+        let (tokens_part, line_in_deps) = if let Some((_, deps_part)) = split_dep_target(line) {
             (deps_part, true)
         } else {
             (line, in_deps)
         };
 
-        for token in tokens_part.split_whitespace() {
-            let token = token.trim_end_matches('\\');
+        for token in tokenize_dep_info_paths(tokens_part) {
             if !token.is_empty() {
-                let p = PathBuf::from(token);
+                let p = PathBuf::from(&token);
                 let resolved = if p.is_relative() {
                     if let Some(r) = root {
                         r.join(&p)
@@ -105,6 +104,63 @@ pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedD
         in_deps = is_continuation && line_in_deps;
     }
     Ok(parsed)
+}
+
+fn split_dep_target(line: &str) -> Option<(&str, &str)> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b':' {
+            // Avoid splitting on Windows drive letter like C:\
+            if i == 1 && bytes[0].is_ascii_alphabetic() && bytes.get(2) == Some(&b'\\') {
+                i += 1;
+                continue;
+            }
+            return Some((&line[..i], &line[i + 1..]));
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Tokenizes a Makefile dependency list line, honoring `\ ` escaped spaces
+/// and ignoring a trailing line-continuation `\`.
+pub fn tokenize_dep_info_paths(input: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.peek().copied() {
+                Some(' ') | Some('\t') | Some('#') | Some(':') | Some('\\') => {
+                    if let Some(escaped) = chars.next() {
+                        current.push(escaped);
+                    }
+                }
+                Some(_) => {
+                    current.push('\\');
+                }
+                None => {
+                    // Trailing line-continuation backslash; ignore.
+                }
+            }
+        } else if ch.is_whitespace() {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(ch);
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
 }
 
 /// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths,

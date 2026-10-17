@@ -170,40 +170,69 @@ fn extract_rustflags_from_toml(
         Some(effective_target)
     };
 
+    if let Some(first_key) = val.get("env").and_then(|e| e.as_table()?.keys().next()) {
+        return Err(super::types::RustAdapterError::UnsupportedOption(format!(
+            "env.{} in {}",
+            first_key,
+            config_path.display()
+        ))
+        .into());
+    }
+
+    let check_target_fields = |key: &str, tbl: &toml::Value| -> Result<()> {
+        for field in ["linker", "runner"] {
+            if tbl.get(field).is_some() {
+                return Err(super::types::RustAdapterError::UnsupportedOption(format!(
+                    "target.{}.{} in {}",
+                    key,
+                    field,
+                    config_path.display()
+                ))
+                .into());
+            }
+        }
+        Ok(())
+    };
+
     if let Some(targets) = val.get("target").and_then(|t| t.as_table()) {
         let mut merged_target: Vec<String> = Vec::new();
         let mut found_target_table = false;
 
-        // 1. Check target.<effective_target>.rustflags
+        // 1. Check target.<effective_target>
         if let Some(target_val) = targets.get(effective_target) {
-            if let Some(rf) = target_val.get("rustflags") {
-                if let Some(flags) = parse_flags_value(rf) {
-                    found_target_table = true;
-                    merged_target.extend(flags);
-                }
+            check_target_fields(effective_target, target_val)?;
+            if let Some(flags) = target_val.get("rustflags").and_then(parse_flags_value) {
+                found_target_table = true;
+                merged_target.extend(flags);
             }
         }
 
-        // 2. Evaluate target.'cfg(...)'.rustflags against base target cfg atoms
+        // 2. Evaluate target.'cfg(...)' against base target cfg atoms
         for (key, target_val) in targets {
-            if key.starts_with("cfg(") || key.contains("cfg(") {
-                if let Some(target_table) = target_val.as_table() {
-                    if let Some(rf) = target_table.get("rustflags") {
-                        let matched = super::target_filter::eval_base_target_cfg(key, target_opt)
-                            .map_err(|e| {
-                            anyhow::anyhow!(
-                                "Unsupported cargo config: target.'{}' rustflags in {}: {}",
-                                key,
-                                config_path.display(),
-                                e
-                            )
-                        })?;
-                        if matched {
-                            if let Some(flags) = parse_flags_value(rf) {
-                                found_target_table = true;
-                                merged_target.extend(flags);
-                            }
-                        }
+            let Some(target_table) = target_val
+                .as_table()
+                .filter(|_| key.starts_with("cfg(") || key.contains("cfg("))
+            else {
+                continue;
+            };
+            let has_relevant = ["rustflags", "linker", "runner"]
+                .iter()
+                .any(|f| target_table.contains_key(*f));
+            if has_relevant {
+                let matched =
+                    super::target_filter::eval_base_target_cfg(key, target_opt).map_err(|e| {
+                        anyhow::anyhow!(
+                            "Unsupported cargo config: target.'{}' rustflags in {}: {}",
+                            key,
+                            config_path.display(),
+                            e
+                        )
+                    })?;
+                if matched {
+                    check_target_fields(key, target_val)?;
+                    if let Some(flags) = target_table.get("rustflags").and_then(parse_flags_value) {
+                        found_target_table = true;
+                        merged_target.extend(flags);
                     }
                 }
             }
@@ -316,10 +345,8 @@ rustflags = "-C opt-level=3 --cfg custom_mark"
             vec!["-C", "opt-level=3", "--cfg", "custom_mark"]
         );
 
-        let content_arr = r#"
-[build]
-rustflags = ["-C", "opt-level=2", "--cfg", "mark_array"]
-"#;
+        let content_arr =
+            "[build]\nrustflags = [\"-C\", \"opt-level=2\", \"--cfg\", \"mark_array\"]\n";
         let val2: toml::Value = toml::from_str(content_arr).unwrap();
         let extracted2 =
             extract_rustflags_from_toml(&val2, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
@@ -332,13 +359,7 @@ rustflags = ["-C", "opt-level=2", "--cfg", "mark_array"]
 
     #[test]
     fn test_extract_target_triple_rustflags_precedence() {
-        let content = r#"
-[build]
-rustflags = ["--cfg", "build_flag"]
-
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["--cfg", "linux_flag"]
-"#;
+        let content = "[build]\nrustflags = [\"--cfg\", \"build_flag\"]\n[target.x86_64-unknown-linux-gnu]\nrustflags = [\"--cfg\", \"linux_flag\"]\n";
         let val: toml::Value = toml::from_str(content).unwrap();
         let extracted =
             extract_rustflags_from_toml(&val, "x86_64-unknown-linux-gnu", Path::new("dummy.toml"))
@@ -350,23 +371,13 @@ rustflags = ["--cfg", "linux_flag"]
     #[test]
     fn test_extract_target_cfg_evaluation_and_invalid_syntax() {
         let host = super::super::compiler_resolve::try_resolve_host_triple().unwrap();
-        let content = r#"
-[target.'cfg(any(unix, windows))']
-rustflags = ["--cfg", "matched_cfg"]
-
-[target.'cfg(target_os = "nonexistent_os")']
-rustflags = ["--cfg", "unmatched_cfg"]
-"#;
+        let content = "[target.'cfg(any(unix, windows))']\nrustflags = [\"--cfg\", \"matched_cfg\"]\n[target.'cfg(target_os = \"nonexistent_os\")']\nrustflags = [\"--cfg\", \"unmatched_cfg\"]\n";
         let val: toml::Value = toml::from_str(content).unwrap();
         let extracted = extract_rustflags_from_toml(&val, &host, Path::new("custom.toml")).unwrap();
         assert_eq!(extracted.target.unwrap(), vec!["--cfg", "matched_cfg"]);
 
-        let bad_content = r#"
-[target.'cfg(invalid_fn(foo))']
-rustflags = ["--cfg", "bad_cfg"]
-"#;
+        let bad_content = "[target.'cfg(invalid_fn(foo))']\nrustflags = [\"--cfg\", \"bad_cfg\"]\n";
         let bad_val: toml::Value = toml::from_str(bad_content).unwrap();
-        let res = extract_rustflags_from_toml(&bad_val, &host, Path::new("custom.toml"));
-        assert!(res.is_err());
+        assert!(extract_rustflags_from_toml(&bad_val, &host, Path::new("custom.toml")).is_err());
     }
 }

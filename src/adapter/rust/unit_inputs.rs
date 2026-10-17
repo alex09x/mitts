@@ -130,28 +130,69 @@ pub fn compute_package_cache_entry(
     })
 }
 
+/// Returns true if the unit belongs to a mutable package (workspace member or non-immutable external path dep).
+pub fn is_mutable_unit(unit: &PlannedCompilationUnit) -> bool {
+    let pkg_dir = super::key_flags::resolve_unit_pkg_dir(unit);
+    !super::inputs::is_immutable_package_dir(&pkg_dir, unit.is_workspace)
+}
+
+/// Formats the canonical immutable package identity label from `unit.package_id` and optional `Cargo.lock` checksum.
+pub fn format_immutable_pkg_label(
+    unit: &PlannedCompilationUnit,
+    lock_checksum: Option<&str>,
+) -> String {
+    let base = if !unit.package_id.is_empty() {
+        unit.package_id.clone()
+    } else {
+        format!("{} {}", unit.package_name, unit.version)
+    };
+    match lock_checksum.filter(|c| !c.is_empty()) {
+        Some(cksum) => format!("{}:cksum:{}", base, cksum),
+        None => base,
+    }
+}
+
 /// Computes coarse unit-specific inputs using precomputed package common and src sets.
 pub fn compute_unit_coarse_inputs(
     unit: &PlannedCompilationUnit,
     pkg_dir: &Path,
     pkg_entry: &PackageInputsCacheEntry,
 ) -> Result<Vec<(String, String)>> {
-    let mut inputs = pkg_entry.common_inputs.clone();
+    compute_unit_coarse_inputs_with_checksum(unit, pkg_dir, pkg_entry, None)
+}
 
-    if unit.kind == "lib"
-        || unit.kind == "bin"
-        || unit.kind == "proc-macro"
-        || unit.kind == "custom-build"
-    {
+/// Computes coarse unit-specific inputs with an optional Cargo.lock checksum for immutable packages.
+pub fn compute_unit_coarse_inputs_with_checksum(
+    unit: &PlannedCompilationUnit,
+    pkg_dir: &Path,
+    pkg_entry: &PackageInputsCacheEntry,
+    lock_checksum: Option<&str>,
+) -> Result<Vec<(String, String)>> {
+    let mut inputs = pkg_entry.common_inputs.clone();
+    if let Some((_, val)) = inputs.iter_mut().find(|(k, _)| k == "immutable_pkg") {
+        *val = format_immutable_pkg_label(unit, lock_checksum);
+        inputs.sort_by(|a, b| a.0.cmp(&b.0));
+        return Ok(inputs);
+    }
+
+    let is_primary_target = matches!(
+        unit.kind.as_str(),
+        "lib" | "bin" | "proc-macro" | "custom-build"
+    );
+    let has_impure_macro = super::key_flags::unit_has_impure_proc_macro(unit);
+    if is_primary_target || has_impure_macro {
         inputs.extend_from_slice(&pkg_entry.src_inputs);
-        if super::key_flags::unit_has_impure_proc_macro(unit) {
-            for extra_dir in &["tests", "benches", "examples"] {
-                let p = pkg_dir.join(extra_dir);
-                if p.is_dir() {
-                    scan_dir_inputs(&p, pkg_dir, &mut inputs)?;
-                }
+    }
+    if has_impure_macro {
+        for extra_dir in &["tests", "benches", "examples"] {
+            let p = pkg_dir.join(extra_dir);
+            if p.is_dir() {
+                scan_dir_inputs(&p, pkg_dir, &mut inputs)?;
             }
         }
+    }
+
+    if is_primary_target {
         let src_dir = pkg_dir.join("src");
         if unit.src_path.is_file() && !unit.src_path.starts_with(&src_dir) {
             let hash = Sha256::digest_file(&unit.src_path)
@@ -165,16 +206,6 @@ pub fn compute_unit_coarse_inputs(
             inputs.push((rel, hash));
         }
     } else {
-        // test, bench, example: do not include library src/ tree in unit coarse inputs unless impure
-        if super::key_flags::unit_has_impure_proc_macro(unit) {
-            inputs.extend_from_slice(&pkg_entry.src_inputs);
-            for extra_dir in &["tests", "benches", "examples"] {
-                let p = pkg_dir.join(extra_dir);
-                if p.is_dir() {
-                    scan_dir_inputs(&p, pkg_dir, &mut inputs)?;
-                }
-            }
-        }
         let src_path = &unit.src_path;
         if src_path.is_file() {
             let is_dir_runner = src_path
@@ -210,10 +241,12 @@ pub fn is_file_in_scanned_tree(pkg_dir: &Path, file_path: &Path, allow_test_dirs
     let Ok(rel) = file_path.strip_prefix(pkg_dir) else {
         return false;
     };
-    if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
-        if is_ignored_file_name(file_name) {
-            return false;
-        }
+    if file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(is_ignored_file_name)
+    {
+        return false;
     }
     let mut current = pkg_dir.to_path_buf();
     let components: Vec<_> = rel.components().collect();
@@ -236,7 +269,7 @@ pub fn is_file_in_scanned_tree(pkg_dir: &Path, file_path: &Path, allow_test_dirs
     true
 }
 
-/// Returns true if a path within pkg_dir is part of the standard scanned package sources (excluding tests/, benches/, examples/, nested crates, and build/vcs artifacts).
+/// Returns true if a path within pkg_dir is part of the standard scanned package sources.
 #[inline]
 pub fn is_file_in_scanned_pkg_sources(pkg_dir: &Path, file_path: &Path) -> bool {
     is_file_in_scanned_tree(pkg_dir, file_path, false)
@@ -250,49 +283,30 @@ pub fn is_file_in_unit_coarse_inputs(
 ) -> bool {
     let cleaned_file = clean_path(file_path);
     let cleaned_pkg = clean_path(pkg_dir);
-
-    // Root-level files directly in package_dir
     if cleaned_file.parent() == Some(&cleaned_pkg) {
         return true;
     }
-
-    if unit.kind == "lib"
-        || unit.kind == "bin"
-        || unit.kind == "proc-macro"
-        || unit.kind == "custom-build"
-    {
-        let allow_tests = super::key_flags::unit_has_impure_proc_macro(unit);
-        if is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, allow_tests) {
-            return true;
-        }
-        let unit_src = clean_path(&unit.src_path);
-        if cleaned_file == unit_src {
-            return true;
-        }
-    } else {
-        if super::key_flags::unit_has_impure_proc_macro(unit)
-            && is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, true)
-        {
-            return true;
-        }
-        let unit_src = clean_path(&unit.src_path);
-        if cleaned_file == unit_src {
-            return true;
-        }
-        let is_dir_runner = unit_src
-            .file_name()
-            .map(|n| n == "main.rs" || n == "lib.rs")
-            .unwrap_or(false);
-        if is_dir_runner {
-            if let Some(parent) = unit_src.parent() {
-                if parent != cleaned_pkg && cleaned_file.starts_with(parent) {
-                    return true;
-                }
-            }
-        }
+    let unit_src = clean_path(&unit.src_path);
+    if cleaned_file == unit_src {
+        return true;
     }
-
-    false
+    let is_primary_target = matches!(
+        unit.kind.as_str(),
+        "lib" | "bin" | "proc-macro" | "custom-build"
+    );
+    let has_impure_macro = super::key_flags::unit_has_impure_proc_macro(unit);
+    if is_primary_target {
+        is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, has_impure_macro)
+    } else if has_impure_macro && is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, true) {
+        true
+    } else {
+        unit_src
+            .file_name()
+            .is_some_and(|n| n == "main.rs" || n == "lib.rs")
+            && unit_src
+                .parent()
+                .is_some_and(|p| p != cleaned_pkg && cleaned_file.starts_with(p))
+    }
 }
 
 /// Discovers unit extra inputs (e.g., test helpers, included files) from the compiler's .d dep-info.
@@ -303,70 +317,52 @@ pub fn extract_unit_extra_inputs(
     out_dir_purity: Option<&super::build_script_purity::BuildScriptPurity>,
     out_dir: Option<&Path>,
 ) -> Result<Vec<(String, String)>> {
+    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    if super::inputs::is_immutable_package_dir(pkg_dir, unit.is_workspace) {
+        return Ok(Vec::new());
+    }
     let mut extra_inputs = Vec::new();
-    if unit.is_workspace {
-        if let Some(root) = ws_root {
-            let cleaned_root = clean_path(root);
-            let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-            let cleaned_staging = clean_path(staging_dir);
-            let staging_out = clean_path(&staging_dir.join("out"));
-            let explicit_out = out_dir.map(clean_path);
-
-            if let Ok(entries) = fs::read_dir(staging_dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.extension().map(|e| e == "d").unwrap_or(false) {
-                        let parsed = super::dep_info::parse_dep_info_full(&p, Some(root))?;
-                        for file_path in parsed.files {
-                            let cleaned_file = clean_path(&file_path);
-                            if is_file_in_unit_coarse_inputs(unit, pkg_dir, &cleaned_file) {
-                                continue;
-                            }
-                            let norm_path = if let Some(ref d_out) = explicit_out {
-                                if let Ok(rel) = cleaned_file.strip_prefix(d_out) {
-                                    format!("out:{}", rel.display())
-                                } else if let Ok(rel) = cleaned_file.strip_prefix(&staging_out) {
-                                    format!("out:{}", rel.display())
-                                } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_staging)
-                                {
-                                    format!("out:{}", rel.display())
-                                } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
-                                    format!("ws:{}", rel.display())
-                                } else {
-                                    cleaned_file.to_string_lossy().to_string()
-                                }
-                            } else if let Ok(rel) = cleaned_file.strip_prefix(&staging_out) {
-                                format!("out:{}", rel.display())
-                            } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_staging) {
-                                format!("out:{}", rel.display())
-                            } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
-                                format!("ws:{}", rel.display())
-                            } else {
-                                cleaned_file.to_string_lossy().to_string()
-                            };
-                            let hash = Sha256::digest_file(&file_path)?;
-                            extra_inputs.push((norm_path, hash));
-                        }
-                        for (var, val_opt) in parsed.env_deps {
-                            let norm_path = format!("env:{}", var);
-                            let hash = match (var.as_str(), out_dir_purity) {
-                                ("OUT_DIR", Some(purity)) => {
-                                    Sha256::digest(purity.out_dir_hash.as_bytes())
-                                }
-                                _ => match val_opt {
-                                    Some(v) => Sha256::digest(v.as_bytes()),
-                                    None => Sha256::digest(b"__UNSET__"),
-                                },
-                            };
-                            extra_inputs.push((norm_path, hash));
-                        }
+    let root = ws_root.unwrap_or(pkg_dir);
+    let cleaned_root = clean_path(root);
+    let cleaned_staging = clean_path(staging_dir);
+    let staging_out = clean_path(&staging_dir.join("out"));
+    let explicit_out = out_dir.map(clean_path);
+    if let Ok(entries) = fs::read_dir(staging_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().is_some_and(|e| e == "d") {
+                let parsed = super::dep_info::parse_dep_info_full(&p, Some(root))?;
+                for file_path in parsed.files {
+                    let cleaned_file = clean_path(&file_path);
+                    if is_file_in_unit_coarse_inputs(unit, pkg_dir, &cleaned_file) {
+                        continue;
                     }
+                    let norm_path = if let Some(rel) = explicit_out
+                        .as_ref()
+                        .and_then(|d_out| cleaned_file.strip_prefix(d_out).ok())
+                        .or_else(|| cleaned_file.strip_prefix(&staging_out).ok())
+                        .or_else(|| cleaned_file.strip_prefix(&cleaned_staging).ok())
+                    {
+                        format!("out:{}", rel.display())
+                    } else if let Ok(rel) = cleaned_file.strip_prefix(&cleaned_root) {
+                        format!("ws:{}", rel.display())
+                    } else {
+                        cleaned_file.to_string_lossy().to_string()
+                    };
+                    extra_inputs.push((norm_path, Sha256::digest_file(&file_path)?));
+                }
+                for (var, val_opt) in parsed.env_deps {
+                    let hash = match (var.as_str(), out_dir_purity) {
+                        ("OUT_DIR", Some(purity)) => Sha256::digest(purity.out_dir_hash.as_bytes()),
+                        _ => Sha256::digest(val_opt.as_deref().unwrap_or("__UNSET__").as_bytes()),
+                    };
+                    extra_inputs.push((format!("env:{var}"), hash));
                 }
             }
-            extra_inputs.sort_by(|a, b| a.0.cmp(&b.0));
-            extra_inputs.dedup_by(|a, b| a.0 == b.0);
         }
     }
+    extra_inputs.sort_by(|a, b| a.0.cmp(&b.0));
+    extra_inputs.dedup_by(|a, b| a.0 == b.0);
     Ok(extra_inputs)
 }
 
@@ -392,8 +388,7 @@ pub fn resolve_unit_result_key(
     out_dir_purity: Option<&super::build_script_purity::BuildScriptPurity>,
     out_dir: Option<&Path>,
 ) -> Option<String> {
-    match extract_unit_extra_inputs(unit, staging_dir, ws_root, out_dir_purity, out_dir) {
-        Ok(extra) => Some(compute_composite_result_key(base_key, &extra)),
-        Err(_) => None,
-    }
+    let extra =
+        extract_unit_extra_inputs(unit, staging_dir, ws_root, out_dir_purity, out_dir).ok()?;
+    Some(compute_composite_result_key(base_key, &extra))
 }

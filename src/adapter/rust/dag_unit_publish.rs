@@ -207,7 +207,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
 
     // 4. Output byte scanning for workspace root leaks (P2)
     let mut contains_ws_root_path = false;
-    let ws_root = if unit.is_workspace {
+    let is_mutable = super::unit_inputs::is_mutable_unit(unit);
+    let ws_root = if is_mutable {
         Some(super::compiler::find_workspace_root(&unit.manifest_path))
     } else {
         None
@@ -261,6 +262,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             (Vec::new(), false)
         }
     };
+    record_extra_inputs_in_ctx(ctx, ws_root.as_deref(), &extra_inputs);
 
     // 6. Compute result_key and effective action key
     let result_key = if can_publish_cache {
@@ -301,8 +303,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         };
         let _ = ctx.ac.put(&entry);
 
-        // 8. Record in ActionManifest for workspace units
-        if unit.is_workspace {
+        // 8. Record in ActionManifest for mutable units
+        if is_mutable {
             let _ = ctx
                 .ac
                 .record_manifest_entry(action_key, extra_inputs, &result_key);
@@ -310,6 +312,45 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     }
 
     Ok(action_outputs)
+}
+
+/// Records dep-info extra inputs (`include_str!`, `#[path]`, `env-dep:`) into the ExecutionContext for FastBuildLock.
+pub fn record_extra_inputs_in_ctx(
+    ctx: &ExecutionContext,
+    ws_root: Option<&Path>,
+    extra_inputs: &[(String, String)],
+) {
+    for (path_str, hash) in extra_inputs {
+        if let Some(var_name) = path_str.strip_prefix("env:") {
+            if var_name == "OUT_DIR"
+                || var_name == "CARGO_MANIFEST_DIR"
+                || var_name == "CARGO_CRATE_NAME"
+                || var_name == "CARGO_BIN_NAME"
+                || var_name.starts_with("CARGO_PKG_")
+            {
+                continue;
+            }
+            if let Some(env_map) = ctx.tracked_env_vars {
+                env_map
+                    .lock()
+                    .unwrap()
+                    .insert(var_name.to_string(), std::env::var(var_name).ok());
+            }
+        } else if !path_str.starts_with("out:") {
+            let file_path = if let Some(rel) = path_str.strip_prefix("ws:") {
+                if let Some(root) = ws_root {
+                    root.join(rel)
+                } else {
+                    PathBuf::from(rel)
+                }
+            } else {
+                PathBuf::from(path_str)
+            };
+            if let Some(files_map) = ctx.tracked_extra_files {
+                files_map.lock().unwrap().insert(file_path, hash.clone());
+            }
+        }
+    }
 }
 
 /// Appends a unique non-reusable `:unhashable:<nonce>` suffix to taint a key and its dependents.

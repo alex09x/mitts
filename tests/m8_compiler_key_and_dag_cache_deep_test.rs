@@ -235,6 +235,8 @@ fn test_m8_dag_cache_progress_and_non_native() {
         completed_env: None,
         completed_link_args: None,
         target_index: None,
+        tracked_extra_files: None,
+        tracked_env_vars: None,
     };
 
     let unit = PlannedCompilationUnit {

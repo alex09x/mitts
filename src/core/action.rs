@@ -73,4 +73,10 @@ pub struct BuildPlan {
     /// Extra link arguments per unit (e.g. -L native=, -l from build scripts).
     #[serde(default)]
     pub unit_link_args: BTreeMap<String, Vec<String>>,
+    /// Extra tracked file/directory inputs (path -> sha256 or "<missing>") from unit dep-info and build script rerun-if-changed.
+    #[serde(default)]
+    pub tracked_extra_files: BTreeMap<PathBuf, String>,
+    /// Extra tracked environment variables (name -> Option<value>) from unit env!/option_env!, dep-info env-dep, and build script rerun-if-env-changed.
+    #[serde(default)]
+    pub tracked_env_vars: BTreeMap<String, Option<String>>,
 }

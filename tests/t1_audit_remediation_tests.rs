@@ -369,6 +369,8 @@ fn test_b5_tainted_key_uses_random_nonce_and_blocks_cache_restore_and_long_ac_pu
         completed_env: None,
         completed_link_args: None,
         target_index: None,
+        tracked_extra_files: None,
+        tracked_env_vars: None,
     };
 
     assert!(!try_restore_from_cache_with_directives(&unit, &k1, &ctx, false, None).unwrap());

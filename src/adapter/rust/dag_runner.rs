@@ -52,6 +52,24 @@ pub fn run_native_dag_build(
     let dep_build_metadata =
         Arc::new(Mutex::new(HashMap::<String, HashMap<String, String>>::new()));
     let resolved_keys = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+    let tracked_extra_files = Arc::new(Mutex::new(
+        std::collections::BTreeMap::<PathBuf, String>::new(),
+    ));
+    let mut initial_env_vars = std::collections::BTreeMap::new();
+    for unit in &explanation.units {
+        for var in &unit.env_vars {
+            if var == "OUT_DIR"
+                || var == "CARGO_MANIFEST_DIR"
+                || var == "CARGO_CRATE_NAME"
+                || var == "CARGO_BIN_NAME"
+                || var.starts_with("CARGO_PKG_")
+            {
+                continue;
+            }
+            initial_env_vars.insert(var.clone(), std::env::var(var).ok());
+        }
+    }
+    let tracked_env_vars = Arc::new(Mutex::new(initial_env_vars));
 
     let target_dir = explanation.target_directory.clone();
     fs::create_dir_all(&target_dir)?;
@@ -168,6 +186,8 @@ pub fn run_native_dag_build(
             let compiled_actions = Arc::clone(&compiled_actions);
             let cached_actions = Arc::clone(&cached_actions);
             let target_index = Arc::clone(&target_index);
+            let tracked_extra_files = Arc::clone(&tracked_extra_files);
+            let tracked_env_vars = Arc::clone(&tracked_env_vars);
 
             handles.push(s.spawn(move || -> Result<()> {
                 let ctx = ExecutionContext {
@@ -192,6 +212,8 @@ pub fn run_native_dag_build(
                     completed_env: Some(&completed_env),
                     completed_link_args: Some(&completed_link_args),
                     target_index: Some(&target_index),
+                    tracked_extra_files: Some(&tracked_extra_files),
+                    tracked_env_vars: Some(&tracked_env_vars),
                 };
 
                 super::dag_worker::run_worker_loop(shared, &ctx)
@@ -252,6 +274,8 @@ pub fn run_native_dag_build(
                 unit_cfgs: snapshot_map(&completed_cfgs),
                 unit_env: snapshot_map(&completed_env),
                 unit_link_args: snapshot_map(&completed_link_args),
+                tracked_extra_files: tracked_extra_files.lock().unwrap().clone(),
+                tracked_env_vars: tracked_env_vars.lock().unwrap().clone(),
             },
             result,
         ));
@@ -290,6 +314,9 @@ pub fn run_native_dag_build(
         cached: all_cached,
     };
 
+    let extra_files_snap = tracked_extra_files.lock().unwrap().clone();
+    let env_vars_snap = tracked_env_vars.lock().unwrap().clone();
+
     Ok((
         BuildPlan {
             actions,
@@ -298,6 +325,8 @@ pub fn run_native_dag_build(
             unit_cfgs: snapshot_map(&completed_cfgs),
             unit_env: snapshot_map(&completed_env),
             unit_link_args: snapshot_map(&completed_link_args),
+            tracked_extra_files: extra_files_snap,
+            tracked_env_vars: env_vars_snap,
         },
         result,
     ))

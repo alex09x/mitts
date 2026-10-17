@@ -348,10 +348,23 @@ pub fn prune_plan_root_units(
                 root_unit_ids.push(u.unit_id());
             }
         }
-        let is_primary_or_ws = (is_root_pkg
-            && (u.kind == "lib" || u.kind == "proc-macro" || (!opt.doc_only && u.kind == "bin")))
+        let is_test_mode = opt.mode == crate::adapter::rust::types::BuildMode::Test;
+        let bin_matches = !opt.doc_only
+            && (is_test_mode
+                || (!(opt.lib_only && !opt.all_bins && opt.bin_targets.is_empty())
+                    && (opt.bin_targets.is_empty()
+                        || opt.bin_targets.iter().any(|b| {
+                            b == &u.target_name
+                                || b.replace('-', "_") == u.target_name.replace('-', "_")
+                        }))));
+        let lib_matches =
+            is_test_mode || opt.lib_only || (opt.bin_targets.is_empty() && !opt.all_bins);
+        let kind_matches = ((u.kind == "lib" || u.kind == "proc-macro") && lib_matches)
+            || (u.kind == "bin" && bin_matches);
+        let is_primary_or_ws = (is_root_pkg && kind_matches)
             || (has_all_ws
                 && u.is_workspace
+                && kind_matches
                 && !opt.exclude.iter().any(|ex| ex == &u.package_name));
         if is_primary_or_ws {
             root_unit_ids.push(u.unit_id());

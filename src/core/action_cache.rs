@@ -285,7 +285,11 @@ impl ActionCache {
 }
 
 pub fn safe_key_file_name(key: &str) -> String {
-    if key.len() > 64 {
+    if key.len() > 64
+        || !key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
         Sha256::digest(key.as_bytes())
     } else {
         key.to_string()

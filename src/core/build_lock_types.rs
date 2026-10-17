@@ -9,6 +9,7 @@
  */
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -30,6 +31,10 @@ pub struct FastBuildLock {
     pub all_features: bool,
     pub toolchain_version: String,
     #[serde(default)]
+    pub options_hash: Option<String>,
+    #[serde(default)]
+    pub has_complete_inputs: bool,
+    #[serde(default)]
     pub rustflags: Option<String>,
     #[serde(default)]
     pub env_hash: Option<String>,
@@ -45,6 +50,10 @@ pub struct FastBuildLock {
     pub cargo_configs: Vec<FileSnapshot>,
     #[serde(default)]
     pub clippy_configs: Vec<FileSnapshot>,
+    #[serde(default)]
+    pub tracked_extra_files: BTreeMap<PathBuf, String>,
+    #[serde(default)]
+    pub tracked_env_vars: BTreeMap<String, Option<String>>,
     pub outputs: Vec<FileSnapshot>,
     #[serde(default)]
     pub stderr: Option<String>,
@@ -84,4 +93,14 @@ pub struct RecordStateArgs<'a> {
     pub root_binary: Option<PathBuf>,
     pub outputs: &'a [PathBuf],
     pub stderr: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RecordStateOptions<'a> {
+    pub target_dir: Option<&'a Path>,
+    pub options_hash: Option<&'a str>,
+    pub extra_package_dirs: &'a [PathBuf],
+    pub tracked_extra_files: Option<&'a BTreeMap<PathBuf, String>>,
+    pub tracked_env_vars: Option<&'a BTreeMap<String, Option<String>>>,
+    pub has_complete_inputs: bool,
 }

@@ -223,7 +223,7 @@ pub fn compute_unit_flags_with_ws(
     }
     u_flags.push("SCHEMA_VERSION=rust_key_v2".to_string());
     let ws_for_profile = unit.workspace_root.as_deref().or(ws_root);
-    let debuginfo = resolve_unit_debuginfo(
+    let profile = super::profile::resolve_unit_profile(
         &unit.manifest_path,
         &unit.package_name,
         unit.is_workspace,
@@ -236,7 +236,31 @@ pub fn compute_unit_flags_with_ws(
     } else {
         u_flags.push("FOR_HOST=0".to_string());
     }
-    u_flags.push(format!("DEBUGINFO={}", debuginfo));
+    u_flags.push(format!("DEBUGINFO={}", profile.debuginfo));
+    let default_opt = if release && !unit.for_host { "3" } else { "0" };
+    if profile.opt_level != default_opt {
+        u_flags.push(format!("OPT_LEVEL={}", profile.opt_level));
+    }
+    if let Some(ref p) = profile.panic.as_ref().filter(|_| {
+        !unit.for_host && !matches!(unit.kind.as_str(), "proc-macro" | "test" | "custom-test")
+    }) {
+        u_flags.push(format!("PANIC={}", p));
+    }
+    if let Some(cgu) = profile.codegen_units {
+        u_flags.push(format!("CODEGEN_UNITS={}", cgu));
+    }
+    if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| !unit.for_host) {
+        u_flags.push(format!("LTO={}", lto_mode));
+    }
+    if let Some(ref strip_mode) = profile.strip {
+        u_flags.push(format!("STRIP={}", strip_mode));
+    }
+    if let Some(oc) = profile.overflow_checks {
+        u_flags.push(format!("OVERFLOW_CHECKS={}", oc));
+    }
+    if let Some(da) = profile.debug_assertions {
+        u_flags.push(format!("DEBUG_ASSERTIONS={}", da));
+    }
     u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
     u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
     u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));

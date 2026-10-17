@@ -8,7 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::file_scanner::{collect_project_files, mtime_parts};
+use super::file_scanner::{
+    collect_config_snapshots, collect_project_files, mtime_parts, verify_config_snapshots,
+};
 use super::hash::Sha256;
 use anyhow::Result;
 use std::fs;
@@ -30,10 +32,31 @@ impl FastBuildLock {
         mitts_dir.join(format!("build-{}.lock", profile))
     }
 
-    /// Evaluates whether the workspace is 100% up-to-date in microsecond/sub-millisecond time
-    /// without spawning cargo, rustc, or inspecting dependency graphs.
+    /// Returns the lockfile path inside an explicitly resolved target directory.
+    pub fn lock_path_in_target(target_dir: &Path, profile: &str) -> PathBuf {
+        let base = if target_dir.file_name().is_some_and(|n| n == "mitts") {
+            target_dir.to_path_buf()
+        } else {
+            target_dir.join("mitts")
+        };
+        base.join(format!("build-{profile}.lock"))
+    }
+
+    /// Evaluates whether the workspace is 100% up-to-date in microsecond/sub-millisecond time.
     pub fn check_freshness(args: &FreshnessCheckArgs<'_>) -> FreshnessResult {
-        let path = Self::lock_path(args.project_dir, args.profile);
+        Self::check_freshness_with_options(args, None, None, false)
+    }
+
+    /// Evaluates freshness with optional resolved target_dir, normalized options_hash, and completeness check.
+    pub fn check_freshness_with_options(
+        args: &FreshnessCheckArgs<'_>,
+        target_dir: Option<&Path>,
+        options_hash: Option<&str>,
+        require_complete_inputs: bool,
+    ) -> FreshnessResult {
+        let path = target_dir
+            .map(|td| Self::lock_path_in_target(td, args.profile))
+            .unwrap_or_else(|| Self::lock_path(args.project_dir, args.profile));
         let Ok(data) = fs::read(&path) else {
             return FreshnessResult::Stale("No build.lock found".to_string());
         };
@@ -42,6 +65,14 @@ impl FastBuildLock {
             return FreshnessResult::Stale("Failed to parse build.lock".to_string());
         };
 
+        if require_complete_inputs && !lock.has_complete_inputs {
+            return FreshnessResult::Stale("Incomplete tracked inputs in build.lock".to_string());
+        }
+        if let Some(expected_opt_hash) = options_hash {
+            if lock.options_hash.as_deref() != Some(expected_opt_hash) {
+                return FreshnessResult::Stale("Build options changed".to_string());
+            }
+        }
         if lock.profile != args.profile {
             return FreshnessResult::Stale(format!(
                 "Profile mismatch: {} != {}",
@@ -65,10 +96,46 @@ impl FastBuildLock {
             if expected_hash != &cur_env_hash {
                 return FreshnessResult::Stale("Environment configuration changed".to_string());
             }
-        } else {
-            let cur_rustflags = std::env::var("RUSTFLAGS").ok();
-            if lock.rustflags != cur_rustflags {
-                return FreshnessResult::Stale("RUSTFLAGS changed".to_string());
+        } else if lock.rustflags != std::env::var("RUSTFLAGS").ok() {
+            return FreshnessResult::Stale("RUSTFLAGS changed".to_string());
+        }
+        for (var, expected_val) in &lock.tracked_env_vars {
+            if &std::env::var(var).ok() != expected_val {
+                return FreshnessResult::Stale(format!(
+                    "Tracked environment variable changed: {var}"
+                ));
+            }
+        }
+
+        // Check tracked extra files (include_str!, include_bytes!, #[path], rerun-if-changed)
+        for (file_path, expected_hash) in &lock.tracked_extra_files {
+            let full_p = args.project_dir.join(file_path);
+            if expected_hash == "<missing>" {
+                if full_p.exists() {
+                    return FreshnessResult::Stale(format!(
+                        "Tracked missing path now exists: {}",
+                        file_path.display()
+                    ));
+                }
+            } else {
+                if !full_p.exists() {
+                    return FreshnessResult::Stale(format!(
+                        "Tracked extra input missing: {}",
+                        file_path.display()
+                    ));
+                }
+                let Ok(cur_hash) = Sha256::digest_path_recursive(&full_p) else {
+                    return FreshnessResult::Stale(format!(
+                        "Tracked extra input unreadable: {}",
+                        file_path.display()
+                    ));
+                };
+                if &cur_hash != expected_hash {
+                    return FreshnessResult::Stale(format!(
+                        "Tracked extra input modified: {}",
+                        file_path.display()
+                    ));
+                }
             }
         }
 
@@ -82,13 +149,9 @@ impl FastBuildLock {
             if (m_secs, m_nanos) != (lock_snap.mtime_secs, lock_snap.mtime_nanos)
                 || meta.len() != lock_snap.size
             {
-                if let Ok(bytes) = fs::read(&full_p) {
-                    let hash = Sha256::digest(&bytes);
-                    if Some(&hash) != lock_snap.sha256.as_ref() {
-                        return FreshnessResult::Stale("Cargo.lock contents modified".to_string());
-                    }
-                } else {
-                    return FreshnessResult::Stale("Cargo.lock unreadable".to_string());
+                let hash = fs::read(&full_p).ok().map(|b| Sha256::digest(&b));
+                if hash != lock_snap.sha256 {
+                    return FreshnessResult::Stale("Cargo.lock contents modified".to_string());
                 }
             }
         }
@@ -106,21 +169,17 @@ impl FastBuildLock {
             if (m_secs, m_nanos) != (man_snap.mtime_secs, man_snap.mtime_nanos)
                 || meta.len() != man_snap.size
             {
-                if let Ok(bytes) = fs::read(&full_p) {
-                    let hash = Sha256::digest(&bytes);
-                    if Some(&hash) != man_snap.sha256.as_ref() {
-                        return FreshnessResult::Stale(format!(
-                            "Manifest modified: {}",
-                            man_snap.relative_path.display()
-                        ));
-                    }
-                } else {
-                    return FreshnessResult::Stale("Manifest unreadable".to_string());
+                let hash = fs::read(&full_p).ok().map(|b| Sha256::digest(&b));
+                if hash != man_snap.sha256 {
+                    return FreshnessResult::Stale(format!(
+                        "Manifest modified: {}",
+                        man_snap.relative_path.display()
+                    ));
                 }
             }
         }
 
-        // Check source files
+        // Check source and asset files
         for src_snap in &lock.sources {
             let full_p = args.project_dir.join(&src_snap.relative_path);
             let Ok(meta) = fs::metadata(&full_p) else {
@@ -137,6 +196,17 @@ impl FastBuildLock {
                     "Source modified: {}",
                     src_snap.relative_path.display()
                 ));
+            }
+            if let Some(ref expected_sha) = src_snap.sha256 {
+                if meta.len() <= 65536 {
+                    let cur_sha = fs::read(&full_p).ok().map(|b| Sha256::digest(&b));
+                    if cur_sha.as_ref() != Some(expected_sha) {
+                        return FreshnessResult::Stale(format!(
+                            "Asset modified: {}",
+                            src_snap.relative_path.display()
+                        ));
+                    }
+                }
             }
         }
 
@@ -183,83 +253,10 @@ impl FastBuildLock {
             }
         }
 
-        // Check Cargo configuration files (.cargo/config.toml, .cargo/config)
-        let config_start_dir =
-            crate::adapter::rust::cargo_config::resolve_config_start_dir(args.project_dir);
-        let current_configs =
-            crate::adapter::rust::cargo_config::discover_cargo_config_files(&config_start_dir);
-        if current_configs.len() != lock.cargo_configs.len() {
-            return FreshnessResult::Stale(
-                "Cargo configuration files changed (added/removed)".to_string(),
-            );
-        }
-
-        for cfg_snap in &lock.cargo_configs {
-            let full_p = &cfg_snap.relative_path;
-            let Ok(meta) = fs::metadata(full_p) else {
-                return FreshnessResult::Stale(format!(
-                    "Cargo config missing: {}",
-                    full_p.display()
-                ));
-            };
-            let (m_secs, m_nanos) = mtime_parts(&meta);
-            if (m_secs, m_nanos) != (cfg_snap.mtime_secs, cfg_snap.mtime_nanos)
-                || meta.len() != cfg_snap.size
-            {
-                let content_hash = fs::read(full_p).ok().map(|b| Sha256::digest(&b));
-                if content_hash != cfg_snap.sha256 {
-                    return FreshnessResult::Stale(format!(
-                        "Cargo config modified: {}",
-                        full_p.display()
-                    ));
-                }
-            }
-        }
-        for cfg_p in &current_configs {
-            if !lock.cargo_configs.iter().any(|c| &c.relative_path == cfg_p) {
-                return FreshnessResult::Stale(format!(
-                    "New Cargo config added: {}",
-                    cfg_p.display()
-                ));
-            }
-        }
-
-        // Check Clippy configuration files (clippy.toml, .clippy.toml)
-        let current_clippy = crate::adapter::rust::inputs::discover_clippy_config(args.project_dir);
-        let expected_clippy_count = if current_clippy.is_some() { 1 } else { 0 };
-        if expected_clippy_count != lock.clippy_configs.len() {
-            return FreshnessResult::Stale(
-                "Clippy configuration file changed (added/removed)".to_string(),
-            );
-        }
-        for cfg_snap in &lock.clippy_configs {
-            let full_p = &cfg_snap.relative_path;
-            let Ok(meta) = fs::metadata(full_p) else {
-                return FreshnessResult::Stale(format!(
-                    "Clippy config missing: {}",
-                    full_p.display()
-                ));
-            };
-            let (m_secs, m_nanos) = mtime_parts(&meta);
-            if (m_secs, m_nanos) != (cfg_snap.mtime_secs, cfg_snap.mtime_nanos)
-                || meta.len() != cfg_snap.size
-            {
-                let content_hash = fs::read(full_p).ok().map(|b| Sha256::digest(&b));
-                if content_hash != cfg_snap.sha256 {
-                    return FreshnessResult::Stale(format!(
-                        "Clippy config modified: {}",
-                        full_p.display()
-                    ));
-                }
-            }
-        }
-        if let Some(ref cp) = current_clippy {
-            if !lock.clippy_configs.iter().any(|c| &c.relative_path == cp) {
-                return FreshnessResult::Stale(format!(
-                    "New Clippy config added: {}",
-                    cp.display()
-                ));
-            }
+        if let Err(reason) =
+            verify_config_snapshots(args.project_dir, &lock.cargo_configs, &lock.clippy_configs)
+        {
+            return FreshnessResult::Stale(reason);
         }
 
         FreshnessResult::Fresh {
@@ -271,26 +268,33 @@ impl FastBuildLock {
 
     /// Records the current state of workspace manifests, Cargo.lock, source files, and outputs into target/mitts/build-{profile}.lock.
     pub fn record_state(args: &RecordStateArgs<'_>) -> Result<()> {
-        let lock_path = Self::lock_path(args.project_dir, args.profile);
+        Self::record_state_with_options(args, &RecordStateOptions::default())
+    }
+
+    /// Records the current state with extended options, extra mutable package directories, and tracked extra inputs/env.
+    pub fn record_state_with_options(
+        args: &RecordStateArgs<'_>,
+        ext: &RecordStateOptions<'_>,
+    ) -> Result<()> {
+        let lock_path = ext
+            .target_dir
+            .map(|td| Self::lock_path_in_target(td, args.profile))
+            .unwrap_or_else(|| Self::lock_path(args.project_dir, args.profile));
         let lock_dir = lock_path.parent().unwrap_or(args.project_dir);
         fs::create_dir_all(lock_dir)?;
 
-        let cargo_lock_snap = {
-            let lock_path = args.project_dir.join("Cargo.lock");
-            if let Ok(meta) = fs::metadata(&lock_path) {
-                let (s, n) = mtime_parts(&meta);
-                let hash = fs::read(&lock_path).ok().map(|b| Sha256::digest(&b));
-                Some(FileSnapshot {
-                    relative_path: PathBuf::from("Cargo.lock"),
-                    mtime_secs: s,
-                    mtime_nanos: n,
-                    size: meta.len(),
-                    sha256: hash,
-                })
-            } else {
-                None
+        let lp = args.project_dir.join("Cargo.lock");
+        let cargo_lock_snap = fs::metadata(&lp).ok().map(|meta| {
+            let (mtime_secs, mtime_nanos) = mtime_parts(&meta);
+            let sha256 = fs::read(&lp).ok().map(|b| Sha256::digest(&b));
+            FileSnapshot {
+                relative_path: PathBuf::from("Cargo.lock"),
+                mtime_secs,
+                mtime_nanos,
+                size: meta.len(),
+                sha256,
             }
-        };
+        });
 
         let mut manifests = Vec::new();
         let mut sources = Vec::new();
@@ -304,63 +308,51 @@ impl FastBuildLock {
             &mut directories,
         )?;
 
-        let mut output_snaps = Vec::new();
-        for out in args.outputs {
-            if let Ok(meta) = fs::metadata(out) {
-                let (s, n) = mtime_parts(&meta);
-                let rel = out
+        let canon_proj = args
+            .project_dir
+            .canonicalize()
+            .unwrap_or_else(|_| args.project_dir.to_path_buf());
+        let mut scanned_roots = vec![canon_proj];
+        for extra_dir in ext.extra_package_dirs {
+            let canon_extra = extra_dir
+                .canonicalize()
+                .unwrap_or_else(|_| extra_dir.clone());
+            if !scanned_roots.iter().any(|r| canon_extra.starts_with(r)) {
+                collect_project_files(
+                    args.project_dir,
+                    &canon_extra,
+                    &mut manifests,
+                    &mut sources,
+                    &mut directories,
+                )?;
+                scanned_roots.push(canon_extra);
+            }
+        }
+
+        let output_snaps: Vec<FileSnapshot> = args
+            .outputs
+            .iter()
+            .filter_map(|out| {
+                let meta = fs::metadata(out).ok()?;
+                let (mtime_secs, mtime_nanos) = mtime_parts(&meta);
+                let relative_path = out
                     .strip_prefix(args.project_dir)
                     .unwrap_or(out)
                     .to_path_buf();
-                output_snaps.push(FileSnapshot {
-                    relative_path: rel,
-                    mtime_secs: s,
-                    mtime_nanos: n,
+                Some(FileSnapshot {
+                    relative_path,
+                    mtime_secs,
+                    mtime_nanos,
                     size: meta.len(),
                     sha256: None,
-                });
-            }
-        }
-
-        let config_start_dir =
-            crate::adapter::rust::cargo_config::resolve_config_start_dir(args.project_dir);
-        let discovered_configs =
-            crate::adapter::rust::cargo_config::discover_cargo_config_files(&config_start_dir);
-        let mut cargo_configs = Vec::new();
-        for cfg_p in discovered_configs {
-            if let Ok(meta) = fs::metadata(&cfg_p) {
-                let (s, n) = mtime_parts(&meta);
-                let hash = fs::read(&cfg_p).ok().map(|b| Sha256::digest(&b));
-                cargo_configs.push(FileSnapshot {
-                    relative_path: cfg_p,
-                    mtime_secs: s,
-                    mtime_nanos: n,
-                    size: meta.len(),
-                    sha256: hash,
-                });
-            }
-        }
-
-        let mut clippy_configs = Vec::new();
-        if let Some(cp) = crate::adapter::rust::inputs::discover_clippy_config(args.project_dir) {
-            if let Ok(meta) = fs::metadata(&cp) {
-                let (s, n) = mtime_parts(&meta);
-                let hash = fs::read(&cp).ok().map(|b| Sha256::digest(&b));
-                clippy_configs.push(FileSnapshot {
-                    relative_path: cp,
-                    mtime_secs: s,
-                    mtime_nanos: n,
-                    size: meta.len(),
-                    sha256: hash,
-                });
-            }
-        }
-
+                })
+            })
+            .collect();
+        let (cargo_configs, clippy_configs) = collect_config_snapshots(args.project_dir);
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-
         let lock = Self {
             version: 1,
             profile: args.profile.to_string(),
@@ -369,6 +361,8 @@ impl FastBuildLock {
             no_default_features: args.no_default_features,
             all_features: args.all_features,
             toolchain_version: args.toolchain_version.to_string(),
+            options_hash: ext.options_hash.map(|s| s.to_string()),
+            has_complete_inputs: ext.has_complete_inputs,
             rustflags: std::env::var("RUSTFLAGS").ok(),
             env_hash: Some(super::build_env::compute_effective_env_hash()),
             created_at_secs: now,
@@ -380,19 +374,18 @@ impl FastBuildLock {
             directories,
             cargo_configs,
             clippy_configs,
+            tracked_extra_files: ext.tracked_extra_files.cloned().unwrap_or_default(),
+            tracked_env_vars: ext.tracked_env_vars.cloned().unwrap_or_default(),
             outputs: output_snaps,
             stderr: args.stderr.map(|s| s.to_string()),
         };
-
-        let bytes = serde_json::to_vec_pretty(&lock)?;
         let temp_p = lock_dir.join(format!(
             "build-{}.lock.tmp.{}",
             args.profile,
             std::process::id()
         ));
-        fs::write(&temp_p, bytes)?;
-        fs::rename(temp_p, Self::lock_path(args.project_dir, args.profile))?;
-
+        fs::write(&temp_p, serde_json::to_vec_pretty(&lock)?)?;
+        fs::rename(temp_p, lock_path)?;
         Ok(())
     }
 }

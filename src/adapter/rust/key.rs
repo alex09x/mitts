@@ -10,7 +10,7 @@
 
 use super::types::{EffectivePlanExplanation, PlannedCompilationUnit, RustBuildOptions};
 use super::unit_inputs::{
-    compute_package_cache_entry, compute_unit_coarse_inputs, PackageInputsCacheEntry,
+    compute_package_cache_entry, compute_unit_coarse_inputs_with_checksum, PackageInputsCacheEntry,
 };
 use crate::core::action_cache::ActionCache;
 use anyhow::Result;
@@ -146,6 +146,10 @@ pub fn derive_unit_action_key_context(
     let proj_dir = explanation.manifest_path.parent().unwrap_or(Path::new("."));
     let config_start_dir =
         super::cargo_config::resolve_config_start_dir_with_opt(proj_dir, opt.start_dir.as_deref());
+    let config_rustflags = super::cargo_config::load_cargo_config_rustflags(
+        &config_start_dir,
+        explicit_target.as_deref(),
+    )?;
     let effective_target_rustflags = if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
         encoded
             .split('\x1f')
@@ -155,10 +159,7 @@ pub fn derive_unit_action_key_context(
     } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
         flags.split_whitespace().map(|s| s.to_string()).collect()
     } else {
-        super::cargo_config::load_cargo_config_rustflags(
-            &config_start_dir,
-            explicit_target.as_deref(),
-        )?
+        config_rustflags
     };
 
     // 1. Gather all unique package directories and their workspace status
@@ -184,6 +185,8 @@ pub fn derive_unit_action_key_context(
         pkg_inputs_cache.insert(pkg_dir, entry);
     }
 
+    let lock_checksums = load_lock_checksums(&explanation.manifest_path);
+
     // 2. Parallel resolution of unit dep-info inputs and compiler flags
     let unit_preps = parallel_map_chunks(&explanation.units, |unit| {
         let pkg_dir = resolve_unit_pkg_dir(unit);
@@ -191,7 +194,12 @@ pub fn derive_unit_action_key_context(
             .get(&pkg_dir)
             .ok_or_else(|| anyhow::anyhow!("Missing base inputs for package {:?}", pkg_dir))?;
         let build_ws_root = explanation.manifest_path.parent().unwrap_or(Path::new("."));
-        let inputs = compute_unit_coarse_inputs(unit, &pkg_dir, pkg_entry)?;
+        let lock_cksum = lock_checksums
+            .get(&unit.package_id)
+            .or_else(|| lock_checksums.get(&format!("{} {}", unit.package_name, unit.version)))
+            .map(|s| s.as_str());
+        let inputs =
+            compute_unit_coarse_inputs_with_checksum(unit, &pkg_dir, pkg_entry, lock_cksum)?;
         let mut u_flags = compute_unit_flags_with_ws(
             unit,
             &pkg_dir,
@@ -317,4 +325,39 @@ pub fn derive_unit_action_keys(
 ) -> Result<HashMap<String, String>> {
     let deriver = derive_unit_action_key_context(opt, explanation)?;
     Ok((*deriver.initial_base_keys).clone())
+}
+
+fn load_lock_checksums(manifest_path: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let ws_root = super::compiler_resolve::find_workspace_root(manifest_path);
+    let mut candidate = manifest_path.parent();
+    let mut lock_path = None;
+    while let Some(dir) = candidate {
+        let lp = dir.join("Cargo.lock");
+        if lp.is_file() {
+            lock_path = Some(lp);
+            break;
+        }
+        if dir == ws_root {
+            break;
+        }
+        candidate = dir.parent();
+    }
+    if let Some(lp) = lock_path {
+        if let Ok(lock) = super::lockfile::CargoLock::from_file(&lp) {
+            for pkg in lock.packages {
+                if let Some(cksum) = pkg.checksum.filter(|c| !c.is_empty()) {
+                    if let Some(src) = pkg.source.filter(|s| !s.is_empty()) {
+                        map.insert(
+                            format!("{} {} ({})", pkg.name, pkg.version, src),
+                            cksum.clone(),
+                        );
+                    }
+                    map.entry(format!("{} {}", pkg.name, pkg.version))
+                        .or_insert(cksum);
+                }
+            }
+        }
+    }
+    map
 }

@@ -105,6 +105,25 @@ pub(crate) fn run_build_script_if_needed(
         all_meta.insert(unit.package_name.clone(), dep_vars);
     }
 
+    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    if let Some(env_map) = ctx.tracked_env_vars {
+        let mut guard = env_map.lock().unwrap();
+        for var in &directives.rerun_if_env_changed {
+            guard.insert(var.clone(), std::env::var(var).ok());
+        }
+    }
+    if let Some(files_map) = ctx.tracked_extra_files {
+        let mut guard = files_map.lock().unwrap();
+        for (file_rel, expected_hash) in &directives.rerun_if_changed_hashes {
+            let fpath = if Path::new(file_rel).is_absolute() {
+                PathBuf::from(file_rel)
+            } else {
+                pkg_dir.join(file_rel)
+            };
+            guard.insert(fpath, expected_hash.clone());
+        }
+    }
+
     Ok((Some(directives), Some(staging_dir)))
 }
 
