@@ -10,10 +10,14 @@
 
 use mitts::adapter::rust::source_lookup::find_crate_source_dir;
 use std::fs;
+use std::sync::Mutex;
 use tempfile::TempDir;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_m8_source_lookup_git_and_cargo_flow() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let home = temp.path();
     let old_home = std::env::var_os("HOME");
@@ -137,6 +141,62 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
 
     let res_none = find_crate_source_dir("any_crate", "1.0.0", None);
     assert!(res_none.is_none());
+
+    if let Some(ch) = old_ch {
+        std::env::set_var("CARGO_HOME", ch);
+    }
+    if let Some(h) = old_home {
+        std::env::set_var("HOME", h);
+    }
+}
+
+#[test]
+fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_version() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempDir::new().unwrap();
+    let home = temp.path();
+    let old_home = std::env::var_os("HOME");
+    let old_ch = std::env::var_os("CARGO_HOME");
+    std::env::remove_var("CARGO_HOME");
+    std::env::set_var("HOME", home);
+
+    let checkouts = home.join(".cargo").join("git").join("checkouts");
+    fs::create_dir_all(&checkouts).unwrap();
+    // Non-directory files in git/checkouts (e.g. .DS_Store) must not abort iteration
+    fs::write(checkouts.join(".DS_Store"), b"junk").unwrap();
+    fs::write(checkouts.join("0000_non_dir_entry"), b"junk").unwrap();
+
+    let commit_dir = checkouts.join("zzzz-repo-9999").join("a1b2c3d4e5f6");
+    fs::create_dir_all(&commit_dir).unwrap();
+
+    // Sibling crate with [[bin]] name = "target_pkg" (must NOT match package name "target_pkg")
+    let decoy_bin = commit_dir.join("decoy_bin");
+    fs::create_dir_all(&decoy_bin).unwrap();
+    fs::write(
+        decoy_bin.join("Cargo.toml"),
+        "[package]\nname = \"other_pkg\"\nversion = \"0.2.0\"\n\n[[bin]]\nname = \"target_pkg\"\npath = \"src/main.rs\"\n",
+    )
+    .unwrap();
+
+    // Real package with version 0.2.0
+    let real_pkg = commit_dir.join("real_pkg");
+    fs::create_dir_all(&real_pkg).unwrap();
+    fs::write(
+        real_pkg.join("Cargo.toml"),
+        "[package]\nname = \"target_pkg\"\nversion = \"0.2.0\"\n",
+    )
+    .unwrap();
+
+    let git_src = "git+https://github.com/example/repo#a1b2c3d4e5f6";
+    assert_eq!(
+        find_crate_source_dir("target_pkg", "0.2.0", Some(git_src)),
+        Some(real_pkg)
+    );
+    assert_eq!(
+        find_crate_source_dir("target_pkg", "0.9.9", Some(git_src)),
+        None,
+        "mismatched package.version in git checkout must not match"
+    );
 
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);

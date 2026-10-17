@@ -11,13 +11,32 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-fn find_in_git_checkouts(git_src: &Path, name: &str, expected_hash: &str) -> Option<PathBuf> {
+fn manifest_matches_package(toml_path: &Path, name: &str, version: &str) -> bool {
+    if !toml_path.is_file() {
+        return false;
+    }
+    let Ok(toml) = super::manifest::CargoToml::from_file(toml_path) else {
+        return false;
+    };
+    toml.package
+        .as_ref()
+        .is_some_and(|pkg| pkg.name == name && pkg.version.as_deref() == Some(version))
+}
+
+fn find_in_git_checkouts(
+    git_src: &Path,
+    name: &str,
+    version: &str,
+    expected_hash: &str,
+) -> Option<PathBuf> {
     if !git_src.is_dir() {
         return None;
     }
-    let needle = format!("name = \"{}\"", name);
     for repo in std::fs::read_dir(git_src).ok()?.flatten() {
-        for commit in std::fs::read_dir(repo.path()).ok()?.flatten() {
+        let Ok(commits) = std::fs::read_dir(repo.path()) else {
+            continue;
+        };
+        for commit in commits.flatten() {
             let commit_dir_name = commit.file_name();
             let commit_str = commit_dir_name.to_string_lossy();
             if !expected_hash.starts_with(commit_str.as_ref())
@@ -29,13 +48,8 @@ fn find_in_git_checkouts(git_src: &Path, name: &str, expected_hash: &str) -> Opt
             if !commit_path.is_dir() {
                 continue;
             }
-            let c_toml = commit_path.join("Cargo.toml");
-            if c_toml.is_file() {
-                if let Ok(content) = std::fs::read_to_string(&c_toml) {
-                    if content.contains(&needle) {
-                        return Some(commit_path);
-                    }
-                }
+            if manifest_matches_package(&commit_path.join("Cargo.toml"), name, version) {
+                return Some(commit_path);
             }
             let Ok(subs) = std::fs::read_dir(&commit_path) else {
                 continue;
@@ -50,28 +64,19 @@ fn find_in_git_checkouts(git_src: &Path, name: &str, expected_hash: &str) -> Opt
                 if s_str.starts_with('.') || s_str == "target" {
                     continue;
                 }
-                let sub_toml = sub_path.join("Cargo.toml");
-                if sub_toml.is_file() {
-                    if let Ok(content) = std::fs::read_to_string(&sub_toml) {
-                        if content.contains(&needle) {
-                            return Some(sub_path);
-                        }
-                    }
+                if manifest_matches_package(&sub_path.join("Cargo.toml"), name, version) {
+                    return Some(sub_path);
                 }
                 if s_str == "crates" {
-                    if let Ok(nested) = std::fs::read_dir(&sub_path) {
-                        for n in nested.flatten() {
-                            let n_path = n.path();
-                            if n_path.is_dir() {
-                                let n_toml = n_path.join("Cargo.toml");
-                                if n_toml.is_file() {
-                                    if let Ok(content) = std::fs::read_to_string(&n_toml) {
-                                        if content.contains(&needle) {
-                                            return Some(n_path);
-                                        }
-                                    }
-                                }
-                            }
+                    let Ok(nested) = std::fs::read_dir(&sub_path) else {
+                        continue;
+                    };
+                    for n in nested.flatten() {
+                        let n_path = n.path();
+                        if n_path.is_dir()
+                            && manifest_matches_package(&n_path.join("Cargo.toml"), name, version)
+                        {
+                            return Some(n_path);
                         }
                     }
                 }
@@ -103,7 +108,7 @@ pub(crate) fn find_crate_source_dir_with_store(
             let git_src = SourceStore::active_cargo_home()?
                 .join("git")
                 .join("checkouts");
-            find_in_git_checkouts(&git_src, name, expected_hash)
+            find_in_git_checkouts(&git_src, name, version, expected_hash)
         }
         Some(s) if CrateFetcher::is_crates_io_registry_source(s) => {
             let store_root = store
