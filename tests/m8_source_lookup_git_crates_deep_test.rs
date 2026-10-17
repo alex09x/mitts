@@ -217,73 +217,91 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
 }
 
 #[test]
-#[cfg(unix)]
-fn test_t0_b4_detect_toolchain_no_disk_cache_and_fast_lock_invalidation() {
+fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
+    use mitts::adapter::rust::build_script_keys::get_rustc_verbose_version;
+    use mitts::adapter::rust::compiler_resolve::{
+        active_toolchain, resolve_host_triple, resolve_rustc, rustc_vv_call_count, toolchain_for,
+    };
+    use mitts::adapter::rust::types::RustBuildOptions;
     use mitts::adapter::RustAdapter;
     use mitts::core::build_lock::{
         FastBuildLock, FreshnessCheckArgs, FreshnessResult, RecordStateArgs,
     };
-    use std::os::unix::fs::PermissionsExt;
 
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let home = temp.path().join("home");
     fs::create_dir_all(&home).unwrap();
 
-    let mock_rustc = temp.path().join("mock_rustc.sh");
-    fs::write(
-        &mock_rustc,
-        "#!/bin/sh\nif [ -f rust-toolchain.toml ]; then\n  tc=$(grep channel rust-toolchain.toml | cut -d'\"' -f2)\nelse\n  tc=${RUSTUP_TOOLCHAIN:-stable}\nfi\necho \"rustc 1.99.0-$tc (deadbeef 2026-01-01)\"\necho \"host: x86_64-unknown-linux-gnu\"\n",
-    )
-    .unwrap();
-    fs::set_permissions(&mock_rustc, fs::Permissions::from_mode(0o755)).unwrap();
+    // 1. B5 invariant: resolve_rustc(), toolchain_for(&resolved), active_toolchain(),
+    // detect_toolchain(), resolve_host_triple(), and get_rustc_verbose_version() share one -vV probe.
+    let resolved_path = resolve_rustc();
+    let probed = toolchain_for(&resolved_path).unwrap();
+    let vv_before = rustc_vv_call_count();
+    assert_eq!(probed.rustc_path, resolved_path);
+    assert_eq!(active_toolchain().unwrap(), probed);
+    let detected = RustAdapter::detect_toolchain().unwrap();
+    assert_eq!(detected, probed.toolchain);
+    assert_eq!(resolve_host_triple(), probed.host_triple);
+    assert_eq!(get_rustc_verbose_version(), probed.verbose_version);
+    assert_eq!(rustc_vv_call_count(), vv_before);
 
-    let proj_a = temp.path().join("proj_a");
-    let proj_b = temp.path().join("proj_b");
-    fs::create_dir_all(proj_a.join("src")).unwrap();
-    fs::create_dir_all(proj_b.join("src")).unwrap();
+    // 2. --manifest-path sub/Cargo.toml with sub/rust-toolchain.toml uses resolve_rustc() from cwd
+    // and synthesizes 0.0.0 (not duplicate 0.1.0) for versionless path dependencies.
+    let sub = temp.path().join("sub");
+    let dep = sub.join("dep_no_ver");
+    fs::create_dir_all(sub.join("src")).unwrap();
+    fs::create_dir_all(dep.join("src")).unwrap();
     fs::write(
-        proj_a.join("rust-toolchain.toml"),
-        "[toolchain]\nchannel = \"1.84.0\"\n",
+        sub.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"nonexistent-toolchain-b5\"\n",
     )
     .unwrap();
     fs::write(
-        proj_b.join("rust-toolchain.toml"),
-        "[toolchain]\nchannel = \"nightly-2026-05-01\"\n",
+        dep.join("Cargo.toml"),
+        "[package]\nname = \"dep_no_ver\"\nedition = \"2021\"\n",
     )
     .unwrap();
+    fs::write(dep.join("src/lib.rs"), "pub fn d() {}\n").unwrap();
     fs::write(
-        proj_a.join("Cargo.toml"),
-        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        sub.join("Cargo.toml"),
+        "[package]\nname = \"sub_app\"\nedition = \"2021\"\n\n[dependencies]\ndep_no_ver = { path = \"dep_no_ver\" }\n",
     )
     .unwrap();
-    fs::write(proj_a.join("src/lib.rs"), "pub fn a() {}\n").unwrap();
+    fs::write(sub.join("src/lib.rs"), "pub fn s() {}\n").unwrap();
+    fs::write(
+        sub.join("Cargo.lock"),
+        "version = 3\n\n[[package]]\nname = \"dep_no_ver\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"sub_app\"\nversion = \"0.0.0\"\ndependencies = [\n \"dep_no_ver\",\n]\n",
+    )
+    .unwrap();
 
-    let old_home = std::env::var_os("HOME");
-    let old_rustc = std::env::var_os("RUSTC");
-    std::env::set_var("HOME", &home);
-    std::env::set_var("RUSTC", &mock_rustc);
-
-    let tc_a = RustAdapter::detect_toolchain_in_dir(Some(&proj_a)).unwrap();
-    let tc_b = RustAdapter::detect_toolchain_in_dir(Some(&proj_b)).unwrap();
-    assert_eq!(tc_a.version, "rustc 1.99.0-1.84.0 (deadbeef 2026-01-01)");
-    assert_eq!(
-        tc_b.version,
-        "rustc 1.99.0-nightly-2026-05-01 (deadbeef 2026-01-01)"
-    );
+    let plan = RustAdapter::explain_plan(&RustBuildOptions {
+        manifest_path: Some(sub.join("Cargo.toml")),
+        cache_dir: Some(temp.path().join("mitts_cache")),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(plan.toolchain, detected);
+    let dep_units: Vec<_> = plan
+        .units
+        .iter()
+        .filter(|u| u.package_name == "dep_no_ver")
+        .collect();
+    assert_eq!(dep_units.len(), 1);
+    assert_eq!(dep_units[0].version, "0.0.0");
     assert!(!home.join(".mitts/cache/toolchain_v1.json").exists());
 
-    let out_rlib = proj_a.join("target/debug/liba.rlib");
+    let out_rlib = sub.join("target/debug/libsub_app.rlib");
     fs::create_dir_all(out_rlib.parent().unwrap()).unwrap();
     fs::write(&out_rlib, b"rlib").unwrap();
     FastBuildLock::record_state(&RecordStateArgs {
-        project_dir: &proj_a,
+        project_dir: &sub,
         profile: "dev",
         package: &None,
         features: &[],
         no_default_features: false,
         all_features: false,
-        toolchain_version: &tc_a.version,
+        toolchain_version: &detected.version,
         action_count: 1,
         root_binary: None,
         outputs: &[out_rlib],
@@ -293,7 +311,7 @@ fn test_t0_b4_detect_toolchain_no_disk_cache_and_fast_lock_invalidation() {
 
     let check = |tc_ver: &str| {
         FastBuildLock::check_freshness(&FreshnessCheckArgs {
-            project_dir: &proj_a,
+            project_dir: &sub,
             profile: "dev",
             package: &None,
             features: &[],
@@ -303,19 +321,13 @@ fn test_t0_b4_detect_toolchain_no_disk_cache_and_fast_lock_invalidation() {
         })
     };
     assert!(matches!(
-        check(&tc_a.version),
+        check(&detected.version),
         FreshnessResult::Fresh { .. }
     ));
-    assert!(matches!(check(&tc_b.version), FreshnessResult::Stale(_)));
-
-    if let Some(r) = old_rustc {
-        std::env::set_var("RUSTC", r);
-    } else {
-        std::env::remove_var("RUSTC");
-    }
-    if let Some(h) = old_home {
-        std::env::set_var("HOME", h);
-    }
+    assert!(matches!(
+        check("rustc 1.99.0-other"),
+        FreshnessResult::Stale(_)
+    ));
 }
 
 #[test]
@@ -328,7 +340,6 @@ fn test_t0_r3_path_and_crates_io_same_name_resolved_by_source_and_version() {
     let temp = TempDir::new().unwrap();
     let mitts_cache = temp.path().join("mitts_cache");
 
-    // Seed crates.io foo-1.0.0 and bar-0.1.0 in Mitts SourceStore
     for (name, ver, dep) in [("foo", "1.0.0", ""), ("bar", "0.1.0", "foo = \"1.0.0\"\n")] {
         let dir = mitts_cache.join(format!("sources/{}-{}", name, ver));
         fs::create_dir_all(dir.join("src")).unwrap();
@@ -351,7 +362,6 @@ fn test_t0_r3_path_and_crates_io_same_name_resolved_by_source_and_version() {
     )
     .unwrap();
     fs::write(foo_fork.join("src/lib.rs"), "pub fn local_fork() {}\n").unwrap();
-
     fs::write(
         proj.join("Cargo.toml"),
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfoo = { path = \"foo-fork\" }\nbar = \"0.1.0\"\n",
@@ -375,17 +385,15 @@ fn test_t0_r3_path_and_crates_io_same_name_resolved_by_source_and_version() {
         .units
         .iter()
         .find(|u| u.package_name == "foo" && u.version == "0.1.0")
-        .expect("path dependency foo 0.1.0 must be in plan");
+        .unwrap();
     let foo_10 = plan
         .units
         .iter()
         .find(|u| u.package_name == "foo" && u.version == "1.0.0")
-        .expect("crates.io foo 1.0.0 must be in plan");
-
+        .unwrap();
     assert_eq!(foo_01.manifest_path, foo_fork.join("Cargo.toml"));
     assert_eq!(
         foo_10.manifest_path,
-        mitts_cache.join("sources/foo-1.0.0/Cargo.toml"),
-        "crates.io foo 1.0.0 must not be substituted with path dependency foo-fork"
+        mitts_cache.join("sources/foo-1.0.0/Cargo.toml")
     );
 }

@@ -8,8 +8,15 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use crate::core::action::ToolchainInfo;
+use anyhow::{Context, Result};
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Results from invoking `rustc` or `clippy-driver`.
 #[derive(Debug, Clone)]
@@ -23,11 +30,43 @@ pub struct RustcOutput {
     pub metadata_output: Option<PathBuf>,
 }
 
-static RESOLVED_RUSTC: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-static RESOLVED_CLIPPY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-static RESOLVED_RUSTDOC: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-static RESOLVED_CARGO: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-static RESOLVED_HOST_TRIPLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// Unified metadata from a single `<resolved_rustc> -vV` invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbedRustc {
+    pub rustc_path: PathBuf,
+    pub toolchain: ToolchainInfo,
+    pub host_triple: String,
+    pub verbose_version: String,
+}
+
+type ProbedRustcCacheKey = (PathBuf, Option<OsString>, Option<SystemTime>);
+
+static RESOLVED_RUSTC: OnceLock<PathBuf> = OnceLock::new();
+static RESOLVED_CLIPPY: OnceLock<PathBuf> = OnceLock::new();
+static RESOLVED_RUSTDOC: OnceLock<PathBuf> = OnceLock::new();
+static RESOLVED_CARGO: OnceLock<PathBuf> = OnceLock::new();
+static RESOLVED_HOST_TRIPLE: OnceLock<String> = OnceLock::new();
+static PROBED_RUSTC_CACHE: OnceLock<Mutex<HashMap<ProbedRustcCacheKey, ProbedRustc>>> =
+    OnceLock::new();
+
+static SUBPROC_CALLS: AtomicU64 = AtomicU64::new(0);
+static SUBPROC_NANOS: AtomicU64 = AtomicU64::new(0);
+static RUSTC_VV_CALLS: AtomicU64 = AtomicU64::new(0);
+
+pub fn record_rustc_subproc(dur: Duration) {
+    SUBPROC_CALLS.fetch_add(1, Ordering::Relaxed);
+    SUBPROC_NANOS.fetch_add(dur.as_nanos() as u64, Ordering::Relaxed);
+}
+
+pub fn rustc_subproc_stats() -> (u64, f64) {
+    let calls = SUBPROC_CALLS.load(Ordering::Relaxed);
+    let ms = SUBPROC_NANOS.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+    (calls, ms)
+}
+
+pub fn rustc_vv_call_count() -> u64 {
+    RUSTC_VV_CALLS.load(Ordering::Relaxed)
+}
 
 pub fn resolve_cargo() -> PathBuf {
     if let Ok(p) = std::env::var("CARGO") {
@@ -55,25 +94,95 @@ pub fn resolve_cargo() -> PathBuf {
         .clone()
 }
 
-/// Resolves the host target triple from `rustc -vV`.
+/// Probes `<rustc_path> -vV` once and caches the parsed `ToolchainInfo`, host triple,
+/// and verbose version string in memory keyed by `(rustc_path, RUSTUP_TOOLCHAIN, mtime)`.
+pub fn toolchain_for(rustc_path: &Path) -> Result<ProbedRustc> {
+    let mtime = fs::metadata(rustc_path).and_then(|m| m.modified()).ok();
+    let key: ProbedRustcCacheKey = (
+        rustc_path.to_path_buf(),
+        std::env::var_os("RUSTUP_TOOLCHAIN"),
+        mtime,
+    );
+    let cache = PROBED_RUSTC_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .cloned()
+    {
+        return Ok(cached);
+    }
+
+    let t0 = Instant::now();
+    let output = std::process::Command::new(rustc_path)
+        .arg("-vV")
+        .output()
+        .with_context(|| format!("Failed to invoke {:?} -vV", rustc_path))?;
+    record_rustc_subproc(t0.elapsed());
+    RUSTC_VV_CALLS.fetch_add(1, Ordering::Relaxed);
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut version_str = String::new();
+    let mut target_triple = None;
+
+    for line in text.lines() {
+        if version_str.is_empty() {
+            version_str = line.trim().to_string();
+        }
+        if let Some(rest) = line.strip_prefix("host: ") {
+            target_triple = Some(rest.trim().to_string());
+        }
+    }
+
+    if version_str.is_empty() {
+        version_str = "rustc".to_string();
+    }
+
+    let host_triple = target_triple
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    let verbose_version = if output.status.success() && !text.trim().is_empty() {
+        text.trim().to_string()
+    } else {
+        "unknown_rustc".to_string()
+    };
+
+    let probed = ProbedRustc {
+        rustc_path: rustc_path.to_path_buf(),
+        toolchain: ToolchainInfo {
+            name: "rustc".to_string(),
+            version: version_str,
+            target_triple,
+        },
+        host_triple,
+        verbose_version,
+    };
+
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, probed.clone());
+
+    Ok(probed)
+}
+
+/// Returns the probed toolchain metadata for the single active `resolve_rustc()` binary.
+pub fn active_toolchain() -> Result<ProbedRustc> {
+    let rustc = resolve_rustc();
+    toolchain_for(&rustc)
+}
+
+/// Resolves the host target triple from the shared `active_toolchain()` `-vV` probe.
 pub fn resolve_host_triple() -> &'static str {
     RESOLVED_HOST_TRIPLE.get_or_init(|| {
-        let rustc = resolve_rustc();
-        if let Ok(out) = std::process::Command::new(&rustc).arg("-vV").output() {
-            if let Ok(text) = String::from_utf8(out.stdout) {
-                for line in text.lines() {
-                    if let Some(rest) = line.strip_prefix("host: ") {
-                        return rest.trim().to_string();
-                    }
-                }
-            }
-        }
-        "unknown".to_string()
+        active_toolchain()
+            .map(|p| p.host_triple)
+            .unwrap_or_else(|_| "unknown".to_string())
     })
 }
 
 pub fn resolve_rustc() -> PathBuf {
-    if let Ok(p) = std::env::var("RUSTC") {
+    if let Some(p) = std::env::var_os("RUSTC").filter(|v| !v.is_empty()) {
         return PathBuf::from(p);
     }
     RESOLVED_RUSTC
@@ -86,11 +195,13 @@ pub fn resolve_rustc() -> PathBuf {
                 .chain(home_cargo_rustup)
                 .collect::<Vec<PathBuf>>();
             for rustup in candidates {
-                if let Ok(output) = std::process::Command::new(&rustup)
+                let t0 = Instant::now();
+                let out = std::process::Command::new(&rustup)
                     .arg("which")
                     .arg("rustc")
-                    .output()
-                {
+                    .output();
+                record_rustc_subproc(t0.elapsed());
+                if let Ok(output) = out {
                     if output.status.success() {
                         if let Ok(s) = String::from_utf8(output.stdout) {
                             let p = PathBuf::from(s.trim());

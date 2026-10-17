@@ -138,9 +138,12 @@ pub fn get_base_cfg_atoms(explicit_target: Option<&str>) -> Result<Arc<HashSet<S
         cmd.arg("--target").arg(target);
     }
     let res = (|| -> Result<Arc<HashSet<String>>, String> {
+        let t0 = std::time::Instant::now();
         let output = cmd
             .output()
-            .map_err(|e| format!("Failed to execute {:?} to discover cfg atoms: {}", rustc, e))?;
+            .map_err(|e| format!("Failed to execute {:?} to discover cfg atoms: {}", rustc, e));
+        crate::adapter::rust::compiler_resolve::record_rustc_subproc(t0.elapsed());
+        let output = output?;
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
             return Err(format!(
