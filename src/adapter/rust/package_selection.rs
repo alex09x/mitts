@@ -149,6 +149,7 @@ pub fn select_transitive_packages<'a>(
         .start_dir
         .as_deref()
         .unwrap_or(std::path::Path::new("."));
+    let mut cfg_cache = TargetCfgCache::new();
 
     while let Some(pkg) = to_visit.pop() {
         let key = (pkg.name.clone(), pkg.version.clone());
@@ -174,12 +175,13 @@ pub fn select_transitive_packages<'a>(
                             || !ws_toml.target.is_empty()
                             || (is_test && !ws_toml.dev_dependencies.is_empty());
                         if has_manifest_deps
-                            && !is_declared_dependency(
+                            && !is_declared_dependency_cached(
                                 ws_toml,
                                 dep_name,
                                 is_test,
                                 explicit_target.as_deref(),
                                 start_dir,
+                                &mut cfg_cache,
                             )?
                         {
                             continue;
@@ -208,6 +210,7 @@ pub fn select_transitive_packages<'a>(
 }
 
 pub use super::dependency_check::{
-    has_active_dependency, is_declared_dependency, parse_package_spec as parse_dep_spec,
+    has_active_dependency, has_active_dependency_cached, is_declared_dependency,
+    is_declared_dependency_cached, parse_package_spec as parse_dep_spec, TargetCfgCache,
 };
 pub use super::planner_deps::prune_unreachable_units;

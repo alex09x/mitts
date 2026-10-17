@@ -11,7 +11,9 @@
 use mitts::adapter::rust::inputs::hash_package_base_inputs;
 use mitts::adapter::rust::lockfile::{CargoLock, CargoLockPackage};
 use mitts::adapter::rust::manifest::CargoToml;
-use mitts::adapter::rust::planner_deps::resolve_unit_dependencies;
+use mitts::adapter::rust::planner_deps::{
+    resolve_unit_dependencies, resolve_unit_dependencies_with_manifests,
+};
 use mitts::adapter::rust::types::{PlannedCompilationUnit, RustBuildOptions};
 use mitts::adapter::rust::unit_env::compute_unit_rustc_env;
 use mitts::adapter::RustAdapter;
@@ -263,6 +265,16 @@ edition = "2021"
 
     let selected = vec![(&lockfile.packages[0], true)];
     resolve_unit_dependencies(&mut units, &selected, None, std::path::Path::new(".")).unwrap();
+
+    let resolved = vec![(&lockfile.packages[0], true, pkg_dir.clone(), toml)];
+    resolve_unit_dependencies_with_manifests(
+        &mut units,
+        &selected,
+        &resolved,
+        None,
+        std::path::Path::new("."),
+    )
+    .unwrap();
 
     let unit_test = units
         .iter()

@@ -286,9 +286,10 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     // Pass 2: Resolve exact unit dependencies matching library or proc-macro targets
     let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
     let start_dir = opt.start_dir.as_deref().unwrap_or(project_dir);
-    super::planner_deps::resolve_unit_dependencies(
+    super::planner_deps::resolve_unit_dependencies_with_manifests(
         &mut units,
         &selected_packages,
+        &resolved_packages,
         explicit_target.as_deref(),
         start_dir,
     )?;
@@ -371,12 +372,13 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     let profile = if opt.release { "release" } else { "debug" }.to_string();
-
-    Ok(EffectivePlanExplanation {
+    let explanation = EffectivePlanExplanation {
         manifest_path,
         target_directory: target_dir,
         profile,
         toolchain,
         units,
-    })
+    };
+    super::key::dump_action_keys_if_requested(opt, &explanation)?;
+    Ok(explanation)
 }

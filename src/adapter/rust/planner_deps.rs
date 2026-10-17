@@ -10,7 +10,7 @@
 
 use super::lockfile::CargoLockPackage;
 use super::manifest::CargoToml;
-use super::package_selection::{has_active_dependency, parse_dep_spec};
+use super::package_selection::{has_active_dependency_cached, parse_dep_spec, TargetCfgCache};
 use super::types::PlannedCompilationUnit;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -19,6 +19,24 @@ use std::path::{Path, PathBuf};
 pub fn resolve_unit_dependencies(
     units: &mut [PlannedCompilationUnit],
     selected_packages: &[(&CargoLockPackage, bool)],
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+) -> Result<(), crate::adapter::rust::types::RustAdapterError> {
+    resolve_unit_dependencies_with_manifests(
+        units,
+        selected_packages,
+        &[],
+        explicit_target,
+        start_dir,
+    )
+}
+
+/// Resolves exact compilation unit dependencies reusing already-parsed `CargoToml` manifests
+/// from `resolved_packages` whenever `unit.manifest_path == pkg_dir.join("Cargo.toml")`.
+pub fn resolve_unit_dependencies_with_manifests(
+    units: &mut [PlannedCompilationUnit],
+    selected_packages: &[(&CargoLockPackage, bool)],
+    resolved_packages: &[(&CargoLockPackage, bool, PathBuf, CargoToml)],
     explicit_target: Option<&str>,
     start_dir: &Path,
 ) -> Result<(), crate::adapter::rust::types::RustAdapterError> {
@@ -65,28 +83,61 @@ pub fn resolve_unit_dependencies(
         }
     }
 
-    for unit in units.iter_mut() {
-        let pkg_match = selected_packages
-            .iter()
-            .find(|(p, _)| p.name == unit.package_name && p.version == unit.version);
+    let mut selected_by_key: HashMap<(&str, &str), &CargoLockPackage> =
+        HashMap::with_capacity(selected_packages.len());
+    for (pkg, _) in selected_packages {
+        selected_by_key
+            .entry((pkg.name.as_str(), pkg.version.as_str()))
+            .or_insert(*pkg);
+    }
 
-        let pkg_toml_opt = CargoToml::from_file(&unit.manifest_path).ok();
+    let mut resolved_by_key: HashMap<(&str, &str), (PathBuf, &CargoToml, bool)> =
+        HashMap::with_capacity(resolved_packages.len());
+    for (pkg, _, pkg_dir, pkg_toml) in resolved_packages {
+        let key = (pkg.name.as_str(), pkg.version.as_str());
+        resolved_by_key.entry(key).or_insert_with(|| {
+            let expected_manifest = pkg_dir.join("Cargo.toml");
+            let has_bs = pkg_toml.has_build_script(pkg_dir);
+            (expected_manifest, pkg_toml, has_bs)
+        });
+    }
+
+    let mut fallback_manifests: HashMap<PathBuf, (Option<CargoToml>, bool)> = HashMap::new();
+    let mut cfg_cache = TargetCfgCache::new();
+
+    for unit in units.iter_mut() {
+        let pkg_key = (unit.package_name.as_str(), unit.version.as_str());
+        let pkg_match = selected_by_key.get(&pkg_key).copied();
+
+        let (pkg_toml_opt, has_build_script): (Option<&CargoToml>, bool) =
+            if let Some((_, toml_ref, has_bs)) = resolved_by_key
+                .get(&pkg_key)
+                .filter(|(expected_manifest, _, _)| *expected_manifest == unit.manifest_path)
+            {
+                (Some(*toml_ref), *has_bs)
+            } else {
+                let pkg_dir = unit
+                    .manifest_path
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."));
+                let (toml_opt, has_bs) = fallback_manifests
+                    .entry(unit.manifest_path.clone())
+                    .or_insert_with(|| {
+                        let t = CargoToml::from_file(&unit.manifest_path).ok();
+                        let bs = t.as_ref().is_some_and(|m| m.has_build_script(pkg_dir));
+                        (t, bs)
+                    });
+                (toml_opt.as_ref(), *has_bs)
+            };
+
         let is_test = unit.kind == "test" || unit.kind == "custom-test" || unit.kind == "test-deps";
 
-        let pkg_dir = unit
-            .manifest_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
-        let has_build_script = pkg_toml_opt
-            .as_ref()
-            .is_some_and(|t| t.has_build_script(pkg_dir));
-
         let mut unit_deps = Vec::new();
-        if let Some((pkg, _)) = pkg_match {
+        if let Some(pkg) = pkg_match {
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver) = parse_dep_spec(dep_spec);
-                if let Some(ref toml) = pkg_toml_opt {
-                    if !has_active_dependency(
+                if let Some(toml) = pkg_toml_opt {
+                    if !has_active_dependency_cached(
                         toml,
                         dep_name,
                         &unit.features,
@@ -94,42 +145,39 @@ pub fn resolve_unit_dependencies(
                         has_build_script,
                         explicit_target,
                         start_dir,
+                        &mut cfg_cache,
                     )? {
                         continue;
                     }
                 }
 
-                let is_pm = proc_macro_names.contains(dep_name)
-                    || proc_macro_names.contains(&dep_name.replace('-', "_"));
+                let dep_clean = dep_name.replace('-', "_");
+                let is_pm =
+                    proc_macro_names.contains(dep_name) || proc_macro_names.contains(&dep_clean);
 
                 let is_build_dep = has_build_script
-                    && pkg_toml_opt.as_ref().is_some_and(|t| {
+                    && pkg_toml_opt.is_some_and(|t| {
                         t.build_dependencies.contains_key(dep_name)
-                            || t.build_dependencies
-                                .contains_key(&dep_name.replace('-', "_"))
+                            || t.build_dependencies.contains_key(&dep_clean)
                             || t.target.values().any(|ts| {
                                 ts.build_dependencies.contains_key(dep_name)
-                                    || ts
-                                        .build_dependencies
-                                        .contains_key(&dep_name.replace('-', "_"))
+                                    || ts.build_dependencies.contains_key(&dep_clean)
                             })
                     });
 
-                let is_runtime_dep = pkg_toml_opt.as_ref().is_none_or(|t| {
+                let is_runtime_dep = pkg_toml_opt.is_none_or(|t| {
                     t.dependencies.contains_key(dep_name)
-                        || t.dependencies.contains_key(&dep_name.replace('-', "_"))
+                        || t.dependencies.contains_key(&dep_clean)
                         || t.target.values().any(|ts| {
                             ts.dependencies.contains_key(dep_name)
-                                || ts.dependencies.contains_key(&dep_name.replace('-', "_"))
+                                || ts.dependencies.contains_key(&dep_clean)
                         })
                         || (is_test
                             && (t.dev_dependencies.contains_key(dep_name)
-                                || t.dev_dependencies.contains_key(&dep_name.replace('-', "_"))
+                                || t.dev_dependencies.contains_key(&dep_clean)
                                 || t.target.values().any(|ts| {
                                     ts.dev_dependencies.contains_key(dep_name)
-                                        || ts
-                                            .dev_dependencies
-                                            .contains_key(&dep_name.replace('-', "_"))
+                                        || ts.dev_dependencies.contains_key(&dep_clean)
                                 })))
                 });
 
@@ -139,7 +187,7 @@ pub fn resolve_unit_dependencies(
                             .get(&(dep_name.to_string(), ver.to_string(), for_host))
                             .or_else(|| {
                                 lib_units_by_exact.get(&(
-                                    dep_name.replace('-', "_"),
+                                    dep_clean.clone(),
                                     ver.to_string(),
                                     for_host,
                                 ))
@@ -153,7 +201,7 @@ pub fn resolve_unit_dependencies(
                             })
                             .or_else(|| {
                                 lib_units_by_exact.get(&(
-                                    dep_name.replace('-', "_"),
+                                    dep_clean.clone(),
                                     ver.to_string(),
                                     !for_host,
                                 ))
@@ -161,9 +209,9 @@ pub fn resolve_unit_dependencies(
                             .map(|(uid, _)| uid.clone())
                     } else if let Some(candidates) = lib_units_by_name
                         .get(&(dep_name.to_string(), for_host))
-                        .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), for_host)))
+                        .or_else(|| lib_units_by_name.get(&(dep_clean.clone(), for_host)))
                         .or_else(|| lib_units_by_name.get(&(dep_name.to_string(), !for_host)))
-                        .or_else(|| lib_units_by_name.get(&(dep_name.replace('-', "_"), !for_host)))
+                        .or_else(|| lib_units_by_name.get(&(dep_clean.clone(), !for_host)))
                     {
                         candidates.first().map(|(_, uid)| uid.clone())
                     } else {

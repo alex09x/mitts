@@ -11,7 +11,28 @@
 use super::manifest::{CargoToml, TomlBuild, TomlDependency};
 use super::target_filter::is_target_cfg_incompatible_with_target;
 use super::types::RustAdapterError;
+use std::collections::HashMap;
 use std::path::Path;
+
+/// Per-pass memoization table for `(target_spec, for_host)` target-cfg compatibility checks.
+pub type TargetCfgCache = HashMap<(String, bool), Result<bool, RustAdapterError>>;
+
+fn eval_target_cfg_incompat(
+    target_spec: &str,
+    for_host: bool,
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+    cache: &mut TargetCfgCache,
+) -> Result<bool, RustAdapterError> {
+    let key = (target_spec.to_string(), for_host);
+    if let Some(res) = cache.get(&key) {
+        return res.clone();
+    }
+    let res =
+        is_target_cfg_incompatible_with_target(target_spec, for_host, explicit_target, start_dir);
+    cache.insert(key, res.clone());
+    res
+}
 
 /// Parses a dependency spec string like "my-crate 0.1.0" or "my-crate" into (name, version).
 pub fn parse_package_spec(spec: &str) -> (&str, Option<&str>) {
@@ -31,6 +52,31 @@ pub fn has_active_dependency(
     has_build_script: bool,
     explicit_target: Option<&str>,
     start_dir: &Path,
+) -> Result<bool, RustAdapterError> {
+    let mut cache = TargetCfgCache::new();
+    has_active_dependency_cached(
+        pkg_toml,
+        dep_name,
+        unit_features,
+        is_test,
+        has_build_script,
+        explicit_target,
+        start_dir,
+        &mut cache,
+    )
+}
+
+/// Memoized variant of [`has_active_dependency`] reusing a [`TargetCfgCache`] across units.
+#[allow(clippy::too_many_arguments)]
+pub fn has_active_dependency_cached(
+    pkg_toml: &CargoToml,
+    dep_name: &str,
+    unit_features: &[String],
+    is_test: bool,
+    has_build_script: bool,
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+    cfg_cache: &mut TargetCfgCache,
 ) -> Result<bool, RustAdapterError> {
     let clean = dep_name.replace('-', "_");
     let check_dep = |alias: &str, d: &TomlDependency| -> bool {
@@ -99,9 +145,9 @@ pub fn has_active_dependency(
 
     for (target_spec, target) in &pkg_toml.target {
         let is_target_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, false, explicit_target, start_dir)?;
+            eval_target_cfg_incompat(target_spec, false, explicit_target, start_dir, cfg_cache)?;
         let is_host_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, true, explicit_target, start_dir)?;
+            eval_target_cfg_incompat(target_spec, true, explicit_target, start_dir, cfg_cache)?;
         if !is_target_incompat {
             for (alias, d) in &target.dependencies {
                 if check_dep(alias, d) {
@@ -146,6 +192,26 @@ pub fn is_declared_dependency(
     explicit_target: Option<&str>,
     start_dir: &Path,
 ) -> Result<bool, RustAdapterError> {
+    let mut cache = TargetCfgCache::new();
+    is_declared_dependency_cached(
+        pkg_toml,
+        dep_name,
+        is_test,
+        explicit_target,
+        start_dir,
+        &mut cache,
+    )
+}
+
+/// Memoized variant of [`is_declared_dependency`] reusing a [`TargetCfgCache`] across packages.
+pub fn is_declared_dependency_cached(
+    pkg_toml: &CargoToml,
+    dep_name: &str,
+    is_test: bool,
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+    cfg_cache: &mut TargetCfgCache,
+) -> Result<bool, RustAdapterError> {
     let clean = dep_name.replace('-', "_");
     let check_dep = |alias: &str, d: &TomlDependency| -> bool {
         let (real_name, has_custom_pkg) = match d {
@@ -186,9 +252,9 @@ pub fn is_declared_dependency(
 
     for (target_spec, target) in &pkg_toml.target {
         let is_target_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, false, explicit_target, start_dir)?;
+            eval_target_cfg_incompat(target_spec, false, explicit_target, start_dir, cfg_cache)?;
         let is_host_incompat =
-            is_target_cfg_incompatible_with_target(target_spec, true, explicit_target, start_dir)?;
+            eval_target_cfg_incompat(target_spec, true, explicit_target, start_dir, cfg_cache)?;
         if !is_target_incompat {
             for (alias, d) in &target.dependencies {
                 if check_dep(alias, d) {
