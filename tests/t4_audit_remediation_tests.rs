@@ -66,7 +66,7 @@ fn test_b1_gc_prunes_cas_artifacts_and_preserves_during_active_locks() {
         &proj,
         "src/lib.rs",
         &format!(
-            "/// ```\n/// std::fs::write({dt_ready:?}, \"1\").unwrap();\n/// while !std::path::Path::new({dt_done:?}).exists() {{ std::thread::sleep(std::time::Duration::from_millis(5)); }}\n/// assert_eq!(b1_pkg::compute(), 123456789);\n/// ```\npub fn compute() -> u64 {{ 123456789 }}\n"
+            "/// ```\n/// std::fs::write({dt_ready:?}, \"1\").unwrap();\n/// assert!((0..24_000).any(|_| std::path::Path::new({dt_done:?}).exists() || {{ std::thread::sleep(std::time::Duration::from_millis(5)); false }}));\n/// assert_eq!(b1_pkg::compute(), 123456789);\n/// ```\npub fn compute() -> u64 {{ 123456789 }}\n"
         ),
     );
 
@@ -80,9 +80,10 @@ fn test_b1_gc_prunes_cas_artifacts_and_preserves_during_active_locks() {
     };
     let zero_gc_bg = zero_gc.clone();
     let waiter = std::thread::spawn(move || {
-        while !dt_ready.exists() {
+        assert!((0..24_000).any(|_| dt_ready.exists() || {
             std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+            false
+        }));
         let rep = CacheGc::new(&cas_bg, &ac_bg).prune(&zero_gc_bg).unwrap();
         fs::write(&dt_done, "1").unwrap();
         rep
