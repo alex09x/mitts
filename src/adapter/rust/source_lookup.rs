@@ -20,7 +20,7 @@ fn manifest_matches_package(toml_path: &Path, name: &str, version: &str) -> bool
     };
     toml.package
         .as_ref()
-        .is_some_and(|pkg| pkg.name == name && pkg.version.as_deref() == Some(version))
+        .is_some_and(|pkg| pkg.name == name && pkg.version.as_deref().unwrap_or("0.0.0") == version)
 }
 
 fn find_in_git_checkouts(

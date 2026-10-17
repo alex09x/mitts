@@ -178,12 +178,19 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
     )
     .unwrap();
 
-    // Real package with version 0.2.0
+    // Real package with version 0.2.0 and Cargo 1.75+ versionless package (0.0.0)
     let real_pkg = commit_dir.join("real_pkg");
+    let no_ver_pkg = commit_dir.join("no_ver_pkg");
     fs::create_dir_all(&real_pkg).unwrap();
+    fs::create_dir_all(&no_ver_pkg).unwrap();
     fs::write(
         real_pkg.join("Cargo.toml"),
         "[package]\nname = \"target_pkg\"\nversion = \"0.2.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        no_ver_pkg.join("Cargo.toml"),
+        "[package]\nname = \"vless\"\n",
     )
     .unwrap();
 
@@ -193,9 +200,12 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
         Some(real_pkg)
     );
     assert_eq!(
+        find_crate_source_dir("vless", "0.0.0", Some(git_src)),
+        Some(no_ver_pkg)
+    );
+    assert_eq!(
         find_crate_source_dir("target_pkg", "0.9.9", Some(git_src)),
-        None,
-        "mismatched package.version in git checkout must not match"
+        None
     );
 
     if let Some(ch) = old_ch {
@@ -261,15 +271,11 @@ fn test_t0_b4_detect_toolchain_no_disk_cache_and_fast_lock_invalidation() {
         tc_b.version,
         "rustc 1.99.0-nightly-2026-05-01 (deadbeef 2026-01-01)"
     );
-    assert!(
-        !home.join(".mitts/cache/toolchain_v1.json").exists(),
-        "unsound disk cache toolchain_v1.json must not be created"
-    );
+    assert!(!home.join(".mitts/cache/toolchain_v1.json").exists());
 
     let out_rlib = proj_a.join("target/debug/liba.rlib");
     fs::create_dir_all(out_rlib.parent().unwrap()).unwrap();
     fs::write(&out_rlib, b"rlib").unwrap();
-
     FastBuildLock::record_state(&RecordStateArgs {
         project_dir: &proj_a,
         profile: "dev",
@@ -285,30 +291,22 @@ fn test_t0_b4_detect_toolchain_no_disk_cache_and_fast_lock_invalidation() {
     })
     .unwrap();
 
-    let fresh_same = FastBuildLock::check_freshness(&FreshnessCheckArgs {
-        project_dir: &proj_a,
-        profile: "dev",
-        package: &None,
-        features: &[],
-        no_default_features: false,
-        all_features: false,
-        toolchain_version: &tc_a.version,
-    });
-    assert!(matches!(fresh_same, FreshnessResult::Fresh { .. }));
-
-    let fresh_after_tc_switch = FastBuildLock::check_freshness(&FreshnessCheckArgs {
-        project_dir: &proj_a,
-        profile: "dev",
-        package: &None,
-        features: &[],
-        no_default_features: false,
-        all_features: false,
-        toolchain_version: &tc_b.version,
-    });
-    assert!(
-        matches!(fresh_after_tc_switch, FreshnessResult::Stale(_)),
-        "FastBuildLock must not return Fresh after toolchain version changes"
-    );
+    let check = |tc_ver: &str| {
+        FastBuildLock::check_freshness(&FreshnessCheckArgs {
+            project_dir: &proj_a,
+            profile: "dev",
+            package: &None,
+            features: &[],
+            no_default_features: false,
+            all_features: false,
+            toolchain_version: tc_ver,
+        })
+    };
+    assert!(matches!(
+        check(&tc_a.version),
+        FreshnessResult::Fresh { .. }
+    ));
+    assert!(matches!(check(&tc_b.version), FreshnessResult::Stale(_)));
 
     if let Some(r) = old_rustc {
         std::env::set_var("RUSTC", r);
