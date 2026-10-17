@@ -8,14 +8,14 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::action_cache::ActionCache;
-use super::cas::ContentAddressedStore;
-use super::lock::FileLock;
+use super::{action_cache::ActionCache, cas::ContentAddressedStore, lock::FileLock};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
-use std::fs;
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::{
+    fs,
+    path::PathBuf,
+    time::{Duration, SystemTime},
+};
 
 /// Report generated after running garbage collection on the cache.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -34,8 +34,7 @@ pub struct GcOptions {
     pub max_age: Option<Duration>,
 }
 
-/// Shared lease guard held by active builds, tests, doctests, and `mitts run` to prevent
-/// concurrent `CacheGc::prune` from evicting live artifacts in `cas/objects` or `cas/artifacts*`.
+/// Shared lease guard held by active builds, tests, doctests, and `mitts run`.
 #[allow(dead_code)]
 pub struct CacheLease(Option<FileLock>);
 
@@ -73,32 +72,25 @@ impl<'a> CacheGc<'a> {
     }
 
     fn active_locks(&self) -> HashSet<String> {
-        let mut active = HashSet::new();
-        if let Ok(entries) = fs::read_dir(self.ac.locks_dir()) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == "lock")
-                    && matches!(FileLock::try_acquire_exclusive(&path), Ok(None))
-                {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        active.insert(stem.to_string());
-                    }
-                }
-            }
-        }
-        active
+        fs::read_dir(self.ac.locks_dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.extension().is_some_and(|e| e == "lock")
+                    && matches!(FileLock::try_acquire_exclusive(p), Ok(None))
+            })
+            .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(str::to_string))
+            .collect()
     }
 
     fn active_cas_hashes(&self, active_keys: &HashSet<String>) -> HashSet<String> {
-        let mut active_hashes = HashSet::new();
-        for key in active_keys {
-            if let Ok(Some(entry)) = self.ac.get(key) {
-                for out in entry.outputs {
-                    active_hashes.insert(out.cas_hash);
-                }
-            }
-        }
-        active_hashes
+        active_keys
+            .iter()
+            .filter_map(|k| self.ac.get(k).ok().flatten())
+            .flat_map(|e| e.outputs.into_iter().map(|o| o.cas_hash))
+            .collect()
     }
 
     pub fn prune(&self, opts: &GcOptions) -> Result<GcReport> {
@@ -108,11 +100,10 @@ impl<'a> CacheGc<'a> {
         ]
         .into_iter()
         .flatten()
+        .filter(|d| d.is_dir())
         {
-            if sources_dir.is_dir() {
-                if let Ok(store) = super::source_store::SourceStore::new(sources_dir) {
-                    let _ = store.cleanup_dead_staging();
-                }
+            if let Ok(store) = super::source_store::SourceStore::new(sources_dir) {
+                let _ = store.cleanup_dead_staging();
             }
         }
         let objects_dir = self.cas.root().join("objects");
@@ -233,88 +224,103 @@ impl<'a> CacheGc<'a> {
             let mut counted_inodes: HashSet<(u64, u64)> =
                 objects.iter().map(|o| o.ino_key).collect();
 
-            for artifacts_dir in &artifact_dirs {
-                let Ok(entries) = fs::read_dir(artifacts_dir) else {
-                    continue;
-                };
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if name.starts_with(".tmp_") {
-                        if fs::metadata(&path)
-                            .and_then(|m| m.modified())
-                            .ok()
-                            .and_then(|mt| now.duration_since(mt).ok())
-                            .is_some_and(|age| age > Duration::from_secs(3600))
-                        {
-                            let _ = remove_readonly_file(&path);
-                        }
-                        continue;
-                    }
-                    if let Some(art_name) = name
-                        .strip_prefix('.')
-                        .and_then(|s| s.strip_suffix(".cas_hash"))
+            for (artifacts_dir, path) in artifact_dirs
+                .iter()
+                .filter_map(|d| fs::read_dir(d).ok().map(move |it| (d, it)))
+                .flat_map(|(d, it)| it.flatten().map(move |e| (d, e.path())))
+            {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name.starts_with(".tmp_") {
+                    if fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|mt| now.duration_since(mt).ok())
+                        .is_some_and(|age| age > Duration::from_secs(3600))
                     {
-                        if !artifacts_dir.join(art_name).exists() {
-                            let mapped = fs::read_to_string(&path).unwrap_or_default();
-                            if !remaining_hashes.contains(mapped.trim()) {
-                                let _ = remove_readonly_file(&path);
-                            }
-                        }
-                        continue;
+                        let _ = remove_readonly_file(&path);
                     }
-                    let sidecar = artifacts_dir.join(format!(".{}.cas_hash", name));
-                    let is_orphaned = if sidecar.is_file() {
-                        let mapped = fs::read_to_string(&sidecar).unwrap_or_default();
-                        !remaining_hashes.contains(mapped.trim())
-                    } else {
+                    continue;
+                }
+                if let Some(art_name) = name
+                    .strip_prefix('.')
+                    .and_then(|s| s.strip_suffix(".cas_hash"))
+                {
+                    if !artifacts_dir.join(art_name).exists()
+                        && !remaining_hashes
+                            .contains(fs::read_to_string(&path).unwrap_or_default().trim())
+                    {
+                        let _ = remove_readonly_file(&path);
+                    }
+                    continue;
+                }
+                let sidecar = artifacts_dir.join(format!(".{name}.cas_hash"));
+                let is_orphaned = if sidecar.is_file() {
+                    !remaining_hashes
+                        .contains(fs::read_to_string(&sidecar).unwrap_or_default().trim())
+                } else {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::MetadataExt;
+                        fs::metadata(&path).is_ok_and(|m| {
+                            m.nlink() <= 1 || !remaining_inodes.contains(&(m.dev(), m.ino()))
+                        })
+                    }
+                    #[cfg(not(unix))]
+                    false
+                };
+                if is_orphaned {
+                    let meta_opt = fs::metadata(&path).ok();
+                    if remove_readonly_file(&path) {
+                        let _ = remove_readonly_file(&sidecar);
                         #[cfg(unix)]
-                        {
+                        if let Some(m) = meta_opt {
                             use std::os::unix::fs::MetadataExt;
-                            fs::metadata(&path)
-                                .map(|m| {
-                                    m.nlink() <= 1
-                                        || !remaining_inodes.contains(&(m.dev(), m.ino()))
-                                })
-                                .unwrap_or(false)
-                        }
-                        #[cfg(not(unix))]
-                        {
-                            false
-                        }
-                    };
-                    if is_orphaned {
-                        let meta_opt = fs::metadata(&path).ok();
-                        if remove_readonly_file(&path) {
-                            let _ = remove_readonly_file(&sidecar);
-                            #[cfg(unix)]
-                            if let Some(m) = meta_opt {
-                                use std::os::unix::fs::MetadataExt;
-                                if counted_inodes.insert((m.dev(), m.ino())) {
-                                    bytes_freed += m.len();
-                                }
+                            if counted_inodes.insert((m.dev(), m.ino())) {
+                                bytes_freed += m.len();
                             }
                         }
                     }
+                }
+            }
+        } else if !pruned_hashes.is_empty() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let still_linked: HashSet<(u64, u64)> = artifact_dirs
+                    .iter()
+                    .filter_map(|d| fs::read_dir(d).ok())
+                    .flatten()
+                    .flatten()
+                    .filter_map(|e| fs::metadata(e.path()).ok().map(|m| (m.dev(), m.ino())))
+                    .collect();
+                for obj in objects.iter().filter(|o| {
+                    pruned_hashes.contains(&o.hash) && still_linked.contains(&o.ino_key)
+                }) {
+                    bytes_freed = bytes_freed.saturating_sub(obj.size);
+                    total_bytes += obj.size;
                 }
             }
         }
 
         if !pruned_hashes.is_empty() {
             if let Ok(entries) = fs::read_dir(self.ac.root()) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.extension().is_some_and(|e| e == "json") {
-                        if let Some(key) = p.file_stem().and_then(|s| s.to_str()) {
-                            let has_pruned = self.ac.get(key).ok().flatten().is_some_and(|e| {
-                                e.outputs
-                                    .iter()
-                                    .any(|o| pruned_hashes.contains(&o.cas_hash))
-                            });
-                            if !active_keys.contains(key) && has_pruned {
-                                let _ = fs::remove_file(&p);
-                            }
-                        }
+                for p in entries.flatten().map(|e| e.path()) {
+                    let Some(key) = p
+                        .extension()
+                        .is_some_and(|e| e == "json")
+                        .then(|| p.file_stem().and_then(|s| s.to_str()))
+                        .flatten()
+                    else {
+                        continue;
+                    };
+                    if !active_keys.contains(key)
+                        && self.ac.get(key).ok().flatten().is_some_and(|e| {
+                            e.outputs
+                                .iter()
+                                .any(|o| pruned_hashes.contains(&o.cas_hash))
+                        })
+                    {
+                        let _ = fs::remove_file(&p);
                     }
                 }
             }
@@ -322,65 +328,61 @@ impl<'a> CacheGc<'a> {
 
         // 4. Prune build_scripts entries older than max_age
         if let Some(max_age) = opts.max_age {
-            let build_scripts_dir = self.cas.root().join("build_scripts");
-            if let Ok(base_entries) = fs::read_dir(&build_scripts_dir) {
-                for base_entry in base_entries.flatten() {
-                    let base_path = base_entry.path();
-                    if !base_path.is_dir() {
+            let rm_ro = crate::adapter::rust::build_script_cas::remove_dir_all_readonly_safe;
+            if let Ok(base_entries) = fs::read_dir(self.cas.root().join("build_scripts")) {
+                for base_path in base_entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                {
+                    let Ok(exec_entries) = fs::read_dir(&base_path) else {
                         continue;
-                    }
-                    if let Ok(exec_entries) = fs::read_dir(&base_path) {
-                        let mut remaining_entries = 0;
-                        for exec_entry in exec_entries.flatten() {
-                            let exec_path = exec_entry.path();
-                            let file_name =
-                                exec_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                            if file_name.starts_with(".gc.") {
-                                let _ = crate::adapter::rust::build_script_cas::remove_dir_all_readonly_safe(&exec_path);
-                                continue;
-                            }
-                            if file_name.starts_with(".tmp.") {
-                                if fs::metadata(&exec_path)
-                                    .and_then(|m| m.modified())
-                                    .ok()
-                                    .and_then(|mt| now.duration_since(mt).ok())
-                                    .is_some_and(|age| age > Duration::from_secs(3600))
-                                {
-                                    let _ = crate::adapter::rust::build_script_cas::remove_dir_all_readonly_safe(&exec_path);
-                                }
-                                continue;
-                            }
-                            if file_name.starts_with('.') || !exec_path.is_dir() {
-                                continue;
-                            }
-                            let effective_time = fs::metadata(exec_path.join(".last_used"))
-                                .or_else(|_| fs::metadata(&exec_path))
+                    };
+                    let mut remaining_entries = 0;
+                    for exec_path in exec_entries.flatten().map(|e| e.path()) {
+                        let fname = exec_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        if fname.starts_with(".gc.") {
+                            let _ = rm_ro(&exec_path);
+                            continue;
+                        }
+                        if fname.starts_with(".tmp.") {
+                            if fs::metadata(&exec_path)
                                 .and_then(|m| m.modified())
-                                .unwrap_or(SystemTime::UNIX_EPOCH);
-                            let effective_max_age = if active_keys.is_empty() && !has_active_lease {
-                                max_age
-                            } else {
-                                max_age.max(Duration::from_secs(3600))
-                            };
-                            if now
-                                .duration_since(effective_time)
-                                .is_ok_and(|age| age > effective_max_age)
+                                .ok()
+                                .and_then(|mt| now.duration_since(mt).ok())
+                                .is_some_and(|age| age > Duration::from_secs(3600))
                             {
-                                let gc_temp = base_path.join(format!(
-                                    ".gc.{}.{}",
-                                    file_name,
-                                    std::process::id()
-                                ));
-                                if fs::rename(&exec_path, &gc_temp).is_ok() {
-                                    let _ = crate::adapter::rust::build_script_cas::remove_dir_all_readonly_safe(&gc_temp);
-                                    continue;
-                                }
+                                let _ = rm_ro(&exec_path);
                             }
-                            remaining_entries += 1;
+                            continue;
                         }
-                        if remaining_entries == 0 {
-                            let _ = fs::remove_dir(&base_path);
+                        if fname.starts_with('.') || !exec_path.is_dir() {
+                            continue;
                         }
+                        let effective_time = fs::metadata(exec_path.join(".last_used"))
+                            .or_else(|_| fs::metadata(&exec_path))
+                            .and_then(|m| m.modified())
+                            .unwrap_or(SystemTime::UNIX_EPOCH);
+                        let effective_max_age = if active_keys.is_empty() && !has_active_lease {
+                            max_age
+                        } else {
+                            max_age.max(Duration::from_secs(3600))
+                        };
+                        if now
+                            .duration_since(effective_time)
+                            .is_ok_and(|age| age > effective_max_age)
+                        {
+                            let gc_temp =
+                                base_path.join(format!(".gc.{fname}.{}", std::process::id()));
+                            if fs::rename(&exec_path, &gc_temp).is_ok() {
+                                let _ = rm_ro(&gc_temp);
+                                continue;
+                            }
+                        }
+                        remaining_entries += 1;
+                    }
+                    if remaining_entries == 0 {
+                        let _ = fs::remove_dir(&base_path);
                     }
                 }
             }
