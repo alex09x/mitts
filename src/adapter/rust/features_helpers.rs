@@ -19,16 +19,7 @@ use crate::adapter::rust::types::{RustAdapterError, RustBuildOptions};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-fn semver_or_prefix_matches(req_str: &str, ver_str: &str) -> bool {
-    if let (Ok(req), Ok(ver)) = (
-        semver::VersionReq::parse(req_str),
-        semver::Version::parse(ver_str),
-    ) {
-        req.matches(&ver)
-    } else {
-        ver_str.starts_with(req_str) || req_str == ver_str
-    }
-}
+use crate::adapter::rust::dependency_check::semver_or_prefix_matches;
 
 fn is_registry_source(s: &str) -> bool {
     s.starts_with("registry+") || s.starts_with("sparse+")
@@ -134,7 +125,7 @@ impl<'a> FeatureGraphIndex<'a> {
             req_ver,
             req_src,
             self.packages[pkg_idx].source,
-            true,
+            false,
             dep_name,
         )
         .map_err(RustAdapterError::MetadataFailed)?;

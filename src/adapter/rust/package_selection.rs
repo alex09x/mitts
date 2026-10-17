@@ -184,7 +184,7 @@ pub fn select_transitive_packages<'a>(
                         if has_manifest_deps
                             && !is_declared_dependency_cached(
                                 ws_toml,
-                                dep_name,
+                                dep_spec,
                                 is_test,
                                 explicit_target.as_deref(),
                                 start_dir,

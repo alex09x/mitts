@@ -179,7 +179,7 @@ pub fn resolve_unit_dependencies_with_manifests(
                 if let Some(toml) = pkg_toml_opt {
                     if !has_active_dependency_cached(
                         toml,
-                        dep_name,
+                        dep_spec,
                         &unit.features,
                         is_test,
                         has_build_script,
@@ -221,9 +221,7 @@ pub fn resolve_unit_dependencies_with_manifests(
                                 })))
                 });
 
-                let resolve_for_flag = |flag: bool,
-                                        fail_zero: bool|
-                 -> Result<
+                let resolve_for_flag = |flag: bool| -> Result<
                     Option<String>,
                     crate::adapter::rust::types::RustAdapterError,
                 > {
@@ -236,7 +234,7 @@ pub fn resolve_unit_dependencies_with_manifests(
                         dep_ver,
                         dep_src,
                         pkg.source.as_deref(),
-                        fail_zero,
+                        false,
                         dep_spec,
                     )
                     .map_err(crate::adapter::rust::types::RustAdapterError::MetadataFailed)?;
@@ -247,17 +245,10 @@ pub fn resolve_unit_dependencies_with_manifests(
                     Option<String>,
                     crate::adapter::rust::types::RustAdapterError,
                 > {
-                    if let Some(uid) = resolve_for_flag(for_host, false)? {
+                    if let Some(uid) = resolve_for_flag(for_host)? {
                         Ok(Some(uid))
-                    } else if let Some(uid) = resolve_for_flag(!for_host, false)? {
-                        Ok(Some(uid))
-                    } else if lib_units_by_name
-                        .get(&(dep_clean.clone(), for_host))
-                        .is_some_and(|c| !c.is_empty())
-                    {
-                        resolve_for_flag(for_host, true)
                     } else {
-                        resolve_for_flag(!for_host, true)
+                        resolve_for_flag(!for_host)
                     }
                 };
 

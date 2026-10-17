@@ -64,14 +64,6 @@ pub fn parse_package_spec(spec: &str) -> (&str, Option<&str>, Option<&str>) {
 
 /// Resolves a `Cargo.lock` dependency spec `(req_ver, req_src)` against candidates
 /// of the same package name using `(version, source)`.
-///
-/// Disambiguation order when multiple candidates match `(req_ver, req_src)`:
-/// 1. Exact single match -> `Ok(Some(idx))`.
-/// 2. Explicit `req_ver` without `req_src` (`"foo 1.0.0"`) -> unique local/path candidate (`source = None`).
-/// 3. Implicit `req_ver = None, req_src = None` (`"foo"`) when all matches share the same version ->
-///    unique candidate matching `parent_source`.
-/// 4. Otherwise -> `Err`. When `fail_on_no_match && !candidates.is_empty()` and `0` candidates matched,
-///    also returns `Err` (inconsistent lockfile edge).
 pub fn resolve_candidate_by_spec<'a, T, F>(
     candidates: &'a [T],
     get_ver_src: F,
@@ -144,6 +136,139 @@ where
     }
 }
 
+pub fn semver_or_prefix_matches(req_str: &str, ver_str: &str) -> bool {
+    if let (Ok(req), Ok(ver)) = (
+        semver::VersionReq::parse(req_str),
+        semver::Version::parse(ver_str),
+    ) {
+        req.matches(&ver)
+    } else {
+        ver_str.starts_with(req_str) || req_str == ver_str
+    }
+}
+
+fn dep_name_matches<'a>(
+    alias: &'a str,
+    d: &'a TomlDependency,
+    dep_name: &str,
+    clean: &str,
+) -> Option<&'a str> {
+    let (real_name, has_custom_pkg) = match d {
+        TomlDependency::Simple(_) => (alias, false),
+        TomlDependency::Detailed(dt) => (
+            dt.package_name.as_deref().unwrap_or(alias),
+            dt.package_name.is_some(),
+        ),
+    };
+    let ok = if has_custom_pkg {
+        real_name == dep_name || real_name.replace('-', "_") == clean
+    } else {
+        alias == dep_name
+            || alias.replace('-', "_") == clean
+            || real_name == dep_name
+            || real_name.replace('-', "_") == clean
+    };
+    ok.then_some(real_name)
+}
+
+fn dep_ver_req(d: &TomlDependency) -> Option<&str> {
+    match d {
+        TomlDependency::Simple(req) => Some(req.as_str()),
+        TomlDependency::Detailed(dt) => dt.version.as_deref(),
+    }
+}
+
+fn has_matching_ver_decl(pkg_toml: &CargoToml, dep_name: &str, clean: &str, ver: &str) -> bool {
+    let in_map = |m: &HashMap<String, TomlDependency>| {
+        m.iter().any(|(alias, d)| {
+            dep_name_matches(alias, d, dep_name, clean).is_some()
+                && dep_ver_req(d).is_some_and(|req| semver_or_prefix_matches(req, ver))
+        })
+    };
+    in_map(&pkg_toml.dependencies)
+        || in_map(&pkg_toml.build_dependencies)
+        || in_map(&pkg_toml.dev_dependencies)
+        || pkg_toml.target.values().any(|t| {
+            in_map(&t.dependencies) || in_map(&t.build_dependencies) || in_map(&t.dev_dependencies)
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn any_active_manifest_dep<F>(
+    pkg_toml: &CargoToml,
+    dep_spec_or_name: &str,
+    include_build: bool,
+    is_test: bool,
+    explicit_target: Option<&str>,
+    start_dir: &Path,
+    cfg_cache: &mut TargetCfgCache,
+    extra_check: F,
+) -> Result<bool, RustAdapterError>
+where
+    F: Fn(&str, &str, &str, &TomlDependency) -> bool,
+{
+    let (dep_name, dep_ver, _) = parse_package_spec(dep_spec_or_name);
+    let clean = dep_name.replace('-', "_");
+    let enforce_ver =
+        dep_ver.is_some_and(|ver| has_matching_ver_decl(pkg_toml, dep_name, &clean, ver));
+    let check_dep = |alias: &str, d: &TomlDependency| -> bool {
+        let Some(real_name) = dep_name_matches(alias, d, dep_name, &clean) else {
+            return false;
+        };
+        if enforce_ver
+            && !dep_ver_req(d).is_none_or(|req| semver_or_prefix_matches(req, dep_ver.unwrap()))
+        {
+            return false;
+        }
+        extra_check(alias, real_name, &clean, d)
+    };
+
+    if pkg_toml.dependencies.iter().any(|(a, d)| check_dep(a, d)) {
+        return Ok(true);
+    }
+    if include_build
+        && pkg_toml
+            .build_dependencies
+            .iter()
+            .any(|(a, d)| check_dep(a, d))
+    {
+        return Ok(true);
+    }
+    for (target_spec, target) in &pkg_toml.target {
+        let is_target_incompat =
+            eval_target_cfg_incompat(target_spec, false, explicit_target, start_dir, cfg_cache)?;
+        let is_host_incompat =
+            eval_target_cfg_incompat(target_spec, true, explicit_target, start_dir, cfg_cache)?;
+        if !is_target_incompat && target.dependencies.iter().any(|(a, d)| check_dep(a, d)) {
+            return Ok(true);
+        }
+        if include_build
+            && !is_host_incompat
+            && target
+                .build_dependencies
+                .iter()
+                .any(|(a, d)| check_dep(a, d))
+        {
+            return Ok(true);
+        }
+        if is_test
+            && !is_target_incompat
+            && target.dev_dependencies.iter().any(|(a, d)| check_dep(a, d))
+        {
+            return Ok(true);
+        }
+    }
+    if is_test
+        && pkg_toml
+            .dev_dependencies
+            .iter()
+            .any(|(a, d)| check_dep(a, d))
+    {
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 /// Checks if a package manifest has an active dependency on `dep_name`,
 /// filtering out inactive optional dependencies, foreign target cfgs, and dev-dependencies for non-test units.
 pub fn has_active_dependency(
@@ -180,24 +305,15 @@ pub fn has_active_dependency_cached(
     start_dir: &Path,
     cfg_cache: &mut TargetCfgCache,
 ) -> Result<bool, RustAdapterError> {
-    let clean = dep_name.replace('-', "_");
-    let check_dep = |alias: &str, d: &TomlDependency| -> bool {
-        let (real_name, has_custom_pkg) = match d {
-            TomlDependency::Simple(_) => (alias, false),
-            TomlDependency::Detailed(dt) => (
-                dt.package_name.as_deref().unwrap_or(alias),
-                dt.package_name.is_some(),
-            ),
-        };
-        let name_matches = if has_custom_pkg {
-            real_name == dep_name || real_name.replace('-', "_") == clean
-        } else {
-            alias == dep_name
-                || alias.replace('-', "_") == clean
-                || real_name == dep_name
-                || real_name.replace('-', "_") == clean
-        };
-        if name_matches {
+    any_active_manifest_dep(
+        pkg_toml,
+        dep_name,
+        has_build_script,
+        is_test,
+        explicit_target,
+        start_dir,
+        cfg_cache,
+        |alias, real_name, clean, d| {
             let is_optional = match d {
                 TomlDependency::Simple(_) => false,
                 TomlDependency::Detailed(dt) => dt.optional.unwrap_or(false),
@@ -226,62 +342,9 @@ pub fn has_active_dependency_cached(
                     }
                 }
             }
-            return false;
-        }
-        false
-    };
-
-    for (alias, d) in &pkg_toml.dependencies {
-        if check_dep(alias, d) {
-            return Ok(true);
-        }
-    }
-
-    if has_build_script {
-        for (alias, d) in &pkg_toml.build_dependencies {
-            if check_dep(alias, d) {
-                return Ok(true);
-            }
-        }
-    }
-
-    for (target_spec, target) in &pkg_toml.target {
-        let is_target_incompat =
-            eval_target_cfg_incompat(target_spec, false, explicit_target, start_dir, cfg_cache)?;
-        let is_host_incompat =
-            eval_target_cfg_incompat(target_spec, true, explicit_target, start_dir, cfg_cache)?;
-        if !is_target_incompat {
-            for (alias, d) in &target.dependencies {
-                if check_dep(alias, d) {
-                    return Ok(true);
-                }
-            }
-        }
-        if has_build_script && !is_host_incompat {
-            for (alias, d) in &target.build_dependencies {
-                if check_dep(alias, d) {
-                    return Ok(true);
-                }
-            }
-        }
-        if is_test && !is_target_incompat {
-            for (alias, d) in &target.dev_dependencies {
-                if check_dep(alias, d) {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-
-    if is_test {
-        for (alias, d) in &pkg_toml.dev_dependencies {
-            if check_dep(alias, d) {
-                return Ok(true);
-            }
-        }
-    }
-
-    Ok(false)
+            false
+        },
+    )
 }
 
 /// Checks if a package manifest declares `dep_name` in any dependency section:
@@ -314,79 +377,18 @@ pub fn is_declared_dependency_cached(
     start_dir: &Path,
     cfg_cache: &mut TargetCfgCache,
 ) -> Result<bool, RustAdapterError> {
-    let clean = dep_name.replace('-', "_");
-    let check_dep = |alias: &str, d: &TomlDependency| -> bool {
-        let (real_name, has_custom_pkg) = match d {
-            TomlDependency::Simple(_) => (alias, false),
-            TomlDependency::Detailed(dt) => (
-                dt.package_name.as_deref().unwrap_or(alias),
-                dt.package_name.is_some(),
-            ),
-        };
-        if has_custom_pkg {
-            real_name == dep_name || real_name.replace('-', "_") == clean
-        } else {
-            alias == dep_name
-                || alias.replace('-', "_") == clean
-                || real_name == dep_name
-                || real_name.replace('-', "_") == clean
-        }
-    };
-
-    for (alias, d) in &pkg_toml.dependencies {
-        if check_dep(alias, d) {
-            return Ok(true);
-        }
-    }
-
     let build_disabled = matches!(
         pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()),
         Some(TomlBuild::Disabled(false))
     );
-
-    if !build_disabled {
-        for (alias, d) in &pkg_toml.build_dependencies {
-            if check_dep(alias, d) {
-                return Ok(true);
-            }
-        }
-    }
-
-    for (target_spec, target) in &pkg_toml.target {
-        let is_target_incompat =
-            eval_target_cfg_incompat(target_spec, false, explicit_target, start_dir, cfg_cache)?;
-        let is_host_incompat =
-            eval_target_cfg_incompat(target_spec, true, explicit_target, start_dir, cfg_cache)?;
-        if !is_target_incompat {
-            for (alias, d) in &target.dependencies {
-                if check_dep(alias, d) {
-                    return Ok(true);
-                }
-            }
-        }
-        if !build_disabled && !is_host_incompat {
-            for (alias, d) in &target.build_dependencies {
-                if check_dep(alias, d) {
-                    return Ok(true);
-                }
-            }
-        }
-        if is_test && !is_target_incompat {
-            for (alias, d) in &target.dev_dependencies {
-                if check_dep(alias, d) {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-
-    if is_test {
-        for (alias, d) in &pkg_toml.dev_dependencies {
-            if check_dep(alias, d) {
-                return Ok(true);
-            }
-        }
-    }
-
-    Ok(false)
+    any_active_manifest_dep(
+        pkg_toml,
+        dep_name,
+        !build_disabled,
+        is_test,
+        explicit_target,
+        start_dir,
+        cfg_cache,
+        |_, _, _, _| true,
+    )
 }

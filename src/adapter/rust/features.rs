@@ -270,6 +270,14 @@ fn propagate_package<'a>(
                     if dep_decls.is_empty() {
                         dep_decls = index.collect_manifest_dependencies(ctx.toml, &real_dep)?;
                     }
+                    if dep_decls.is_empty()
+                        && ctx.toml.target.values().any(|t| {
+                            t.dependencies.contains_key(actual_dep)
+                                || t.build_dependencies.contains_key(actual_dep)
+                        })
+                    {
+                        continue;
+                    }
                     let dep_hint = dep_decls.first().copied();
                     let send_to_host = is_host_ctx
                         || has_build_dep(ctx.toml, actual_dep)

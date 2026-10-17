@@ -176,28 +176,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 #[test]
 fn test_ambiguous_dep_spec_fails_closed_across_selection_features_and_deps() {
-    let pkg_app = CargoLockPackage {
-        name: "app".to_string(),
-        version: "0.1.0".to_string(),
-        source: None,
+    let make_pkg = |name: &str, ver: &str, src: Option<&str>, deps: Vec<&str>| CargoLockPackage {
+        name: name.to_string(),
+        version: ver.to_string(),
+        source: src.map(str::to_string),
         checksum: None,
-        // Ambiguous: "foo 1.0.0" without source when two sourced foo 1.0.0 packages exist
-        dependencies: vec!["foo 1.0.0".to_string()],
+        dependencies: deps.into_iter().map(str::to_string).collect(),
     };
-    let pkg_foo_reg = CargoLockPackage {
-        name: "foo".to_string(),
-        version: "1.0.0".to_string(),
-        source: Some("registry+https://github.com/rust-lang/crates.io-index".to_string()),
-        checksum: None,
-        dependencies: Vec::new(),
-    };
-    let pkg_foo_git = CargoLockPackage {
-        name: "foo".to_string(),
-        version: "1.0.0".to_string(),
-        source: Some("git+https://github.com/example/foo#111111".to_string()),
-        checksum: None,
-        dependencies: Vec::new(),
-    };
+    let pkg_app = make_pkg("app", "0.1.0", None, vec!["foo 1.0.0"]);
+    let pkg_foo_reg = make_pkg(
+        "foo",
+        "1.0.0",
+        Some("registry+https://github.com/rust-lang/crates.io-index"),
+        vec![],
+    );
+    let pkg_foo_git = make_pkg(
+        "foo",
+        "1.0.0",
+        Some("git+https://github.com/example/foo#111111"),
+        vec![],
+    );
 
     let lockfile = CargoLock {
         version: 3,
@@ -219,10 +217,7 @@ fn test_ambiguous_dep_spec_fails_closed_across_selection_features_and_deps() {
         &RustBuildOptions::default(),
     )
     .expect_err("select_transitive_packages must fail closed on ambiguous foo 1.0.0");
-    assert!(
-        sel_err.to_string().contains("Ambiguous dependency"),
-        "unexpected error: {sel_err}"
-    );
+    assert!(sel_err.to_string().contains("Ambiguous dependency"));
 
     let app_deps = vec!["foo 1.0.0".to_string()];
     let make_ctx = |name, version, source, is_ws, toml, deps| PackageFeatureContext {
@@ -306,21 +301,9 @@ fn test_ambiguous_dep_spec_fails_closed_across_selection_features_and_deps() {
 }
 
 #[test]
-fn test_two_major_versions_of_same_crate_with_distinct_features() {
+fn test_two_major_versions_of_same_crate_with_distinct_features_and_b7_cfg_pruning() {
     let reg = Some("registry+https://github.com/rust-lang/crates.io-index");
-    let app_toml = CargoToml::parse(
-        r#"[package]
-name = "app"
-version = "0.1.0"
-[features]
-default = ["use_v2"]
-use_v2 = ["foo2/v2_feat"]
-[dependencies]
-foo = { version = "1", features = ["v1_feat"] }
-foo2 = { package = "foo", version = "2", optional = true }
-"#,
-    )
-    .unwrap();
+    let app_toml = CargoToml::parse("[package]\nname = \"app\"\nversion = \"0.1.0\"\n[features]\ndefault = [\"use_v2\"]\nuse_v2 = [\"foo2/v2_feat\"]\n[dependencies]\nfoo = { version = \"1\", features = [\"v1_feat\"] }\nfoo2 = { package = \"foo\", version = \"2\", optional = true }\n").unwrap();
     let foo1_toml = CargoToml::parse(
         "[package]\nname = \"foo\"\nversion = \"1.0.5\"\n[features]\nv1_feat = []\nv2_feat = []\n",
     )
@@ -329,11 +312,10 @@ foo2 = { package = "foo", version = "2", optional = true }
         "[package]\nname = \"foo\"\nversion = \"2.1.0\"\n[features]\nv1_feat = []\nv2_feat = []\n",
     )
     .unwrap();
-    let app_deps = vec![
-        "foo 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)".to_string(),
-        "foo 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)".to_string(),
-    ];
-    let make_ctx = |name, version, source, is_ws, toml, deps| PackageFeatureContext {
+    let s1 = "foo 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)".to_string();
+    let s2 = "foo 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)".to_string();
+    let app_deps = vec![s1.clone(), s2];
+    let ctx = |name, version, source, is_ws, toml, deps| PackageFeatureContext {
         name,
         version,
         source,
@@ -342,24 +324,53 @@ foo2 = { package = "foo", version = "2", optional = true }
         toml,
         dependencies: deps,
     };
-    let ctxs = vec![
-        make_ctx("app", "0.1.0", None, true, &app_toml, &app_deps),
-        make_ctx("foo", "1.0.5", reg, false, &foo1_toml, &[][..]),
-        make_ctx("foo", "2.1.0", reg, false, &foo2_toml, &[][..]),
+    let ctxs = [
+        ctx("app", "0.1.0", None, true, &app_toml, &app_deps),
+        ctx("foo", "1.0.5", reg, false, &foo1_toml, &[][..]),
+        ctx("foo", "2.1.0", reg, false, &foo2_toml, &[][..]),
     ];
     let resolved = resolve_package_features(&ctxs, &RustBuildOptions::default()).unwrap();
-    assert_eq!(
-        resolved
-            .target
-            .get("foo@1.0.5 (registry+https://github.com/rust-lang/crates.io-index)"),
-        Some(&vec!["v1_feat".to_string()])
-    );
-    assert_eq!(
-        resolved
-            .target
-            .get("foo@2.1.0 (registry+https://github.com/rust-lang/crates.io-index)"),
-        Some(&vec!["v2_feat".to_string()])
-    );
+    let id1 = "foo@1.0.5 (registry+https://github.com/rust-lang/crates.io-index)";
+    let id2 = "foo@2.1.0 (registry+https://github.com/rust-lang/crates.io-index)";
+    assert_eq!(resolved.target.get(id1), Some(&vec!["v1_feat".to_string()]));
+    assert_eq!(resolved.target.get(id2), Some(&vec!["v2_feat".to_string()]));
+
+    let p_toml = CargoToml::parse("[package]\nname = \"p\"\nversion = \"0.1.0\"\n[features]\ndefault = [\"std\"]\nstd = [\"foo/v1_feat\"]\n").unwrap();
+    let p_deps = vec![s1];
+    let b7_ctxs = [
+        ctx("p", "0.1.0", None, true, &p_toml, &p_deps),
+        ctx("foo", "2.1.0", reg, false, &foo2_toml, &[][..]),
+    ];
+    let resolved_b7 = resolve_package_features(&b7_ctxs, &RustBuildOptions::default()).unwrap();
+    assert_eq!(resolved_b7.target.get(id2), Some(&Vec::<String>::new()));
+
+    // B7: `foo 1` under inactive `cfg(mitts_never_target)` with `std = ["foo/std"]` + active `foo2 = { package = "foo", version = "2" }`
+    let temp = TempDir::new().unwrap();
+    let cache = temp.path().join("cache");
+    for (ver, dir) in [
+        ("1.0.5", "sources/foo-1.0.5"),
+        ("2.1.0", "sources/foo-2.1.0"),
+    ] {
+        let d = cache.join(dir);
+        fs::create_dir_all(d.join("src")).unwrap();
+        fs::write(d.join("Cargo.toml"), format!("[package]\nname = \"foo\"\nversion = \"{ver}\"\nedition = \"2021\"\n[features]\nstd = []\n")).unwrap();
+        fs::write(d.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        fs::write(d.join(MITTS_OK_MARKER), "ok\n").unwrap();
+    }
+    let proj = temp.path().join("proj");
+    fs::create_dir_all(proj.join("src")).unwrap();
+    fs::write(proj.join("Cargo.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[features]\ndefault = [\"std\"]\nstd = [\"foo/std\"]\n[dependencies]\nfoo2 = { package = \"foo\", version = \"2\" }\n[target.'cfg(mitts_never_target)'.dependencies]\nfoo = \"1\"\n").unwrap();
+    fs::write(proj.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+    fs::write(proj.join("Cargo.lock"), "version = 3\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\ndependencies = [\"foo 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)\", \"foo 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)\"]\n[[package]]\nname = \"foo\"\nversion = \"1.0.5\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n[[package]]\nname = \"foo\"\nversion = \"2.1.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n").unwrap();
+    let opt = RustBuildOptions {
+        manifest_path: Some(proj.join("Cargo.toml")),
+        cache_dir: Some(cache),
+        ..Default::default()
+    };
+    let plan = RustAdapter::explain_plan(&opt)
+        .expect("explain_plan must ignore cfg-pruned foo 1.0.5 cleanly");
+    let app_unit = plan.units.iter().find(|u| u.package_name == "app").unwrap();
+    assert_eq!(app_unit.dependencies, vec![format!("{id2}::lib:foo")]);
 }
 
 #[test]
