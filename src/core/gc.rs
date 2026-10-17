@@ -258,7 +258,7 @@ impl<'a> CacheGc<'a> {
 
                             // If leftover from an interrupted GC, clean it up
                             if file_name.starts_with(".gc.") {
-                                let _ = fs::remove_dir_all(&exec_path);
+                                let _ = crate::adapter::rust::build_script_cas::remove_dir_all_readonly_safe(&exec_path);
                                 continue;
                             }
                             // Clean up abandoned .tmp.* staging directories older than 1 hour
@@ -267,7 +267,7 @@ impl<'a> CacheGc<'a> {
                                     if let Ok(mtime) = meta.modified() {
                                         if let Ok(age) = now.duration_since(mtime) {
                                             if age > Duration::from_secs(3600) {
-                                                let _ = fs::remove_dir_all(&exec_path);
+                                                let _ = crate::adapter::rust::build_script_cas::remove_dir_all_readonly_safe(&exec_path);
                                             }
                                         }
                                     }
@@ -296,7 +296,7 @@ impl<'a> CacheGc<'a> {
                                     let gc_temp =
                                         base_path.join(format!(".gc.{}.{}", file_name, pid));
                                     if fs::rename(&exec_path, &gc_temp).is_ok() {
-                                        let _ = fs::remove_dir_all(&gc_temp);
+                                        let _ = crate::adapter::rust::build_script_cas::remove_dir_all_readonly_safe(&gc_temp);
                                         continue;
                                     }
                                     // If rename failed (e.g. concurrent reader/writer race),

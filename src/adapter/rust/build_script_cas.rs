@@ -133,7 +133,7 @@ pub fn save_build_script_cas(
         let _ = fs::create_dir_all(&script_cas_dir);
         let pid = std::process::id();
         let tmp_entry_dir = script_cas_dir.join(format!(".tmp.{}.{}", exec_key, pid));
-        let _ = fs::remove_dir_all(&tmp_entry_dir);
+        let _ = remove_dir_all_readonly_safe(&tmp_entry_dir);
 
         if fs::create_dir_all(&tmp_entry_dir).is_ok() {
             let mut ok = true;
@@ -148,6 +148,8 @@ pub fn save_build_script_cas(
                 }
                 if reflink_or_copy_dir_recursive(out_dir, &tmp_out).is_err() {
                     ok = false;
+                } else {
+                    make_tree_readonly_recursive(&tmp_out);
                 }
             }
             if ok {
@@ -158,16 +160,16 @@ pub fn save_build_script_cas(
                 if let Ok(toml_str) = toml::to_string(&cas_d) {
                     if fs::write(tmp_entry_dir.join("meta.toml"), toml_str).is_ok() {
                         if fs::rename(&tmp_entry_dir, &entry_dir).is_err() {
-                            let _ = fs::remove_dir_all(&tmp_entry_dir);
+                            let _ = remove_dir_all_readonly_safe(&tmp_entry_dir);
                         }
                     } else {
-                        let _ = fs::remove_dir_all(&tmp_entry_dir);
+                        let _ = remove_dir_all_readonly_safe(&tmp_entry_dir);
                     }
                 } else {
-                    let _ = fs::remove_dir_all(&tmp_entry_dir);
+                    let _ = remove_dir_all_readonly_safe(&tmp_entry_dir);
                 }
             } else {
-                let _ = fs::remove_dir_all(&tmp_entry_dir);
+                let _ = remove_dir_all_readonly_safe(&tmp_entry_dir);
             }
         }
     }
@@ -176,4 +178,63 @@ pub fn save_build_script_cas(
         directives.out_dir = Some(cas_out.clone());
         remap_out_dir(directives, &out_str, &cas_out_str);
     }
+}
+
+/// Sets files to `0o444` and directories to `0o555` recursively (post-order on directories)
+/// so shared CAS build script outputs cannot be mutated by downstream build scripts.
+pub fn make_tree_readonly_recursive(dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Ok(ft) = entry.file_type() else {
+                    continue;
+                };
+                if ft.is_symlink() {
+                    continue;
+                }
+                if ft.is_dir() {
+                    make_tree_readonly_recursive(&path);
+                } else if ft.is_file() {
+                    let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o444));
+                }
+            }
+        }
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o555));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+    }
+}
+
+/// Restores `0o755` on directories (and `0o644` on files) before `fs::remove_dir_all`
+/// so read-only `0o555` directories inside `cas/build_scripts` can be unlinked cleanly.
+pub fn remove_dir_all_readonly_safe(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        fn restore_writable(p: &Path) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o755));
+            if let Ok(entries) = fs::read_dir(p) {
+                for entry in entries.flatten() {
+                    let child = entry.path();
+                    let Ok(ft) = entry.file_type() else {
+                        continue;
+                    };
+                    if ft.is_dir() {
+                        restore_writable(&child);
+                    } else if ft.is_file() {
+                        let _ = fs::set_permissions(&child, fs::Permissions::from_mode(0o644));
+                    }
+                }
+            }
+        }
+        if dir.exists() {
+            restore_writable(dir);
+        }
+    }
+    fs::remove_dir_all(dir)
 }

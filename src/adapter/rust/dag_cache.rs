@@ -96,14 +96,18 @@ pub fn try_restore_from_cache_with_directives(
             if has_build {
                 if let (Some(d), Some(out)) = (current_directives, out_dir) {
                     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-                    if let Ok(purity) = super::build_script_purity::assess_build_script_purity(
-                        pkg_dir,
-                        ws_root.as_deref(),
-                        out,
-                        Some(ctx.target_dir),
-                        Some(ctx.cas.root()),
-                        d,
-                    ) {
+                    let empty_refs = std::collections::HashSet::new();
+                    if let Ok(purity) =
+                        super::build_script_purity::assess_build_script_purity_with_dep_info(
+                            pkg_dir,
+                            ws_root.as_deref(),
+                            out,
+                            Some(ctx.target_dir),
+                            Some(ctx.cas.root()),
+                            d,
+                            Some(&empty_refs),
+                        )
+                    {
                         unit_env.insert("OUT_DIR".to_string(), purity.out_dir_hash);
                     }
                 }
@@ -328,23 +332,12 @@ pub fn try_restore_from_cache_with_directives(
             );
         }
 
-        if !entry.stdout.is_empty() {
-            ctx.compiler_messages
-                .lock()
-                .unwrap()
-                .push(entry.stdout.clone());
-            if let Some(ref cb) = ctx.opt.progress {
-                cb.0(BuildProgressEvent::CompilerMessage(entry.stdout.clone()));
-            }
-        }
-
-        if !entry.stderr.is_empty() {
-            ctx.compiler_messages
-                .lock()
-                .unwrap()
-                .push(entry.stderr.clone());
-            if let Some(ref cb) = ctx.opt.progress {
-                cb.0(BuildProgressEvent::CompilerMessage(entry.stderr.clone()));
+        for msg in [&entry.stdout, &entry.stderr] {
+            if !msg.is_empty() {
+                ctx.compiler_messages.lock().unwrap().push(msg.clone());
+                if let Some(ref cb) = ctx.opt.progress {
+                    cb.0(BuildProgressEvent::CompilerMessage(msg.clone()));
+                }
             }
         }
 
@@ -365,15 +358,16 @@ pub fn try_restore_from_cache_with_directives(
                 .collect(),
             args: Vec::new(),
             env: {
-                let mut env = HashMap::new();
+                let mut env = HashMap::from([
+                    ("CARGO_PKG_NAME".into(), unit.package_name.clone()),
+                    ("CARGO_PKG_VERSION".into(), unit.version.clone()),
+                ]);
                 if let Some(parent) = unit.manifest_path.parent() {
                     env.insert(
-                        "CARGO_MANIFEST_DIR".to_string(),
+                        "CARGO_MANIFEST_DIR".into(),
                         parent.to_string_lossy().to_string(),
                     );
                 }
-                env.insert("CARGO_PKG_NAME".to_string(), unit.package_name.clone());
-                env.insert("CARGO_PKG_VERSION".to_string(), unit.version.clone());
                 env
             },
             dependencies: Vec::new(),
@@ -382,11 +376,9 @@ pub fn try_restore_from_cache_with_directives(
         if let Some(ref cb) = ctx.opt.progress {
             cb.0(BuildProgressEvent::UnitFinished);
         }
-
         if let Some(c) = ctx.cached_actions {
             c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-
         return Ok(true);
     }
 

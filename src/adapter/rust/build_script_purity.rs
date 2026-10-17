@@ -11,6 +11,7 @@
 use super::build_script_directives::BuildScriptDirectives;
 use crate::core::hash::{bytes_to_hex, Sha256};
 use anyhow::Result;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -25,9 +26,61 @@ pub struct BuildScriptPurity {
     pub reason: Option<String>,
 }
 
+/// Extracts the set of relative file paths inside `OUT_DIR` that are referenced in the unit's
+/// `.d` dep-info file(s) inside `staging_dir`.
+pub fn extract_out_dir_files_from_dep_info(
+    staging_dir: &Path,
+    out_dir: &Path,
+    clean_crate: &str,
+    ws_root: Option<&Path>,
+) -> Option<HashSet<String>> {
+    let entries = fs::read_dir(staging_dir).ok()?;
+    let d_files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().is_some_and(|ext| ext == "d"))
+        .collect();
+    if d_files.is_empty() {
+        return None;
+    }
+
+    let cleaned_out = super::unit_inputs::clean_path(out_dir);
+    let cleaned_staging = super::unit_inputs::clean_path(staging_dir);
+    let prefixes = [
+        cleaned_out,
+        cleaned_staging
+            .join("debug")
+            .join("build")
+            .join(clean_crate)
+            .join("out"),
+        cleaned_staging
+            .join("release")
+            .join("build")
+            .join(clean_crate)
+            .join("out"),
+        cleaned_staging.join("out"),
+        PathBuf::from(format!("/mitts/out/{clean_crate}")),
+    ];
+
+    let mut referenced = HashSet::new();
+    for d_path in d_files {
+        let parsed = super::dep_info::parse_dep_info_full(&d_path, ws_root).ok()?;
+        for file_path in parsed.files {
+            let cleaned = super::unit_inputs::clean_path(&file_path);
+            for prefix in &prefixes {
+                if let Ok(rel) = cleaned.strip_prefix(prefix) {
+                    if !rel.as_os_str().is_empty() {
+                        referenced.insert(rel.to_string_lossy().to_string());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Some(referenced)
+}
+
 /// Scans build script directives and generated OUT_DIR artifacts for forbidden absolute paths.
-///
-/// Forbidden paths include package_dir (if workspace), workspace_root, staging OUT_DIR, target_dir, and personal HOME.
 pub fn assess_build_script_purity(
     pkg_dir: &Path,
     ws_root: Option<&Path>,
@@ -35,6 +88,27 @@ pub fn assess_build_script_purity(
     target_dir: Option<&Path>,
     cas_root: Option<&Path>,
     directives: &BuildScriptDirectives,
+) -> Result<BuildScriptPurity> {
+    assess_build_script_purity_with_dep_info(
+        pkg_dir,
+        ws_root,
+        staging_out_dir,
+        target_dir,
+        cas_root,
+        directives,
+        None,
+    )
+}
+
+/// Scans build script directives and the unit's dep-info referenced OUT_DIR files for forbidden absolute paths.
+pub fn assess_build_script_purity_with_dep_info(
+    pkg_dir: &Path,
+    ws_root: Option<&Path>,
+    staging_out_dir: &Path,
+    target_dir: Option<&Path>,
+    cas_root: Option<&Path>,
+    directives: &BuildScriptDirectives,
+    referenced_out_files: Option<&HashSet<String>>,
 ) -> Result<BuildScriptPurity> {
     let mut forbidden_needles: Vec<Vec<u8>> = Vec::new();
     let mut add_needle = |p: &Path| {
@@ -137,40 +211,20 @@ pub fn assess_build_script_purity(
     };
 
     // 1. Scan directives
-    for c in &directives.cfgs {
-        if let Some(leak) = check_bytes(c.as_bytes()) {
-            return Ok(BuildScriptPurity {
-                is_pure: false,
-                out_dir_hash: String::new(),
-                reason: Some(format!(
-                    "rustc-cfg contains absolute path needle '{}'",
-                    leak
-                )),
-            });
-        }
-    }
-    for f in &directives.flags {
-        if let Some(leak) = check_bytes(f.as_bytes()) {
-            return Ok(BuildScriptPurity {
-                is_pure: false,
-                out_dir_hash: String::new(),
-                reason: Some(format!(
-                    "rustc-flag contains absolute path needle '{}'",
-                    leak
-                )),
-            });
-        }
-    }
-    for l in &directives.link_libs {
-        if let Some(leak) = check_bytes(l.as_bytes()) {
-            return Ok(BuildScriptPurity {
-                is_pure: false,
-                out_dir_hash: String::new(),
-                reason: Some(format!(
-                    "rustc-link-lib contains absolute path needle '{}'",
-                    leak
-                )),
-            });
+    for (label, list) in [
+        ("rustc-cfg", &directives.cfgs),
+        ("rustc-flag", &directives.flags),
+        ("rustc-link-lib", &directives.link_libs),
+        ("rustc-link-arg", &directives.link_args),
+    ] {
+        for item in list {
+            if let Some(leak) = check_bytes(item.as_bytes()) {
+                return Ok(BuildScriptPurity {
+                    is_pure: false,
+                    out_dir_hash: String::new(),
+                    reason: Some(format!("{label} contains absolute path needle '{leak}'")),
+                });
+            }
         }
     }
     for s in &directives.link_searches {
@@ -197,18 +251,6 @@ pub fn assess_build_script_purity(
                 out_dir_hash: String::new(),
                 reason: Some(format!(
                     "rustc-link-search contains absolute path needle '{}'",
-                    leak
-                )),
-            });
-        }
-    }
-    for a in &directives.link_args {
-        if let Some(leak) = check_bytes(a.as_bytes()) {
-            return Ok(BuildScriptPurity {
-                is_pure: false,
-                out_dir_hash: String::new(),
-                reason: Some(format!(
-                    "rustc-link-arg contains absolute path needle '{}'",
                     leak
                 )),
             });
@@ -263,27 +305,46 @@ pub fn assess_build_script_purity(
                         .unwrap_or(&path)
                         .to_string_lossy()
                         .to_string();
+                    let should_check_leak = match referenced_out_files {
+                        Some(set) => set.contains(&rel),
+                        None => true,
+                    };
 
                     if is_symlink {
                         let target = fs::read_link(&path).unwrap_or_default();
                         let target_str = target.to_string_lossy().to_string();
-                        if let Some(leak) = check_bytes(target_str.as_bytes()) {
-                            leak_detected = Some(format!(
-                                "Symlink target '{}' at '{}' contains absolute path needle '{}'",
-                                target_str, rel, leak
-                            ));
+                        if should_check_leak {
+                            if let Some(leak) = check_bytes(target_str.as_bytes()) {
+                                leak_detected = Some(format!(
+                                    "Symlink target '{}' at '{}' contains absolute path needle '{}'",
+                                    target_str, rel, leak
+                                ));
+                            } else if path.is_file() {
+                                let target_bytes = fs::read(&path).unwrap_or_default();
+                                if let Some(leak) = check_bytes(&target_bytes) {
+                                    leak_detected = Some(format!(
+                                        "File '{}' in OUT_DIR contains absolute path needle '{}'",
+                                        rel, leak
+                                    ));
+                                }
+                            }
                         }
                         let target_hash = Sha256::digest(target_str.as_bytes());
                         out_dir_entries.push((rel, "symlink".to_string(), target_hash));
                     } else if path.is_dir() {
                         stack.push(path);
                     } else if path.is_file() {
+                        if rel.ends_with(".d") && !should_check_leak {
+                            continue;
+                        }
                         let content_bytes = fs::read(&path).unwrap_or_default();
-                        if let Some(leak) = check_bytes(&content_bytes) {
-                            leak_detected = Some(format!(
-                                "File '{}' in OUT_DIR contains absolute path needle '{}'",
-                                rel, leak
-                            ));
+                        if should_check_leak {
+                            if let Some(leak) = check_bytes(&content_bytes) {
+                                leak_detected = Some(format!(
+                                    "File '{}' in OUT_DIR contains absolute path needle '{}'",
+                                    rel, leak
+                                ));
+                            }
                         }
                         let content_hash = Sha256::digest(&content_bytes);
                         out_dir_entries.push((rel, "file".to_string(), content_hash));
@@ -306,27 +367,23 @@ pub fn assess_build_script_purity(
     let mut out_hasher = Sha256::new();
     out_hasher.update(b"out_dir_entries_v1:\n");
     for (rel, kind, h) in &out_dir_entries {
-        out_hasher.update(b"path:");
-        out_hasher.update(rel.as_bytes());
-        out_hasher.update(b":kind:");
-        out_hasher.update(kind.as_bytes());
-        out_hasher.update(b":hash:");
-        out_hasher.update(h.as_bytes());
-        out_hasher.update(b"\n");
+        for chunk in [
+            b"path:" as &[u8],
+            rel.as_bytes(),
+            b":kind:",
+            kind.as_bytes(),
+            b":hash:",
+            h.as_bytes(),
+            b"\n",
+        ] {
+            out_hasher.update(chunk);
+        }
     }
     let out_dir_hash = bytes_to_hex(&out_hasher.finalize());
 
-    if let Some(reason) = leak_detected {
-        Ok(BuildScriptPurity {
-            is_pure: false,
-            out_dir_hash,
-            reason: Some(reason),
-        })
-    } else {
-        Ok(BuildScriptPurity {
-            is_pure: true,
-            out_dir_hash,
-            reason: None,
-        })
-    }
+    Ok(BuildScriptPurity {
+        is_pure: leak_detected.is_none(),
+        out_dir_hash,
+        reason: leak_detected,
+    })
 }

@@ -11,8 +11,11 @@
 use mitts::adapter::rust::build_script::{
     compute_build_script_key, execute_build_script, BuildScriptDirectives,
 };
-use mitts::adapter::rust::build_script_cas::remap_out_dir;
-use mitts::adapter::rust::build_script_purity::assess_build_script_purity;
+use mitts::adapter::rust::build_script_cas::{remap_out_dir, remove_dir_all_readonly_safe};
+use mitts::adapter::rust::build_script_purity::{
+    assess_build_script_purity, assess_build_script_purity_with_dep_info,
+    extract_out_dir_files_from_dep_info,
+};
 use mitts::adapter::rust::dag::CompilationDag;
 use mitts::adapter::rust::dag_cache::{try_restore_from_cache_with_directives, ExecutionContext};
 use mitts::adapter::rust::dag_unit_publish::taint_unhashable_key;
@@ -241,6 +244,7 @@ fn test_b2_dep_links_metadata_and_link_search_subdir_remap_across_warm_build() {
         "warm build (ActionCache) failed: {}",
         res3.stderr
     );
+    let _ = remove_dir_all_readonly_safe(&cache_dir);
 }
 
 #[test]
@@ -431,24 +435,209 @@ fn test_b6_non_registry_build_script_key_and_n2_cas_tmp_purity() {
     .unwrap();
     assert_ne!(k1, k2);
 
+    // R1: OUT_DIR contains probe.d with staging path and gen.rs without paths,
+    // and unit dep-info includes gen.rs -> unit is pure; if gen.rs has staging path -> impure.
     let cas_root = tmp.path().join("cas");
     let cas_out = cas_root
         .join("build_scripts")
         .join("k")
         .join("e")
         .join("out");
+    let unit_stage = cas_root.join("tmp").join("stage_git_dep_1_1");
     fs::create_dir_all(&cas_out).unwrap();
-    let leaked_stage = cas_root.join("tmp").join("stage_git_dep_1_1").join("out");
+    fs::create_dir_all(&unit_stage).unwrap();
+    let leaked_stage = unit_stage.join("out");
     fs::write(
-        cas_out.join("generated.rs"),
-        format!("include!(\"{}/foo.rs\");\n", leaked_stage.display()),
+        cas_out.join("probe.d"),
+        format!(
+            "{}/probe.rmeta: {}/probe.rs\n",
+            leaked_stage.display(),
+            leaked_stage.display()
+        ),
+    )
+    .unwrap();
+    let gen_rs = cas_out.join("gen.rs");
+    fs::write(&gen_rs, "pub fn val() -> u32 { 42 }\n").unwrap();
+    fs::write(
+        unit_stage.join("git_dep.d"),
+        format!(
+            "{}/libgit_dep.rlib: {} {}\n",
+            unit_stage.display(),
+            git_pkg.join("src/lib.rs").display(),
+            gen_rs.display()
+        ),
     )
     .unwrap();
     let d = BuildScriptDirectives {
         out_dir: Some(cas_out.clone()),
         ..Default::default()
     };
-    let purity =
+    let refs = extract_out_dir_files_from_dep_info(&unit_stage, &cas_out, "git_dep", None)
+        .expect("must parse unit dep-info");
+    assert!(refs.contains("gen.rs") && !refs.contains("probe.d"));
+    let purity_clean = assess_build_script_purity_with_dep_info(
+        &git_pkg,
+        None,
+        &cas_out,
+        None,
+        Some(&cas_root),
+        &d,
+        Some(&refs),
+    )
+    .unwrap();
+    assert!(
+        purity_clean.is_pure,
+        "probe.d with staging path must not taint unit when only clean gen.rs is in unit .d"
+    );
+
+    fs::write(
+        &gen_rs,
+        format!("pub const STAGE: &str = \"{}\";\n", leaked_stage.display()),
+    )
+    .unwrap();
+    let purity_leaked = assess_build_script_purity_with_dep_info(
+        &git_pkg,
+        None,
+        &cas_out,
+        None,
+        Some(&cas_root),
+        &d,
+        Some(&refs),
+    )
+    .unwrap();
+    assert!(
+        !purity_leaked.is_pure,
+        "gen.rs included by unit .d with staging path must mark unit impure"
+    );
+    let purity_fallback =
         assess_build_script_purity(&git_pkg, None, &cas_out, None, Some(&cas_root), &d).unwrap();
-    assert!(!purity.is_pure);
+    assert!(!purity_fallback.is_pure);
+}
+
+#[test]
+fn test_r1_cross_clone_cache_hit_with_probe_dep_info_vs_impure_gen_rs_and_readonly_cas() {
+    let tmp = TempDir::new().unwrap();
+    let cache_dir = tmp.path().join("cache");
+    let setup_clone = |clone_root: &std::path::Path, leak_in_gen_rs: bool| {
+        let dep_dir = clone_root.join("vendor").join("probe_dep");
+        let app_dir = clone_root.join("ws");
+        fs::create_dir_all(dep_dir.join("src")).unwrap();
+        fs::create_dir_all(app_dir.join("src")).unwrap();
+        fs::write(
+            dep_dir.join("Cargo.toml"),
+            "[package]\nname = \"probe_dep\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        let gen_body = if leak_in_gen_rs {
+            "format!(\"pub fn msg() -> &'static str {{ {:?} }}\\n\", out)"
+        } else {
+            "\"pub fn msg() -> &'static str { \\\"pure\\\" }\\n\".to_string()"
+        };
+        fs::write(
+            dep_dir.join("build.rs"),
+            format!(
+                "use std::{{env, fs, path::PathBuf}};\nfn main() {{\n    let out = PathBuf::from(env::var(\"OUT_DIR\").unwrap());\n    fs::write(out.join(\"probe.d\"), format!(\"{{}}/probe: {{}}/probe.rs\\n\", out.display(), out.display())).unwrap();\n    fs::write(out.join(\"gen.rs\"), {gen_body}).unwrap();\n}}\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dep_dir.join("src/lib.rs"),
+            "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\n",
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nprobe_dep = { path = \"../vendor/probe_dep\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("src/lib.rs"),
+            "pub fn run() -> &'static str { probe_dep::msg() }\n",
+        )
+        .unwrap();
+        app_dir
+    };
+
+    // Case 1: probe.d has staging path, gen.rs is clean -> Clone 2 hits cache (compiled = 0)
+    let app1 = setup_clone(&tmp.path().join("clone1"), false);
+    let app2 = setup_clone(&tmp.path().join("clone2"), false);
+    let (_, r1) = RustAdapter::build_native(&RustBuildOptions {
+        manifest_path: Some(app1.join("Cargo.toml")),
+        native: true,
+        cache_dir: Some(cache_dir.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(
+        r1.success && !r1.cached,
+        "clone1 cold build failed: {}",
+        r1.stderr
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let bs_root = cache_dir.join("cas").join("build_scripts");
+        let mut checked_perms = false;
+        for k in fs::read_dir(&bs_root).unwrap().flatten() {
+            for e in fs::read_dir(k.path()).unwrap().flatten() {
+                let out = e.path().join("debug/build/probe_dep/out");
+                if out.is_dir() {
+                    let dir_mode = fs::metadata(&out).unwrap().permissions().mode() & 0o777;
+                    let file_mode = fs::metadata(out.join("gen.rs"))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777;
+                    assert_eq!(dir_mode, 0o555, "CAS OUT_DIR directory must be 0o555");
+                    assert_eq!(file_mode, 0o444, "CAS OUT_DIR file must be 0o444");
+                    checked_perms = true;
+                }
+            }
+        }
+        assert!(
+            checked_perms,
+            "must verify read-only permissions in cas/build_scripts"
+        );
+    }
+
+    let (_, r2) = RustAdapter::build_native(&RustBuildOptions {
+        manifest_path: Some(app2.join("Cargo.toml")),
+        native: true,
+        cache_dir: Some(cache_dir.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(
+        r2.success && r2.cached,
+        "clone2 warm build must be 100% cache hit when only probe.d has staging path: {}",
+        r2.stderr
+    );
+
+    // Case 2: gen.rs itself contains staging path -> Clone 4 misses cache
+    let cache_dir_impure = tmp.path().join("cache_impure");
+    let app3 = setup_clone(&tmp.path().join("clone3"), true);
+    let app4 = setup_clone(&tmp.path().join("clone4"), true);
+    let (_, r3) = RustAdapter::build_native(&RustBuildOptions {
+        manifest_path: Some(app3.join("Cargo.toml")),
+        native: true,
+        cache_dir: Some(cache_dir_impure.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(r3.success && !r3.cached);
+    let (_, r4) = RustAdapter::build_native(&RustBuildOptions {
+        manifest_path: Some(app4.join("Cargo.toml")),
+        native: true,
+        cache_dir: Some(cache_dir_impure.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(
+        r4.success && !r4.cached,
+        "clone4 must miss cache when included gen.rs contains staging path"
+    );
+
+    let _ = remove_dir_all_readonly_safe(&cache_dir);
+    let _ = remove_dir_all_readonly_safe(&cache_dir_impure);
 }

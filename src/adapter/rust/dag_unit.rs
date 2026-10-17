@@ -76,70 +76,34 @@ pub(crate) fn execute_unit(
     let (current_directives, staging_dir_holder) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
 
-    let mut build_purity_opt = None;
-    if let (Some(d), Some(s_dir)) = (current_directives.as_ref(), staging_dir_holder.as_ref()) {
-        let pkg_dir = unit
-            .manifest_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
-        let ws_root = if unit.is_workspace {
-            Some(super::compiler::find_workspace_root(&unit.manifest_path))
-        } else {
-            ctx.target_dir.parent().map(|p| p.to_path_buf())
-        };
-        let out_dir_to_scan = d.out_dir.as_deref().unwrap_or(s_dir);
-        let res = super::build_script_purity::assess_build_script_purity(
-            pkg_dir,
-            ws_root.as_deref(),
-            out_dir_to_scan,
-            Some(ctx.target_dir),
-            Some(ctx.cas.root()),
-            d,
-        );
-        if let Ok(purity) = res {
-            build_purity_opt = Some(purity);
-        }
-    }
-
-    let effective_action_key = if let Some(ref d) = current_directives {
-        let bd = d.compute_compile_hash();
-        if let Some(ref purity) = build_purity_opt {
-            if purity.is_pure {
-                format!("{action_key}:bd:{bd}:out:{}", purity.out_dir_hash)
-            } else {
-                let ws_root = match unit.is_workspace {
-                    true => super::compiler::find_workspace_root(&unit.manifest_path),
-                    false => ctx
-                        .target_dir
-                        .parent()
-                        .unwrap_or(ctx.target_dir)
-                        .to_path_buf(),
-                };
-                let ws_hash =
-                    crate::core::hash::Sha256::digest(ws_root.to_string_lossy().as_bytes());
-                let reason = purity.reason.as_deref().unwrap_or("unknown");
-                eprintln!(
-                    "[mitts::purity] Unit '{}' marked impure: {reason}",
-                    unit.unit_id()
-                );
-                format!("{action_key}:bd:{bd}:ws:{ws_hash}")
-            }
-        } else {
-            format!("{action_key}:bd:{bd}")
-        }
-    } else {
-        action_key.to_string()
-    };
+    let pre_key_info = super::dag_unit_build_script::prepare_unit_build_script_keys(
+        unit,
+        action_key,
+        ctx,
+        current_directives.as_ref(),
+        staging_dir_holder.as_ref(),
+    );
+    let effective_action_key = pre_key_info.effective_action_key.clone();
 
     let try_restore = |ctx: &ExecutionContext| -> Result<bool> {
         let t0 = std::time::Instant::now();
-        if try_restore_from_cache_with_directives(
+        let restored = try_restore_from_cache_with_directives(
             unit,
             &effective_action_key,
             ctx,
             is_executable,
             current_directives.as_ref(),
-        )? {
+        )? || match pre_key_info.ws_fallback_key.as_deref() {
+            Some(fb_key) => try_restore_from_cache_with_directives(
+                unit,
+                fb_key,
+                ctx,
+                is_executable,
+                current_directives.as_ref(),
+            )?,
+            None => false,
+        };
+        if restored {
             crate::core::metrics::record_restore_duration(t0.elapsed());
             if let Some(ref p) = staging_dir_holder {
                 let _ = fs::remove_dir_all(p);
@@ -257,9 +221,27 @@ pub(crate) fn execute_unit(
         target_dir: Some(ctx.target_dir),
     };
 
+    let post_rustc_resolved: std::sync::OnceLock<(
+        String,
+        Option<super::build_script_purity::BuildScriptPurity>,
+    )> = std::sync::OnceLock::new();
+    let resolve_post_rustc = || {
+        post_rustc_resolved.get_or_init(|| {
+            super::dag_unit_build_script::finalize_post_rustc_purity(
+                unit,
+                &clean_crate,
+                ctx,
+                Some(&directives),
+                &staging_dir,
+                &pre_key_info,
+            )
+        })
+    };
+
     let t_rustc = std::time::Instant::now();
     let output = if let Some(cb) = ctx.on_metadata_ready {
         invocation.execute_pipelined(|rmeta_path| {
+            let (final_key, final_purity) = resolve_post_rustc();
             let ws_root = if unit.is_workspace {
                 Some(super::compiler::find_workspace_root(&unit.manifest_path))
             } else {
@@ -267,15 +249,13 @@ pub(crate) fn execute_unit(
             };
             let early_rk = super::dag_unit_publish::resolve_unit_result_key(
                 unit,
-                &effective_action_key,
+                final_key,
                 &staging_dir,
                 ws_root.as_deref(),
-                build_purity_opt.as_ref(),
+                final_purity.as_ref(),
                 directives.out_dir.as_deref(),
             )
-            .unwrap_or_else(|| {
-                super::dag_unit_publish::taint_unhashable_key(&effective_action_key)
-            });
+            .unwrap_or_else(|| super::dag_unit_publish::taint_unhashable_key(final_key));
             if let Some(rk_map) = ctx.resolved_keys {
                 rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
             }
@@ -284,7 +264,7 @@ pub(crate) fn execute_unit(
                 if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
                     &unit.target_name,
                     &meta_hash,
-                    &effective_action_key,
+                    final_key,
                     "rmeta",
                 ) {
                     ctx.completed_artifacts
@@ -349,16 +329,17 @@ pub(crate) fn execute_unit(
         );
     }
 
+    let (final_key, final_purity) = resolve_post_rustc();
     let t_pub = std::time::Instant::now();
     let action_outputs =
         super::dag_unit_publish::publish_unit_artifacts(super::dag_unit_publish::PublishArgs {
             unit,
-            action_key: &effective_action_key,
+            action_key: final_key,
             ctx,
             staging_dir: &staging_dir,
             dest_binary: dest_binary.as_deref(),
             output: &output,
-            out_dir_purity: build_purity_opt.as_ref(),
+            out_dir_purity: final_purity.as_ref(),
             out_dir: directives.out_dir.as_deref(),
         })?;
     crate::core::metrics::record_publish_duration(t_pub.elapsed());
