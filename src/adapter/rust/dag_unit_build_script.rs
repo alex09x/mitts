@@ -99,48 +99,56 @@ pub(crate) fn run_build_script_if_needed(
     };
 
     if ctx.opt.mode == super::types::BuildMode::Clippy && unit.is_primary {
-        if let Some(build_rs) = super::build_script::resolve_build_script_path(unit) {
-            let mut bs_unit = unit.clone();
-            bs_unit.kind = "custom-build".to_string();
-            bs_unit.target_name = "build_script_build".to_string();
-            bs_unit.src_path = build_rs;
-            bs_unit.for_host = true;
-            let bs_out = staging_dir.join("clippy_build_script");
-            let inv = super::compiler::RustcInvocation {
-                unit: &bs_unit,
-                action_key: "build_script_clippy",
-                out_dir: &bs_out,
-                dest_binary: None,
-                extern_crates: &extern_crates,
-                release: ctx.opt.release,
-                features: &unit.features,
-                directives: None,
-                mode: super::types::BuildMode::Clippy,
-                extra_compiler_args: &ctx.opt.extra_args,
-                jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
-                deps_dir: Some(&artifacts_dir),
-                target_dir: Some(ctx.target_dir),
-            };
-            let out = inv.execute()?;
-            if !out.stderr.is_empty() {
-                let mut msgs = ctx.compiler_messages.lock().unwrap();
-                if !msgs.contains(&out.stderr) {
-                    msgs.push(out.stderr.clone());
-                    if let Some(ref cb) = ctx.opt.progress {
-                        cb.0(super::types::BuildProgressEvent::CompilerMessage(
-                            out.stderr.clone(),
-                        ));
+        let already_linted = ctx.resolved_keys.is_some_and(|rk| {
+            rk.lock()
+                .unwrap()
+                .insert(format!("__clippy_bs__:{}", unit.package_id), String::new())
+                .is_some()
+        });
+        if !already_linted {
+            if let Some(build_rs) = super::build_script::resolve_build_script_path(unit) {
+                let mut bs_unit = unit.clone();
+                bs_unit.kind = "custom-build".to_string();
+                bs_unit.target_name = "build_script_build".to_string();
+                bs_unit.src_path = build_rs;
+                bs_unit.for_host = true;
+                let bs_out = staging_dir.join("clippy_build_script");
+                let inv = super::compiler::RustcInvocation {
+                    unit: &bs_unit,
+                    action_key: "build_script_clippy",
+                    out_dir: &bs_out,
+                    dest_binary: None,
+                    extern_crates: &extern_crates,
+                    release: ctx.opt.release,
+                    features: &unit.features,
+                    directives: None,
+                    mode: super::types::BuildMode::Clippy,
+                    extra_compiler_args: &ctx.opt.extra_args,
+                    jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
+                    deps_dir: Some(&artifacts_dir),
+                    target_dir: Some(ctx.target_dir),
+                };
+                let out = inv.execute()?;
+                if !out.stderr.is_empty() {
+                    let mut msgs = ctx.compiler_messages.lock().unwrap();
+                    if !msgs.contains(&out.stderr) {
+                        msgs.push(out.stderr.clone());
+                        if let Some(ref cb) = ctx.opt.progress {
+                            cb.0(super::types::BuildProgressEvent::CompilerMessage(
+                                out.stderr.clone(),
+                            ));
+                        }
                     }
                 }
-            }
-            if !out.success {
-                let _ = fs::remove_dir_all(&staging_dir);
-                bail!(
-                    "clippy failed for build.rs of unit '{}' (exit code {}):\n{}",
-                    unit.unit_id(),
-                    out.exit_code,
-                    out.stderr
-                );
+                if !out.success {
+                    let _ = fs::remove_dir_all(&staging_dir);
+                    bail!(
+                        "clippy failed for build.rs of unit '{}' (exit code {}):\n{}",
+                        unit.unit_id(),
+                        out.exit_code,
+                        out.stderr
+                    );
+                }
             }
         }
     }

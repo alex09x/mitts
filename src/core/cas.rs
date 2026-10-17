@@ -222,8 +222,8 @@ impl ContentAddressedStore {
         self.named_artifact_path_with_disambiguator(crate_name, hash, hash, ext)
     }
 
-    /// Returns the path to a named artifact in `{cas_root}/artifacts/lib{crate_name}-{disambiguator}.{ext}`.
-    /// Uses the provided disambiguator (e.g. action key) for consistent filename pairing between rlib and rmeta.
+    /// Returns the path to a named artifact in `{cas_root}/artifacts/lib{crate_name}-{disambiguator}.{ext}`
+    /// (or `{cas_root}/artifacts-meta/` for metadata-only `-m` disambiguators).
     pub fn named_artifact_path_with_disambiguator(
         &self,
         crate_name: &str,
@@ -231,38 +231,25 @@ impl ContentAddressedStore {
         disambiguator: &str,
         ext: &str,
     ) -> Result<PathBuf> {
-        let artifacts_dir = self.root.join("artifacts");
-        fs::create_dir_all(&artifacts_dir)?;
-        let clean_crate = crate_name.replace('-', "_");
-        let (short_hash, base_short_opt) = if let Some(base) = disambiguator.strip_suffix("-m") {
-            let b = &base[..base.len().min(16)];
-            (format!("{b}-m"), Some(b))
+        let (artifacts_dir, short_hash) = if let Some(base) = disambiguator.strip_suffix("-m") {
+            (
+                self.root.join("artifacts-meta"),
+                &base[..base.len().min(16)],
+            )
         } else {
             (
-                disambiguator[..disambiguator.len().min(16)].to_string(),
-                None,
+                self.root.join("artifacts"),
+                &disambiguator[..disambiguator.len().min(16)],
             )
         };
+        fs::create_dir_all(&artifacts_dir)?;
+        let clean_crate = crate_name.replace('-', "_");
         let artifact_name = format!("lib{}-{}.{}", clean_crate, short_hash, ext);
         let artifact_path = artifacts_dir.join(&artifact_name);
         let obj_path = self.object_path(content_hash);
         if !obj_path.is_file() {
             bail!("CAS object not found: {}", content_hash);
         }
-
-        let ensure_base_alias = || {
-            if let Some(base_short) = base_short_opt {
-                let base_name = format!("lib{}-{}.{}", clean_crate, base_short, ext);
-                let base_path = artifacts_dir.join(&base_name);
-                if !base_path.exists()
-                    && fs::hard_link(&obj_path, &base_path).is_err()
-                    && reflink_or_copy(&obj_path, &base_path, false).is_ok()
-                {
-                    let base_sidecar = artifacts_dir.join(format!(".{}.cas_hash", base_name));
-                    let _ = fs::write(base_sidecar, content_hash);
-                }
-            }
-        };
 
         let sidecar_path = artifacts_dir.join(format!(".{}.cas_hash", artifact_name));
 
@@ -273,7 +260,6 @@ impl ContentAddressedStore {
                 (fs::metadata(&artifact_path), fs::metadata(&obj_path))
             {
                 if meta.ino() == obj_meta.ino() && meta.dev() == obj_meta.dev() {
-                    ensure_base_alias();
                     return Ok(artifact_path);
                 }
                 if meta.len() == obj_meta.len()
@@ -281,7 +267,6 @@ impl ContentAddressedStore {
                         .map(|s| s.trim() == content_hash)
                         .unwrap_or(false)
                 {
-                    ensure_base_alias();
                     return Ok(artifact_path);
                 }
             }
@@ -297,7 +282,6 @@ impl ContentAddressedStore {
                         .map(|s| s.trim() == content_hash)
                         .unwrap_or(false)
                 {
-                    ensure_base_alias();
                     return Ok(artifact_path);
                 }
             }
@@ -321,7 +305,6 @@ impl ContentAddressedStore {
         } else {
             let _ = fs::write(&sidecar_path, content_hash);
         }
-        ensure_base_alias();
 
         Ok(artifact_path)
     }

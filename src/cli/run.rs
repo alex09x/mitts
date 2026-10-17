@@ -234,6 +234,7 @@ pub fn handle_run(args: &RunArgs) -> i32 {
         },
     )));
 
+    let _cache_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
     let build_res = RustAdapter::build(&opt);
     progress.finish_and_clear();
     drop(term_guard);

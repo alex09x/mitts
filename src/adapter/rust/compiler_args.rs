@@ -205,26 +205,22 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     if !super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace) {
         let ws_root = find_workspace_root(&inv.unit.manifest_path);
         if pkg_dir.starts_with(&ws_root) {
-            let ws_str = ws_root.to_string_lossy();
-            let ws_clean = ws_str.trim_end_matches('/');
-            cmd.arg(format!("--remap-path-prefix={}/=", ws_clean));
-            cmd.arg(format!("--remap-path-prefix={}=", ws_clean));
+            let ws = ws_root.to_string_lossy();
+            let ws = ws.trim_end_matches('/');
+            cmd.args([
+                format!("--remap-path-prefix={ws}/="),
+                format!("--remap-path-prefix={ws}="),
+            ]);
         }
     }
 
     let stable_out = format!("/mitts/out/{clean_crate}");
-    let out_str = inv.out_dir.to_string_lossy();
-    let out_clean = out_str.trim_end_matches('/');
-    cmd.args([
-        format!("--remap-path-prefix={out_clean}/={stable_out}/"),
-        format!("--remap-path-prefix={out_clean}={stable_out}"),
-    ]);
-    if let Some(d_out) = inv.directives.and_then(|d| d.out_dir.as_ref()) {
-        let d_str = d_out.to_string_lossy();
-        let d_clean = d_str.trim_end_matches('/');
+    for p in std::iter::once(inv.out_dir).chain(inv.directives.and_then(|d| d.out_dir.as_deref())) {
+        let s = p.to_string_lossy();
+        let c = s.trim_end_matches('/');
         cmd.args([
-            format!("--remap-path-prefix={d_clean}/={stable_out}/"),
-            format!("--remap-path-prefix={d_clean}={stable_out}"),
+            format!("--remap-path-prefix={c}/={stable_out}/"),
+            format!("--remap-path-prefix={c}={stable_out}"),
         ]);
     }
 
@@ -288,8 +284,15 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     }
     if let Some(deps) = inv.deps_dir {
         cmd.args(["-L", &format!("dependency={}", deps.display())]);
+        if let Some(cas_root) = deps
+            .parent()
+            .filter(|_| is_check_only && deps.file_name().is_some_and(|n| n == "artifacts"))
+        {
+            let meta_deps = cas_root.join("artifacts-meta");
+            let _ = fs::create_dir_all(&meta_deps);
+            cmd.args(["-L", &format!("dependency={}", meta_deps.display())]);
+        }
     }
-
     fs::create_dir_all(inv.out_dir)?;
     let cwd = if inv.unit.is_workspace {
         find_workspace_root(&inv.unit.manifest_path)
@@ -299,27 +302,25 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.out_dir.to_path_buf()
     };
     cmd.current_dir(&cwd);
-
-    let unit_env = super::unit_env::compute_unit_rustc_env_with_target(
+    cmd.envs(super::unit_env::compute_unit_rustc_env_with_target(
         inv.unit,
         inv.directives,
         inv.jobserver_auth,
         inv.target_dir,
         inv.release,
-    );
-    cmd.envs(&unit_env);
+    ));
     cmd.env("RUSTC", &compiler_bin);
-    if compiler_bin
-        .to_string_lossy()
-        .contains(".rustup/toolchains")
+    if let Some(tc) = compiler_bin
+        .ancestors()
+        .nth(2)
+        .filter(|_| {
+            compiler_bin
+                .to_string_lossy()
+                .contains(".rustup/toolchains")
+        })
+        .and_then(|p| p.file_name())
     {
-        if let Some(tc) = compiler_bin
-            .parent()
-            .and_then(|p| p.parent())
-            .and_then(|p| p.file_name())
-        {
-            cmd.env("RUSTUP_TOOLCHAIN", tc);
-        }
+        cmd.env("RUSTUP_TOOLCHAIN", tc);
     }
 
     let base_dir = inv.unit.workspace_root.as_deref().unwrap_or(cwd.as_path());

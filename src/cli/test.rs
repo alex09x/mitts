@@ -271,7 +271,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
-
+    let _cache_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
     Ui::header(&format!("test [{}]", profile));
     let term_guard = TerminalGuard::acquire();
     let progress = if !is_verbose {
@@ -279,9 +279,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     } else {
         None
     };
-
     opt.progress = Some(create_test_progress_callback(progress.clone()));
-
     let build_start = std::time::Instant::now();
     let build_res = RustAdapter::build(&opt);
     let compile_duration = build_start.elapsed();

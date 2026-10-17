@@ -31,7 +31,6 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
             return 1;
         }
     };
-
     if let Some(ref keys_path) = args.keys {
         let keys_res = crate::adapter::rust::key::derive_unit_action_keys(&opt, &explanation)
             .and_then(|map| {
@@ -45,7 +44,6 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
             return 1;
         }
     }
-
     if args.json {
         match serde_json::to_string_pretty(&explanation) {
             Ok(json_str) => {
@@ -341,11 +339,18 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
 
     if args.cache {
         if let Ok((cas, ac)) = open_cas_and_ac(args.cache_dir.as_ref()) {
-            let _ = CacheGc::new(&cas, &ac).prune(&GcOptions {
-                max_bytes: Some(0),
-                max_age: None,
-            });
-            Ui::stage_item(true, &badge, "Pruned global CAS and Action Cache");
+            let skipped = CacheGc::new(&cas, &ac)
+                .prune(&GcOptions {
+                    max_bytes: Some(0),
+                    max_age: None,
+                })
+                .is_ok_and(|r| r.skipped_active_build);
+            let msg = if skipped {
+                "Skipped CAS eviction (active build holds cache lease)"
+            } else {
+                "Pruned global CAS and Action Cache"
+            };
+            Ui::stage_item(true, &badge, msg);
         }
     }
 

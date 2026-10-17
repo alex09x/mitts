@@ -38,10 +38,7 @@ pub fn run_native_dag_build(
         Some(ref cd) => ActionCache::new(cd.join("ac"))?,
         None => ActionCache::default_cache()?,
     };
-    let _gc_lease = crate::core::lock::FileLock::acquire_shared(
-        &crate::core::gc::CacheGc::gc_lock_path_for_cas_root(cas.root()),
-    )
-    .ok();
+    let _gc_lease = crate::core::gc::CacheLease::acquire_for_cas_root(cas.root());
 
     let dag = CompilationDag::from_explanation(explanation)?;
     let _ = dag.topological_waves()?;

@@ -34,6 +34,26 @@ pub struct GcOptions {
     pub max_age: Option<Duration>,
 }
 
+/// Shared lease guard held by active builds, tests, doctests, and `mitts run` to prevent
+/// concurrent `CacheGc::prune` from evicting live artifacts in `cas/objects` or `cas/artifacts*`.
+#[allow(dead_code)]
+pub struct CacheLease(Option<FileLock>);
+
+impl CacheLease {
+    pub fn acquire(cache_dir: Option<&std::path::Path>) -> Self {
+        let cas_root = cache_dir.map(|p| p.join("cas")).or_else(|| {
+            ContentAddressedStore::default_store()
+                .ok()
+                .map(|c| c.root().to_path_buf())
+        });
+        cas_root.map_or(Self(None), |cr| Self::acquire_for_cas_root(&cr))
+    }
+
+    pub fn acquire_for_cas_root(cas_root: &std::path::Path) -> Self {
+        Self(FileLock::acquire_shared(&CacheGc::gc_lock_path_for_cas_root(cas_root)).ok())
+    }
+}
+
 pub struct CacheGc<'a> {
     cas: &'a ContentAddressedStore,
     ac: &'a ActionCache,
@@ -103,7 +123,6 @@ impl<'a> CacheGc<'a> {
         let has_active_lease = gc_lock.is_none();
         let active_keys = self.active_locks();
         let protected_hashes = self.active_cas_hashes(&active_keys);
-
         struct CasObjectMeta {
             path: PathBuf,
             hash: String,
@@ -112,26 +131,22 @@ impl<'a> CacheGc<'a> {
             #[cfg(unix)]
             ino_key: (u64, u64),
         }
-
         let mut objects: Vec<CasObjectMeta> = Vec::new();
         let mut total_bytes: u64 = 0;
-
         for entry in fs::read_dir(&objects_dir)
             .with_context(|| format!("Failed to read CAS objects dir {:?}", objects_dir))?
             .flatten()
         {
             let path = entry.path();
-            if !path.is_file() {
+            let Some(hash) = path
+                .is_file()
+                .then(|| path.file_name().and_then(|n| n.to_str()))
+                .flatten()
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+            else {
                 continue;
-            }
-            let hash = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-            if hash.is_empty() {
-                continue;
-            }
+            };
             if let Ok(meta) = fs::metadata(&path) {
                 let size = meta.len();
                 let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
@@ -151,14 +166,11 @@ impl<'a> CacheGc<'a> {
                 });
             }
         }
-
         let objects_examined = objects.len();
         objects.sort_by_key(|o| o.mtime);
-
         let now = SystemTime::now();
         let mut pruned_hashes: HashSet<String> = HashSet::new();
         let mut bytes_freed: u64 = 0;
-
         let remove_readonly_file = |p: &std::path::Path| -> bool {
             #[cfg(unix)]
             {
@@ -167,15 +179,11 @@ impl<'a> CacheGc<'a> {
             }
             fs::remove_file(p).is_ok()
         };
-
-        // 1 & 2. Evict CAS objects only when no active build holds the cache-wide .gc.lock lease
         if !has_active_lease {
             if let Some(max_age) = opts.max_age {
                 for obj in &objects {
-                    if protected_hashes.contains(&obj.hash) {
-                        continue;
-                    }
-                    if now.duration_since(obj.mtime).is_ok_and(|age| age > max_age)
+                    if !protected_hashes.contains(&obj.hash)
+                        && now.duration_since(obj.mtime).is_ok_and(|age| age > max_age)
                         && remove_readonly_file(&obj.path)
                     {
                         pruned_hashes.insert(obj.hash.clone());
@@ -184,16 +192,15 @@ impl<'a> CacheGc<'a> {
                     }
                 }
             }
-
             if let Some(max_bytes) = opts.max_bytes {
                 for obj in &objects {
                     if total_bytes <= max_bytes {
                         break;
                     }
-                    if pruned_hashes.contains(&obj.hash) || protected_hashes.contains(&obj.hash) {
-                        continue;
-                    }
-                    if remove_readonly_file(&obj.path) {
+                    if !pruned_hashes.contains(&obj.hash)
+                        && !protected_hashes.contains(&obj.hash)
+                        && remove_readonly_file(&obj.path)
+                    {
                         pruned_hashes.insert(obj.hash.clone());
                         bytes_freed += obj.size;
                         total_bytes = total_bytes.saturating_sub(obj.size);
@@ -203,7 +210,10 @@ impl<'a> CacheGc<'a> {
         }
 
         // 3. Clean orphaned artifacts links and dead action cache entries
-        let artifacts_dir = self.cas.root().join("artifacts");
+        let artifact_dirs = [
+            self.cas.root().join("artifacts"),
+            self.cas.root().join("artifacts-meta"),
+        ];
         if !has_active_lease
             && active_keys.is_empty()
             && (!pruned_hashes.is_empty() || opts.max_bytes.is_some() || opts.max_age.is_some())
@@ -223,7 +233,10 @@ impl<'a> CacheGc<'a> {
             let mut counted_inodes: HashSet<(u64, u64)> =
                 objects.iter().map(|o| o.ino_key).collect();
 
-            if let Ok(entries) = fs::read_dir(&artifacts_dir) {
+            for artifacts_dir in &artifact_dirs {
+                let Ok(entries) = fs::read_dir(artifacts_dir) else {
+                    continue;
+                };
                 for entry in entries.flatten() {
                     let path = entry.path();
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -270,7 +283,6 @@ impl<'a> CacheGc<'a> {
                             false
                         }
                     };
-
                     if is_orphaned {
                         let meta_opt = fs::metadata(&path).ok();
                         if remove_readonly_file(&path) {
@@ -283,21 +295,6 @@ impl<'a> CacheGc<'a> {
                                 }
                             }
                         }
-                    }
-                }
-            }
-        } else if !pruned_hashes.is_empty() {
-            #[cfg(unix)]
-            if let Ok(entries) = fs::read_dir(&artifacts_dir) {
-                use std::os::unix::fs::MetadataExt;
-                let retained: HashSet<(u64, u64)> = entries
-                    .flatten()
-                    .filter_map(|e| e.metadata().ok().map(|m| (m.dev(), m.ino())))
-                    .collect();
-                for obj in &objects {
-                    if pruned_hashes.contains(&obj.hash) && retained.contains(&obj.ino_key) {
-                        bytes_freed = bytes_freed.saturating_sub(obj.size);
-                        total_bytes += obj.size;
                     }
                 }
             }

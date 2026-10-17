@@ -111,6 +111,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         "Compiling and instrumenting test targets for LLVM coverage",
     );
 
+    let _cache_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
     let (plan, result) = match RustAdapter::build(&opt) {
         Ok(res) => res,
         Err(err) => {

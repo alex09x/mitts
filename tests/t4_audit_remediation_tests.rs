@@ -14,8 +14,7 @@ use mitts::cli::handlers::handle_clean;
 use mitts::cli::{CleanArgs, FmtArgs};
 use mitts::core::action_cache::ActionCache;
 use mitts::core::cas::ContentAddressedStore;
-use mitts::core::gc::{CacheGc, GcOptions};
-use mitts::core::lock::FileLock;
+use mitts::core::gc::{CacheGc, CacheLease, GcOptions};
 use std::collections::HashSet;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -77,7 +76,7 @@ fn test_b1_gc_prunes_cas_artifacts_and_preserves_during_active_locks() {
     let ac = ActionCache::new(ac_root.clone()).unwrap();
     let gc = CacheGc::new(&cas, &ac);
 
-    let lease_guard = FileLock::acquire_shared(&gc.gc_lock_path()).unwrap();
+    let lease_guard = CacheLease::acquire(Some(&cache_dir));
     let report_lease = gc
         .prune(&GcOptions {
             max_bytes: Some(0),
@@ -335,14 +334,14 @@ fn test_nb1_nb2_check_metadata_only_and_build_upgrade_plus_all_targets() {
     assert!(build_res.success);
     assert!(deps_dir.join("libnb_proj.rlib").exists());
 
-    let cas_artifacts: Vec<String> = fs::read_dir(cache_dir.join("cas/artifacts"))
+    let meta_artifacts: Vec<String> = fs::read_dir(cache_dir.join("cas/artifacts-meta"))
         .unwrap()
         .flatten()
         .filter_map(|e| e.file_name().into_string().ok())
         .collect();
-    assert!(cas_artifacts
+    assert!(meta_artifacts
         .iter()
-        .any(|n| n.starts_with("libnb_proj-") && n.ends_with("-m.rmeta")));
+        .any(|n| n.starts_with("libnb_proj-") && n.ends_with(".rmeta")));
 }
 
 #[test]

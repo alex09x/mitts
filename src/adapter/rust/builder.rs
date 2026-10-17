@@ -76,20 +76,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         .unwrap_or(&target_dir)
         .join(".mitts-clean.lock");
     let _clean_guard = crate::core::lock::FileLock::acquire_shared(&clean_lock_path).ok();
-    let cas_root = opt.cache_dir.as_ref().map_or_else(
-        || {
-            crate::core::cas::ContentAddressedStore::default_store()
-                .ok()
-                .map(|c| c.root().to_path_buf())
-        },
-        |cd| Some(cd.join("cas")),
-    );
-    let _gc_lease = cas_root.as_ref().and_then(|cr| {
-        crate::core::lock::FileLock::acquire_shared(
-            &crate::core::gc::CacheGc::gc_lock_path_for_cas_root(cr),
-        )
-        .ok()
-    });
+    let _gc_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let log_path = target_dir.join("build.log");
     let mut logger = BuildLogger::new(Some(log_path));
