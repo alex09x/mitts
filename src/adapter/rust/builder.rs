@@ -69,39 +69,24 @@ pub fn compute_options_hash(
 pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
+    let clean_lock_path = target_dir
+        .parent()
+        .unwrap_or(&target_dir)
+        .join(".mitts-clean.lock");
+    let _clean_guard = crate::core::lock::FileLock::acquire_shared(&clean_lock_path).ok();
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let log_path = target_dir.join("build.log");
     let mut logger = BuildLogger::new(Some(log_path));
 
-    let profile = match opt.mode {
-        super::types::BuildMode::Check => {
-            if opt.release {
-                "check-release"
-            } else {
-                "check"
-            }
-        }
-        super::types::BuildMode::Clippy => {
-            if opt.release {
-                "clippy-release"
-            } else {
-                "clippy"
-            }
-        }
-        super::types::BuildMode::Test => {
-            if opt.release {
-                "test-release"
-            } else {
-                "test"
-            }
-        }
-        super::types::BuildMode::Build => {
-            if opt.release {
-                "release"
-            } else {
-                "dev"
-            }
-        }
+    let profile = match (opt.mode, opt.release) {
+        (super::types::BuildMode::Check, true) => "check-release",
+        (super::types::BuildMode::Check, false) => "check",
+        (super::types::BuildMode::Clippy, true) => "clippy-release",
+        (super::types::BuildMode::Clippy, false) => "clippy",
+        (super::types::BuildMode::Test, true) => "test-release",
+        (super::types::BuildMode::Test, false) => "test",
+        (super::types::BuildMode::Build, true) => "release",
+        (super::types::BuildMode::Build, false) => "dev",
     };
 
     // Validate unsupported options explicitly

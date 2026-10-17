@@ -64,6 +64,7 @@ edition = "2021"
         release: false,
         cache: true,
         cache_dir: None,
+        ..Default::default()
     };
     assert_eq!(handle_clean(&clean_args), 0);
 

@@ -83,6 +83,7 @@ fn test_m8_handlers_explain_clean_and_gc_comprehensive() {
         release: false,
         cache: true,
         cache_dir: Some(cache_dir.clone()),
+        ..Default::default()
     };
     assert_eq!(handle_clean(&clean_dev_args), 0);
     assert!(!dev_lock.exists());

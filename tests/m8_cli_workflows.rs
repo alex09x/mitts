@@ -142,6 +142,7 @@ fn test_m8_cli_handle_gc_and_clean() {
         release: false,
         cache: false,
         cache_dir: None,
+        ..Default::default()
     };
     let clean_code = handle_clean(&clean_args);
     assert_eq!(clean_code, 0, "handle_clean dev should exit with 0");
@@ -151,6 +152,7 @@ fn test_m8_cli_handle_gc_and_clean() {
         release: true,
         cache: true,
         cache_dir: Some(temp_cache.path().to_path_buf()),
+        ..Default::default()
     };
     let clean_rel_code = handle_clean(&clean_rel_args);
     assert_eq!(clean_rel_code, 0, "handle_clean release should exit with 0");

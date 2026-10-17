@@ -31,6 +31,10 @@ pub struct CargoToml {
     #[serde(default)]
     pub test: Vec<TomlTest>,
     #[serde(default)]
+    pub example: Vec<TomlTest>,
+    #[serde(default)]
+    pub bench: Vec<TomlTest>,
+    #[serde(default)]
     pub features: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub target: HashMap<String, TomlTargetSpec>,

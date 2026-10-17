@@ -98,6 +98,7 @@ fn test_m8_handlers_clean_cache_and_gc_options() {
         cache: true,
         cache_dir: Some(cache_dir.clone()),
         release: false,
+        ..Default::default()
     };
     assert_eq!(handle_clean(&clean_args), 0);
 

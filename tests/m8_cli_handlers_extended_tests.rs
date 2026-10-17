@@ -97,6 +97,7 @@ fn test_m8_cli_gc_and_clean_variants() {
         release: true,
         cache: false,
         cache_dir: None,
+        ..Default::default()
     };
     assert_eq!(handle_clean(&clean_release), 0);
     assert!(!rel_lock.exists());
@@ -108,6 +109,7 @@ fn test_m8_cli_gc_and_clean_variants() {
         release: false,
         cache: true,
         cache_dir: Some(cache_dir),
+        ..Default::default()
     };
     assert_eq!(handle_clean(&clean_all), 0);
     assert!(!dev_lock.exists());

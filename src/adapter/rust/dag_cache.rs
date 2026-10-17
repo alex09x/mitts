@@ -165,41 +165,41 @@ pub fn try_restore_from_cache_with_directives(
         None => return Ok(false),
     };
 
-    let mut valid = !entry.outputs.is_empty();
+    let needs_linkable_lib = !is_bin
+        && (unit.for_host
+            || !matches!(
+                ctx.opt.mode,
+                crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
+            ));
+    let mut valid = !entry.outputs.is_empty()
+        && (!needs_linkable_lib
+            || entry.outputs.iter().any(|o| {
+                matches!(
+                    o.relative_path.extension().and_then(|e| e.to_str()),
+                    Some("rlib" | "dylib" | "so")
+                )
+            }));
     for out in &entry.outputs {
-        let obj_path = ctx.cas.object_path(&out.cas_hash);
-        if let Ok(meta) = fs::metadata(&obj_path) {
-            if meta.len() != out.file_size {
-                valid = false;
-                break;
-            }
-        } else {
+        if fs::metadata(ctx.cas.object_path(&out.cas_hash))
+            .map(|m| m.len() != out.file_size)
+            .unwrap_or(true)
+        {
             valid = false;
             break;
         }
     }
 
     let safe_eff = crate::core::action_cache::safe_key_file_name(&effective_key);
-    let meta_path = ctx
-        .cas
-        .root()
-        .join("metadata")
-        .join(format!("{}.toml", safe_eff));
-    let meta_path = if meta_path.is_file() {
-        meta_path
+    let meta_dir = ctx.cas.root().join("metadata");
+    let eff_meta = meta_dir.join(format!("{safe_eff}.toml"));
+    let meta_path = if eff_meta.is_file() {
+        eff_meta
     } else {
         let safe_act = crate::core::action_cache::safe_key_file_name(action_key);
-        ctx.cas
-            .root()
-            .join("metadata")
-            .join(format!("{}.toml", safe_act))
+        meta_dir.join(format!("{safe_act}.toml"))
     };
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
-    let has_links = pkg_toml
-        .package
-        .as_ref()
-        .map(|p| p.links.is_some())
-        .unwrap_or(false);
+    let has_links = pkg_toml.package.as_ref().is_some_and(|p| p.links.is_some());
     if has_links && !meta_path.is_file() {
         return Ok(false);
     }

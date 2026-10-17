@@ -246,6 +246,8 @@ impl ContentAddressedStore {
             bail!("CAS object not found: {}", content_hash);
         }
 
+        let sidecar_path = artifacts_dir.join(format!(".{}.cas_hash", artifact_name));
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -253,6 +255,13 @@ impl ContentAddressedStore {
                 (fs::metadata(&artifact_path), fs::metadata(&obj_path))
             {
                 if meta.ino() == obj_meta.ino() && meta.dev() == obj_meta.dev() {
+                    return Ok(artifact_path);
+                }
+                if meta.len() == obj_meta.len()
+                    && fs::read_to_string(&sidecar_path)
+                        .map(|s| s.trim() == content_hash)
+                        .unwrap_or(false)
+                {
                     return Ok(artifact_path);
                 }
             }
@@ -263,7 +272,11 @@ impl ContentAddressedStore {
             if let (Ok(meta), Ok(obj_meta)) =
                 (fs::metadata(&artifact_path), fs::metadata(&obj_path))
             {
-                if meta.len() == obj_meta.len() {
+                if meta.len() == obj_meta.len()
+                    && fs::read_to_string(&sidecar_path)
+                        .map(|s| s.trim() == content_hash)
+                        .unwrap_or(false)
+                {
                     return Ok(artifact_path);
                 }
             }
@@ -276,11 +289,17 @@ impl ContentAddressedStore {
         let tmp_path = artifacts_dir.join(tmp_name);
 
         let _ = fs::remove_file(&tmp_path);
-        if fs::hard_link(&obj_path, &tmp_path).is_err() {
+        let hardlinked = fs::hard_link(&obj_path, &tmp_path).is_ok();
+        if !hardlinked {
             reflink_or_copy(&obj_path, &tmp_path, false)?;
         }
         let _ = fs::rename(&tmp_path, &artifact_path);
         let _ = fs::remove_file(&tmp_path);
+        if hardlinked {
+            let _ = fs::remove_file(&sidecar_path);
+        } else {
+            let _ = fs::write(&sidecar_path, content_hash);
+        }
 
         Ok(artifact_path)
     }

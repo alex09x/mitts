@@ -71,6 +71,10 @@ pub struct CleanArgs {
     #[arg(long)]
     pub manifest_path: Option<PathBuf>,
 
+    /// Directory for all generated artifacts
+    #[arg(long)]
+    pub target_dir: Option<PathBuf>,
+
     /// Clean release artifacts only
     #[arg(short, long)]
     pub release: bool,

@@ -31,16 +31,6 @@ where
     }
 }
 
-/*
- * Mitts Build — Rust-first build and package tooling with shared artifact cache
- * Copyright (c) 2026 Alexander Panasenko
- *
- * Contact: alex@prod.codes
- * Author: https://prod.codes/about/
- * Project: https://github.com/alex09x/mitts
- * SPDX-License-Identifier: MIT OR Apache-2.0
- */
-
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -128,6 +118,10 @@ pub struct TomlPackage {
     pub autobins: Option<bool>,
     #[serde(default)]
     pub autotests: Option<bool>,
+    #[serde(default)]
+    pub autoexamples: Option<bool>,
+    #[serde(default)]
+    pub autobenches: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_maybe_inherited_string")]
     pub description: Option<String>,
     #[serde(default, deserialize_with = "deserialize_maybe_inherited_string")]

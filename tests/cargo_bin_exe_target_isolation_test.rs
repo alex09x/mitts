@@ -84,10 +84,10 @@ path = "tests/integration.rs"
 
 #[test]
 fn test_bin_execution() {
-    let bin_path = env!("CARGO_BIN_EXE_my_cli");
+    let bin_path = env!("CARGO_BIN_EXE_my-cli");
     assert!(
         bin_path.contains("target/mitts/debug/my-cli") || bin_path.contains("target/mitts/release/my-cli"),
-        "CARGO_BIN_EXE_my_cli must point to target/mitts, got: {}",
+        "CARGO_BIN_EXE_my-cli must point to target/mitts, got: {}",
         bin_path
     );
     let out = Command::new(bin_path).output().expect("execute binary");

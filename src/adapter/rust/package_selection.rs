@@ -150,7 +150,9 @@ pub fn select_transitive_packages<'a>(
     let mut selected_packages: Vec<(&'a CargoLockPackage, bool)> = Vec::new();
     let mut visited: HashSet<(String, String, Option<String>)> = HashSet::new();
     let mut to_visit: Vec<&'a CargoLockPackage> = root_pkgs;
-    let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test;
+    let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test
+        || opt.all_tests
+        || !opt.test_targets.is_empty();
     let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
     let start_dir = opt
         .start_dir

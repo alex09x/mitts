@@ -60,9 +60,7 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
     }
 
     let project_dir = explanation.manifest_path.parent();
-
-    println!("Mitts Build Plan Explanation");
-    println!("============================");
+    println!("Mitts Build Plan Explanation\n============================");
     println!("Manifest:         {}", explanation.manifest_path.display());
     println!(
         "Target Directory: {}",
@@ -76,9 +74,8 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
     if let Some(ref target) = explanation.toolchain.target_triple {
         println!("Host Target:      {}", target);
     }
-    println!();
     println!(
-        "Effective Compilation Units ({} total):",
+        "\nEffective Compilation Units ({} total):",
         explanation.units.len()
     );
     for (i, unit) in explanation.units.iter().enumerate() {
@@ -102,11 +99,9 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
         }
         println!("     Eligibility: {}", unit.cache_eligibility);
     }
-    println!();
-    println!("Active Milestone: M3 (Fast parallel fetcher & Cargo.lock resolution)");
+    println!("\nActive Milestone: M3 (Fast parallel fetcher & Cargo.lock resolution)");
     println!("Cache Policy:     Immutable CAS, Action Cache, and Global Source Store");
     println!("Coexistence:      Ordinary Cargo target/ and rust-analyzer untouched");
-
     0
 }
 
@@ -123,21 +118,18 @@ pub fn handle_fetch(args: &FetchArgs) -> i32 {
         }
     };
 
-    let store = match args.cache_dir {
-        Some(ref cd) => match SourceStore::new(cd.join("sources")) {
-            Ok(s) => s,
-            Err(e) => {
-                Ui::report_error(&e);
-                return 1;
-            }
-        },
-        None => match SourceStore::default_store() {
-            Ok(s) => s,
-            Err(e) => {
-                Ui::report_error(&e);
-                return 1;
-            }
-        },
+    let store_res = args
+        .cache_dir
+        .as_ref()
+        .map_or_else(SourceStore::default_store, |cd| {
+            SourceStore::new(cd.join("sources"))
+        });
+    let store = match store_res {
+        Ok(s) => s,
+        Err(e) => {
+            Ui::report_error(&e);
+            return 1;
+        }
     };
 
     let fetch_opt = FetchOptions {
@@ -155,22 +147,16 @@ pub fn handle_fetch(args: &FetchArgs) -> i32 {
     match RustAdapter::fetch(&manifest_path, &store, &fetch_opt) {
         Ok(result) => {
             Ui::stage_step("📦", "Synchronizing packages with registry");
-            Ui::stage_item(
-                false,
-                &Ui::badge_cached(),
-                &format!(
-                    "{} packages already present in registry",
-                    result.already_cached
-                ),
+            let cached_msg = format!(
+                "{} packages already present in registry",
+                result.already_cached
             );
-            Ui::stage_item(
-                true,
-                &Ui::badge_download(),
-                &format!(
-                    "{} packages downloaded & verified (parallel)",
-                    result.fetched
-                ),
+            Ui::stage_item(false, &Ui::badge_cached(), &cached_msg);
+            let fetched_msg = format!(
+                "{} packages downloaded & verified (parallel)",
+                result.fetched
             );
+            Ui::stage_item(true, &Ui::badge_download(), &fetched_msg);
             Ui::finish(
                 "sources",
                 &format!("{}ms", result.duration_ms),
@@ -186,26 +172,24 @@ pub fn handle_fetch(args: &FetchArgs) -> i32 {
 }
 
 pub fn handle_gc(args: &GcArgs) -> i32 {
-    let cas_res = args
+    let cas = match args
         .cache_dir
         .as_ref()
         .map_or_else(ContentAddressedStore::default_store, |cd| {
             ContentAddressedStore::new(cd.join("cas"))
-        });
-    let cas = match cas_res {
+        }) {
         Ok(s) => s,
         Err(e) => {
             Ui::report_error(&e);
             return 1;
         }
     };
-    let ac_res = args
+    let ac = match args
         .cache_dir
         .as_ref()
         .map_or_else(ActionCache::default_cache, |cd| {
             ActionCache::new(cd.join("ac"))
-        });
-    let ac = match ac_res {
+        }) {
         Ok(c) => c,
         Err(e) => {
             Ui::report_error(&e);
@@ -250,49 +234,69 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         }
     };
     let project_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
-    let mitts_dir = if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
-        std::path::PathBuf::from(cargo_td).join("mitts")
+    let mitts_dir = if let Some(ref td) = args.target_dir {
+        if td.file_name().is_some_and(|n| n == "mitts")
+            || td.join("build.log").exists()
+            || !td.join("mitts").exists()
+        {
+            td.clone()
+        } else {
+            td.join("mitts")
+        }
+    } else if let Some(cargo_td) =
+        std::env::var_os("CARGO_TARGET_DIR").map(std::path::PathBuf::from)
+    {
+        if cargo_td.file_name().is_some_and(|n| n == "mitts") {
+            cargo_td
+        } else {
+            cargo_td.join("mitts")
+        }
     } else {
         project_dir.join("target").join("mitts")
     };
     let legacy_mitts_dir = project_dir.join(".mitts");
 
     Ui::header("clean");
+    let clean_lock_path = mitts_dir
+        .parent()
+        .unwrap_or(&mitts_dir)
+        .join(".mitts-clean.lock");
+    let _clean_guard = crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path).ok();
 
-    // 1. Remove fast build lock and build log
-    if args.release {
-        let lock_file = FastBuildLock::lock_path(project_dir, "release");
-        if lock_file.exists() {
-            let _ = std::fs::remove_file(&lock_file);
-            Ui::stage_item(
-                true,
-                &Ui::badge_cached(),
-                "Removed fast build lock (release)",
-            );
-        }
+    let profiles: &[&str] = if args.release {
+        &["release", "check-release", "clippy-release", "test-release"]
     } else {
-        for profile in ["dev", "release", "check", "clippy", "test"] {
-            let lock_file = FastBuildLock::lock_path(project_dir, profile);
-            if lock_file.exists() {
-                let _ = std::fs::remove_file(&lock_file);
-            }
-        }
-        let legacy_lock = legacy_mitts_dir.join("build.lock");
-        if legacy_lock.exists() {
-            let _ = std::fs::remove_file(&legacy_lock);
-        }
+        &[
+            "dev",
+            "release",
+            "check",
+            "check-release",
+            "clippy",
+            "clippy-release",
+            "test",
+            "test-release",
+        ]
+    };
+    for profile in profiles {
+        let _ = std::fs::remove_file(FastBuildLock::lock_path_in_target(&mitts_dir, profile));
+    }
+    if args.release {
+        Ui::stage_item(
+            true,
+            &Ui::badge_cached(),
+            "Removed fast build lock (release)",
+        );
+    } else {
+        let _ = std::fs::remove_file(legacy_mitts_dir.join("build.lock"));
         Ui::stage_item(true, &Ui::badge_cached(), "Removed fast build locks");
     }
     for log_file in [
         mitts_dir.join("build.log"),
         legacy_mitts_dir.join("build.log"),
     ] {
-        if log_file.exists() {
-            let _ = std::fs::remove_file(&log_file);
-        }
+        let _ = std::fs::remove_file(log_file);
     }
 
-    // 2. Remove target directory
     if args.release {
         let rel_dir = mitts_dir.join("release");
         if rel_dir.exists() {
@@ -313,24 +317,25 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         }
     }
 
-    // 3. Clean stray atomic link temporary files in mitts directory (e.g. remaining profile)
     if mitts_dir.exists() {
         clean_stray_tmp_links(&mitts_dir);
     }
 
-    // 4. Clean global cache if requested
     if args.cache {
-        let cas = match args.cache_dir {
-            Some(ref cd) => ContentAddressedStore::new(cd.join("cas")),
-            None => ContentAddressedStore::default_store(),
-        };
-        let ac = match args.cache_dir {
-            Some(ref cd) => ActionCache::new(cd.join("ac")),
-            None => ActionCache::default_cache(),
-        };
+        let cas = args
+            .cache_dir
+            .as_ref()
+            .map_or_else(ContentAddressedStore::default_store, |cd| {
+                ContentAddressedStore::new(cd.join("cas"))
+            });
+        let ac = args
+            .cache_dir
+            .as_ref()
+            .map_or_else(ActionCache::default_cache, |cd| {
+                ActionCache::new(cd.join("ac"))
+            });
         if let (Ok(cas), Ok(ac)) = (cas, ac) {
-            let gc = CacheGc::new(&cas, &ac);
-            let _ = gc.prune(&GcOptions {
+            let _ = CacheGc::new(&cas, &ac).prune(&GcOptions {
                 max_bytes: Some(0),
                 max_age: None,
             });
@@ -352,19 +357,13 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
 
 fn is_pid_stale(pid: u32) -> bool {
     #[cfg(unix)]
-    {
-        unsafe {
-            if libc::kill(pid as libc::pid_t, 0) == -1 {
-                return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
-            }
+    unsafe {
+        if libc::kill(pid as libc::pid_t, 0) == -1 {
+            return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
         }
-        false
     }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        false
-    }
+    let _ = pid;
+    false
 }
 
 fn is_stray_tmp_link_file(entry: &std::fs::DirEntry) -> bool {
@@ -375,14 +374,11 @@ fn is_stray_tmp_link_file(entry: &std::fs::DirEntry) -> bool {
     if !name.starts_with('.') || !name.contains(".tmp_link.") {
         return false;
     }
-    // Expected format: .{artifact}.tmp_link.{pid}.{counter}
     let parts: Vec<&str> = name.rsplitn(3, '.').collect();
-    if parts.len() >= 2 {
-        if let Ok(pid) = parts[1].parse::<u32>() {
-            return is_pid_stale(pid);
-        }
-    }
-    false
+    parts
+        .get(1)
+        .and_then(|p| p.parse::<u32>().ok())
+        .is_some_and(is_pid_stale)
 }
 
 fn clean_stray_tmp_links(dir: &std::path::Path) {

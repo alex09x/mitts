@@ -58,6 +58,7 @@ edition = "2021"
         release: true,
         cache: false,
         cache_dir: None,
+        ..Default::default()
     };
     assert_eq!(handle_clean(&args_release), 0);
     assert!(!rel_lock.exists());
@@ -70,6 +71,7 @@ edition = "2021"
         release: false,
         cache: true,
         cache_dir: Some(cache_dir),
+        ..Default::default()
     };
     assert_eq!(handle_clean(&args_cache), 0);
 }

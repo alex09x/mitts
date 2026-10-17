@@ -157,8 +157,13 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             }
         }
 
-        // 3. Publish metadata output (rmeta)
-        if let Some(ref mp) = args.output.metadata_output {
+        // 3. Publish metadata output (rmeta) if distinct from primary_output
+        if let Some(mp) = args
+            .output
+            .metadata_output
+            .as_ref()
+            .filter(|mp| args.output.primary_output.as_ref() != Some(*mp))
+        {
             let (meta_hash, meta_size) = ctx.cas.store_file(mp)?;
             let _ = ctx.cas.named_artifact_path_with_disambiguator(
                 &unit.target_name,
@@ -301,7 +306,24 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             stderr: args.output.stderr.clone(),
             exit_code: 0,
         };
-        let _ = ctx.ac.put(&entry);
+        let has_linkable = |outs: &[CachedOutput]| {
+            outs.iter().any(|o| {
+                matches!(
+                    o.relative_path.extension().and_then(|e| e.to_str()),
+                    Some("rlib" | "dylib" | "so")
+                )
+            })
+        };
+        let should_put = has_linkable(&entry.outputs)
+            || !ctx
+                .ac
+                .get(&entry.action_key)
+                .ok()
+                .flatten()
+                .is_some_and(|existing| has_linkable(&existing.outputs));
+        if should_put {
+            let _ = ctx.ac.put(&entry);
+        }
 
         // 8. Record in ActionManifest for mutable units
         if is_mutable {

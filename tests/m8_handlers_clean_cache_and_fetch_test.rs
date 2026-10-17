@@ -51,6 +51,7 @@ path = "src/lib.rs"
         release: true,
         cache: false,
         cache_dir: None,
+        ..Default::default()
     };
     let code_rel = handle_clean(&clean_rel);
     assert_eq!(code_rel, 0);
@@ -66,6 +67,7 @@ path = "src/lib.rs"
         release: false,
         cache: true,
         cache_dir: Some(custom_cache.clone()),
+        ..Default::default()
     };
     let code_cache = handle_clean(&clean_cache);
     assert_eq!(code_cache, 0);

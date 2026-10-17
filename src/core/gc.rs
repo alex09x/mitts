@@ -108,6 +108,8 @@ impl<'a> CacheGc<'a> {
             hash: String,
             size: u64,
             mtime: SystemTime,
+            #[cfg(unix)]
+            ino_key: (u64, u64),
         }
 
         let mut objects: Vec<CasObjectMeta> = Vec::new();
@@ -134,11 +136,18 @@ impl<'a> CacheGc<'a> {
                 let size = meta.len();
                 let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                 total_bytes += size;
+                #[cfg(unix)]
+                let ino_key = {
+                    use std::os::unix::fs::MetadataExt;
+                    (meta.dev(), meta.ino())
+                };
                 objects.push(CasObjectMeta {
                     path,
                     hash,
                     size,
                     mtime,
+                    #[cfg(unix)]
+                    ino_key,
                 });
             }
         }
@@ -152,6 +161,15 @@ impl<'a> CacheGc<'a> {
         let mut pruned_hashes: HashSet<String> = HashSet::new();
         let mut bytes_freed: u64 = 0;
 
+        let remove_readonly_file = |p: &std::path::Path| -> bool {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o644));
+            }
+            fs::remove_file(p).is_ok()
+        };
+
         // 1. Age-based eviction
         if let Some(max_age) = opts.max_age {
             for obj in &objects {
@@ -159,18 +177,10 @@ impl<'a> CacheGc<'a> {
                     continue;
                 }
                 if let Ok(age) = now.duration_since(obj.mtime) {
-                    if age > max_age {
-                        #[cfg(unix)]
-                        {
-                            use std::os::unix::fs::PermissionsExt;
-                            let _ =
-                                fs::set_permissions(&obj.path, fs::Permissions::from_mode(0o644));
-                        }
-                        if fs::remove_file(&obj.path).is_ok() {
-                            pruned_hashes.insert(obj.hash.clone());
-                            bytes_freed += obj.size;
-                            total_bytes = total_bytes.saturating_sub(obj.size);
-                        }
+                    if age > max_age && remove_readonly_file(&obj.path) {
+                        pruned_hashes.insert(obj.hash.clone());
+                        bytes_freed += obj.size;
+                        total_bytes = total_bytes.saturating_sub(obj.size);
                     }
                 }
             }
@@ -185,13 +195,7 @@ impl<'a> CacheGc<'a> {
                 if pruned_hashes.contains(&obj.hash) || protected_hashes.contains(&obj.hash) {
                     continue;
                 }
-
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = fs::set_permissions(&obj.path, fs::Permissions::from_mode(0o644));
-                }
-                if fs::remove_file(&obj.path).is_ok() {
+                if remove_readonly_file(&obj.path) {
                     pruned_hashes.insert(obj.hash.clone());
                     bytes_freed += obj.size;
                     total_bytes = total_bytes.saturating_sub(obj.size);
@@ -200,39 +204,100 @@ impl<'a> CacheGc<'a> {
         }
 
         // 3. Clean orphaned artifacts links and dead action cache entries
-        if !pruned_hashes.is_empty() {
-            let artifacts_dir = self.cas.root().join("artifacts");
+        let artifacts_dir = self.cas.root().join("artifacts");
+        if active_keys.is_empty()
+            && (!pruned_hashes.is_empty() || opts.max_bytes.is_some() || opts.max_age.is_some())
+        {
+            let remaining_hashes: HashSet<&str> = objects
+                .iter()
+                .filter(|o| !pruned_hashes.contains(&o.hash))
+                .map(|o| o.hash.as_str())
+                .collect();
+            #[cfg(unix)]
+            let remaining_inodes: HashSet<(u64, u64)> = objects
+                .iter()
+                .filter(|o| !pruned_hashes.contains(&o.hash))
+                .map(|o| o.ino_key)
+                .collect();
+            #[cfg(unix)]
+            let mut counted_inodes: HashSet<(u64, u64)> =
+                objects.iter().map(|o| o.ino_key).collect();
+
             if let Ok(entries) = fs::read_dir(&artifacts_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    for pruned in &pruned_hashes {
-                        let short = if pruned.len() > 16 {
-                            &pruned[..16]
-                        } else {
-                            pruned
-                        };
-                        if name.contains(short) {
-                            let _ = fs::remove_file(&path);
+                    if name.starts_with(".tmp_") {
+                        let _ = remove_readonly_file(&path);
+                        continue;
+                    }
+                    if name.starts_with('.') && name.ends_with(".cas_hash") {
+                        let mapped = fs::read_to_string(&path).unwrap_or_default();
+                        if !remaining_hashes.contains(mapped.trim()) {
+                            let _ = remove_readonly_file(&path);
+                        }
+                        continue;
+                    }
+                    let sidecar = artifacts_dir.join(format!(".{}.cas_hash", name));
+                    let sidecar_orphaned = sidecar.is_file()
+                        && !remaining_hashes
+                            .contains(fs::read_to_string(&sidecar).unwrap_or_default().trim());
+                    #[cfg(unix)]
+                    let inode_orphaned = fs::metadata(&path)
+                        .map(|m| {
+                            use std::os::unix::fs::MetadataExt;
+                            m.nlink() <= 1 || !remaining_inodes.contains(&(m.dev(), m.ino()))
+                        })
+                        .unwrap_or(false);
+                    #[cfg(not(unix))]
+                    let inode_orphaned = !pruned_hashes.is_empty();
+
+                    if sidecar_orphaned || inode_orphaned {
+                        let meta_opt = fs::metadata(&path).ok();
+                        if remove_readonly_file(&path) {
+                            let _ = remove_readonly_file(&sidecar);
+                            #[cfg(unix)]
+                            if let Some(m) = meta_opt {
+                                use std::os::unix::fs::MetadataExt;
+                                if counted_inodes.insert((m.dev(), m.ino())) {
+                                    bytes_freed += m.len();
+                                }
+                            }
                         }
                     }
                 }
             }
+        } else if !active_keys.is_empty() && !pruned_hashes.is_empty() {
+            #[cfg(unix)]
+            if let Ok(entries) = fs::read_dir(&artifacts_dir) {
+                use std::os::unix::fs::MetadataExt;
+                let retained: HashSet<(u64, u64)> = entries
+                    .flatten()
+                    .filter_map(|e| e.metadata().ok().map(|m| (m.dev(), m.ino())))
+                    .collect();
+                for obj in &objects {
+                    if pruned_hashes.contains(&obj.hash) && retained.contains(&obj.ino_key) {
+                        bytes_freed = bytes_freed.saturating_sub(obj.size);
+                        total_bytes += obj.size;
+                    }
+                }
+            }
+        }
 
-            // Prune invalid AC entries
+        if !pruned_hashes.is_empty() {
             if let Ok(entries) = fs::read_dir(self.ac.root()) {
                 for entry in entries.flatten() {
                     let p = entry.path();
-                    if p.extension().map(|e| e == "json").unwrap_or(false) {
+                    if p.extension().is_some_and(|e| e == "json") {
                         if let Some(key) = p.file_stem().and_then(|s| s.to_str()) {
-                            if let Ok(Some(ac_entry)) = self.ac.get(key) {
-                                let has_pruned = ac_entry
-                                    .outputs
-                                    .iter()
-                                    .any(|out| pruned_hashes.contains(&out.cas_hash));
-                                if has_pruned {
-                                    let _ = fs::remove_file(&p);
-                                }
+                            if !active_keys.contains(key)
+                                && self.ac.get(key).ok().flatten().is_some_and(|e| {
+                                    e.outputs
+                                        .iter()
+                                        .any(|o| pruned_hashes.contains(&o.cas_hash))
+                                })
+                            {
+                                let _ = fs::remove_file(&p);
                             }
                         }
                     }

@@ -97,7 +97,9 @@ pub fn resolve_package_features_with_resolver(
     }
 
     // 2. Fixed-point propagation loop: activate dependencies and expand features
-    let is_test = opt.mode == crate::adapter::BuildMode::Test;
+    let is_test = opt.mode == crate::adapter::BuildMode::Test
+        || opt.all_tests
+        || !opt.test_targets.is_empty();
     let mut changed = true;
     while changed {
         changed = false;

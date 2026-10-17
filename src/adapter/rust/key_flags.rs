@@ -157,24 +157,19 @@ pub fn resolve_effective_target_triple(
 
 pub fn resolve_unit_pkg_dir(unit: &PlannedCompilationUnit) -> PathBuf {
     if unit.manifest_path.is_file() {
-        unit.manifest_path.parent().unwrap().to_path_buf()
-    } else {
-        let mut cur = unit.src_path.parent();
-        let mut dir = None;
-        while let Some(d) = cur {
-            if d.join("Cargo.toml").is_file() {
-                dir = Some(d.to_path_buf());
-                break;
-            }
-            cur = d.parent();
-        }
-        dir.unwrap_or_else(|| {
-            unit.src_path
-                .parent()
-                .unwrap_or(&unit.src_path)
-                .to_path_buf()
-        })
+        return unit.manifest_path.parent().unwrap().to_path_buf();
     }
+    let mut cur = unit.src_path.parent();
+    while let Some(d) = cur {
+        if d.join("Cargo.toml").is_file() {
+            return d.to_path_buf();
+        }
+        cur = d.parent();
+    }
+    unit.src_path
+        .parent()
+        .unwrap_or(&unit.src_path)
+        .to_path_buf()
 }
 
 pub fn compute_unit_flags_with_ws(
@@ -190,27 +185,43 @@ pub fn compute_unit_flags_with_ws(
             unit.kind.as_str(),
             "proc-macro" | "custom-build" | "build-script"
         );
+    let is_primary_target = unit.is_primary && (!unit.for_host || unit.kind == "proc-macro");
     let mut u_flags = Vec::new();
     let mut i = 0;
     while i < effective_flags.len() {
         let arg = &effective_flags[i];
-        if is_host {
-            if arg == "--target" {
-                i += 2;
-                continue;
-            }
-            if arg.starts_with("--target=") || arg == "-Cinstrument-coverage" {
-                i += 1;
-                continue;
-            }
-            if arg == "-C"
-                && effective_flags.get(i + 1).map(String::as_str) == Some("instrument-coverage")
-            {
-                i += 2;
-                continue;
-            }
+        let next = effective_flags.get(i + 1).map(String::as_str);
+        if arg == "--workspace" || arg == "--all" {
+            i += 1;
+            continue;
         }
-        u_flags.push(arg.clone());
+        if arg == "--target" || (arg == "-C" && next == Some("instrument-coverage")) {
+            if !is_host {
+                u_flags.push(arg.clone());
+                if let Some(n) = next {
+                    u_flags.push(n.to_string());
+                }
+            }
+            i += 2;
+            continue;
+        }
+        if arg.starts_with("--target=") || arg == "-Cinstrument-coverage" {
+            if !is_host {
+                u_flags.push(arg.clone());
+            }
+            i += 1;
+            continue;
+        }
+        if arg.starts_with("ENV:") || is_primary_target {
+            u_flags.push(arg.clone());
+        } else if matches!(
+            arg.as_str(),
+            "-A" | "-W" | "-D" | "-F" | "-C" | "-Z" | "-L" | "-l" | "--cfg" | "--check-cfg"
+        ) && next.map(|n| !n.starts_with("ENV:")).unwrap_or(false)
+        {
+            i += 2;
+            continue;
+        }
         i += 1;
     }
     if unit.is_workspace {
@@ -237,8 +248,13 @@ pub fn compute_unit_flags_with_ws(
                 u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
             }
         }
-        u_flags.push(format!("MODE={:?}", mode));
-        if mode == BuildMode::Clippy {
+        let effective_mode = if mode == BuildMode::Clippy && !is_primary_target {
+            BuildMode::Check
+        } else {
+            mode
+        };
+        u_flags.push(format!("MODE={:?}", effective_mode));
+        if effective_mode == BuildMode::Clippy {
             u_flags.push(format!("CLIPPY_VERSION={}", get_clippy_driver_version()));
         }
     } else {
@@ -258,11 +274,11 @@ pub fn compute_unit_flags_with_ws(
         release,
         ws_for_profile,
     )?;
-    if unit.for_host {
-        u_flags.push("FOR_HOST=1".to_string());
+    u_flags.push(if unit.for_host {
+        "FOR_HOST=1".into()
     } else {
-        u_flags.push("FOR_HOST=0".to_string());
-    }
+        "FOR_HOST=0".into()
+    });
     u_flags.push(format!("DEBUGINFO={}", profile.debuginfo));
     let default_opt = if release && !unit.for_host { "3" } else { "0" };
     if profile.opt_level != default_opt {
@@ -273,13 +289,13 @@ pub fn compute_unit_flags_with_ws(
             && mode != BuildMode::Test
             && !matches!(unit.kind.as_str(), "proc-macro" | "test" | "custom-test")
     }) {
-        u_flags.push(format!("PANIC={}", p));
+        u_flags.push(format!("PANIC={p}"));
     }
     if let Some(cgu) = profile.codegen_units {
-        u_flags.push(format!("CODEGEN_UNITS={}", cgu));
+        u_flags.push(format!("CODEGEN_UNITS={cgu}"));
     }
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| !unit.for_host) {
-        u_flags.push(format!("LTO={}", lto_mode));
+        u_flags.push(format!("LTO={lto_mode}"));
     }
     let is_linked = matches!(
         unit.kind.as_str(),
@@ -290,14 +306,16 @@ pub fn compute_unit_flags_with_ws(
         .as_ref()
         .filter(|s| is_linked && s.as_str() != "none")
     {
-        u_flags.push(format!("STRIP={}", strip_mode));
+        u_flags.push(format!("STRIP={strip_mode}"));
     }
-    u_flags.push(format!("OVERFLOW_CHECKS={}", profile.overflow_checks));
-    u_flags.push(format!("DEBUG_ASSERTIONS={}", profile.debug_assertions));
-    u_flags.push(format!("CARGO_PKG_NAME={}", unit.package_name));
-    u_flags.push(format!("CARGO_PKG_VERSION={}", unit.version));
-    u_flags.push(format!("CARGO_CRATE_NAME={}", unit.target_name));
-    u_flags.push(format!("CRATE_KIND={}", unit.kind));
+    u_flags.extend([
+        format!("OVERFLOW_CHECKS={}", profile.overflow_checks),
+        format!("DEBUG_ASSERTIONS={}", profile.debug_assertions),
+        format!("CARGO_PKG_NAME={}", unit.package_name),
+        format!("CARGO_PKG_VERSION={}", unit.version),
+        format!("CARGO_CRATE_NAME={}", unit.target_name),
+        format!("CRATE_KIND={}", unit.kind),
+    ]);
     if unit.kind == "bin" || unit.kind == "custom-test" {
         u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
     }
@@ -344,12 +362,10 @@ pub fn compute_unit_flags_with_ws(
             format!("ENV_MACRO:CARGO_PKG_VERSION_PATCH={}", patch)
         } else if var == "CARGO_CRATE_NAME" {
             format!("ENV_MACRO:CARGO_CRATE_NAME={}", unit.target_name)
+        } else if var == "CARGO_BIN_NAME" && matches!(unit.kind.as_str(), "bin" | "custom-test") {
+            format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
         } else if var == "CARGO_BIN_NAME" {
-            if unit.kind == "bin" || unit.kind == "custom-test" {
-                format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
-            } else {
-                "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
-            }
+            "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
         } else if var == "CARGO_PKG_AUTHORS" {
             let auth = pkg_package
                 .and_then(|p| p.authors.as_ref())

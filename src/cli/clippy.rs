@@ -67,6 +67,34 @@ pub struct ClippyArgs {
     #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
     pub exclude: Vec<String>,
 
+    /// Lint all packages in the workspace
+    #[arg(long, visible_alias = "all")]
+    pub workspace: bool,
+
+    /// Lint only this package's library
+    #[arg(long)]
+    pub lib: bool,
+
+    /// Lint only the specified binary
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub bin: Vec<String>,
+
+    /// Lint all binaries
+    #[arg(long)]
+    pub bins: bool,
+
+    /// Lint only the specified test target
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub test: Vec<String>,
+
+    /// Lint all tests
+    #[arg(long)]
+    pub tests: bool,
+
+    /// Lint all targets
+    #[arg(long)]
+    pub all_targets: bool,
+
     /// Additional arguments passed to clippy-driver (e.g. -D warnings)
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -78,6 +106,15 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         return 1;
     }
 
+    let mut extra_args = args.extra_args.clone();
+    if args.workspace
+        && !extra_args
+            .iter()
+            .any(|a| a == "--workspace" || a == "--all")
+    {
+        extra_args.push("--workspace".to_string());
+    }
+
     let mut opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
         package: args.package.clone(),
@@ -86,7 +123,7 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         features: args.features.clone(),
         no_default_features: args.no_default_features,
         all_features: args.all_features,
-        extra_args: args.extra_args.clone(),
+        extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
         native: true,
@@ -96,6 +133,11 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         progress: None,
         start_dir: None,
         exclude: args.exclude.clone(),
+        lib_only: args.lib || args.all_targets,
+        bin_targets: args.bin.clone(),
+        all_bins: args.bins || args.all_targets,
+        test_targets: args.test.clone(),
+        all_tests: args.tests || args.all_targets,
         ..Default::default()
     };
 
