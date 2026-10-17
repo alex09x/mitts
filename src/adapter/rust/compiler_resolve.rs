@@ -96,6 +96,7 @@ pub fn resolve_cargo() -> PathBuf {
 
 /// Probes `<rustc_path> -vV` once and caches the parsed `ToolchainInfo`, host triple,
 /// and verbose version string in memory keyed by `(rustc_path, RUSTUP_TOOLCHAIN, mtime)`.
+/// Fails closed if the process exits non-zero or does not emit valid `release:` and `host:` lines.
 pub fn toolchain_for(rustc_path: &Path) -> Result<ProbedRustc> {
     let mtime = fs::metadata(rustc_path).and_then(|m| m.modified()).ok();
     let key: ProbedRustcCacheKey = (
@@ -121,31 +122,52 @@ pub fn toolchain_for(rustc_path: &Path) -> Result<ProbedRustc> {
     record_rustc_subproc(t0.elapsed());
     RUSTC_VV_CALLS.fetch_add(1, Ordering::Relaxed);
 
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "rustc -vV failed for {:?} (exit code {:?}): {}",
+            rustc_path,
+            output.status.code(),
+            stderr.trim()
+        );
+    }
+
     let text = String::from_utf8_lossy(&output.stdout);
     let mut version_str = String::new();
     let mut target_triple = None;
+    let mut has_release = false;
 
     for line in text.lines() {
-        if version_str.is_empty() {
-            version_str = line.trim().to_string();
+        let trimmed = line.trim();
+        if version_str.is_empty() && !trimmed.is_empty() {
+            version_str = trimmed.to_string();
         }
-        if let Some(rest) = line.strip_prefix("host: ") {
-            target_triple = Some(rest.trim().to_string());
+        if let Some(rel) = trimmed.strip_prefix("release: ") {
+            if !rel.trim().is_empty() {
+                has_release = true;
+            }
+        }
+        if let Some(rest) = trimmed.strip_prefix("host: ") {
+            let h = rest.trim();
+            if !h.is_empty() {
+                target_triple = Some(h.to_string());
+            }
         }
     }
 
-    if version_str.is_empty() {
-        version_str = "rustc".to_string();
-    }
-
-    let host_triple = target_triple
-        .clone()
-        .unwrap_or_else(|| "unknown".to_string());
-    let verbose_version = if output.status.success() && !text.trim().is_empty() {
-        text.trim().to_string()
-    } else {
-        "unknown_rustc".to_string()
+    let host_triple = match target_triple.clone() {
+        Some(h) if !version_str.is_empty() && has_release => h,
+        _ => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "rustc -vV output for {:?} is missing required 'release:' or 'host:' fields (stdout: {:?}, stderr: {:?})",
+                rustc_path,
+                text.trim(),
+                stderr.trim()
+            );
+        }
     };
+    let verbose_version = text.trim().to_string();
 
     let probed = ProbedRustc {
         rustc_path: rustc_path.to_path_buf(),
@@ -172,12 +194,16 @@ pub fn active_toolchain() -> Result<ProbedRustc> {
     toolchain_for(&rustc)
 }
 
+/// Resolves the host target triple from the shared `active_toolchain()` `-vV` probe,
+/// failing closed on compiler probe errors.
+pub fn try_resolve_host_triple() -> Result<String> {
+    Ok(active_toolchain()?.host_triple)
+}
+
 /// Resolves the host target triple from the shared `active_toolchain()` `-vV` probe.
 pub fn resolve_host_triple() -> &'static str {
     RESOLVED_HOST_TRIPLE.get_or_init(|| {
-        active_toolchain()
-            .map(|p| p.host_triple)
-            .unwrap_or_else(|_| "unknown".to_string())
+        try_resolve_host_triple().expect("Failed to resolve host triple via rustc -vV")
     })
 }
 

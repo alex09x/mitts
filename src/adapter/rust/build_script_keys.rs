@@ -15,16 +15,9 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
-static RUSTC_VERBOSE_VERSION: OnceLock<String> = OnceLock::new();
-
-pub fn get_rustc_verbose_version() -> &'static str {
-    RUSTC_VERBOSE_VERSION.get_or_init(|| {
-        crate::adapter::rust::compiler_resolve::active_toolchain()
-            .map(|p| p.verbose_version)
-            .unwrap_or_else(|_| "unknown_rustc".to_string())
-    })
+pub fn get_rustc_verbose_version() -> Result<String> {
+    Ok(crate::adapter::rust::compiler_resolve::active_toolchain()?.verbose_version)
 }
 
 pub fn compute_build_script_key(
@@ -54,7 +47,8 @@ pub fn compute_build_script_key(
     hasher.update(if release { b":release:" } else { b":dev:" });
     hasher.update(target.as_bytes());
     hasher.update(b":rustc:");
-    hasher.update(get_rustc_verbose_version().as_bytes());
+    let verbose_rustc = get_rustc_verbose_version()?;
+    hasher.update(verbose_rustc.as_bytes());
 
     for (crate_name, artifact_path) in extern_crates {
         hasher.update(b":build_dep:");

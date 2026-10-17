@@ -103,8 +103,8 @@ pub fn load_cargo_config_rustflags(
     start_dir: &Path,
     target_triple: Option<&str>,
 ) -> Result<Vec<String>> {
-    let host_triple = super::compiler_resolve::resolve_host_triple();
-    let effective_target = target_triple.unwrap_or(host_triple);
+    let host_triple = super::compiler_resolve::try_resolve_host_triple()?;
+    let effective_target = target_triple.unwrap_or(host_triple.as_str());
 
     // 1. Discover and parse cargo config files
     let files = discover_cargo_config_files(start_dir);
@@ -163,7 +163,7 @@ fn extract_rustflags_from_toml(
     config_path: &Path,
 ) -> Result<ExtractedRustflags> {
     let mut extracted = ExtractedRustflags::default();
-    let host_triple = super::compiler_resolve::resolve_host_triple();
+    let host_triple = super::compiler_resolve::try_resolve_host_triple()?;
     let target_opt = if effective_target == host_triple {
         None
     } else {

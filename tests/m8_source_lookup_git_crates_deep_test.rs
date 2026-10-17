@@ -30,67 +30,45 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     let commit_dir = repo_dir.join("a1b2c3d4e5f6");
     fs::create_dir_all(&commit_dir).unwrap();
 
-    // 1. Ignored subdirectories: .hidden and target
     fs::create_dir_all(commit_dir.join(".git")).unwrap();
     fs::create_dir_all(commit_dir.join("target")).unwrap();
 
-    // 2. Direct subdirectory package: sub_pkg
     let sub_pkg = commit_dir.join("sub_pkg");
     fs::create_dir_all(&sub_pkg).unwrap();
-    fs::write(
-        sub_pkg.join("Cargo.toml"),
-        "[package]\nname = \"sub_pkg\"\nversion = \"0.1.0\"\n",
-    )
-    .unwrap();
+    let sub_toml = "[package]\nname = \"sub_pkg\"\nversion = \"0.1.0\"\n";
+    fs::write(sub_pkg.join("Cargo.toml"), sub_toml).unwrap();
 
-    // 3. Nested inside crates/ directory: nested_pkg
     let crates_dir = commit_dir.join("crates").join("nested_pkg");
     fs::create_dir_all(&crates_dir).unwrap();
-    fs::write(
-        crates_dir.join("Cargo.toml"),
-        "[package]\nname = \"nested_pkg\"\nversion = \"0.2.0\"\n",
-    )
-    .unwrap();
+    let nested_toml = "[package]\nname = \"nested_pkg\"\nversion = \"0.2.0\"\n";
+    fs::write(crates_dir.join("Cargo.toml"), nested_toml).unwrap();
 
-    // Find direct sub_pkg
     let source_url = "git+https://github.com/foo/bar?branch=main#a1b2c3d4";
-    let found_sub = find_crate_source_dir("sub_pkg", "0.1.0", Some(source_url));
-    assert_eq!(found_sub, Some(sub_pkg));
+    assert_eq!(
+        find_crate_source_dir("sub_pkg", "0.1.0", Some(source_url)),
+        Some(sub_pkg)
+    );
+    assert_eq!(
+        find_crate_source_dir("nested_pkg", "0.2.0", Some(source_url)),
+        Some(crates_dir)
+    );
 
-    // Find nested_pkg under crates/
-    let found_nested = find_crate_source_dir("nested_pkg", "0.2.0", Some(source_url));
-    assert_eq!(found_nested, Some(crates_dir));
-
-    // 4. Root commit package
-    let root_repo = checkouts.join("root-repo-5678");
-    let root_commit = root_repo.join("c0ffee012345");
+    let root_commit = checkouts.join("root-repo-5678/c0ffee012345");
     fs::create_dir_all(&root_commit).unwrap();
-    fs::write(
-        root_commit.join("Cargo.toml"),
-        "[package]\nname = \"root_pkg\"\nversion = \"1.0.0\"\n",
-    )
-    .unwrap();
+    let root_toml = "[package]\nname = \"root_pkg\"\nversion = \"1.0.0\"\n";
+    fs::write(root_commit.join("Cargo.toml"), root_toml).unwrap();
 
     let root_source = "git+https://github.com/foo/root#c0ffee";
-    let found_root = find_crate_source_dir("root_pkg", "1.0.0", Some(root_source));
-    assert_eq!(found_root, Some(root_commit.clone()));
+    assert_eq!(
+        find_crate_source_dir("root_pkg", "1.0.0", Some(root_source)),
+        Some(root_commit)
+    );
+    assert_eq!(find_crate_source_dir("root_pkg", "1.0.0", None), None);
+    let bad_hash = "git+https://github.com/foo/bar?branch=main#ffffffff";
+    assert!(find_crate_source_dir("sub_pkg", "0.1.0", Some(bad_hash)).is_none());
 
-    // Non-git source must NOT fall back to git checkouts
-    let found_fallback = find_crate_source_dir("root_pkg", "1.0.0", None);
-    assert_eq!(found_fallback, None);
-
-    // Not found when commit hash mismatch
-    let bad_hash_source = "git+https://github.com/foo/bar?branch=main#ffffffff";
-    let found_bad = find_crate_source_dir("sub_pkg", "0.1.0", Some(bad_hash_source));
-    assert!(found_bad.is_none());
-
-    // 5. Cargo registry source lookup (requires .cargo-ok)
-    let reg_dir = home
-        .join(".cargo")
-        .join("registry")
-        .join("src")
-        .join("index.crates.io-6f17d22bba15001f")
-        .join("serde_json-1.0.100");
+    let reg_dir =
+        home.join(".cargo/registry/src/index.crates.io-6f17d22bba15001f/serde_json-1.0.100");
     fs::create_dir_all(&reg_dir).unwrap();
     fs::write(
         reg_dir.join("Cargo.toml"),
@@ -98,20 +76,14 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     )
     .unwrap();
     fs::write(reg_dir.join(".cargo-ok"), "").unwrap();
-
-    let found_reg = find_crate_source_dir(
-        "serde_json",
-        "1.0.100",
-        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    let crates_io = Some("registry+https://github.com/rust-lang/crates.io-index");
+    assert_eq!(
+        find_crate_source_dir("serde_json", "1.0.100", crates_io),
+        Some(reg_dir)
     );
-    assert_eq!(found_reg, Some(reg_dir));
 
     // 6. Mitts cache source lookup (requires .mitts-ok)
-    let mitts_dir = home
-        .join(".cache")
-        .join("mitts")
-        .join("sources")
-        .join("tokio-1.30.0");
+    let mitts_dir = home.join(".cache/mitts/sources/tokio-1.30.0");
     fs::create_dir_all(&mitts_dir).unwrap();
     fs::write(
         mitts_dir.join("Cargo.toml"),
@@ -119,28 +91,22 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     )
     .unwrap();
     fs::write(mitts_dir.join(".mitts-ok"), "ok\n").unwrap();
-
-    let found_mitts = find_crate_source_dir(
-        "tokio",
-        "1.30.0",
-        Some("registry+https://github.com/rust-lang/crates.io-index"),
+    assert_eq!(
+        find_crate_source_dir("tokio", "1.30.0", crates_io),
+        Some(mitts_dir)
     );
-    assert_eq!(found_mitts, Some(mitts_dir));
 
     // 7. Missing checkouts directory
     let empty_home = temp.path().join("empty_home");
     fs::create_dir_all(&empty_home).unwrap();
     std::env::set_var("HOME", &empty_home);
-
-    let res = find_crate_source_dir(
+    assert!(find_crate_source_dir(
         "any_crate",
         "1.0.0",
-        Some("git+https://github.com/test/repo"),
-    );
-    assert!(res.is_none());
-
-    let res_none = find_crate_source_dir("any_crate", "1.0.0", None);
-    assert!(res_none.is_none());
+        Some("git+https://github.com/test/repo")
+    )
+    .is_none());
+    assert!(find_crate_source_dir("any_crate", "1.0.0", None).is_none());
 
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);
@@ -160,16 +126,14 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", home);
 
-    let checkouts = home.join(".cargo").join("git").join("checkouts");
+    let checkouts = home.join(".cargo/git/checkouts");
     fs::create_dir_all(&checkouts).unwrap();
-    // Non-directory files in git/checkouts (e.g. .DS_Store) must not abort iteration
     fs::write(checkouts.join(".DS_Store"), b"junk").unwrap();
     fs::write(checkouts.join("0000_non_dir_entry"), b"junk").unwrap();
 
-    let commit_dir = checkouts.join("zzzz-repo-9999").join("a1b2c3d4e5f6");
+    let commit_dir = checkouts.join("zzzz-repo-9999/a1b2c3d4e5f6");
     fs::create_dir_all(&commit_dir).unwrap();
 
-    // Sibling crate with [[bin]] name = "target_pkg" (must NOT match package name "target_pkg")
     let decoy_bin = commit_dir.join("decoy_bin");
     fs::create_dir_all(&decoy_bin).unwrap();
     fs::write(
@@ -178,7 +142,6 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
     )
     .unwrap();
 
-    // Real package with version 0.2.0 and Cargo 1.75+ versionless package (0.0.0)
     let real_pkg = commit_dir.join("real_pkg");
     let no_ver_pkg = commit_dir.join("no_ver_pkg");
     fs::create_dir_all(&real_pkg).unwrap();
@@ -221,6 +184,7 @@ fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
     use mitts::adapter::rust::build_script_keys::get_rustc_verbose_version;
     use mitts::adapter::rust::compiler_resolve::{
         active_toolchain, resolve_host_triple, resolve_rustc, rustc_vv_call_count, toolchain_for,
+        try_resolve_host_triple,
     };
     use mitts::adapter::rust::types::RustBuildOptions;
     use mitts::adapter::RustAdapter;
@@ -243,7 +207,7 @@ fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
     let detected = RustAdapter::detect_toolchain().unwrap();
     assert_eq!(detected, probed.toolchain);
     assert_eq!(resolve_host_triple(), probed.host_triple);
-    assert_eq!(get_rustc_verbose_version(), probed.verbose_version);
+    assert_eq!(get_rustc_verbose_version().unwrap(), probed.verbose_version);
     assert_eq!(rustc_vv_call_count(), vv_before);
 
     // 2. --manifest-path sub/Cargo.toml with sub/rust-toolchain.toml uses resolve_rustc() from cwd
@@ -275,12 +239,12 @@ fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
     )
     .unwrap();
 
-    let plan = RustAdapter::explain_plan(&RustBuildOptions {
+    let opt = RustBuildOptions {
         manifest_path: Some(sub.join("Cargo.toml")),
         cache_dir: Some(temp.path().join("mitts_cache")),
         ..Default::default()
-    })
-    .unwrap();
+    };
+    let plan = RustAdapter::explain_plan(&opt).unwrap();
     assert_eq!(plan.toolchain, detected);
     let dep_units: Vec<_> = plan
         .units
@@ -328,6 +292,31 @@ fn test_t0_b5_single_rustc_source_of_truth_and_0_0_0_path_version() {
         check("rustc 1.99.0-other"),
         FreshnessResult::Stale(_)
     ));
+
+    // 3. B6 fail-closed: when RUSTC exits with code 1, detect_toolchain() and key derivation return Err.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let bad_rustc = temp.path().join("bad_rustc.sh");
+        fs::write(
+            &bad_rustc,
+            "#!/bin/sh\necho 'missing toolchain' >&2\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bad_rustc, fs::Permissions::from_mode(0o755)).unwrap();
+        let old_rustc = std::env::var_os("RUSTC");
+        std::env::set_var("RUSTC", &bad_rustc);
+        let tc_err = RustAdapter::detect_toolchain().expect_err("broken RUSTC must fail closed");
+        assert!(format!("{:#}", tc_err).contains("missing toolchain"));
+        assert!(try_resolve_host_triple().is_err());
+        assert!(get_rustc_verbose_version().is_err());
+        assert!(RustAdapter::explain_plan(&opt).is_err());
+        assert!(RustAdapter::derive_unit_action_keys(&opt, &plan).is_err());
+        match old_rustc {
+            Some(v) => std::env::set_var("RUSTC", v),
+            None => std::env::remove_var("RUSTC"),
+        }
+    }
 }
 
 #[test]

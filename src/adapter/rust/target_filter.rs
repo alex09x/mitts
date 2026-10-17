@@ -30,10 +30,12 @@ pub fn is_target_cfg_incompatible_with_target(
         .trim();
 
     if !clean.starts_with("cfg(") {
+        let host_triple = super::compiler_resolve::try_resolve_host_triple()
+            .map_err(|e| RustAdapterError::MetadataFailed(e.to_string()))?;
         let active_triple = if for_host {
-            super::compiler_resolve::resolve_host_triple()
+            host_triple.as_str()
         } else {
-            explicit_target.unwrap_or_else(|| super::compiler_resolve::resolve_host_triple())
+            explicit_target.unwrap_or(host_triple.as_str())
         };
         return Ok(clean != active_triple);
     }
