@@ -101,7 +101,7 @@ def parse_build_output(output: str, tool: str):
 
 def parse_mitts_stats(text: str):
     m = re.search(
-        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+total=(\d+)(?:\s+fast_lock=(\d+))?",
+        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+(?:tainted=\d+\s+)?total=(\d+)(?:\s+fast_lock=(\d+))?",
         text,
     )
     if not m:

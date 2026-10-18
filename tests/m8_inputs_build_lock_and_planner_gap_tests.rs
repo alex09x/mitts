@@ -76,6 +76,7 @@ fn test_m8_inputs_cargo_home_and_ancestors() {
         "[package]\nname = \"remote-crate\"\nversion = \"1.0.0\"\n",
     )
     .unwrap();
+    fs::write(sources_crate.join(".mitts-ok"), "").unwrap();
 
     let old_mc = std::env::var("MITTS_CACHE_DIR").ok();
     std::env::set_var("MITTS_CACHE_DIR", &mitts_cache);

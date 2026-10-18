@@ -683,7 +683,7 @@ def run_l5a_project(project_name, mode="check", runs_count=5):
         wt_unit_stats = []
         for m in last_mitts_res["results"]:
             m_text = m["stderr"] + "\n" + m["stdout"]
-            stats_m = re.search(r"\[mitts::stats\] compiled=(\d+) cached=(\d+) total=(\d+)", m_text)
+            stats_m = re.search(r"\[mitts::stats\] compiled=(\d+) cached=(\d+) (?:tainted=\d+ )?total=(\d+)", m_text)
             if stats_m:
                 wt_unit_stats.append({
                     "wt_index": m["wt_index"],

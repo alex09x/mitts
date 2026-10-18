@@ -219,8 +219,8 @@ fn test_m8_inputs_immutable_registry_without_cargo_toml() {
     fs::create_dir_all(&pkg_dir).unwrap();
     fs::write(pkg_dir.join(".cargo-ok"), "").unwrap();
 
+    // Outside $CARGO_HOME/registry/src the marker is ignored, so the missing
+    // Cargo.toml is an error rather than an immutable fast path.
     let res = hash_package_base_inputs(&pkg_dir, None, false);
-    assert!(res.is_ok());
-    let inputs = res.unwrap();
-    assert!(inputs.iter().any(|(k, _)| k == "immutable_pkg"));
+    assert!(res.is_err());
 }

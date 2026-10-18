@@ -91,7 +91,7 @@ fn assert_stats(
     expected_fast_lock: usize,
 ) {
     let expected = format!(
-        "[mitts::stats] compiled={} cached={} total=1 fast_lock={}",
+        "[mitts::stats] compiled={} cached={} tainted=0 total=1 fast_lock={}",
         expected_compiled, expected_cached, expected_fast_lock
     );
     assert!(

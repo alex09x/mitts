@@ -26,17 +26,17 @@ fn test_m8_inputs_immutable_registry_and_missing_cargo_toml() {
     let err = hash_package_base_inputs(&pkg_dir, None, false);
     assert!(err.is_err(), "Expected missing Cargo.toml error");
 
-    // 2. Immutable fast-path with .cargo-ok
+    // 2. A .cargo-ok marker outside $CARGO_HOME/registry/src does not make a
+    //    directory immutable: its sources are hashed like any mutable package.
     fs::write(pkg_dir.join(".cargo-ok"), "ok").unwrap();
     fs::write(
         pkg_dir.join("Cargo.toml"),
         "[package]\nname=\"my-crate\"\nversion=\"1.0.0\"\n",
     )
     .unwrap();
-    let inputs = hash_package_base_inputs(&pkg_dir, None, false).expect("hash immutable pkg");
-    assert_eq!(inputs.len(), 2);
-    assert_eq!(inputs[0].0, "Cargo.toml");
-    assert_eq!(inputs[1].0, "immutable_pkg");
+    let inputs = hash_package_base_inputs(&pkg_dir, None, false).expect("hash mutable pkg");
+    assert!(inputs.iter().any(|(k, _)| k == "Cargo.toml"));
+    assert!(!inputs.iter().any(|(k, _)| k == "immutable_pkg"));
 }
 
 #[test]

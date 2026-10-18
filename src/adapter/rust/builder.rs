@@ -146,7 +146,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                 );
                 let _ = logger.write_trace(profile, 0, "Fast lock hit (0ms no-op)");
                 eprintln!(
-                    "[mitts::stats] compiled=0 cached=0 total={} fast_lock=1",
+                    "[mitts::stats] compiled=0 cached=0 tainted=0 total={} fast_lock=1",
                     action_count
                 );
                 if std::env::var("MITTS_STATS").as_deref() == Ok("json") {

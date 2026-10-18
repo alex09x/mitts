@@ -142,6 +142,7 @@ fn test_m8_inputs_home_configs_tmp_files_and_mitts_sources() {
         "[package]\nname = \"remote_dep\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
+    fs::write(source_pkg.join(".mitts-ok"), "").unwrap();
 
     std::env::set_var("MITTS_CACHE_DIR", &mitts_cache);
     let fast_inputs = hash_package_base_inputs(&source_pkg, None, false).unwrap();

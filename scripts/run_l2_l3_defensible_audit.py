@@ -215,7 +215,7 @@ def parse_mitts_stats(text: str) -> dict:
         "fast_lock_verdict": None,
     }
     m = re.search(
-        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+total=(\d+)(?:\s+fast_lock=(\d+))?",
+        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+(?:tainted=\d+\s+)?total=(\d+)(?:\s+fast_lock=(\d+))?",
         text,
     )
     if m:

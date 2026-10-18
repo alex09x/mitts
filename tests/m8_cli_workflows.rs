@@ -128,6 +128,14 @@ fn test_m8_cli_handle_explain_and_fetch() {
 fn test_m8_cli_handle_gc_and_clean() {
     let manifest = fixture_manifest();
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    // Own target dir: cleaning the shared fixture target would delete binaries
+    // that the other tests in this file are executing in parallel.
+    let temp_target = tempfile::tempdir().expect("target tempdir");
+    std::fs::write(
+        temp_target.path().join(".mitts-target"),
+        "mitts-target-v1\n",
+    )
+    .unwrap();
 
     let gc_args = GcArgs {
         cache_dir: Some(temp_cache.path().to_path_buf()),
@@ -139,20 +147,20 @@ fn test_m8_cli_handle_gc_and_clean() {
 
     let clean_args = CleanArgs {
         manifest_path: Some(manifest.clone()),
+        target_dir: Some(temp_target.path().to_path_buf()),
         release: false,
         cache: false,
         cache_dir: None,
-        ..Default::default()
     };
     let clean_code = handle_clean(&clean_args);
     assert_eq!(clean_code, 0, "handle_clean dev should exit with 0");
 
     let clean_rel_args = CleanArgs {
         manifest_path: Some(manifest.clone()),
+        target_dir: Some(temp_target.path().to_path_buf()),
         release: true,
         cache: true,
         cache_dir: Some(temp_cache.path().to_path_buf()),
-        ..Default::default()
     };
     let clean_rel_code = handle_clean(&clean_rel_args);
     assert_eq!(clean_rel_code, 0, "handle_clean release should exit with 0");
