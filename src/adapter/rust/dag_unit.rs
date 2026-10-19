@@ -126,7 +126,10 @@ pub(crate) fn execute_unit(
     }
 
     // 3. Single-flight lock to eliminate duplicate work across processes
-    let lock_path = ctx.ac.lock_path(&effective_action_key);
+    let lock_path = ctx.ac.lock_path(&super::single_flight::single_flight_key(
+        unit,
+        &effective_action_key,
+    ));
     let _lock = match lock_mode {
         LockMode::TryLock => match FileLock::try_acquire_exclusive(&lock_path)? {
             Some(l) => l,

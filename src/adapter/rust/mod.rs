@@ -52,6 +52,7 @@ pub mod planner_deps;
 pub mod planner_units;
 pub mod profile;
 pub mod resolver;
+pub mod single_flight;
 pub mod source_lookup;
 pub mod sparse_index;
 pub mod target_filter;
