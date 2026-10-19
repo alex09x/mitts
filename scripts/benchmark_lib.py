@@ -257,14 +257,14 @@ def run_timed(cmd: list[str], cwd: Path, env: dict[str, str]) -> dict:
         out = tf.read()
     rss_div = (1024.0 * 1024.0) if sys.platform == "darwin" else 1024.0
     lines = out.strip().splitlines() if out else []
+    tail_str = ""
+    if code != 0 and lines:
+        tail40 = lines[-40:]
+        first_err = next((ln for ln in lines if "error" in ln.lower()), None)
+        tail_str = (f"[first_error] {first_err}\n" if (first_err and first_err not in tail40) else "") + "\n".join(tail40)
     return {
-        "wall_s": round(wall_s, 4),
-        "user_s": round(ru.ru_utime, 3),
-        "sys_s": round(ru.ru_stime, 3),
-        "max_rss_mb": round(ru.ru_maxrss / rss_div, 1),
-        "exit_code": code,
-        "output": out,
-        "stderr_tail": "\n".join(lines[-30:]) if code != 0 else "",
+        "wall_s": round(wall_s, 4), "user_s": round(ru.ru_utime, 3), "sys_s": round(ru.ru_stime, 3),
+        "max_rss_mb": round(ru.ru_maxrss / rss_div, 1), "exit_code": code, "output": out, "stderr_tail": tail_str,
     }
 
 
@@ -327,15 +327,15 @@ def evaluate_t5_invariants(
                 counts_match = False
     defect_caught = all(r["smoke_wt12_defect_caught"] for t in SOUND_TOOLS for r in arm_series[t])
     clean_ok = all(r["smoke_wt01_clean_ok"] for t in SOUND_TOOLS for r in arm_series[t])
-    c_wt1 = [r["wt01_wall_s"] for r in arm_series["cargo_bare"]]
+    c_wt1 = [r["wt01_wall_s"] for r in arm_series["cargo_bare"] if r["build_failures"] == 0]
     c_spread = spread_pct(c_wt1)
-    total_spread_by_arm: dict[str, float] = {}
-    total_iqr_by_arm: dict[str, float] = {}
+    total_spread_by_arm: dict[str, float | None] = {}
+    total_iqr_by_arm: dict[str, float | None] = {}
     for t in TOOLS:
         tw = [r["total_wall_s"] for r in arm_series[t] if r["build_failures"] == 0]
         total_spread_by_arm[t] = spread_pct(tw)
         st = compute_stats(tw)
-        total_iqr_by_arm[t] = round((st["iqr"] / st["median"]) * 100.0, 2) if st["median"] else 0.0
+        total_iqr_by_arm[t] = round((st["iqr"] / st["median"]) * 100.0, 2) if (st["iqr"] is not None and st["median"]) else None
     base_bins = arm_series["cargo_bare"][0]["wt_binary_counts"][0] if runs_n and arm_series["cargo_bare"][0]["wt_binary_counts"] else 0
     sh_runs = arm_series["cargo_shared"]
     return {
@@ -343,12 +343,17 @@ def evaluate_t5_invariants(
         "test_binaries_count_matches_all_sound_arms": counts_match,
         "defect_wt12_caught_all_sound_arms": defect_caught,
         "clean_wt01_smoke_ok_all_sound_arms": clean_ok,
+        "all_t5_sound_and_parity_ok": bool(builds_ok and counts_match and defect_caught and clean_ok),
         "total_wall_spread_pct_by_arm": total_spread_by_arm,
         "total_wall_iqr_pct_by_arm": total_iqr_by_arm,
-        "sound_arms_total_wall_variance_le_15_pct": all(total_spread_by_arm[t] <= 15.0 for t in SOUND_TOOLS),
-        "all_arms_total_wall_variance_le_15_pct": all(v <= 15.0 for v in total_spread_by_arm.values()),
+        "sound_arms_total_wall_variance_le_15_pct": all(
+            total_spread_by_arm[t] is not None and total_spread_by_arm[t] <= 15.0 for t in SOUND_TOOLS
+        ),
+        "all_arms_total_wall_variance_le_15_pct": all(
+            v is not None and v <= 15.0 for v in total_spread_by_arm.values()
+        ),
         "cargo_bare_wt1_variance_pct": c_spread,
-        "cargo_bare_wt1_variance_le_15_pct": c_spread <= 15.0,
+        "cargo_bare_wt1_variance_le_15_pct": c_spread is not None and c_spread <= 15.0,
         "variance_gate_note": (
             "NOISY gate checks (max-min)/median <= 15% on total_wall_s across all sound arms (mitts_cas, cargo_bare, cargo_sccache); "
             "all_arms_total_wall_variance_le_15_pct (including unsound cargo_shared) and cargo_bare_wt1_variance_pct are retained "

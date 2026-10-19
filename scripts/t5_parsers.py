@@ -234,15 +234,16 @@ def compute_stats(vals: list[float]) -> dict:
         "median": round(median, 3),
         "q1": round(q1, 3),
         "q3": round(q3, 3),
-        "iqr": round(q3 - q1, 3),
+        "iqr": round(q3 - q1, 3) if n >= 2 else None,
         "min": round(s[0], 3),
         "max": round(s[-1], 3),
         "n": n,
     }
 
 
-def spread_pct(vals: list[float]) -> float:
-    if not vals or min(vals) <= 0:
-        return 0.0
+def spread_pct(vals: list[float]) -> float | None:
+    if len(vals) < 2 or min(vals) <= 0:
+        return None
     med = compute_stats(vals)["median"]
-    return round(((max(vals) - min(vals)) / med) * 100.0, 2) if med else 0.0
+    return round(((max(vals) - min(vals)) / med) * 100.0, 2) if med else None
+

@@ -18,10 +18,19 @@ import hashlib
 import os
 import platform
 import re
+import resource
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+try:
+    _nofile_soft, _nofile_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if _nofile_soft < 65536:
+        _target_soft = 65536 if _nofile_hard < 0 or _nofile_hard > 65536 else _nofile_hard
+        resource.setrlimit(resource.RLIMIT_NOFILE, (_target_soft, _nofile_hard))
+except Exception:
+    pass
 
 CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
@@ -121,6 +130,10 @@ def get_rig_info() -> dict:
         clippy_v = subprocess.check_output(["cargo", "clippy", "-V"], text=True).strip()
     except Exception:
         pass
+    try:
+        nofile_soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+    except Exception:
+        nofile_soft = None
 
     return {
         "cpu": cpu_model,
@@ -128,6 +141,7 @@ def get_rig_info() -> dict:
         "ram_gb": ram_gb,
         "os": os_name,
         "kernel": os.uname().release,
+        "rlimit_nofile_soft": nofile_soft,
         "default_rustc_version": rustc_v,
         "default_clippy_version": clippy_v,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

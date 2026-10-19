@@ -258,9 +258,11 @@ def benchmark_single_project(
                         return res
 
                     expected_min_exec = max(1, wt_bins[0] - unharnessed_cnt) if wt_bins[0] > 0 else 1
+                    failed_tails = {f"wt-{idx:02d}": r["stderr_tail"] for (idx, _, _), r in zip(wts, wt_runs) if r["exit_code"] != 0}
                     arm_series[arm].append({
                         "iteration": run_idx, "total_wall_s": wall_sw, "wt01_wall_s": wt_runs[0]["wall_s"],
                         "build_failures": sum(1 for r in wt_runs if r["exit_code"] != 0), "wt_binary_counts": wt_bins,
+                        "failed_wt_stderr_tail": failed_tails,
                         "injected_defect_file": injected_rel, "disk_mb": d_mb, "df_used_delta_mb": df_delta,
                         "device_mb_written": dev_mb, "sccache_stats": scc_st, "pressure": p_info,
                         "loadavg_before": load_before, "loadavg_after": load_after, "preflight_waited_s": waited_s,
@@ -284,15 +286,15 @@ def benchmark_single_project(
                     test_trees.add("\n".join(rs_lines))
                     lib_trees.add("\n".join(ln for ln in rs_lines if not ln.split("\t")[-1].startswith("tests/")))
             inv = evaluate_t5_invariants(arm_series, fast_lock_noop, unsound_testable=len(test_trees) > 1, swarm_lib_sources_distinct=len(lib_trees) > 1)
-            if not inv["sound_arms_total_wall_variance_le_15_pct"] and res["status"] == "OK":
+            if not inv["all_t5_sound_and_parity_ok"] and res["status"] in ("OK", "NOISY"):
+                res["status"] = "INVALID_T5"
+            elif not inv["sound_arms_total_wall_variance_le_15_pct"] and res["status"] == "OK":
                 res["status"] = "NOISY"
-            m_med = t5_summary["mitts_cas"]["wall_stats_s"]["median"]
-            b_med = t5_summary["cargo_bare"]["wall_stats_s"]["median"]
-            s_med = t5_summary["cargo_sccache"]["wall_stats_s"]["median"]
-            sh_med = t5_summary["cargo_shared"]["wall_stats_s"]["median"]
+            m_med, b_med = t5_summary["mitts_cas"]["wall_stats_s"]["median"], t5_summary["cargo_bare"]["wall_stats_s"]["median"]
+            s_med, sh_med = t5_summary["cargo_sccache"]["wall_stats_s"]["median"], t5_summary["cargo_shared"]["wall_stats_s"]["median"]
             res["stages"]["t5_worktree_swarm"] = {
-                "worktrees": len(swarm_commits), "commits_distinct": len(set(swarm_commits)), "repeats": repeats, "arms": t5_summary,
-                "invariants": inv,
+                "worktrees": len(swarm_commits), "commits_distinct": len(set(swarm_commits)), "repeats": repeats,
+                "arms": t5_summary, "invariants": inv,
                 "speedup_vs_cargo_bare": round(b_med / m_med, 2) if (m_med and b_med) else None,
                 "speedup_vs_cargo_sccache": round(s_med / m_med, 2) if (m_med and s_med) else None,
                 "speedup_vs_cargo_shared": round(sh_med / m_med, 2) if (m_med and sh_med) else None,
