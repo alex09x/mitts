@@ -260,7 +260,8 @@ def run_timed(cmd: list[str], cwd: Path, env: dict[str, str]) -> dict:
     tail_str = ""
     if code != 0 and lines:
         tail40 = lines[-40:]
-        first_err = next((ln for ln in lines if "error" in ln.lower()), None)
+        err_re = re.compile(r"(^\s*error(\[E\d+\])?:|sccache:\s*error|caused by:|os error \d+|too many open files)", re.I)
+        first_err = next((ln for ln in lines if err_re.search(ln)), None)
         tail_str = (f"[first_error] {first_err}\n" if (first_err and first_err not in tail40) else "") + "\n".join(tail40)
     return {
         "wall_s": round(wall_s, 4), "user_s": round(ru.ru_utime, 3), "sys_s": round(ru.ru_stime, 3),

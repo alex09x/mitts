@@ -66,10 +66,8 @@ def benchmark_single_project(
     extra_args = ["--exclude", "tests-build"] if proj_name == "tokio" else []
 
     res: dict = {
-        "project": proj_name,
-        "status": "OK",
-        "same_device": os.stat(proj_work).st_dev == os.stat(proj_cache).st_dev,
-        "stages": {},
+        "project": proj_name, "status": "OK", "status_flags": [],
+        "same_device": os.stat(proj_work).st_dev == os.stat(proj_cache).st_dev, "stages": {},
     }
     t_start = time.perf_counter()
 
@@ -82,15 +80,11 @@ def benchmark_single_project(
             copy_repo_tree(Path(repo_spec).resolve(), src_dir)
 
         commits_desc = ensure_commit_history(src_dir, max(20, num_commits + 5))
-        head_commit = commits_desc[0]
+        head_commit, branch_hop_commit = commits_desc[0], commits_desc[min(14, len(commits_desc) - 1)]
         replay_commits = list(reversed(commits_desc[: min(num_commits, len(commits_desc))]))
-        branch_hop_commit = commits_desc[min(14, len(commits_desc) - 1)]
         pick = lambda idx: commits_desc[idx] if len(commits_desc) > idx else commits_desc[-1]
-        if num_worktrees == 12:
-            swarm_commits = [pick(0)] * 4 + [pick(1)] * 3 + [pick(5)] * 3 + [pick(14)] * 2
-        else:
-            c4 = [pick(0), pick(1), pick(5), pick(14)]
-            swarm_commits = [c4[min(i * 4 // max(num_worktrees, 1), 3)] for i in range(num_worktrees)]
+        c4 = [pick(0), pick(1), pick(5), pick(14)]
+        swarm_commits = [pick(0)] * 4 + [pick(1)] * 3 + [pick(5)] * 3 + [pick(14)] * 2 if num_worktrees == 12 else [c4[min(i * 4 // max(num_worktrees, 1), 3)] for i in range(num_worktrees)]
 
         git_checkout_clean(src_dir, head_commit)
         try:
@@ -204,16 +198,16 @@ def benchmark_single_project(
             cow_df = [r["df_used_delta_mb"] for r in cow_runs if r.get("df_used_delta_mb") is not None]
             copy_df = [r["df_used_delta_mb"] for r in copy_runs if r.get("df_used_delta_mb") is not None]
             t4_inv = evaluate_t4_invariants(l5_res)
-            if not t4_inv["all_t4_sound_and_parity_ok"] and res["status"] == "OK":
-                res["status"] = "INVALID_L5"
+            if not t4_inv["all_t4_sound_and_parity_ok"]:
+                res["status_flags"].append("INVALID_L5")
+                if res["status"] == "OK":
+                    res["status"] = "INVALID_L5"
             res["stages"]["t4_check_clippy_and_cow"] = {
                 "reflink_effective": ref_eff, "ablation_applicable": ref_eff,
-                "cow_reflink_stats_s": compute_stats([r["wall_s"] for r in cow_runs if r["exit_code"] == 0]),
-                "cow_io": cow_io,
+                "cow_reflink_stats_s": compute_stats([r["wall_s"] for r in cow_runs if r["exit_code"] == 0]), "cow_io": cow_io,
                 "cow_median_device_mb_written": compute_stats(cow_dev)["median"] if cow_dev else None,
                 "cow_median_df_delta_mb": compute_stats(cow_df)["median"] if cow_df else None,
-                "copy_fallback_stats_s": compute_stats([r["wall_s"] for r in copy_runs if r["exit_code"] == 0]),
-                "copy_io": copy_io,
+                "copy_fallback_stats_s": compute_stats([r["wall_s"] for r in copy_runs if r["exit_code"] == 0]), "copy_io": copy_io,
                 "copy_median_device_mb_written": compute_stats(copy_dev)["median"] if copy_dev else None,
                 "copy_median_df_delta_mb": compute_stats(copy_df)["median"] if copy_df else None,
                 "invariants": t4_inv, "l5a_check_swarm": l5_res["check"], "l5b_clippy_swarm": l5_res["clippy"],
@@ -286,10 +280,14 @@ def benchmark_single_project(
                     test_trees.add("\n".join(rs_lines))
                     lib_trees.add("\n".join(ln for ln in rs_lines if not ln.split("\t")[-1].startswith("tests/")))
             inv = evaluate_t5_invariants(arm_series, fast_lock_noop, unsound_testable=len(test_trees) > 1, swarm_lib_sources_distinct=len(lib_trees) > 1)
-            if not inv["all_t5_sound_and_parity_ok"] and res["status"] in ("OK", "NOISY"):
-                res["status"] = "INVALID_T5"
-            elif not inv["sound_arms_total_wall_variance_le_15_pct"] and res["status"] == "OK":
-                res["status"] = "NOISY"
+            if not inv["all_t5_sound_and_parity_ok"]:
+                res["status_flags"].append("INVALID_T5")
+            if not inv["sound_arms_total_wall_variance_le_15_pct"]:
+                res["status_flags"].append("NOISY")
+            for p_flag in ("INVALID_L5", "INVALID_T5", "NOISY"):
+                if p_flag in res["status_flags"] and res["status"] in ("OK", "NOISY"):
+                    res["status"] = p_flag
+                    break
             m_med, b_med = t5_summary["mitts_cas"]["wall_stats_s"]["median"], t5_summary["cargo_bare"]["wall_stats_s"]["median"]
             s_med, sh_med = t5_summary["cargo_sccache"]["wall_stats_s"]["median"], t5_summary["cargo_shared"]["wall_stats_s"]["median"]
             res["stages"]["t5_worktree_swarm"] = {
