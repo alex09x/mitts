@@ -62,6 +62,12 @@ pub fn manifest_digests(path: &Path) -> Result<(String, String)> {
                 }
             }
         }
+        // A `[target.<cfg>]` that held only dev-dependencies is empty now; an empty table
+        // configures nothing, so it must not distinguish the build digest.
+        targets.retain(|_, spec| !spec.as_table().is_some_and(|t| t.is_empty()));
+        if targets.is_empty() {
+            doc.remove("target");
+        }
     }
     doc.remove("badges");
     if let Some(pkg) = doc.get_mut("package").and_then(|p| p.as_table_mut()) {

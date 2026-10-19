@@ -255,7 +255,7 @@ fn manifest_metadata_dev_dependencies_and_bench_tables_reuse_cached_units() {
     assert_eq!(out_a, "0.1.0");
 
     let manifest = format!(
-        "{MANIFEST}keywords = [\"cache\"]\n\n[package.metadata.docs.rs]\nall-features = true\n\n[badges]\nmaintenance = {{ status = \"actively-developed\" }}\n\n[dev-dependencies]\nhelper = {{ path = \"helper\" }}\n\n[[bench]]\nname = \"b\"\nharness = false\n"
+        "{MANIFEST}keywords = [\"cache\"]\n\n[package.metadata.docs.rs]\nall-features = true\n\n[badges]\nmaintenance = {{ status = \"actively-developed\" }}\n\n[dev-dependencies]\nhelper = {{ path = \"helper\" }}\n\n[target.'cfg(not(miri))'.dev-dependencies]\nhelper = {{ path = \"helper\" }}\n\n[[bench]]\nname = \"b\"\nharness = false\n"
     );
     let (cached_b, out_b) = build_clone(
         cache.path(),
