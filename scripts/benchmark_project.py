@@ -31,7 +31,7 @@ from pathlib import Path
 from benchmark_common import wait_for_quiet_rig
 from benchmark_lib import (
     TOOLS, chmod_rmtree, collect_provenance, copy_repo_tree, ensure_commit_history,
-    evaluate_t5_invariants, git_checkout_clean, prepare_commit_locks_and_fetch,
+    evaluate_t4_invariants, evaluate_t5_invariants, git_checkout_clean, prepare_commit_locks_and_fetch,
     prepare_swarm_worktrees, purge_mitts_cas, restore_dir, run_timed, setup_environments,
     start_sccache_zero_stats, stop_sccache, tool_cmd, verify_diagnostics_parity,
 )
@@ -174,9 +174,11 @@ def benchmark_single_project(
                                 wt12_outputs["mitts_cached_replay"] = run_timed(tool_cmd(arm, mode, ctx, extra_args), wts[-1][1], ctx["envs"][arm])["output"]
                                 wt12_root = wts[-1][1]
 
+                        wt12_tail = "\n".join(runs[-1]["output"].strip().splitlines()[-30:]) if runs and runs[-1]["output"] else ""
                         chmod_rmtree(wt_root)
                         mode_series[arm].append({
                             "iteration": run_idx, "total_wall_s": wall_m, "failures": sum(1 for r in runs if r["exit_code"] != 0),
+                            "wt12_exit_code": runs[-1]["exit_code"] if runs else None, "wt12_stderr_tail": wt12_tail,
                             "disk_mb": d_mb, "df_used_delta_mb": df_delta, "device_mb_written": dev_mb, "sccache_stats": scc_st,
                             "loadavg_before": load_before, "loadavg_after": load_after, "preflight_waited_s": waited_s, "pressure": p_info,
                         })
@@ -201,6 +203,9 @@ def benchmark_single_project(
             copy_dev = [r["device_mb_written"] for r in copy_runs if r.get("device_mb_written") is not None]
             cow_df = [r["df_used_delta_mb"] for r in cow_runs if r.get("df_used_delta_mb") is not None]
             copy_df = [r["df_used_delta_mb"] for r in copy_runs if r.get("df_used_delta_mb") is not None]
+            t4_inv = evaluate_t4_invariants(l5_res)
+            if not t4_inv["all_t4_sound_and_parity_ok"] and res["status"] == "OK":
+                res["status"] = "INVALID_L5"
             res["stages"]["t4_check_clippy_and_cow"] = {
                 "reflink_effective": ref_eff, "ablation_applicable": ref_eff,
                 "cow_reflink_stats_s": compute_stats([r["wall_s"] for r in cow_runs if r["exit_code"] == 0]),
@@ -211,7 +216,7 @@ def benchmark_single_project(
                 "copy_io": copy_io,
                 "copy_median_device_mb_written": compute_stats(copy_dev)["median"] if copy_dev else None,
                 "copy_median_df_delta_mb": compute_stats(copy_df)["median"] if copy_df else None,
-                "l5a_check_swarm": l5_res["check"], "l5b_clippy_swarm": l5_res["clippy"],
+                "invariants": t4_inv, "l5a_check_swarm": l5_res["check"], "l5b_clippy_swarm": l5_res["clippy"],
             }
 
         # ---------------- T5: 12-Worktree 4-Commit Test Build Swarm (Rotated Arms, Soundness & I/O) ----------------
@@ -271,12 +276,14 @@ def benchmark_single_project(
                     "wall_stats_s": compute_stats(ok_w), "max_disk_mb": max((r["disk_mb"] for r in runs), default=0.0),
                     "median_device_mb_written": compute_stats(dev_vals)["median"] if dev_vals else None, "iterations": runs,
                 }
-            src_trees = set()
+            lib_trees, test_trees = set(), set()
             for c in set(swarm_commits):
-                r_tr = subprocess.run(["git", "ls-tree", "-r", c, "--", "*.rs", ":!tests", ":!benches", ":!examples"], cwd=src_dir, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                r_tr = subprocess.run(["git", "ls-tree", "-r", c], cwd=src_dir, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
                 if r_tr.returncode == 0:
-                    src_trees.add(r_tr.stdout.strip())
-            inv = evaluate_t5_invariants(arm_series, fast_lock_noop, unsound_testable=len(src_trees) > 1)
+                    rs_lines = [ln for ln in r_tr.stdout.splitlines() if ln.endswith(".rs") and not ln.split("\t")[-1].startswith(("benches/", "examples/"))]
+                    test_trees.add("\n".join(rs_lines))
+                    lib_trees.add("\n".join(ln for ln in rs_lines if not ln.split("\t")[-1].startswith("tests/")))
+            inv = evaluate_t5_invariants(arm_series, fast_lock_noop, unsound_testable=len(test_trees) > 1, swarm_lib_sources_distinct=len(lib_trees) > 1)
             if not inv["sound_arms_total_wall_variance_le_15_pct"] and res["status"] == "OK":
                 res["status"] = "NOISY"
             m_med = t5_summary["mitts_cas"]["wall_stats_s"]["median"]

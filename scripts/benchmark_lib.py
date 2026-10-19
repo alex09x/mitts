@@ -42,10 +42,10 @@ DEFAULT_SCCACHE_SIZE = "50G"
 __all__ = [
     "TOOLS", "SOUND_TOOLS", "DEFAULT_SCCACHE_SIZE", "assert_dir_empty_or_absent", "chmod_rmtree",
     "collect_provenance", "collect_sccache_stats_and_stop", "copy_repo_tree", "ensure_commit_history",
-    "evaluate_t5_invariants", "git_checkout_clean", "parse_explain_metrics", "prepare_commit_locks_and_fetch",
-    "prepare_swarm_worktrees", "purge_mitts_cas", "reset_sccache", "restore_commit_lock", "restore_dir",
-    "run_timed", "setup_environments", "snapshot_dir", "start_sccache_zero_stats", "stop_sccache",
-    "tool_cmd", "tool_disk_paths", "verify_diagnostics_parity",
+    "evaluate_t4_invariants", "evaluate_t5_invariants", "git_checkout_clean", "parse_explain_metrics",
+    "prepare_commit_locks_and_fetch", "prepare_swarm_worktrees", "purge_mitts_cas", "reset_sccache",
+    "restore_commit_lock", "restore_dir", "run_timed", "setup_environments", "snapshot_dir",
+    "start_sccache_zero_stats", "stop_sccache", "tool_cmd", "tool_disk_paths", "verify_diagnostics_parity",
 ]
 
 
@@ -301,7 +301,22 @@ def verify_diagnostics_parity(cargo_out: str, mitts_out: str, cached_out: str, w
     }
 
 
-def evaluate_t5_invariants(arm_series: dict, fast_lock_noop: dict, unsound_testable: bool = True) -> dict:
+def evaluate_t4_invariants(l5_res: dict) -> dict:
+    inv: dict = {}
+    for m_key, m_name in (("l5a", "check"), ("l5b", "clippy")):
+        md = l5_res[m_name]
+        dp = md["diagnostics_parity"]
+        inv[f"{m_key}_all_sound_builds_exit_zero"] = all(md[t]["failures"] == 0 for t in SOUND_TOOLS)
+        inv[f"{m_key}_diagnostics_parity_ok"] = bool(
+            dp["exact_match_cargo_vs_mitts"] and dp["exact_replay_on_cache_hit"] and dp["anomaly_present_in_mitts"]
+        )
+    inv["all_t4_sound_and_parity_ok"] = all(inv.values())
+    return inv
+
+
+def evaluate_t5_invariants(
+    arm_series: dict, fast_lock_noop: dict, unsound_testable: bool = True, swarm_lib_sources_distinct: bool = False
+) -> dict:
     runs_n = len(arm_series["cargo_bare"])
     builds_ok = all(r["build_failures"] == 0 for t in SOUND_TOOLS for r in arm_series[t])
     counts_match = True
@@ -340,6 +355,7 @@ def evaluate_t5_invariants(arm_series: dict, fast_lock_noop: dict, unsound_testa
             "as informational fields."
         ),
         "fast_lock_noop_same_binary_count": fast_lock_noop["exit_code"] == 0 and fast_lock_noop["test_binaries_count"] == base_bins and base_bins > 0,
+        "swarm_lib_sources_distinct": swarm_lib_sources_distinct,
         "unsound_testable": unsound_testable,
         "cargo_shared_unsound_observed": any(not r["smoke_wt12_defect_caught"] or not r["smoke_wt01_clean_ok"] or r["build_failures"] > 0 for r in sh_runs),
     }

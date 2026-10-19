@@ -234,7 +234,7 @@ def inject_anomaly(wt_dir: Path, mode: str = "check", env: dict[str, str] | None
 
     original = target.read_text(encoding="utf-8", errors="replace")
     separator = "" if original.endswith("\n") else "\n"
-    clippy_line = "    let _clippy_anomaly = vec![1].len() == 0;\n" if mode == "clippy" else ""
+    clippy_line = '    let _clippy_anomaly = "a".len() == 0;\n' if mode == "clippy" else ""
     snippet = (
         separator
         + f"#[allow(dead_code)]\n#[allow(missing_docs)]\n#[doc(hidden)]\n"
