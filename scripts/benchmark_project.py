@@ -30,34 +30,15 @@ from pathlib import Path
 
 from benchmark_common import wait_for_quiet_rig
 from benchmark_lib import (
-    TOOLS,
-    chmod_rmtree,
-    collect_provenance,
-    copy_repo_tree,
-    ensure_commit_history,
-    evaluate_t5_invariants,
-    git_checkout_clean,
-    prepare_commit_locks_and_fetch,
-    prepare_swarm_worktrees,
-    purge_mitts_cas,
-    restore_dir,
-    run_timed,
-    setup_environments,
-    start_sccache_zero_stats,
-    stop_sccache,
-    tool_cmd,
-    verify_diagnostics_parity,
+    TOOLS, chmod_rmtree, collect_provenance, copy_repo_tree, ensure_commit_history,
+    evaluate_t5_invariants, git_checkout_clean, prepare_commit_locks_and_fetch,
+    prepare_swarm_worktrees, purge_mitts_cas, restore_dir, run_timed, setup_environments,
+    start_sccache_zero_stats, stop_sccache, tool_cmd, verify_diagnostics_parity,
 )
+from benchmark_pressure import get_device_bytes_written, get_df_used_mb
 from benchmark_stages import measure_swarm_arm, run_stages_t0_t1_t2_t3, run_warmups_and_snapshot
 from benchmark_worktree import inject_anomaly
-from t5_parsers import (
-    compute_stats,
-    inject_test_defect,
-    parse_build_output,
-    parse_mitts_io,
-    parse_test_results,
-    select_workspace_targets,
-)
+from t5_parsers import compute_stats, inject_test_defect, parse_build_output, parse_mitts_io, parse_test_results, select_workspace_targets
 
 
 def _project_name_from_spec(repo_spec: str) -> str:
@@ -66,18 +47,9 @@ def _project_name_from_spec(repo_spec: str) -> str:
 
 
 def benchmark_single_project(
-    repo_spec: str,
-    work_dir: Path,
-    cache_dir: Path,
-    mitts_bin: Path,
-    sccache_bin: Path,
-    max_disk_gb: float,
-    num_commits: int,
-    num_worktrees: int,
-    repeats: int,
-    stages: set[str],
-    max_load: float,
-    proj_name: str | None = None,
+    repo_spec: str, work_dir: Path, cache_dir: Path, mitts_bin: Path, sccache_bin: Path,
+    max_disk_gb: float, num_commits: int, num_worktrees: int, repeats: int,
+    stages: set[str], max_load: float, proj_name: str | None = None,
 ) -> dict:
     max_disk_mb = max_disk_gb * 1024.0
     proj_name = proj_name or _project_name_from_spec(repo_spec)
@@ -154,7 +126,14 @@ def benchmark_single_project(
                 pairs = [(cow_runs, env_cow), (copy_runs, env_copy)] if it_idx % 2 == 0 else [(copy_runs, env_copy), (cow_runs, env_cow)]
                 for bucket, env_m in pairs:
                     chmod_rmtree(src_dir / "target")
-                    bucket.append(run_timed(cow_cmd, cwd=src_dir, env=env_m))
+                    _, b_before = get_device_bytes_written([src_dir, proj_cache])
+                    df_b = get_df_used_mb([proj_work, proj_cache])
+                    r_ab = run_timed(cow_cmd, cwd=src_dir, env=env_m)
+                    _, b_after = get_device_bytes_written([src_dir, proj_cache])
+                    df_a = get_df_used_mb([proj_work, proj_cache])
+                    r_ab["device_mb_written"] = round((b_after - b_before) / (1024.0 * 1024.0), 1) if (b_before is not None and b_after is not None) else None
+                    r_ab["df_used_delta_mb"] = round(df_a - df_b, 1) if (df_b is not None and df_a is not None) else None
+                    bucket.append(r_ab)
 
             wt_root = proj_work / "t4_wts"
             snap_cas, snap_scc, snap_sh = proj_work / "t4_snap_cas", proj_work / "t4_snap_scc", proj_work / "t4_snap_sh"
@@ -215,11 +194,23 @@ def benchmark_single_project(
                     wt12_outputs.get("cargo_bare", ""), wt12_outputs.get("mitts_cas", ""), wt12_outputs.get("mitts_cached_replay", ""), wt12_root, anomaly_info=anomaly_meta
                 )
 
+            cow_io = parse_mitts_io(cow_runs[0]["output"]) if cow_runs else {}
+            copy_io = parse_mitts_io(copy_runs[0]["output"]) if copy_runs else {}
+            ref_eff = cow_io.get("io_stats", {}).get("bytes_cloned", 0) > 0
+            cow_dev = [r["device_mb_written"] for r in cow_runs if r.get("device_mb_written") is not None]
+            copy_dev = [r["device_mb_written"] for r in copy_runs if r.get("device_mb_written") is not None]
+            cow_df = [r["df_used_delta_mb"] for r in cow_runs if r.get("df_used_delta_mb") is not None]
+            copy_df = [r["df_used_delta_mb"] for r in copy_runs if r.get("df_used_delta_mb") is not None]
             res["stages"]["t4_check_clippy_and_cow"] = {
+                "reflink_effective": ref_eff, "ablation_applicable": ref_eff,
                 "cow_reflink_stats_s": compute_stats([r["wall_s"] for r in cow_runs if r["exit_code"] == 0]),
-                "cow_io": parse_mitts_io(cow_runs[0]["output"]) if cow_runs else {},
+                "cow_io": cow_io,
+                "cow_median_device_mb_written": compute_stats(cow_dev)["median"] if cow_dev else None,
+                "cow_median_df_delta_mb": compute_stats(cow_df)["median"] if cow_df else None,
                 "copy_fallback_stats_s": compute_stats([r["wall_s"] for r in copy_runs if r["exit_code"] == 0]),
-                "copy_io": parse_mitts_io(copy_runs[0]["output"]) if copy_runs else {},
+                "copy_io": copy_io,
+                "copy_median_device_mb_written": compute_stats(copy_dev)["median"] if copy_dev else None,
+                "copy_median_df_delta_mb": compute_stats(copy_df)["median"] if copy_df else None,
                 "l5a_check_swarm": l5_res["check"], "l5b_clippy_swarm": l5_res["clippy"],
             }
 
@@ -280,14 +271,25 @@ def benchmark_single_project(
                     "wall_stats_s": compute_stats(ok_w), "max_disk_mb": max((r["disk_mb"] for r in runs), default=0.0),
                     "median_device_mb_written": compute_stats(dev_vals)["median"] if dev_vals else None, "iterations": runs,
                 }
+            src_trees = set()
+            for c in set(swarm_commits):
+                r_tr = subprocess.run(["git", "ls-tree", "-r", c, "--", "*.rs", ":!tests", ":!benches", ":!examples"], cwd=src_dir, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                if r_tr.returncode == 0:
+                    src_trees.add(r_tr.stdout.strip())
+            inv = evaluate_t5_invariants(arm_series, fast_lock_noop, unsound_testable=len(src_trees) > 1)
+            if not inv["cargo_bare_wt1_variance_le_15_pct"] and res["status"] == "OK":
+                res["status"] = "NOISY"
             m_med = t5_summary["mitts_cas"]["wall_stats_s"]["median"]
             b_med = t5_summary["cargo_bare"]["wall_stats_s"]["median"]
             s_med = t5_summary["cargo_sccache"]["wall_stats_s"]["median"]
+            sh_med = t5_summary["cargo_shared"]["wall_stats_s"]["median"]
             res["stages"]["t5_worktree_swarm"] = {
                 "worktrees": len(swarm_commits), "commits_distinct": len(set(swarm_commits)), "repeats": repeats, "arms": t5_summary,
-                "invariants": evaluate_t5_invariants(arm_series, fast_lock_noop),
+                "invariants": inv,
                 "speedup_vs_cargo_bare": round(b_med / m_med, 2) if (m_med and b_med) else None,
                 "speedup_vs_cargo_sccache": round(s_med / m_med, 2) if (m_med and s_med) else None,
+                "speedup_vs_cargo_shared": round(sh_med / m_med, 2) if (m_med and sh_med) else None,
+                "cargo_shared_caveat": "unsound shared CARGO_TARGET_DIR across concurrent worktrees",
             }
 
     except Exception as exc:
@@ -358,10 +360,10 @@ def main() -> None:
     pdir = Path(args.projects_dir).resolve() if args.projects_dir else None
     if args.repo:
         pname = args.repo if args.repo in corpus_map else _project_name_from_spec(args.repo)
-        spec = str(pdir / pname) if (pdir and (pdir / pname / "Cargo.toml").exists()) else corpus_map.get(args.repo, args.repo)
+        spec = str(pdir / pname) if (pdir and (pdir / pname / "Cargo.toml").exists() and (pdir / pname / ".git").exists()) else corpus_map.get(args.repo, args.repo)
         targets = [(pname, spec)]
     elif pdir and pdir.is_dir():
-        targets = [(p.name, str(p)) for p in sorted(pdir.iterdir()) if p.is_dir() and (p / "Cargo.toml").exists()]
+        targets = [(p.name, str(p) if (p / ".git").exists() else corpus_map.get(p.name, str(p))) for p in sorted(pdir.iterdir()) if p.is_dir() and (p / "Cargo.toml").exists()]
     elif corpus_map:
         targets = [(k, v) for k, v in sorted(corpus_map.items())]
     else:

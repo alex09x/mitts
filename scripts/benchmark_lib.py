@@ -331,7 +331,7 @@ def verify_diagnostics_parity(cargo_out: str, mitts_out: str, cached_out: str, w
     }
 
 
-def evaluate_t5_invariants(arm_series: dict, fast_lock_noop: dict) -> dict:
+def evaluate_t5_invariants(arm_series: dict, fast_lock_noop: dict, unsound_testable: bool = True) -> dict:
     runs_n = len(arm_series["cargo_bare"])
     builds_ok = all(r["build_failures"] == 0 for t in SOUND_TOOLS for r in arm_series[t])
     counts_match = True
@@ -354,6 +354,7 @@ def evaluate_t5_invariants(arm_series: dict, fast_lock_noop: dict) -> dict:
         "cargo_bare_wt1_variance_pct": c_spread,
         "cargo_bare_wt1_variance_le_15_pct": c_spread <= 15.0,
         "fast_lock_noop_same_binary_count": fast_lock_noop["exit_code"] == 0 and fast_lock_noop["test_binaries_count"] == base_bins and base_bins > 0,
+        "unsound_testable": unsound_testable,
         "cargo_shared_unsound_observed": any(not r["smoke_wt12_defect_caught"] or not r["smoke_wt01_clean_ok"] or r["build_failures"] > 0 for r in sh_runs),
     }
 

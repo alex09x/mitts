@@ -217,6 +217,7 @@ class SystemPressureSampler:
             "writeback_mb": 0.0,
             "io_some_avg10": 0.0,
             "io_full_avg10": 0.0,
+            "cpu_some_avg10": 0.0,
         }
         try:
             with open("/proc/meminfo", "r", encoding="utf-8") as f:
@@ -237,6 +238,15 @@ class SystemPressureSampler:
                         sample["io_some_avg10"] = float(m.group(1))
                     elif line.startswith("full "):
                         sample["io_full_avg10"] = float(m.group(1))
+        except Exception:
+            pass
+        try:
+            with open("/proc/pressure/cpu", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("some "):
+                        m = re.search(r"avg10=([\d\.]+)", line)
+                        if m:
+                            sample["cpu_some_avg10"] = float(m.group(1))
         except Exception:
             pass
         return sample
@@ -260,20 +270,17 @@ class SystemPressureSampler:
             self._thread.join(timeout=2.0)
         if not self.samples:
             return {
-                "samples_count": 0,
-                "max_dirty_mb": None,
-                "avg_dirty_mb": None,
-                "max_writeback_mb": None,
-                "avg_writeback_mb": None,
-                "max_io_some_avg10": None,
-                "avg_io_some_avg10": None,
-                "max_io_full_avg10": None,
-                "avg_io_full_avg10": None,
+                "samples_count": 0, "max_dirty_mb": None, "avg_dirty_mb": None,
+                "max_writeback_mb": None, "avg_writeback_mb": None,
+                "max_io_some_avg10": None, "avg_io_some_avg10": None,
+                "max_io_full_avg10": None, "avg_io_full_avg10": None,
+                "max_cpu_some_avg10": None, "avg_cpu_some_avg10": None,
             }
         dirty_vals = [s["dirty_mb"] for s in self.samples]
         wb_vals = [s["writeback_mb"] for s in self.samples]
         io_some = [s["io_some_avg10"] for s in self.samples]
         io_full = [s["io_full_avg10"] for s in self.samples]
+        cpu_some = [s["cpu_some_avg10"] for s in self.samples]
 
         def avg(vals: list[float]) -> float:
             return round(sum(vals) / len(vals), 2) if vals else 0.0
@@ -288,4 +295,6 @@ class SystemPressureSampler:
             "avg_io_some_avg10": avg(io_some),
             "max_io_full_avg10": max(io_full),
             "avg_io_full_avg10": avg(io_full),
+            "max_cpu_some_avg10": max(cpu_some),
+            "avg_cpu_some_avg10": avg(cpu_some),
         }

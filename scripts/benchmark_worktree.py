@@ -59,16 +59,25 @@ def assert_dir_empty_or_absent(path: Path) -> None:
 
 
 def copy_repo_tree(src: Path, dst: Path) -> None:
-    """Copies a repository tree ignoring only the root-level `target` directory."""
+    """Copies a repository tree ignoring root `target`/`.mitts` and refreshing file mtimes."""
     src_res = Path(src).resolve()
     chmod_rmtree(dst)
 
     def _ignore(cur_dir: str, names: list[str]) -> list[str]:
-        if Path(cur_dir).resolve() == src_res and "target" in names:
-            return ["target"]
+        if Path(cur_dir).resolve() == src_res:
+            return [n for n in ("target", ".mitts") if n in names]
         return []
 
     shutil.copytree(src_res, dst, symlinks=True, ignore=_ignore)
+    now = time.time()
+    for root, dirs, files in os.walk(dst):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        for f in files:
+            try:
+                os.utime(os.path.join(root, f), (now, now), follow_symlinks=False)
+            except Exception:
+                pass
 
 
 def restore_commit_lock(repo_or_wt_dir: Path, commit: str, commit_locks: dict[str, Path] | None) -> None:
