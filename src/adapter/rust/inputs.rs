@@ -235,7 +235,20 @@ pub fn hash_package_common_inputs(
         inputs.push((label, hash));
     }
 
-    // 5. Scan root-level files directly in package_dir (build.rs, README.md, etc.)
+    inputs.sort_by(|a, b| a.0.cmp(&b.0));
+    inputs.dedup_by(|a, b| a.0 == b.0);
+    Ok(inputs)
+}
+
+/// Hashes root-level files directly in `package_dir` (build.rs, README.md, etc.).
+///
+/// They are not common inputs: rustc reports through dep-info every root file a
+/// unit reads, so only build scripts without rerun directives and units with
+/// impure proc macros, which can read any package file, depend on all of them.
+pub(crate) fn scan_root_file_inputs(
+    package_dir: &Path,
+    inputs: &mut Vec<(String, String)>,
+) -> Result<()> {
     if let Ok(entries) = fs::read_dir(package_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -258,10 +271,7 @@ pub fn hash_package_common_inputs(
             }
         }
     }
-
-    inputs.sort_by(|a, b| a.0.cmp(&b.0));
-    inputs.dedup_by(|a, b| a.0 == b.0);
-    Ok(inputs)
+    Ok(())
 }
 
 pub use super::unit_inputs::{
@@ -278,6 +288,7 @@ fn hash_package_inputs_impl(
     if inputs.iter().any(|(k, _)| k == "immutable_pkg") {
         return Ok(inputs);
     }
+    scan_root_file_inputs(package_dir, &mut inputs)?;
     let entries = fs::read_dir(package_dir)
         .with_context(|| format!("Failed to read package directory {:?}", package_dir))?;
     for entry in entries {

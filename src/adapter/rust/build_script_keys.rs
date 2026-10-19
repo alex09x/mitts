@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::inputs::hash_package_full_inputs;
+use super::inputs::{hash_package_common_inputs, hash_package_full_inputs};
 use super::types::PlannedCompilationUnit;
 use crate::core::hash::{bytes_to_hex, Sha256};
 use anyhow::{Context, Result};
@@ -30,7 +30,7 @@ pub fn compute_build_script_key(
     extern_crates: &[(String, PathBuf)],
 ) -> Result<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v7:");
+    hasher.update(b"build_script_v8:");
     hasher.update(unit.package_id.as_bytes());
     hasher.update(b":");
     hasher.update(unit.package_name.as_bytes());
@@ -125,18 +125,18 @@ pub fn compute_build_script_key(
             hasher.update(v.as_bytes());
         }
     }
-    let pkg_source = super::features::parse_package_id_source(&unit.package_id);
-    let is_registry =
-        pkg_source.is_some_and(|s| s.starts_with("registry+") || s.starts_with("sparse+"));
     let pkg_dir = unit.manifest_path.parent().with_context(|| {
         format!(
             "Manifest path '{}' has no parent directory",
             unit.manifest_path.display()
         )
     })?;
-    let is_immutable = super::inputs::is_immutable_package_dir(pkg_dir, unit.is_workspace);
-    if unit.is_workspace || !is_registry || !is_immutable {
-        let base_inputs = hash_package_full_inputs(pkg_dir, None, true).with_context(|| {
+    if build_script_package_is_mutable(unit, pkg_dir) {
+        // Manifests, lockfile and Cargo configs only. Package source files reach the
+        // run's freshness through the cached entry instead (see `is_fresh`): the
+        // script's own dep-info, then its rerun-if directives or, without any, every
+        // package file, as Cargo does.
+        let base_inputs = hash_package_common_inputs(pkg_dir, None, true).with_context(|| {
             format!(
                 "Failed to hash package inputs for '{}' at {}",
                 unit.package_name,
@@ -159,6 +159,31 @@ pub fn compute_build_script_key(
             hasher.update(b"=");
             hasher.update(digest.as_bytes());
         }
+    }
+    Ok(bytes_to_hex(&hasher.finalize()))
+}
+
+/// Returns true when a build script's package can change between builds, so its
+/// files must be tracked: workspace members and path or git dependencies.
+pub fn build_script_package_is_mutable(unit: &PlannedCompilationUnit, pkg_dir: &Path) -> bool {
+    let pkg_source = super::features::parse_package_id_source(&unit.package_id);
+    let is_registry =
+        pkg_source.is_some_and(|s| s.starts_with("registry+") || s.starts_with("sparse+"));
+    unit.is_workspace
+        || !is_registry
+        || !super::inputs::is_immutable_package_dir(pkg_dir, unit.is_workspace)
+}
+
+/// Digest of every file in the package, the build-script input set Cargo assumes
+/// when a script emits no `rerun-if-changed` / `rerun-if-env-changed` directive.
+pub fn package_inputs_digest(pkg_dir: &Path) -> Result<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"pkg_inputs_v1:");
+    for (path, digest) in hash_package_full_inputs(pkg_dir, None, true)? {
+        hasher.update(path.as_bytes());
+        hasher.update(b"=");
+        hasher.update(digest.as_bytes());
+        hasher.update(b"\n");
     }
     Ok(bytes_to_hex(&hasher.finalize()))
 }

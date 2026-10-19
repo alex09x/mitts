@@ -106,6 +106,7 @@ pub fn compute_package_cache_entry(
 
     let is_immutable = common_inputs.iter().any(|(k, _)| k == "immutable_pkg");
     if !is_immutable {
+        super::inputs::scan_root_file_inputs(package_dir, &mut src_inputs)?;
         let entries = fs::read_dir(package_dir)
             .with_context(|| format!("Failed to read package directory {:?}", package_dir))?;
         for entry in entries {
@@ -175,15 +176,12 @@ pub fn compute_unit_coarse_inputs_with_checksum(
         return Ok(inputs);
     }
 
-    let is_primary_target = matches!(
-        unit.kind.as_str(),
-        "lib" | "bin" | "proc-macro" | "custom-build"
-    );
-    let has_impure_macro = super::key_flags::unit_has_impure_proc_macro(unit);
-    if is_primary_target || has_impure_macro {
+    // An impure proc macro may read any package file without telling rustc, so its
+    // units keep the whole package tree. Every other unit is keyed on its crate root
+    // only: rustc's dep-info lists every module, `#[path]`, `include_*!` and `env!`
+    // it actually read, and those become the unit's manifest-level extra inputs.
+    if super::key_flags::unit_has_impure_proc_macro(unit) {
         inputs.extend_from_slice(&pkg_entry.src_inputs);
-    }
-    if has_impure_macro {
         for extra_dir in &["tests", "benches", "examples"] {
             let p = pkg_dir.join(extra_dir);
             if p.is_dir() {
@@ -192,43 +190,18 @@ pub fn compute_unit_coarse_inputs_with_checksum(
         }
     }
 
-    if is_primary_target {
-        let src_dir = pkg_dir.join("src");
-        if unit.src_path.is_file() && !unit.src_path.starts_with(&src_dir) {
-            let hash = Sha256::digest_file(&unit.src_path)
-                .with_context(|| format!("Failed to hash unit src_path {:?}", unit.src_path))?;
-            let rel = unit
-                .src_path
-                .strip_prefix(pkg_dir)
-                .unwrap_or(&unit.src_path)
-                .to_string_lossy()
-                .to_string();
-            inputs.push((rel, hash));
-        }
-    } else {
-        let src_path = &unit.src_path;
-        if src_path.is_file() {
-            let is_dir_runner = src_path
-                .file_name()
-                .map(|n| n == "main.rs" || n == "lib.rs")
-                .unwrap_or(false);
-            if is_dir_runner && src_path.parent().map(|p| p != pkg_dir).unwrap_or(false) {
-                if let Some(parent) = src_path.parent() {
-                    scan_dir_inputs(parent, pkg_dir, &mut inputs)?;
-                }
-            } else {
-                let hash = Sha256::digest_file(src_path)
-                    .with_context(|| format!("Failed to hash test src_path {:?}", src_path))?;
-                let rel = src_path
-                    .strip_prefix(pkg_dir)
-                    .unwrap_or(src_path)
-                    .to_string_lossy()
-                    .to_string();
-                inputs.push((rel, hash));
-            }
-        } else if src_path.is_dir() {
-            scan_dir_inputs(src_path, pkg_dir, &mut inputs)?;
-        }
+    let src_path = &unit.src_path;
+    if src_path.is_file() {
+        let hash = Sha256::digest_file(src_path)
+            .with_context(|| format!("Failed to hash unit src_path {:?}", src_path))?;
+        let rel = src_path
+            .strip_prefix(pkg_dir)
+            .unwrap_or(src_path)
+            .to_string_lossy()
+            .to_string();
+        inputs.push((rel, hash));
+    } else if src_path.is_dir() {
+        scan_dir_inputs(src_path, pkg_dir, &mut inputs)?;
     }
 
     inputs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -283,30 +256,17 @@ pub fn is_file_in_unit_coarse_inputs(
 ) -> bool {
     let cleaned_file = clean_path(file_path);
     let cleaned_pkg = clean_path(pkg_dir);
-    if cleaned_file.parent() == Some(&cleaned_pkg) {
-        return true;
-    }
     let unit_src = clean_path(&unit.src_path);
-    if cleaned_file == unit_src {
+    if cleaned_file == unit_src || (unit.src_path.is_dir() && cleaned_file.starts_with(&unit_src)) {
         return true;
     }
-    let is_primary_target = matches!(
-        unit.kind.as_str(),
-        "lib" | "bin" | "proc-macro" | "custom-build"
-    );
-    let has_impure_macro = super::key_flags::unit_has_impure_proc_macro(unit);
-    if is_primary_target {
-        is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, has_impure_macro)
-    } else if has_impure_macro && is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, true) {
-        true
-    } else {
-        unit_src
-            .file_name()
-            .is_some_and(|n| n == "main.rs" || n == "lib.rs")
-            && unit_src
-                .parent()
-                .is_some_and(|p| p != cleaned_pkg && cleaned_file.starts_with(p))
+    // Must mirror `compute_unit_coarse_inputs_with_checksum` exactly: a file treated
+    // here as already hashed but missing from the coarse key would be a false hit.
+    if !super::key_flags::unit_has_impure_proc_macro(unit) {
+        return false;
     }
+    cleaned_file.parent() == Some(&cleaned_pkg)
+        || is_file_in_scanned_tree(&cleaned_pkg, &cleaned_file, true)
 }
 
 /// Discovers unit extra inputs (e.g., test helpers, included files) from the compiler's .d dep-info.

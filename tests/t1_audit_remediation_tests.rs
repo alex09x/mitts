@@ -12,6 +12,7 @@ use mitts::adapter::rust::build_script::{
     compute_build_script_key, execute_build_script, BuildScriptDirectives,
 };
 use mitts::adapter::rust::build_script_cas::{remap_out_dir, remove_dir_all_readonly_safe};
+use mitts::adapter::rust::build_script_keys::package_inputs_digest;
 use mitts::adapter::rust::build_script_purity::{
     assess_build_script_purity, assess_build_script_purity_with_dep_info,
     extract_out_dir_files_from_dep_info,
@@ -424,6 +425,7 @@ fn test_b6_non_registry_build_script_key_and_n2_cas_tmp_purity() {
         &[],
     )
     .unwrap();
+    let d1 = package_inputs_digest(&git_pkg).unwrap();
     fs::write(git_pkg.join("proto/api.proto"), "syntax = \"proto3\";\n").unwrap();
     let k2 = compute_build_script_key(
         &unit,
@@ -435,7 +437,10 @@ fn test_b6_non_registry_build_script_key_and_n2_cas_tmp_purity() {
         &[],
     )
     .unwrap();
-    assert_ne!(k1, k2);
+    // The base key covers the script and manifests; a package file the script may
+    // read without rerun directives invalidates the cached run through the digest.
+    assert_eq!(k1, k2);
+    assert_ne!(d1, package_inputs_digest(&git_pkg).unwrap());
 
     // R1: OUT_DIR contains probe.d with staging path and gen.rs without paths,
     // and unit dep-info includes gen.rs -> unit is pure; if gen.rs has staging path -> impure.

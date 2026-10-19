@@ -471,7 +471,7 @@ path = "tests/b.rs"
 }
 
 #[test]
-fn test_mutate_build_rs_recompiles_all_package_units() {
+fn test_mutate_build_rs_keeps_plan_time_unit_keys() {
     let cache_dir = TempDir::new().unwrap();
     let project_dir = TempDir::new().unwrap();
     setup_test_crate(project_dir.path());
@@ -529,18 +529,13 @@ fn test_mutate_build_rs_recompiles_all_package_units() {
     let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("derive keys 2");
 
-    assert_ne!(
-        keys1[&lib_id], keys2[&lib_id],
-        "lib ActionKey must change on build.rs mutation"
-    );
-    assert_ne!(
-        keys1[&test_a_id], keys2[&test_a_id],
-        "test_a ActionKey must change on build.rs mutation"
-    );
-    assert_ne!(
-        keys1[&test_b_id], keys2[&test_b_id],
-        "test_b ActionKey must change on build.rs mutation"
-    );
+    // build.rs is not a rustc input of the package's units: they depend on what the
+    // script emits (cfgs, env, link args, OUT_DIR), which joins their key once the
+    // script has run. Plan-time keys therefore stay put; the script's own key moves.
+    // End-to-end propagation is covered by tests/key_scope_test.rs.
+    assert_eq!(keys1[&lib_id], keys2[&lib_id]);
+    assert_eq!(keys1[&test_a_id], keys2[&test_a_id]);
+    assert_eq!(keys1[&test_b_id], keys2[&test_b_id]);
 }
 
 #[test]

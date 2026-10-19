@@ -115,8 +115,9 @@ pub fn save_build_script_cas(
 
     let cas_root = artifacts_dir.parent().unwrap_or(artifacts_dir);
     let script_cas_dir = cas_root.join("build_scripts").join(build_key);
+    let exec_base = format!("{}:{}", build_key, directives.freshness_digest());
     let exec_key = compute_execution_key(
-        build_key,
+        &exec_base,
         &directives.rerun_if_changed_hashes,
         &directives.envs,
     );

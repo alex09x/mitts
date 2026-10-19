@@ -41,6 +41,14 @@ pub struct BuildScriptDirectives {
     pub rerun_if_changed_hashes: HashMap<String, String>,
     #[serde(default)]
     pub rerun_if_env_changed: Vec<String>,
+    /// Files (relative to the package, or absolute) and `env:` variables the script's
+    /// own compilation read, from its dep-info, with their content or value hashes.
+    #[serde(default)]
+    pub script_inputs: HashMap<String, String>,
+    /// Digest of every package file, recorded only for a mutable package whose script
+    /// emitted no rerun directive: Cargo then reruns it when any package file changes.
+    #[serde(default)]
+    pub package_inputs_digest: Option<String>,
 }
 
 impl BuildScriptDirectives {
@@ -73,6 +81,9 @@ impl BuildScriptDirectives {
 
     /// Checks if this cached directive is still valid based on environment variables and file content hashes.
     pub fn is_fresh(&self, pkg_dir: &Path) -> bool {
+        if !self.script_inputs_fresh(pkg_dir) {
+            return false;
+        }
         // Check rerun-if-env-changed
         for var in &self.rerun_if_env_changed {
             let cur_val = std::env::var(var).ok();
@@ -110,9 +121,50 @@ impl BuildScriptDirectives {
                 }
             }
             true
+        } else if self.rerun_if_env_changed.is_empty() {
+            match &self.package_inputs_digest {
+                Some(expected) => super::build_script_keys::package_inputs_digest(pkg_dir)
+                    .is_ok_and(|cur| cur == *expected),
+                None => true,
+            }
         } else {
-            self.rerun_if_changed.is_empty()
+            true
         }
+    }
+
+    fn script_inputs_fresh(&self, pkg_dir: &Path) -> bool {
+        self.script_inputs.iter().all(|(key, expected)| {
+            if let Some(var) = key.strip_prefix("env:") {
+                let val = std::env::var(var).unwrap_or_else(|_| "__UNSET__".to_string());
+                return Sha256::digest(val.as_bytes()) == *expected;
+            }
+            let path = if Path::new(key).is_absolute() {
+                PathBuf::from(key)
+            } else {
+                pkg_dir.join(key)
+            };
+            Sha256::digest_file(&path).is_ok_and(|cur| cur == *expected)
+        })
+    }
+
+    /// Digest of the inputs `is_fresh` checks beyond rerun directives, so entries
+    /// recorded for different script sources or package states never collide.
+    pub fn freshness_digest(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"freshness_v1:");
+        let mut keys: Vec<_> = self.script_inputs.iter().collect();
+        keys.sort();
+        for (k, v) in keys {
+            hasher.update(k.as_bytes());
+            hasher.update(b"=");
+            hasher.update(v.as_bytes());
+            hasher.update(b"\n");
+        }
+        if let Some(d) = &self.package_inputs_digest {
+            hasher.update(b"pkg=");
+            hasher.update(d.as_bytes());
+        }
+        bytes_to_hex(&hasher.finalize())
     }
 
     /// Computes a canonical hash of all compile-affecting directives (cfgs, flags, link libs/args/searches, envs).

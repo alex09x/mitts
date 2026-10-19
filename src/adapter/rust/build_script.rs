@@ -152,6 +152,7 @@ pub fn execute_build_script(
         compile_cmd.arg("-C").arg(format!("overflow-checks={}", v));
     }
     compile_cmd
+        .arg("--emit=dep-info,link")
         .arg("-o")
         .arg(&bin_path)
         .env("CARGO_MANIFEST_DIR", pkg_dir)
@@ -293,6 +294,8 @@ pub fn execute_build_script(
         );
     }
 
+    let script_inputs = collect_script_inputs(&bin_path.with_extension("d"), pkg_dir, extra_env);
+
     let mut run_cmd = super::build_script_env::configure_build_script_run_cmd(
         &bin_path, pkg_dir, unit, &pkg_toml, &out_dir, &target, release, features, extra_env,
     );
@@ -329,6 +332,23 @@ pub fn execute_build_script(
             .insert(file_rel.clone(), hash);
     }
 
+    // A cached run stays valid while the script's sources match its dep-info and,
+    // without any rerun directive, while no package file changes (Cargo's default).
+    // Inputs that cannot be established are never cached.
+    let Some(script_inputs) = script_inputs else {
+        return Ok(directives);
+    };
+    directives.script_inputs = script_inputs;
+    if directives.rerun_if_changed.is_empty()
+        && directives.rerun_if_env_changed.is_empty()
+        && super::build_script_keys::build_script_package_is_mutable(unit, pkg_dir)
+    {
+        match super::build_script_keys::package_inputs_digest(pkg_dir) {
+            Ok(digest) => directives.package_inputs_digest = Some(digest),
+            Err(_) => return Ok(directives),
+        }
+    }
+
     // Publish to CAS metadata and output directory atomically in a single execution entry
     super::build_script_cas::save_build_script_cas(
         cas_artifacts_dir,
@@ -340,4 +360,36 @@ pub fn execute_build_script(
     );
 
     Ok(directives)
+}
+
+/// Reads the build script's dep-info: every source file its compilation read, keyed
+/// relative to the package when inside it, and every `env!` variable that mitts does
+/// not set itself (those are already part of the build key). `None` when any input
+/// cannot be resolved and hashed.
+fn collect_script_inputs(
+    d_path: &Path,
+    pkg_dir: &Path,
+    extra_env: Option<&HashMap<String, String>>,
+) -> Option<HashMap<String, String>> {
+    let parsed = super::dep_info::parse_dep_info_full(d_path, None).ok()?;
+    let ws_root = super::compiler::find_workspace_root(pkg_dir);
+    let mut inputs = HashMap::new();
+    for file in parsed.files {
+        let path = [file.clone(), pkg_dir.join(&file), ws_root.join(&file)]
+            .into_iter()
+            .find(|p| p.is_absolute() && p.is_file())?;
+        let key = match path.strip_prefix(pkg_dir) {
+            Ok(rel) => rel.to_string_lossy().to_string(),
+            Err(_) => path.to_string_lossy().to_string(),
+        };
+        inputs.insert(key, Sha256::digest_file(&path).ok()?);
+    }
+    for (var, _) in parsed.env_deps {
+        if var.starts_with("CARGO_") || extra_env.is_some_and(|e| e.contains_key(&var)) {
+            continue;
+        }
+        let val = std::env::var(&var).unwrap_or_else(|_| "__UNSET__".to_string());
+        inputs.insert(format!("env:{var}"), Sha256::digest(val.as_bytes()));
+    }
+    Some(inputs)
 }
