@@ -277,7 +277,7 @@ def benchmark_single_project(
                 if r_tr.returncode == 0:
                     src_trees.add(r_tr.stdout.strip())
             inv = evaluate_t5_invariants(arm_series, fast_lock_noop, unsound_testable=len(src_trees) > 1)
-            if not inv["cargo_bare_wt1_variance_le_15_pct"] and res["status"] == "OK":
+            if not inv["sound_arms_total_wall_variance_le_15_pct"] and res["status"] == "OK":
                 res["status"] = "NOISY"
             m_med = t5_summary["mitts_cas"]["wall_stats_s"]["median"]
             b_med = t5_summary["cargo_bare"]["wall_stats_s"]["median"]

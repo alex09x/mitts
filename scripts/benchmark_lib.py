@@ -27,55 +27,25 @@ from pathlib import Path
 
 from benchmark_common import CARGO_BIN_DIR, get_binary_provenance, get_filesystem_type, get_rig_info
 from benchmark_diagnostics import (
-    extract_diagnostics_counter,
-    verify_anomaly_present,
-    verify_diagnostics_match,
-    verify_warning_replay,
+    extract_diagnostics_counter, verify_anomaly_present, verify_diagnostics_match, verify_warning_replay,
 )
 from benchmark_worktree import (
-    DEFECT_TEST_NAME,
-    assert_dir_empty_or_absent,
-    chmod_rmtree,
-    copy_repo_tree,
-    ensure_commit_history,
-    git_checkout_clean,
-    prepare_commit_locks_and_fetch,
-    prepare_swarm_worktrees,
-    restore_commit_lock,
+    DEFECT_TEST_NAME, assert_dir_empty_or_absent, chmod_rmtree, copy_repo_tree, ensure_commit_history,
+    git_checkout_clean, prepare_commit_locks_and_fetch, prepare_swarm_worktrees, restore_commit_lock,
 )
-from t5_parsers import parse_sccache_stats, spread_pct
+from t5_parsers import compute_stats, parse_sccache_stats, spread_pct
 
 TOOLS = ["mitts_cas", "cargo_bare", "cargo_sccache", "cargo_shared"]
 SOUND_TOOLS = ["mitts_cas", "cargo_bare", "cargo_sccache"]
 DEFAULT_SCCACHE_SIZE = "50G"
 
 __all__ = [
-    "TOOLS",
-    "SOUND_TOOLS",
-    "DEFAULT_SCCACHE_SIZE",
-    "assert_dir_empty_or_absent",
-    "chmod_rmtree",
-    "collect_provenance",
-    "collect_sccache_stats_and_stop",
-    "copy_repo_tree",
-    "ensure_commit_history",
-    "evaluate_t5_invariants",
-    "git_checkout_clean",
-    "parse_explain_metrics",
-    "prepare_commit_locks_and_fetch",
-    "prepare_swarm_worktrees",
-    "purge_mitts_cas",
-    "reset_sccache",
-    "restore_commit_lock",
-    "restore_dir",
-    "run_timed",
-    "setup_environments",
-    "snapshot_dir",
-    "start_sccache_zero_stats",
-    "stop_sccache",
-    "tool_cmd",
-    "tool_disk_paths",
-    "verify_diagnostics_parity",
+    "TOOLS", "SOUND_TOOLS", "DEFAULT_SCCACHE_SIZE", "assert_dir_empty_or_absent", "chmod_rmtree",
+    "collect_provenance", "collect_sccache_stats_and_stop", "copy_repo_tree", "ensure_commit_history",
+    "evaluate_t5_invariants", "git_checkout_clean", "parse_explain_metrics", "prepare_commit_locks_and_fetch",
+    "prepare_swarm_worktrees", "purge_mitts_cas", "reset_sccache", "restore_commit_lock", "restore_dir",
+    "run_timed", "setup_environments", "snapshot_dir", "start_sccache_zero_stats", "stop_sccache",
+    "tool_cmd", "tool_disk_paths", "verify_diagnostics_parity",
 ]
 
 
@@ -344,6 +314,13 @@ def evaluate_t5_invariants(arm_series: dict, fast_lock_noop: dict, unsound_testa
     clean_ok = all(r["smoke_wt01_clean_ok"] for t in SOUND_TOOLS for r in arm_series[t])
     c_wt1 = [r["wt01_wall_s"] for r in arm_series["cargo_bare"]]
     c_spread = spread_pct(c_wt1)
+    total_spread_by_arm: dict[str, float] = {}
+    total_iqr_by_arm: dict[str, float] = {}
+    for t in TOOLS:
+        tw = [r["total_wall_s"] for r in arm_series[t] if r["build_failures"] == 0]
+        total_spread_by_arm[t] = spread_pct(tw)
+        st = compute_stats(tw)
+        total_iqr_by_arm[t] = round((st["iqr"] / st["median"]) * 100.0, 2) if st["median"] else 0.0
     base_bins = arm_series["cargo_bare"][0]["wt_binary_counts"][0] if runs_n and arm_series["cargo_bare"][0]["wt_binary_counts"] else 0
     sh_runs = arm_series["cargo_shared"]
     return {
@@ -351,8 +328,17 @@ def evaluate_t5_invariants(arm_series: dict, fast_lock_noop: dict, unsound_testa
         "test_binaries_count_matches_all_sound_arms": counts_match,
         "defect_wt12_caught_all_sound_arms": defect_caught,
         "clean_wt01_smoke_ok_all_sound_arms": clean_ok,
+        "total_wall_spread_pct_by_arm": total_spread_by_arm,
+        "total_wall_iqr_pct_by_arm": total_iqr_by_arm,
+        "sound_arms_total_wall_variance_le_15_pct": all(total_spread_by_arm[t] <= 15.0 for t in SOUND_TOOLS),
+        "all_arms_total_wall_variance_le_15_pct": all(v <= 15.0 for v in total_spread_by_arm.values()),
         "cargo_bare_wt1_variance_pct": c_spread,
         "cargo_bare_wt1_variance_le_15_pct": c_spread <= 15.0,
+        "variance_gate_note": (
+            "NOISY gate checks (max-min)/median <= 15% on total_wall_s across all sound arms (mitts_cas, cargo_bare, cargo_sccache); "
+            "all_arms_total_wall_variance_le_15_pct (including unsound cargo_shared) and cargo_bare_wt1_variance_pct are retained "
+            "as informational fields."
+        ),
         "fast_lock_noop_same_binary_count": fast_lock_noop["exit_code"] == 0 and fast_lock_noop["test_binaries_count"] == base_bins and base_bins > 0,
         "unsound_testable": unsound_testable,
         "cargo_shared_unsound_observed": any(not r["smoke_wt12_defect_caught"] or not r["smoke_wt01_clean_ok"] or r["build_failures"] > 0 for r in sh_runs),
