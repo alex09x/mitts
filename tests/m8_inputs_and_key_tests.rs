@@ -80,7 +80,7 @@ fn test_m8_inputs_workspace_manifests_and_configs() {
 
     let keys: Vec<&str> = inputs.iter().map(|(k, _)| k.as_str()).collect();
     assert!(keys.contains(&"Cargo.toml"));
-    assert!(keys.contains(&"Cargo.lock"));
+    assert!(!keys.contains(&"Cargo.lock"));
     assert!(keys.contains(&"workspace:Cargo.toml"));
     assert!(keys.contains(&"workspace:.cargo/config.toml"));
     assert!(keys.contains(&"workspace:.cargo/config"));

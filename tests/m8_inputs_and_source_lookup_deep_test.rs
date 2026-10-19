@@ -82,7 +82,7 @@ edition = "2021"
 
     assert!(inputs.iter().any(|(k, _)| k == "workspace:Cargo.toml"));
     assert!(inputs.iter().any(|(k, _)| k.starts_with("ancestor:")));
-    assert!(inputs.iter().any(|(k, _)| k == "Cargo.lock"));
+    assert!(!inputs.iter().any(|(k, _)| k == "Cargo.lock"));
     assert!(inputs
         .iter()
         .any(|(k, _)| k == "workspace:.cargo/config.toml"));

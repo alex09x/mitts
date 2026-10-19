@@ -113,10 +113,10 @@ fn test_m8_inputs_dir_and_file_filters() {
         assert!(!p.ends_with(".swp"));
     }
 
-    // For workspace package, Cargo.lock IS included in base inputs
+    // Cargo.lock is not an input: dependencies reach a key through their own keys
     let ws_inputs = hash_package_base_inputs(&pkg_dir, None, true).unwrap();
     let ws_paths: Vec<String> = ws_inputs.into_iter().map(|(p, _)| p).collect();
-    assert!(ws_paths.contains(&"Cargo.lock".to_string()));
+    assert!(!ws_paths.contains(&"Cargo.lock".to_string()));
     assert!(ws_paths.contains(&"test_data/fixture.bin".to_string()));
 
     // Test hash_unit_inputs

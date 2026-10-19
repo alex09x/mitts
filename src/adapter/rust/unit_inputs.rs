@@ -176,6 +176,14 @@ pub fn compute_unit_coarse_inputs_with_checksum(
         return Ok(inputs);
     }
 
+    // Test-only manifest tables cannot change a lib, bin, proc-macro or build script.
+    if matches!(
+        unit.kind.as_str(),
+        "lib" | "bin" | "proc-macro" | "custom-build"
+    ) {
+        inputs.retain(|(k, _)| k != super::inputs::MANIFEST_TEST_ONLY_LABEL);
+    }
+
     // An impure proc macro may read any package file without telling rustc, so its
     // units keep the whole package tree. Every other unit is keyed on its crate root
     // only: rustc's dep-info lists every module, `#[path]`, `include_*!` and `env!`

@@ -40,6 +40,7 @@ pub mod key;
 pub mod key_flags;
 pub mod lockfile;
 pub mod manifest;
+pub mod manifest_digest;
 pub mod manifest_inherit;
 pub mod manifest_models;
 pub mod manifest_tests;

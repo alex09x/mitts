@@ -178,7 +178,10 @@ pub fn build_script_package_is_mutable(unit: &PlannedCompilationUnit, pkg_dir: &
 /// when a script emits no `rerun-if-changed` / `rerun-if-env-changed` directive.
 pub fn package_inputs_digest(pkg_dir: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"pkg_inputs_v1:");
+    hasher.update(b"pkg_inputs_v2:");
+    // The raw manifest too: a script may read any of it, `[package.metadata]` included.
+    let manifest = pkg_dir.join("Cargo.toml");
+    hasher.update(Sha256::digest_file(&manifest)?.as_bytes());
     for (path, digest) in hash_package_full_inputs(pkg_dir, None, true)? {
         hasher.update(path.as_bytes());
         hasher.update(b"=");

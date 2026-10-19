@@ -76,6 +76,9 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
     in_cargo_registry || in_mitts_sources || in_cargo_git
 }
 
+/// Label of a manifest's test-only digest (`[dev-dependencies]`, `[[test]]`, ...).
+pub const MANIFEST_TEST_ONLY_LABEL: &str = "Cargo.toml#test-only";
+
 pub fn hash_package_common_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,
@@ -101,23 +104,26 @@ pub fn hash_package_common_inputs(
         ]);
     }
 
-    // 1. Mandatory package manifest
+    // 1. Mandatory package manifest: build-relevant part, plus the test-only tables
+    //    under their own label (dropped by units that cannot see them).
     let cargo_toml = package_dir.join("Cargo.toml");
     if cargo_toml.is_file() {
-        let hash = Sha256::digest_file(&cargo_toml)
-            .with_context(|| format!("Failed to hash {:?}", cargo_toml))?;
-        inputs.push(("Cargo.toml".to_string(), hash));
+        let (build, test_only) = super::manifest_digest::manifest_digests(&cargo_toml)?;
+        inputs.push(("Cargo.toml".to_string(), build));
+        if !test_only.is_empty() {
+            inputs.push((MANIFEST_TEST_ONLY_LABEL.to_string(), test_only));
+        }
     } else {
         bail!("Cargo.toml not found in {:?}", package_dir);
     }
 
-    // 2. Workspace root manifest, ancestor manifests, and lockfile (ONLY for workspace members)
+    // 2. Workspace root and ancestor manifests (ONLY for workspace members). The
+    //    lockfile is not an input: every dependency joins a unit's key through its
+    //    own key, which names its resolved version and checksum.
     if is_workspace {
         if let Some(ws_manifest) = workspace_manifest {
             if ws_manifest.is_file() && ws_manifest != cargo_toml {
-                let hash = Sha256::digest_file(ws_manifest).with_context(|| {
-                    format!("Failed to hash workspace manifest {:?}", ws_manifest)
-                })?;
+                let (hash, _) = super::manifest_digest::manifest_digests(ws_manifest)?;
                 inputs.push(("workspace:Cargo.toml".to_string(), hash));
             }
         }
@@ -136,21 +142,6 @@ pub fn hash_package_common_inputs(
                 break;
             }
             ancestor_candidate = dir.parent();
-        }
-
-        let mut lock_candidate = Some(package_dir);
-        while let Some(dir) = lock_candidate {
-            let lock_path = dir.join("Cargo.lock");
-            if lock_path.is_file() {
-                let hash = Sha256::digest_file(&lock_path)
-                    .with_context(|| format!("Failed to hash {:?}", lock_path))?;
-                inputs.push(("Cargo.lock".to_string(), hash));
-                break;
-            }
-            if Some(dir) == ws_root {
-                break;
-            }
-            lock_candidate = dir.parent();
         }
     }
 

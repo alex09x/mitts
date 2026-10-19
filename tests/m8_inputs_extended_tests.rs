@@ -55,7 +55,7 @@ fn test_m8_inputs_ancestors_and_nested_configs() {
     let inputs = hash_package_base_inputs(&pkg_dir, Some(&root_toml), true).unwrap();
     assert!(inputs.iter().any(|(k, _)| k == "workspace:Cargo.toml"));
     assert!(inputs.iter().any(|(k, _)| k.starts_with("ancestor:")));
-    assert!(inputs.iter().any(|(k, _)| k == "Cargo.lock"));
+    assert!(!inputs.iter().any(|(k, _)| k == "Cargo.lock"));
     assert!(inputs.iter().any(|(k, _)| k == ".cargo/config.toml"));
     assert!(inputs.iter().any(|(k, _)| k == ".cargo/config"));
     // Configs in a directory between the package and the workspace root apply

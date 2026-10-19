@@ -234,3 +234,66 @@ fn build_script_without_directives_sees_every_package_file() {
     let (_, out_c) = build_clone(cache.path(), &base);
     assert_eq!(out_c, "i1");
 }
+
+#[test]
+fn manifest_metadata_dev_dependencies_and_bench_tables_reuse_cached_units() {
+    let cache = TempDir::new().unwrap();
+    let base = [
+        ("Cargo.toml", MANIFEST),
+        (
+            "src/main.rs",
+            "fn main() { print!(\"{}\", env!(\"CARGO_PKG_VERSION\")); }\n",
+        ),
+        (
+            "helper/Cargo.toml",
+            "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        ),
+        ("helper/src/lib.rs", "pub fn h() {}\n"),
+        ("benches/b.rs", "fn main() {}\n"),
+    ];
+    let (_, out_a) = build_clone(cache.path(), &base);
+    assert_eq!(out_a, "0.1.0");
+
+    let manifest = format!(
+        "{MANIFEST}keywords = [\"cache\"]\n\n[package.metadata.docs.rs]\nall-features = true\n\n[badges]\nmaintenance = {{ status = \"actively-developed\" }}\n\n[dev-dependencies]\nhelper = {{ path = \"helper\" }}\n\n[[bench]]\nname = \"b\"\nharness = false\n"
+    );
+    let (cached_b, out_b) = build_clone(
+        cache.path(),
+        &with(&base, &[("Cargo.toml", manifest.as_str())]),
+    );
+    assert!(
+        cached_b,
+        "registry metadata and test-only tables cannot change the binary"
+    );
+    assert_eq!(out_b, "0.1.0");
+}
+
+#[test]
+fn manifest_fields_that_reach_rustc_invalidate() {
+    let cache = TempDir::new().unwrap();
+    let base = [
+        ("Cargo.toml", MANIFEST),
+        (
+            "src/main.rs",
+            "fn main() { print!(\"{}|{}\", env!(\"CARGO_PKG_VERSION\"), option_env!(\"CARGO_PKG_DESCRIPTION\").unwrap_or(\"\")); }\n",
+        ),
+    ];
+    let (_, out_a) = build_clone(cache.path(), &base);
+    assert_eq!(out_a, "0.1.0|");
+
+    let bumped = MANIFEST.replace("0.1.0", "0.2.0");
+    let (cached_b, out_b) = build_clone(
+        cache.path(),
+        &with(&base, &[("Cargo.toml", bumped.as_str())]),
+    );
+    assert!(!cached_b);
+    assert_eq!(out_b, "0.2.0|");
+
+    let described = format!("{MANIFEST}description = \"d1\"\n");
+    let (cached_c, out_c) = build_clone(
+        cache.path(),
+        &with(&base, &[("Cargo.toml", described.as_str())]),
+    );
+    assert!(!cached_c);
+    assert_eq!(out_c, "0.1.0|d1");
+}
