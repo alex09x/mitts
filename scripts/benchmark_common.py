@@ -134,6 +134,14 @@ def get_rig_info() -> dict:
         nofile_soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
     except Exception:
         nofile_soft = None
+    try:
+        sched_pri = int(subprocess.check_output(["ps", "-o", "pri=", "-p", str(os.getpid())], text=True).strip())
+    except Exception:
+        sched_pri = None
+    try:
+        proc_nice = os.nice(0)
+    except Exception:
+        proc_nice = None
 
     return {
         "cpu": cpu_model,
@@ -142,6 +150,8 @@ def get_rig_info() -> dict:
         "os": os_name,
         "kernel": os.uname().release,
         "rlimit_nofile_soft": nofile_soft,
+        "sched_pri": sched_pri,
+        "nice": proc_nice,
         "default_rustc_version": rustc_v,
         "default_clippy_version": clippy_v,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
