@@ -143,7 +143,11 @@ pub fn compute_build_script_key(
                 pkg_dir.display()
             )
         })?;
-        for (path, digest) in base_inputs {
+        // Dev-dependencies and test/bench/example targets never reach a build script.
+        for (path, digest) in base_inputs
+            .into_iter()
+            .filter(|(k, _)| k != super::inputs::MANIFEST_TEST_ONLY_LABEL)
+        {
             hasher.update(b":ws_input:");
             hasher.update(path.as_bytes());
             hasher.update(b"=");

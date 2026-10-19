@@ -176,16 +176,26 @@ fn tests_dir_change_does_not_rerun_build_script_with_directives() {
             "fn main() { print!(\"{}\", env!(\"GREETING\")); }\n",
         ),
         ("tests/it.rs", "#[test]\nfn t() { assert_eq!(1, 1); }\n"),
+        (
+            "helper/Cargo.toml",
+            "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        ),
+        ("helper/src/lib.rs", "pub fn h() {}\n"),
     ];
     let (_, out_a) = build_clone(cache.path(), &base);
     assert_eq!(out_a, "hi");
     assert_eq!(count_lines(&log), 1);
 
+    let test_only_manifest = format!(
+        "{MANIFEST}\n[dev-dependencies]\nhelper = {{ path = \"helper\" }}\n\n[[bench]]\nname = \"b\"\nharness = false\n"
+    );
     let changed = with(
         &base,
         &[
             ("tests/it.rs", "#[test]\nfn t() { assert_eq!(2, 2); }\n"),
             ("README.md", "new\n"),
+            ("Cargo.toml", test_only_manifest.as_str()),
+            ("benches/b.rs", "fn main() {}\n"),
         ],
     );
     let (cached_b, out_b) = build_clone(cache.path(), &changed);
@@ -193,7 +203,7 @@ fn tests_dir_change_does_not_rerun_build_script_with_directives() {
     assert_eq!(
         count_lines(&log),
         1,
-        "rerun-if-changed=build.rs limits reruns to build.rs, as in Cargo"
+        "rerun-if-changed=build.rs limits reruns to build.rs, and test-only manifest tables never reach the script"
     );
     assert!(cached_b);
 
