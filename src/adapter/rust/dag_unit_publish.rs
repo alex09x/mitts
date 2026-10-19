@@ -51,7 +51,51 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     let mut cached_outputs = Vec::new();
     let mut action_outputs = Vec::new();
 
-    // 1. Store executable binary in CAS from staging first (N3), then materialize in target/
+    let is_mutable = super::unit_inputs::is_mutable_unit(unit);
+    let ws_root = if is_mutable {
+        Some(super::compiler::find_workspace_root(&unit.manifest_path))
+    } else {
+        None
+    };
+
+    // 1. Parse dep-info (.d) in staging_dir for extra inputs outside package_dir (P0, P1, P2)
+    let extra_inputs_res = extract_unit_extra_inputs(
+        unit,
+        args.staging_dir,
+        ws_root.as_deref(),
+        args.out_dir_purity,
+        args.out_dir,
+    );
+    let (extra_inputs, can_publish_cache) = match extra_inputs_res {
+        Ok(extra) => (extra, !action_key.contains(":unhashable:")),
+        Err(err) => {
+            eprintln!(
+                "[mitts::warn] Unit '{}' tracked input hashing failed: {}. Discarding cache publication (fail-closed).",
+                unit.unit_id(),
+                err
+            );
+            (Vec::new(), false)
+        }
+    };
+    record_extra_inputs_in_ctx(ctx, ws_root.as_deref(), &extra_inputs);
+
+    // 2. Compute result_key; shared artifact names follow it, not the coarse action key
+    let result_key = if can_publish_cache {
+        compute_composite_result_key(action_key, &extra_inputs)
+    } else {
+        taint_unhashable_key(action_key)
+    };
+
+    if let Some(rk_map) = ctx.resolved_keys {
+        rk_map
+            .lock()
+            .unwrap()
+            .insert(unit.unit_id(), result_key.clone());
+    }
+
+    let artifact_key = artifact_disambiguator(&result_key, Some(args.staging_dir));
+
+    // 3. Store executable binary in CAS from staging first (N3), then materialize in target/
     if let Some(dest) = args.dest_binary {
         if let Some(ref bp) = args.output.primary_output {
             if bp.is_file() {
@@ -96,7 +140,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             }
         }
     } else {
-        // 2. Publish primary library output (rlib/dylib/so)
+        // 4. Publish primary library output (rlib/dylib/so)
         if let Some(lib_path) = args
             .output
             .primary_output
@@ -109,9 +153,9 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 .and_then(|e| e.to_str())
                 .unwrap_or("rlib");
             let disambig = if ext == "rmeta" {
-                format!("{action_key}-m")
+                format!("{artifact_key}-m")
             } else {
-                action_key.to_string()
+                artifact_key.clone()
             };
             let named = ctx.cas.named_artifact_path_with_disambiguator(
                 &unit.target_name,
@@ -162,7 +206,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             }
         }
 
-        // 3. Publish metadata output (rmeta) if distinct from primary_output
+        // 5. Publish metadata output (rmeta) if distinct from primary_output
         if let Some(mp) = args
             .output
             .metadata_output
@@ -173,7 +217,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             let _ = ctx.cas.named_artifact_path_with_disambiguator(
                 &unit.target_name,
                 &meta_hash,
-                action_key,
+                &artifact_key,
                 "rmeta",
             );
             let file_name = mp.file_name().unwrap_or_default();
@@ -215,14 +259,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         }
     }
 
-    // 4. Output byte scanning for workspace root leaks (P2)
+    // 6. Output byte scanning for workspace root leaks (P2)
     let mut contains_ws_root_path = false;
-    let is_mutable = super::unit_inputs::is_mutable_unit(unit);
-    let ws_root = if is_mutable {
-        Some(super::compiler::find_workspace_root(&unit.manifest_path))
-    } else {
-        None
-    };
 
     if let Some(ref root) = ws_root {
         let ws_needle = root.to_string_lossy().as_bytes().to_vec();
@@ -251,41 +289,6 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 }
             }
         }
-    }
-
-    // 5. Parse dep-info (.d) in staging_dir for extra inputs outside package_dir (P0, P1, P2)
-    let extra_inputs_res = extract_unit_extra_inputs(
-        unit,
-        args.staging_dir,
-        ws_root.as_deref(),
-        args.out_dir_purity,
-        args.out_dir,
-    );
-    let (extra_inputs, can_publish_cache) = match extra_inputs_res {
-        Ok(extra) => (extra, !action_key.contains(":unhashable:")),
-        Err(err) => {
-            eprintln!(
-                "[mitts::warn] Unit '{}' tracked input hashing failed: {}. Discarding cache publication (fail-closed).",
-                unit.unit_id(),
-                err
-            );
-            (Vec::new(), false)
-        }
-    };
-    record_extra_inputs_in_ctx(ctx, ws_root.as_deref(), &extra_inputs);
-
-    // 6. Compute result_key and effective action key
-    let result_key = if can_publish_cache {
-        compute_composite_result_key(action_key, &extra_inputs)
-    } else {
-        taint_unhashable_key(action_key)
-    };
-
-    if let Some(rk_map) = ctx.resolved_keys {
-        rk_map
-            .lock()
-            .unwrap()
-            .insert(unit.unit_id(), result_key.clone());
     }
 
     let effective_action_key = if contains_ws_root_path {
@@ -377,6 +380,24 @@ pub fn record_extra_inputs_in_ctx(
                 files_map.lock().unwrap().insert(file_path, hash.clone());
             }
         }
+    }
+}
+
+/// Disambiguator for a unit's file names in the shared `{cas}/artifacts` directory.
+///
+/// Names follow the result key, not the coarse action key: units with one coarse key
+/// can read different modules, and a shared name must never be rebound to other bytes
+/// while a concurrent build reads it. A tainted key names a single compilation, so its
+/// nonce is replaced with the staging dir that both the rmeta and rlib publish share.
+pub(crate) fn artifact_disambiguator(result_key: &str, staging_dir: Option<&Path>) -> String {
+    let key = match (result_key.split_once(":unhashable:"), staging_dir) {
+        (Some((base, _)), Some(dir)) => format!("{base}:unhashable:{}", dir.display()),
+        _ => result_key.to_string(),
+    };
+    if key.bytes().all(|b| b.is_ascii_hexdigit()) {
+        key
+    } else {
+        Sha256::digest(key.as_bytes())
     }
 }
 

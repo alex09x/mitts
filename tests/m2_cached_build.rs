@@ -560,7 +560,7 @@ fn test_action_key_incorporates_cargo_config_and_env() {
 }
 
 #[test]
-fn test_fresh_target_hashes_non_src_files() {
+fn test_unread_asset_files_keep_plan_time_keys() {
     let temp_ws = tempfile::tempdir().expect("ws tempdir");
     let ws_path = temp_ws.path();
 
@@ -585,17 +585,18 @@ fn test_fresh_target_hashes_non_src_files() {
 
     let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 2");
-    assert_ne!(
+    // Plan-time keys cover only what rustc is known to read before compiling. An asset that
+    // `include_bytes!` reads joins through the dep-info manifest (key_scope_test covers that).
+    assert_eq!(
         keys1, keys2,
-        "Adding a non-src asset file on a fresh target must change action keys"
+        "a file no unit reads must not change plan-time action keys"
     );
 
-    // Modifying that asset file must also change the action key
     fs::write(&asset_file, b"modified arbitrary bytes").expect("modify asset");
     let keys3 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 3");
-    assert_ne!(
+    assert_eq!(
         keys2, keys3,
-        "Modifying a non-src asset file must change action keys"
+        "editing a file no unit reads must not change plan-time action keys"
     );
 }
 
@@ -1386,7 +1387,7 @@ fn main() {
 }
 
 #[test]
-fn test_docs_directory_asset_hashes_on_fresh_target() {
+fn test_docs_directory_file_keeps_plan_time_keys() {
     let temp_ws = tempfile::tempdir().expect("temp dir");
     let ws_path = temp_ws.path();
 
@@ -1410,9 +1411,9 @@ fn test_docs_directory_asset_hashes_on_fresh_target() {
 
     let expl2 = RustAdapter::explain_plan(&opt).expect("explain plan 2");
     let keys2 = RustAdapter::derive_unit_action_keys(&opt, &expl2).expect("keys 2");
-    assert_ne!(
+    assert_eq!(
         keys1, keys2,
-        "Adding a doc file in docs/ on a fresh target must change action keys"
+        "a docs/ file rustc never reads must not change action keys"
     );
 }
 

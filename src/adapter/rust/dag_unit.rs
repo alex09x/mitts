@@ -255,6 +255,8 @@ pub(crate) fn execute_unit(
                 directives.out_dir.as_deref(),
             )
             .unwrap_or_else(|| super::dag_unit_publish::taint_unhashable_key(final_key));
+            let artifact_key =
+                super::dag_unit_publish::artifact_disambiguator(&early_rk, Some(&staging_dir));
             if let Some(rk_map) = ctx.resolved_keys {
                 rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
             }
@@ -263,7 +265,7 @@ pub(crate) fn execute_unit(
                 if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
                     &unit.target_name,
                     &meta_hash,
-                    final_key,
+                    &artifact_key,
                     "rmeta",
                 ) {
                     ctx.completed_artifacts

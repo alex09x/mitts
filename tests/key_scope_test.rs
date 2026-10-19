@@ -297,3 +297,61 @@ fn manifest_fields_that_reach_rustc_invalidate() {
     assert!(!cached_c);
     assert_eq!(out_c, "0.1.0|d1");
 }
+
+fn shared_rlibs(cache: &Path, crate_name: &str) -> Vec<(String, Vec<u8>)> {
+    let dir = cache.join("cas").join("artifacts");
+    let prefix = format!("lib{crate_name}-");
+    let mut out: Vec<(String, Vec<u8>)> = fs::read_dir(&dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .filter(|n| n.starts_with(&prefix) && n.ends_with(".rlib"))
+                .map(|n| {
+                    let bytes = fs::read(dir.join(&n)).unwrap();
+                    (n, bytes)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out
+}
+
+#[test]
+fn units_sharing_a_coarse_key_never_rebind_shared_artifact_names() {
+    let cache = TempDir::new().unwrap();
+    let base = [
+        ("Cargo.toml", MANIFEST),
+        ("src/lib.rs", "mod m;\npub fn v() -> u32 { m::v() }\n"),
+        ("src/m.rs", "pub fn v() -> u32 { 1 }\n"),
+        (
+            "src/main.rs",
+            "fn main() { print!(\"{}\", scope_app::v()); }\n",
+        ),
+    ];
+    let (_, out_a) = build_clone(cache.path(), &base);
+    assert_eq!(out_a, "1");
+    let after_a = shared_rlibs(cache.path(), "scope_app");
+    assert!(!after_a.is_empty());
+
+    // Same crate root and manifest, so the same coarse key; only a module differs.
+    let (cached_b, out_b) = build_clone(
+        cache.path(),
+        &with(&base, &[("src/m.rs", "pub fn v() -> u32 { 2 }\n")]),
+    );
+    assert!(!cached_b);
+    assert_eq!(out_b, "2");
+    let after_b = shared_rlibs(cache.path(), "scope_app");
+    for (name, bytes) in &after_a {
+        let now = after_b.iter().find(|(n, _)| n == name).map(|(_, b)| b);
+        assert!(
+            now == Some(bytes),
+            "{name} was rebound to other bytes; a concurrent build reading it would mix crates"
+        );
+    }
+    assert!(after_b.len() > after_a.len());
+
+    let (cached_c, out_c) = build_clone(cache.path(), &base);
+    assert!(cached_c);
+    assert_eq!(out_c, "1");
+}

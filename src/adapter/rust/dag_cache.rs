@@ -161,6 +161,12 @@ pub fn try_restore_from_cache_with_directives(
         Some(e) => e,
         None => return Ok(false),
     };
+    let res_key = effective_key
+        .split(":ws_leak:")
+        .next()
+        .unwrap_or(&effective_key)
+        .to_string();
+    let artifact_key = super::dag_unit_publish::artifact_disambiguator(&res_key, None);
 
     let needs_linkable_lib = !is_bin
         && (unit.for_host
@@ -291,9 +297,9 @@ pub fn try_restore_from_cache_with_directives(
                             )
                         });
                     let disambig = if is_meta_only {
-                        format!("{action_key}-m")
+                        format!("{artifact_key}-m")
                     } else {
-                        action_key.to_string()
+                        artifact_key.clone()
                     };
                     let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
                         &unit.target_name,
@@ -317,14 +323,7 @@ pub fn try_restore_from_cache_with_directives(
         }
 
         if let Some(rk_map) = ctx.resolved_keys {
-            let res_key = effective_key
-                .split(":ws_leak:")
-                .next()
-                .unwrap_or(&effective_key);
-            rk_map
-                .lock()
-                .unwrap()
-                .insert(unit.unit_id(), res_key.to_string());
+            rk_map.lock().unwrap().insert(unit.unit_id(), res_key);
         }
 
         let effective_dirs: Option<BuildScriptDirectives> = if let Some(d) = current_directives {
