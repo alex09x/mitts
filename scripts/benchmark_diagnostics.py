@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Mitts Build — Rust-first build and package tooling with shared artifact cache
 # Copyright (c) 2026 Alexander Panasenko
 #
@@ -6,26 +7,47 @@
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
+"""
+Compiler and Clippy diagnostic multiset extraction, parity verification,
+cached warning replay verification, and injected anomaly verification.
+"""
+
+from __future__ import annotations
+
 import collections
 import re
 from pathlib import Path
 
-ANSI_REGEX = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-DIAG_HEADER_RE = re.compile(r'^(warning|error)(?:\[([^\]]+)\])?:\s+(.*)$')
-SHORT_DIAG_RE = re.compile(r'^([^:\s]+):(\d+):(\d+):\s+(warning|error)(?:\[([^\]]+)\])?:\s+(.*)$')
-LOC_RE = re.compile(r'^\s+-->\s+([^:]+):(\d+):(\d+)')
-SUMMARY_RE = re.compile(r'^(warning|error):\s+.*(generated \d+ warning|could not compile|aborting due to|\d+ warnings? emitted)')
-MITTS_BANNER_RE = re.compile(r'^\[mitts::.*\]')
+ANSI_REGEX = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+DIAG_HEADER_RE = re.compile(r"^(warning|error)(?:\[([^\]]+)\])?:\s+(.*)$")
+SHORT_DIAG_RE = re.compile(r"^([^:\s]+):(\d+):(\d+):\s+(warning|error)(?:\[([^\]]+)\])?:\s+(.*)$")
+LOC_RE = re.compile(r"^\s+-->\s+([^:]+):(\d+):(\d+)")
+SUMMARY_RE = re.compile(
+    r"^(warning|error):\s+.*(generated \d+ warning|could not compile|aborting due to|\d+ warnings? emitted)"
+)
+MITTS_BANNER_RE = re.compile(r"^\[mitts::.*\]")
+
+
+def _rel_file(raw_file_str: str, ws_root: Path) -> str:
+    try:
+        raw_path = Path(raw_file_str)
+        if raw_path.is_absolute():
+            resolved_ws = ws_root.resolve()
+            resolved_p = raw_path.resolve()
+            if str(resolved_p).startswith(str(resolved_ws) + "/"):
+                return str(resolved_p.relative_to(resolved_ws))
+        return raw_file_str
+    except Exception:
+        return raw_file_str
 
 
 def extract_diagnostics_counter(stderr_text: str, ws_root: Path) -> collections.Counter:
     """
     Parses compiler and clippy output into a normalized multiset (Counter) of diagnostics:
     (level, code, rel_file, line, col, normalized_msg).
-    Excludes toolchain summary lines and normalizes paths relative to ws_root.
     """
-    counter = collections.Counter()
-    clean = ANSI_REGEX.sub('', stderr_text)
+    counter: collections.Counter = collections.Counter()
+    clean = ANSI_REGEX.sub("", stderr_text)
     lines = clean.splitlines()
 
     i = 0
@@ -38,25 +60,15 @@ def extract_diagnostics_counter(stderr_text: str, ws_root: Path) -> collections.
 
         m_short = SHORT_DIAG_RE.match(line)
         if m_short:
-            raw_file_str = m_short.group(1).strip()
+            rel_f = _rel_file(m_short.group(1).strip(), ws_root)
             line_num = int(m_short.group(2))
             col_num = int(m_short.group(3))
             level = m_short.group(4)
             code = (m_short.group(5) or "").strip()
             msg = m_short.group(6).strip()
-            if ': help:' in msg:
-                msg = msg.split(': help:', 1)[0].strip()
-
-            try:
-                raw_path = Path(raw_file_str)
-                if raw_path.is_absolute() and raw_path.is_relative_to(ws_root):
-                    rel_file = str(raw_path.relative_to(ws_root))
-                else:
-                    rel_file = raw_file_str
-            except Exception:
-                rel_file = raw_file_str
-
-            counter[(level, code, rel_file, line_num, col_num, msg)] += 1
+            if ": help:" in msg:
+                msg = msg.split(": help:", 1)[0].strip()
+            counter[(level, code, rel_f, line_num, col_num, msg)] += 1
             i += 1
             continue
 
@@ -65,12 +77,10 @@ def extract_diagnostics_counter(stderr_text: str, ws_root: Path) -> collections.
             level = m_diag.group(1)
             code = (m_diag.group(2) or "").strip()
             msg = m_diag.group(3).strip()
-
-            rel_file = ""
+            rel_f = ""
             line_num = 0
             col_num = 0
 
-            # Scan forward for the first '--> file:line:col' before the next diagnostic header
             j = i + 1
             while j < n and j < i + 12:
                 next_line = lines[j].strip()
@@ -78,24 +88,31 @@ def extract_diagnostics_counter(stderr_text: str, ws_root: Path) -> collections.
                     break
                 m_loc = LOC_RE.match(lines[j])
                 if m_loc:
-                    raw_file_str = m_loc.group(1).strip()
-                    try:
-                        raw_path = Path(raw_file_str)
-                        if raw_path.is_absolute() and raw_path.is_relative_to(ws_root):
-                            rel_file = str(raw_path.relative_to(ws_root))
-                        else:
-                            rel_file = raw_file_str
-                    except Exception:
-                        rel_file = raw_file_str
+                    rel_f = _rel_file(m_loc.group(1).strip(), ws_root)
                     line_num = int(m_loc.group(2))
                     col_num = int(m_loc.group(3))
                     break
                 j += 1
 
-            counter[(level, code, rel_file, line_num, col_num, msg)] += 1
+            counter[(level, code, rel_f, line_num, col_num, msg)] += 1
         i += 1
 
     return counter
+
+
+def verify_anomaly_present(stderr_text: str, ws_root: Path, anomaly_info: dict | None) -> bool:
+    """Checks that the injected anomaly (`unused_test_var` at expected file:line) is reported."""
+    if not anomaly_info:
+        return False
+    expected_file = anomaly_info.get("relative_file", "")
+    expected_line = anomaly_info.get("line")
+    expected_sym = anomaly_info.get("expected_symbol", "unused_test_var")
+    counter = extract_diagnostics_counter(stderr_text, ws_root)
+    for (_lvl, _code, rel_f, line_num, _col, msg) in counter:
+        if expected_sym in msg and (not expected_file or rel_f.endswith(expected_file)):
+            if expected_line is None or line_num == expected_line:
+                return True
+    return expected_sym in stderr_text
 
 
 def verify_diagnostics_match(cargo_stderr: str, mitts_stderr: str, ws_root: Path) -> tuple[bool, str]:
@@ -109,16 +126,18 @@ def verify_diagnostics_match(cargo_stderr: str, mitts_stderr: str, ws_root: Path
 
     diff_cargo = cargo_c - mitts_c
     diff_mitts = mitts_c - cargo_c
-    msg = (f"Diagnostics mismatch: Cargo has {sum(diff_cargo.values())} extra, "
-           f"Mitts has {sum(diff_mitts.values())} extra (Cargo total: {sum(cargo_c.values())}, Mitts total: {sum(mitts_c.values())})")
+    msg = (
+        f"Diagnostics mismatch: Cargo has {sum(diff_cargo.values())} extra, "
+        f"Mitts has {sum(diff_mitts.values())} extra "
+        f"(Cargo total: {sum(cargo_c.values())}, Mitts total: {sum(mitts_c.values())})"
+    )
     return False, msg
 
 
-def verify_warning_replay(initial_stderr: str, cached_stderr: str, ws_root: Path, is_anomaly_wt: bool) -> tuple[bool, str]:
-    """
-    Verifies that warnings were accurately replayed on a cache hit.
-    If is_anomaly_wt is True, asserts that diagnostics were NOT empty.
-    """
+def verify_warning_replay(
+    initial_stderr: str, cached_stderr: str, ws_root: Path, is_anomaly_wt: bool
+) -> tuple[bool, str]:
+    """Verifies that warnings were accurately replayed on a cache hit."""
     c_init = extract_diagnostics_counter(initial_stderr, ws_root)
     c_cached = extract_diagnostics_counter(cached_stderr, ws_root)
 
@@ -128,4 +147,7 @@ def verify_warning_replay(initial_stderr: str, cached_stderr: str, ws_root: Path
     if c_init == c_cached:
         return True, f"Replayed all {sum(c_init.values())} diagnostics exactly"
 
-    return False, f"Replay mismatch: initial had {sum(c_init.values())}, cached run had {sum(c_cached.values())}"
+    return (
+        False,
+        f"Replay mismatch: initial had {sum(c_init.values())}, cached run had {sum(c_cached.values())}",
+    )

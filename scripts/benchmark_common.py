@@ -1,97 +1,36 @@
 #!/usr/bin/env python3
+# Mitts Build — Rust-first build and package tooling with shared artifact cache
+# Copyright (c) 2026 Alexander Panasenko
+#
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """
-Common utilities for Mitts defensible benchmarking on Linux/x86_64.
-Provides process measurement (wall-clock, CPU, RSS via wait4),
-cache management, worktree helpers, and disk measurement.
+Cross-platform (Linux XFS/ext4 & macOS APFS) hardware/OS/filesystem provenance,
+disk usage measurement, and preflight quiet-rig verification for Mitts benchmarks.
 """
 
+from __future__ import annotations
+
+import hashlib
 import os
-import shutil
+import platform
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-BENCHMARK_RESULTS_DIR = Path(
-    os.environ.get("BENCHMARK_OUTPUT_DIR", REPO_ROOT / "benchmark-results")
-)
-
 CARGO_BIN_DIR = str(Path.home() / ".cargo" / "bin")
 if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
     os.environ["PATH"] = f"{CARGO_BIN_DIR}:{os.environ.get('PATH', '')}"
 
-MITTS_BIN = Path(
-    os.environ.get(
-        "MITTS_BIN",
-        shutil.which("mitts") or (Path.home() / "mitts/target/release/mitts")
-    )
-)
-SCCACHE_BIN = Path(shutil.which("sccache") or (Path.home() / ".cargo/bin/sccache"))
+WATCHED_COMPILER_BINS = {"rustc", "cargo", "sccache", "mitts", "cc1", "cc1plus", "rustdoc", "clippy-driver"}
 
 
-def measure_command(cmd, cwd, env=None):
-    """Executes a command and measures wall-clock, CPU time, and peak RSS using wait4."""
-    if env is None:
-        env = os.environ.copy()
-    else:
-        env = env.copy()
-    if CARGO_BIN_DIR not in env.get("PATH", ""):
-        env["PATH"] = f"{CARGO_BIN_DIR}:{env.get('PATH', '')}"
-
-    start = time.perf_counter()
-    p = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-    _, status, ru = os.wait4(p.pid, 0)
-    stdout, stderr = p.communicate()
-    elapsed = time.perf_counter() - start
-
-    exit_code = os.waitstatus_to_exitcode(status) if hasattr(os, "waitstatus_to_exitcode") else (status >> 8)
-    utime = ru.ru_utime
-    stime = ru.ru_stime
-    total_cpu = utime + stime
-    cpu_percent = (total_cpu / max(elapsed, 0.001)) * 100.0
-    max_rss_mb = ru.ru_maxrss / 1024.0
-
-    return {
-        "wall_sec": round(elapsed, 3),
-        "user_sec": round(utime, 3),
-        "sys_sec": round(stime, 3),
-        "total_cpu_sec": round(total_cpu, 3),
-        "cpu_percent": round(cpu_percent, 1),
-        "max_rss_mb": round(max_rss_mb, 1),
-        "exit_code": exit_code,
-        "stdout_tail": stdout[-300:] if stdout else "",
-        "stderr_tail": stderr[-300:] if stderr else ""
-    }
-
-
-def clean_sccache(sccache_dir):
-    """Stops sccache, empties its directory, restarts and zeroes stats."""
-    try:
-        subprocess.run([str(SCCACHE_BIN), "--stop-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
-    if sccache_dir.exists():
-        shutil.rmtree(sccache_dir, ignore_errors=True)
-    sccache_dir.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env["SCCACHE_DIR"] = str(sccache_dir)
-    try:
-        subprocess.run([str(SCCACHE_BIN), "--start-server"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run([str(SCCACHE_BIN), "--zero-stats"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
-
-
-def get_dir_size_mb(path):
-    """Recursively calculates directory size in MB."""
+def get_dir_size_mb(path: Path | str) -> float:
     p = Path(path)
     if not p.exists():
         return 0.0
@@ -107,10 +46,10 @@ def get_dir_size_mb(path):
     return round(total / (1024.0 * 1024.0), 2)
 
 
-def get_disk_usage_mb(paths):
-    """Calculates deduplicated physical disk usage in MB across paths using du -scm."""
+def get_disk_usage_mb(paths: list[Path] | Path) -> float:
+    """Calculates deduplicated disk usage in MiB across paths using `du -scm`."""
     if isinstance(paths, (str, Path)):
-        paths = [paths]
+        paths = [Path(paths)]
     valid_paths = [str(p) for p in paths if Path(p).exists()]
     if not valid_paths:
         return 0.0
@@ -122,226 +61,219 @@ def get_disk_usage_mb(paths):
         return round(sum(get_dir_size_mb(p) for p in valid_paths), 1)
 
 
-def get_binary_version(cwd, project_name, extra_dir=None):
-    """Validates parity by checking binary --version output."""
-    candidates = [
-        Path(cwd) / "target" / "mitts" / "debug" / project_name,
-        Path(cwd) / "target" / "mitts" / "debug" / "rg",
-        Path(cwd) / ".mitts" / "target" / "debug" / project_name,
-        Path(cwd) / "target" / "debug" / project_name,
-        Path(cwd) / ".mitts" / "target" / "debug" / "rg",
-        Path(cwd) / "target" / "debug" / "rg",
-        Path(os.environ.get("SHARED_TARGET_ROOT", Path.home() / "mitts-benchmarks/shared_cargo_target")) / project_name / "debug" / project_name,
-        Path(os.environ.get("SHARED_TARGET_ROOT", Path.home() / "mitts-benchmarks/shared_cargo_target")) / project_name / "debug" / "rg",
-    ]
-    if extra_dir:
-        candidates.extend([
-            Path(extra_dir) / "debug" / project_name,
-            Path(extra_dir) / "debug" / "rg",
-        ])
-    bin_path = next((c for c in candidates if c.is_file() and os.access(c, os.X_OK)), None)
-    if not bin_path:
-        for lib_dir in [
-            Path(cwd) / "target" / "mitts" / "debug" / "deps",
-            Path(cwd) / ".mitts" / "target" / "debug" / "deps",
-            Path(cwd) / "target" / "debug" / "deps",
-        ]:
-            if lib_dir.exists():
-                rlibs = list(lib_dir.glob(f"lib{project_name}*.rlib"))
-                if rlibs:
-                    return f"{project_name} rlib ({rlibs[0].name})"
-        return None
+def get_rig_info() -> dict:
+    """Queries hardware and OS metadata dynamically without hardcoded rig fallbacks."""
+    cpu_model = "unknown"
+    ram_gb = 0
+    os_name = f"{platform.system()} {platform.release()}"
+    logical_cpus = os.cpu_count() or 0
+
+    if sys.platform == "darwin":
+        try:
+            cpu_model = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
+        except Exception:
+            cpu_model = platform.machine() or "unknown"
+        try:
+            ram_gb = round(int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip()) / (1024**3))
+        except Exception:
+            ram_gb = 0
+        try:
+            pv = subprocess.check_output(["sw_vers", "-productVersion"], text=True).strip()
+            os_name = f"macOS {pv}"
+        except Exception:
+            pass
+    else:
+        try:
+            with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
+                for line in f:
+                    if "model name" in line:
+                        cpu_model = line.split(":", 1)[1].strip()
+                        break
+        except Exception:
+            cpu_model = platform.machine() or "unknown"
+
+        try:
+            with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                for line in f:
+                    if "MemTotal" in line:
+                        kb = int(line.split()[1])
+                        ram_gb = round(kb / (1024 * 1024))
+                        break
+        except Exception:
+            ram_gb = 0
+
+        try:
+            with open("/etc/os-release", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        os_name = line.split("=", 1)[1].strip().strip('"')
+                        break
+        except Exception:
+            pass
+
+    rustc_v = "unknown"
+    clippy_v = "unknown"
     try:
-        res = subprocess.run([str(bin_path), "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-        if res.returncode == 0:
-            return res.stdout.strip().split("\n")[0]
+        rustc_v = subprocess.check_output(["rustc", "-vV"], text=True).strip().splitlines()[0]
     except Exception:
         pass
-    return None
-
-
-def get_rig_info():
-    """Queries hardware and toolchain metadata dynamically without writing hostname."""
-    cpu_model = "AMD Ryzen 9 9950X 16-Core Processor"
     try:
-        with open("/proc/cpuinfo") as f:
-            for line in f:
-                if "model name" in line:
-                    cpu_model = line.split(":", 1)[1].strip()
-                    break
+        clippy_v = subprocess.check_output(["cargo", "clippy", "-V"], text=True).strip()
     except Exception:
         pass
-
-    ram_gb = 192
-    try:
-        with open("/proc/meminfo") as f:
-            for line in f:
-                if "MemTotal" in line:
-                    kb = int(line.split()[1])
-                    ram_gb = round(kb / (1024 * 1024))
-                    break
-    except Exception:
-        pass
-
-    os_name = "Linux"
-    try:
-        with open("/etc/os-release") as f:
-            for line in f:
-                if line.startswith("PRETTY_NAME="):
-                    os_name = line.split("=", 1)[1].strip().strip('"')
-                    break
-    except Exception:
-        pass
-
-    kernel = os.uname().release
-    rustc_v = subprocess.check_output(["rustc", "-vV"], text=True).strip().splitlines()[0]
-    clippy_v = subprocess.check_output(["cargo", "clippy", "-V"], text=True).strip()
 
     return {
         "cpu": cpu_model,
+        "logical_cpus": logical_cpus,
         "ram_gb": ram_gb,
         "os": os_name,
-        "kernel": kernel,
-        "rustc_version": rustc_v,
-        "clippy_version": clippy_v,
+        "kernel": os.uname().release,
+        "default_rustc_version": rustc_v,
+        "default_clippy_version": clippy_v,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
 
-def get_binary_provenance(mitts_bin: Path):
-    """Extracts SHA-256 and git commit information for the Mitts binary."""
-    import hashlib
-    import re
-    sha = ""
-    if mitts_bin.exists():
-        with open(mitts_bin, "rb") as f:
-            sha = hashlib.sha256(f.read()).hexdigest()
-
+def get_binary_provenance(mitts_bin: Path, sccache_bin: Path | None = None) -> dict:
+    """Extracts SHA-256 and version provenance for Mitts and sccache binaries."""
+    mitts_sha = hashlib.sha256(mitts_bin.read_bytes()).hexdigest() if mitts_bin.is_file() else ""
     mitts_v = ""
     try:
         mitts_v = subprocess.check_output([str(mitts_bin), "--version"], text=True).strip()
     except Exception:
         pass
 
-    git_c = ""
     m_git = re.search(r"\(([^)]+)\)", mitts_v)
-    if m_git:
-        git_c = m_git.group(1)
+    git_c = m_git.group(1) if m_git else ""
 
     sccache_v = ""
-    try:
-        sccache_v = subprocess.check_output([str(SCCACHE_BIN), "--version"], text=True).strip()
-    except Exception:
-        pass
+    sccache_sha = ""
+    if sccache_bin and Path(sccache_bin).is_file():
+        sccache_sha = hashlib.sha256(Path(sccache_bin).read_bytes()).hexdigest()
+        try:
+            sccache_v = subprocess.check_output([str(sccache_bin), "--version"], text=True).strip()
+        except Exception:
+            pass
 
     return {
-        "binary_sha256": sha,
+        "binary_sha256": mitts_sha,
         "mitts_version": mitts_v,
         "git_commit": git_c,
         "relative_path": mitts_bin.name,
         "sccache_version": sccache_v,
+        "sccache_sha256": sccache_sha,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
 
 def get_filesystem_type(path: Path) -> str:
-    """Returns the filesystem type (e.g. ext4, xfs, apfs) for the given path."""
+    """Returns the exact mounted filesystem type (e.g. ext4, xfs, apfs) or 'unknown'."""
     p = Path(path).resolve()
     while not p.exists() and p.parent != p:
         p = p.parent
+
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.check_output(["mount"], text=True, stderr=subprocess.DEVNULL)
+            best_mp = ""
+            best_fs = "unknown"
+            p_str = str(p)
+            for line in out.splitlines():
+                m = re.match(r"^.+?\s+on\s+(.+?)\s+\(([^,\s)]+)", line)
+                if not m:
+                    continue
+                mp, fstype = m.group(1), m.group(2).lower()
+                if p_str == mp or p_str.startswith(mp.rstrip("/") + "/") or mp == "/":
+                    if len(mp) >= len(best_mp):
+                        best_mp = mp
+                        best_fs = fstype
+            return best_fs
+        except Exception:
+            return "unknown"
+
     try:
         res = subprocess.check_output(
             ["findmnt", "-no", "FSTYPE", "--target", str(p)],
             text=True,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
         ).strip()
         if res:
-            return res
+            return res.splitlines()[0].strip()
     except Exception:
         pass
     try:
-        lines = subprocess.check_output(
-            ["df", "-T", str(p)],
-            text=True,
-            stderr=subprocess.DEVNULL
-        ).strip().splitlines()
+        lines = subprocess.check_output(["df", "-T", str(p)], text=True, stderr=subprocess.DEVNULL).strip().splitlines()
         if len(lines) > 1:
             parts = lines[1].split()
             if len(parts) > 1:
                 return parts[1]
     except Exception:
         pass
-    try:
-        res = subprocess.check_output(
-            ["stat", "-f", "-c", "%T", str(p)],
-            text=True,
-            stderr=subprocess.DEVNULL
-        ).strip()
-        if res:
-            return res
-    except Exception:
-        pass
     return "unknown"
 
 
-def check_quiet_rig(max_load: float = 1.0):
+def check_quiet_rig(max_load: float = 1.0) -> tuple[bool, float, list[dict]]:
     """
-    Checks loadavg and whether any foreign rustc, cargo, sccache, or mitts processes
-    are currently active.
-    Returns (is_quiet, loadavg_1m, foreign_processes).
+    Checks 1-minute loadavg and whether any compiler/build processes (`rustc`, `cargo`,
+    `sccache`, `mitts`, `cc1`, `cc1plus`, `rustdoc`, `clippy-driver`) are running.
+    Matches exact executable basename via `ps -eo pid=,comm=,args=` to avoid
+    false positives on paths containing 'mitts' or `.cargo/bin/prod-code`.
     """
     try:
         load_1m = os.getloadavg()[0]
     except Exception:
         load_1m = 0.0
 
-    foreign_procs = []
+    foreign_procs: list[dict] = []
     current_pid = os.getpid()
     try:
         out = subprocess.check_output(
-            ["pgrep", "-a", "rustc|cargo|sccache|mitts"],
+            ["ps", "-eo", "pid=,comm=,args="],
             text=True,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
         )
-        for line in out.strip().splitlines():
-            line = line.strip()
-            if not line:
+        for line in out.splitlines():
+            parts = line.strip().split(None, 2)
+            if len(parts) < 2:
                 continue
-            parts = line.split(None, 1)
-            pid = int(parts[0])
-            cmd = parts[1] if len(parts) > 1 else ""
-            if pid == current_pid or "run_t5_defensible_audit.py" in cmd or "pgrep" in cmd:
+            try:
+                pid = int(parts[0])
+            except ValueError:
                 continue
-            foreign_procs.append({"pid": pid, "cmd": cmd[:120]})
-    except subprocess.CalledProcessError:
-        foreign_procs = []
+            if pid == current_pid:
+                continue
+            comm_base = os.path.basename(parts[1]).lower()
+            args_str = parts[2] if len(parts) > 2 else parts[1]
+            if comm_base in WATCHED_COMPILER_BINS:
+                foreign_procs.append({"pid": pid, "bin": comm_base, "cmd": args_str[:120]})
     except Exception:
-        foreign_procs = []
+        pass
 
-    is_quiet = (load_1m < max_load) and (len(foreign_procs) == 0)
+    is_quiet = (load_1m <= max_load) and (len(foreign_procs) == 0)
     return is_quiet, round(load_1m, 2), foreign_procs
 
 
-def wait_for_quiet_rig(timeout_s: float = 300.0, max_load: float = 1.0, poll_interval_s: float = 2.0):
+def wait_for_quiet_rig(
+    timeout_s: float = 300.0,
+    max_load: float = 1.0,
+    poll_interval_s: float = 2.0,
+) -> tuple[float, list[dict], float]:
     """
-    Waits until loadavg_1m < max_load and no foreign rustc/cargo/sccache/mitts processes exist.
-    Returns (loadavg_1m, foreign_processes, preflight_waited_s).
-    Aborts with non-zero exit code if timeout expires and rig remains noisy.
+    Waits until loadavg_1m <= max_load and no compiler/build processes exist.
+    Raises RuntimeError if timeout expires so caller can record or abort cleanly.
     """
     start = time.perf_counter()
     while time.perf_counter() - start < timeout_s:
         is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
         if is_quiet:
-            waited_s = round(time.perf_counter() - start, 2)
-            return load_1m, foreign_procs, waited_s
+            return load_1m, foreign_procs, round(time.perf_counter() - start, 2)
         time.sleep(poll_interval_s)
+
     waited_s = round(time.perf_counter() - start, 2)
     is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
     if not is_quiet:
-        sys.exit(
-            f"ABORT: Preflight quiet rig timeout ({timeout_s}s) exceeded. "
-            f"loadavg_1m={load_1m} >= {max_load} or foreign_processes={foreign_procs}"
+        raise RuntimeError(
+            f"Preflight quiet rig timeout ({timeout_s}s) exceeded: "
+            f"loadavg_1m={load_1m} (max_load={max_load}), foreign_processes={foreign_procs}"
         )
     return load_1m, foreign_procs, waited_s
-
-

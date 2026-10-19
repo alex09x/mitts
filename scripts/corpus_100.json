@@ -1,0 +1,509 @@
+{
+  "schema_version": "mitts_corpus_100_v1",
+  "total_projects": 100,
+  "default_excluded_100gb_policy": [
+    "nushell"
+  ],
+  "projects": [
+    {
+      "name": "actix-web",
+      "slug": "actix/actix-web",
+      "url": "https://github.com/actix/actix-web.git"
+    },
+    {
+      "name": "ahash",
+      "slug": "tkaitchuck/aHash",
+      "url": "https://github.com/tkaitchuck/aHash.git"
+    },
+    {
+      "name": "aho-corasick",
+      "slug": "BurntSushi/aho-corasick",
+      "url": "https://github.com/BurntSushi/aho-corasick.git"
+    },
+    {
+      "name": "anyhow",
+      "slug": "dtolnay/anyhow",
+      "url": "https://github.com/dtolnay/anyhow.git"
+    },
+    {
+      "name": "argh",
+      "slug": "google/argh",
+      "url": "https://github.com/google/argh.git"
+    },
+    {
+      "name": "askama",
+      "slug": "rinja-rs/askama",
+      "url": "https://github.com/rinja-rs/askama.git"
+    },
+    {
+      "name": "axum",
+      "slug": "tokio-rs/axum",
+      "url": "https://github.com/tokio-rs/axum.git"
+    },
+    {
+      "name": "base64",
+      "slug": "marshallpierce/rust-base64",
+      "url": "https://github.com/marshallpierce/rust-base64.git"
+    },
+    {
+      "name": "bat",
+      "slug": "sharkdp/bat",
+      "url": "https://github.com/sharkdp/bat.git"
+    },
+    {
+      "name": "bitflags",
+      "slug": "bitflags/bitflags",
+      "url": "https://github.com/bitflags/bitflags.git"
+    },
+    {
+      "name": "blake3",
+      "slug": "BLAKE3-team/BLAKE3",
+      "url": "https://github.com/BLAKE3-team/BLAKE3.git"
+    },
+    {
+      "name": "bstr",
+      "slug": "BurntSushi/bstr",
+      "url": "https://github.com/BurntSushi/bstr.git"
+    },
+    {
+      "name": "bytes",
+      "slug": "tokio-rs/bytes",
+      "url": "https://github.com/tokio-rs/bytes.git"
+    },
+    {
+      "name": "camino",
+      "slug": "camino-rs/camino",
+      "url": "https://github.com/camino-rs/camino.git"
+    },
+    {
+      "name": "chrono",
+      "slug": "chronotope/chrono",
+      "url": "https://github.com/chronotope/chrono.git"
+    },
+    {
+      "name": "chumsky",
+      "slug": "zesterer/chumsky",
+      "url": "https://github.com/zesterer/chumsky.git"
+    },
+    {
+      "name": "clap",
+      "slug": "clap-rs/clap",
+      "url": "https://github.com/clap-rs/clap.git"
+    },
+    {
+      "name": "console",
+      "slug": "console-rs/console",
+      "url": "https://github.com/console-rs/console.git"
+    },
+    {
+      "name": "crc32fast",
+      "slug": "srijs/rust-crc32fast",
+      "url": "https://github.com/srijs/rust-crc32fast.git"
+    },
+    {
+      "name": "crossbeam",
+      "slug": "crossbeam-rs/crossbeam",
+      "url": "https://github.com/crossbeam-rs/crossbeam.git"
+    },
+    {
+      "name": "crossterm",
+      "slug": "crossterm-rs/crossterm",
+      "url": "https://github.com/crossterm-rs/crossterm.git"
+    },
+    {
+      "name": "curve25519-dalek",
+      "slug": "dalek-cryptography/curve25519-dalek",
+      "url": "https://github.com/dalek-cryptography/curve25519-dalek.git"
+    },
+    {
+      "name": "dashmap",
+      "slug": "xacrimon/dashmap",
+      "url": "https://github.com/xacrimon/dashmap.git"
+    },
+    {
+      "name": "delta",
+      "slug": "dandavison/delta",
+      "url": "https://github.com/dandavison/delta.git"
+    },
+    {
+      "name": "dialoguer",
+      "slug": "console-rs/dialoguer",
+      "url": "https://github.com/console-rs/dialoguer.git"
+    },
+    {
+      "name": "dust",
+      "slug": "bootandy/dust",
+      "url": "https://github.com/bootandy/dust.git"
+    },
+    {
+      "name": "eyre",
+      "slug": "eyre-rs/eyre",
+      "url": "https://github.com/eyre-rs/eyre.git"
+    },
+    {
+      "name": "eza",
+      "slug": "eza-community/eza",
+      "url": "https://github.com/eza-community/eza.git"
+    },
+    {
+      "name": "fd",
+      "slug": "sharkdp/fd",
+      "url": "https://github.com/sharkdp/fd.git"
+    },
+    {
+      "name": "flate2",
+      "slug": "rust-lang/flate2-rs",
+      "url": "https://github.com/rust-lang/flate2-rs.git"
+    },
+    {
+      "name": "flume",
+      "slug": "zesterer/flume",
+      "url": "https://github.com/zesterer/flume.git"
+    },
+    {
+      "name": "futures",
+      "slug": "rust-lang/futures-rs",
+      "url": "https://github.com/rust-lang/futures-rs.git"
+    },
+    {
+      "name": "glob",
+      "slug": "rust-lang/glob",
+      "url": "https://github.com/rust-lang/glob.git"
+    },
+    {
+      "name": "hashbrown",
+      "slug": "rust-lang/hashbrown",
+      "url": "https://github.com/rust-lang/hashbrown.git"
+    },
+    {
+      "name": "hex",
+      "slug": "KokaKiwi/rust-hex",
+      "url": "https://github.com/KokaKiwi/rust-hex.git"
+    },
+    {
+      "name": "hexyl",
+      "slug": "sharkdp/hexyl",
+      "url": "https://github.com/sharkdp/hexyl.git"
+    },
+    {
+      "name": "http",
+      "slug": "hyperium/http",
+      "url": "https://github.com/hyperium/http.git"
+    },
+    {
+      "name": "hyper",
+      "slug": "hyperium/hyper",
+      "url": "https://github.com/hyperium/hyper.git"
+    },
+    {
+      "name": "hyperfine",
+      "slug": "sharkdp/hyperfine",
+      "url": "https://github.com/sharkdp/hyperfine.git"
+    },
+    {
+      "name": "indexmap",
+      "slug": "indexmap-rs/indexmap",
+      "url": "https://github.com/indexmap-rs/indexmap.git"
+    },
+    {
+      "name": "indicatif",
+      "slug": "console-rs/indicatif",
+      "url": "https://github.com/console-rs/indicatif.git"
+    },
+    {
+      "name": "itertools",
+      "slug": "rust-itertools/itertools",
+      "url": "https://github.com/rust-itertools/itertools.git"
+    },
+    {
+      "name": "itoa",
+      "slug": "dtolnay/itoa",
+      "url": "https://github.com/dtolnay/itoa.git"
+    },
+    {
+      "name": "lsd",
+      "slug": "lsd-rs/lsd",
+      "url": "https://github.com/lsd-rs/lsd.git"
+    },
+    {
+      "name": "lz4_flex",
+      "slug": "PSeitz/lz4_flex",
+      "url": "https://github.com/PSeitz/lz4_flex.git"
+    },
+    {
+      "name": "memchr",
+      "slug": "BurntSushi/memchr",
+      "url": "https://github.com/BurntSushi/memchr.git"
+    },
+    {
+      "name": "miette",
+      "slug": "zkat/miette",
+      "url": "https://github.com/zkat/miette.git"
+    },
+    {
+      "name": "mio",
+      "slug": "tokio-rs/mio",
+      "url": "https://github.com/tokio-rs/mio.git"
+    },
+    {
+      "name": "nom",
+      "slug": "rust-bakery/nom",
+      "url": "https://github.com/rust-bakery/nom.git"
+    },
+    {
+      "name": "notify",
+      "slug": "notify-rs/notify",
+      "url": "https://github.com/notify-rs/notify.git"
+    },
+    {
+      "name": "num-traits",
+      "slug": "rust-num/num-traits",
+      "url": "https://github.com/rust-num/num-traits.git"
+    },
+    {
+      "name": "once_cell",
+      "slug": "matklad/once_cell",
+      "url": "https://github.com/matklad/once_cell.git"
+    },
+    {
+      "name": "owo-colors",
+      "slug": "jam1garner/owo-colors",
+      "url": "https://github.com/jam1garner/owo-colors.git"
+    },
+    {
+      "name": "parking_lot",
+      "slug": "Amanieu/parking_lot",
+      "url": "https://github.com/Amanieu/parking_lot.git"
+    },
+    {
+      "name": "pastel",
+      "slug": "sharkdp/pastel",
+      "url": "https://github.com/sharkdp/pastel.git"
+    },
+    {
+      "name": "pest",
+      "slug": "pest-parser/pest",
+      "url": "https://github.com/pest-parser/pest.git"
+    },
+    {
+      "name": "petgraph",
+      "slug": "petgraph/petgraph",
+      "url": "https://github.com/petgraph/petgraph.git"
+    },
+    {
+      "name": "proc-macro2",
+      "slug": "dtolnay/proc-macro2",
+      "url": "https://github.com/dtolnay/proc-macro2.git"
+    },
+    {
+      "name": "procs",
+      "slug": "dalance/procs",
+      "url": "https://github.com/dalance/procs.git"
+    },
+    {
+      "name": "prost",
+      "slug": "tokio-rs/prost",
+      "url": "https://github.com/tokio-rs/prost.git"
+    },
+    {
+      "name": "pulldown-cmark",
+      "slug": "pulldown-cmark/pulldown-cmark",
+      "url": "https://github.com/pulldown-cmark/pulldown-cmark.git"
+    },
+    {
+      "name": "quote",
+      "slug": "dtolnay/quote",
+      "url": "https://github.com/dtolnay/quote.git"
+    },
+    {
+      "name": "rand",
+      "slug": "rust-random/rand",
+      "url": "https://github.com/rust-random/rand.git"
+    },
+    {
+      "name": "ratatui",
+      "slug": "ratatui/ratatui",
+      "url": "https://github.com/ratatui/ratatui.git"
+    },
+    {
+      "name": "rayon",
+      "slug": "rayon-rs/rayon",
+      "url": "https://github.com/rayon-rs/rayon.git"
+    },
+    {
+      "name": "regex",
+      "slug": "rust-lang/regex",
+      "url": "https://github.com/rust-lang/regex.git"
+    },
+    {
+      "name": "reqwest",
+      "slug": "seanmonstar/reqwest",
+      "url": "https://github.com/seanmonstar/reqwest.git"
+    },
+    {
+      "name": "ring",
+      "slug": "briansmith/ring",
+      "url": "https://github.com/briansmith/ring.git"
+    },
+    {
+      "name": "ripgrep",
+      "slug": "BurntSushi/ripgrep",
+      "url": "https://github.com/BurntSushi/ripgrep.git"
+    },
+    {
+      "name": "roaring",
+      "slug": "RoaringBitmap/roaring-rs",
+      "url": "https://github.com/RoaringBitmap/roaring-rs.git"
+    },
+    {
+      "name": "rustls",
+      "slug": "rustls/rustls",
+      "url": "https://github.com/rustls/rustls.git"
+    },
+    {
+      "name": "ryu",
+      "slug": "dtolnay/ryu",
+      "url": "https://github.com/dtolnay/ryu.git"
+    },
+    {
+      "name": "semver",
+      "slug": "dtolnay/semver",
+      "url": "https://github.com/dtolnay/semver.git"
+    },
+    {
+      "name": "serde",
+      "slug": "serde-rs/serde",
+      "url": "https://github.com/serde-rs/serde.git"
+    },
+    {
+      "name": "serde_json",
+      "slug": "serde-rs/json",
+      "url": "https://github.com/serde-rs/json.git"
+    },
+    {
+      "name": "smallvec",
+      "slug": "servo/rust-smallvec",
+      "url": "https://github.com/servo/rust-smallvec.git"
+    },
+    {
+      "name": "smol",
+      "slug": "smol-rs/smol",
+      "url": "https://github.com/smol-rs/smol.git"
+    },
+    {
+      "name": "syn",
+      "slug": "dtolnay/syn",
+      "url": "https://github.com/dtolnay/syn.git"
+    },
+    {
+      "name": "syntect",
+      "slug": "trishume/syntect",
+      "url": "https://github.com/trishume/syntect.git"
+    },
+    {
+      "name": "tar",
+      "slug": "alexcrichton/tar-rs",
+      "url": "https://github.com/alexcrichton/tar-rs.git"
+    },
+    {
+      "name": "tealdeer",
+      "slug": "tealdeer-rs/tealdeer",
+      "url": "https://github.com/tealdeer-rs/tealdeer.git"
+    },
+    {
+      "name": "tempfile",
+      "slug": "Stebalien/tempfile",
+      "url": "https://github.com/Stebalien/tempfile.git"
+    },
+    {
+      "name": "tera",
+      "slug": "Keats/tera",
+      "url": "https://github.com/Keats/tera.git"
+    },
+    {
+      "name": "thiserror",
+      "slug": "dtolnay/thiserror",
+      "url": "https://github.com/dtolnay/thiserror.git"
+    },
+    {
+      "name": "tokei",
+      "slug": "XAMPPRocky/tokei",
+      "url": "https://github.com/XAMPPRocky/tokei.git"
+    },
+    {
+      "name": "tokio",
+      "slug": "tokio-rs/tokio",
+      "url": "https://github.com/tokio-rs/tokio.git"
+    },
+    {
+      "name": "toml",
+      "slug": "toml-rs/toml",
+      "url": "https://github.com/toml-rs/toml.git"
+    },
+    {
+      "name": "tonic",
+      "slug": "hyperium/tonic",
+      "url": "https://github.com/hyperium/tonic.git"
+    },
+    {
+      "name": "tower",
+      "slug": "tower-rs/tower",
+      "url": "https://github.com/tower-rs/tower.git"
+    },
+    {
+      "name": "tower-http",
+      "slug": "tower-rs/tower-http",
+      "url": "https://github.com/tower-rs/tower-http.git"
+    },
+    {
+      "name": "tracing",
+      "slug": "tokio-rs/tracing",
+      "url": "https://github.com/tokio-rs/tracing.git"
+    },
+    {
+      "name": "tungstenite",
+      "slug": "snapview/tungstenite-rs",
+      "url": "https://github.com/snapview/tungstenite-rs.git"
+    },
+    {
+      "name": "ureq",
+      "slug": "algesten/ureq",
+      "url": "https://github.com/algesten/ureq.git"
+    },
+    {
+      "name": "url",
+      "slug": "servo/rust-url",
+      "url": "https://github.com/servo/rust-url.git"
+    },
+    {
+      "name": "uuid",
+      "slug": "uuid-rs/uuid",
+      "url": "https://github.com/uuid-rs/uuid.git"
+    },
+    {
+      "name": "walkdir",
+      "slug": "BurntSushi/walkdir",
+      "url": "https://github.com/BurntSushi/walkdir.git"
+    },
+    {
+      "name": "which",
+      "slug": "harryfei/which-rs",
+      "url": "https://github.com/harryfei/which-rs.git"
+    },
+    {
+      "name": "winnow",
+      "slug": "winnow-rs/winnow",
+      "url": "https://github.com/winnow-rs/winnow.git"
+    },
+    {
+      "name": "xh",
+      "slug": "ducaale/xh",
+      "url": "https://github.com/ducaale/xh.git"
+    },
+    {
+      "name": "zoxide",
+      "slug": "ajeetdsouza/zoxide",
+      "url": "https://github.com/ajeetdsouza/zoxide.git"
+    }
+  ]
+}

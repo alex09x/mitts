@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+# Mitts Build — Rust-first build and package tooling with shared artifact cache
+# Copyright (c) 2026 Alexander Panasenko
+#
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+"""
+Execution logic for Stages T0 (Explain), T1 (Source Store Fetch & Cross-Clone CAS),
+T2 (S1 Cold Build, S2 FastBuildLock No-Op, L3b/L3c Mutation & Reuse), and
+T3 (S3 Git History Replay & S4 Branch Hopping) in `benchmark_project.py`.
+"""
+
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+import time
+from pathlib import Path
+
+from benchmark_common import check_quiet_rig, get_disk_usage_mb, wait_for_quiet_rig
+from benchmark_lib import (
+    TOOLS, assert_dir_empty_or_absent, chmod_rmtree, collect_sccache_stats_and_stop, copy_repo_tree,
+    git_checkout_clean, parse_explain_metrics, prepare_swarm_worktrees, purge_mitts_cas, reset_sccache,
+    run_timed, snapshot_dir, start_sccache_zero_stats, stop_sccache, tool_cmd, tool_disk_paths,
+)
+from benchmark_pressure import (
+    SystemPressureSampler, get_current_dirty_mb, get_device_bytes_written, get_df_used_mb, sync_and_wait_dirty,
+)
+from t5_parsers import compute_stats, parse_build_output, parse_mitts_stats, select_workspace_targets
+
+
+def measure_swarm_arm(
+    arm: str, subcmd: str, wts: list[tuple[int, Path, str]], wt_root: Path,
+    proj_work: Path, proj_cache: Path, ctx: dict, extra_args: list[str], max_load: float,
+) -> tuple[list[dict], float, float | None, float | None, float, dict | None, float, dict]:
+    dirty_start = sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
+    dev_id, bytes_before = get_device_bytes_written([wt_root, proj_cache])
+    df_before = get_df_used_mb([proj_work, proj_cache])
+    sampler = SystemPressureSampler(interval_s=0.5)
+    sampler.start()
+    cmd = tool_cmd(arm, subcmd, ctx, extra_args)
+    t0 = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=len(wts)) as ex:
+        runs = [f.result() for f in [ex.submit(run_timed, cmd, wt_d, ctx["envs"][arm]) for _, wt_d, _ in wts]]
+    wall_s = round(time.perf_counter() - t0, 3)
+    pressure = sampler.stop()
+    dirty_end = get_current_dirty_mb()
+    sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
+    _, bytes_after = get_device_bytes_written([wt_root, proj_cache])
+    df_after = get_df_used_mb([proj_work, proj_cache])
+    scc_st = collect_sccache_stats_and_stop(ctx["sccache_bin"], ctx["envs"]["cargo_sccache"]) if arm == "cargo_sccache" else None
+    _, load_after, _ = check_quiet_rig(max_load=max_load)
+    dev_mb = round((bytes_after - bytes_before) / (1024.0 * 1024.0), 1) if (bytes_before is not None and bytes_after is not None) else None
+    df_delta = round(df_after - df_before, 1) if (df_before is not None and df_after is not None) else None
+    d_mb = get_disk_usage_mb(tool_disk_paths(arm, [w[1] for w in wts], ctx))
+    p_info = {**pressure, "dirty_start_mb": dirty_start, "dirty_end_mb": dirty_end, "device": dev_id}
+    return runs, wall_s, dev_mb, df_delta, d_mb, scc_st, load_after, p_info
+
+
+def run_warmups_and_snapshot(
+    subcmd: str,
+    src_dir: Path,
+    wt_root: Path,
+    swarm_commits: list[str],
+    commit_locks: dict[str, Path] | None,
+    ctx: dict,
+    extra_args: list[str],
+    snap_cas: Path,
+    snap_scc: Path,
+    snap_sh: Path,
+) -> dict:
+    init_wts = prepare_swarm_worktrees(src_dir, wt_root, swarm_commits, commit_locks=commit_locks)
+    wt01 = init_wts[0][1]
+
+    purge_mitts_cas(ctx["mitts_cas"], keep_sources=True)
+    r_wm = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["mitts_cas"])
+    if r_wm["exit_code"] != 0:
+        raise RuntimeError(f"Mitts warmup ({subcmd}) failed on WT-01: {r_wm['stderr_tail']}")
+    r_fl = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["mitts_cas"])
+    fast_lock_noop = {"exit_code": r_fl["exit_code"], "wall_s": r_fl["wall_s"], **parse_build_output(r_fl["output"], "mitts_cas")}
+    snapshot_dir(ctx["mitts_cas"], snap_cas)
+
+    chmod_rmtree(wt01 / "target")
+    reset_sccache(ctx["sccache_bin"], ctx["sccache_dir"], ctx["envs"]["cargo_sccache"])
+    r_ws = run_timed(tool_cmd("cargo_sccache", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["cargo_sccache"])
+    stop_sccache(ctx["sccache_bin"], ctx["sccache_dir"])
+    if r_ws["exit_code"] != 0:
+        raise RuntimeError(f"sccache warmup ({subcmd}) failed on WT-01: {r_ws['stderr_tail']}")
+    snapshot_dir(ctx["sccache_dir"], snap_scc)
+
+    chmod_rmtree(ctx["shared_target"])
+    ctx["shared_target"].mkdir(parents=True, exist_ok=True)
+    r_wsh = run_timed(tool_cmd("cargo_shared", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["cargo_shared"])
+    if r_wsh["exit_code"] != 0:
+        raise RuntimeError(f"cargo_shared warmup ({subcmd}) failed on WT-01: {r_wsh['stderr_tail']}")
+    snapshot_dir(ctx["shared_target"], snap_sh)
+
+    chmod_rmtree(wt_root)
+    return fast_lock_noop
+
+
+def run_stages_t0_t1_t2_t3(
+    res: dict,
+    stages: set[str],
+    src_dir: Path,
+    proj_work: Path,
+    proj_cache: Path,
+    ctx: dict,
+    mitts_bin: Path,
+    sccache_bin: Path,
+    extra_args: list[str],
+    repeats: int,
+    max_disk_mb: float,
+    max_disk_gb: float,
+    max_load: float,
+    head_commit: str,
+    branch_hop_commit: str,
+    replay_commits: list[str],
+    commit_locks: dict[str, Path],
+) -> bool:
+    git_checkout_clean(src_dir, head_commit, commit_locks)
+
+    # ---------------- T0: Explain & 8-Phase Planner Timings vs Cargo Metadata ----------------
+    locked_flag = ["--locked"] if ctx.get("cargo_locked", True) else []
+    if "t0" in stages:
+        env_t0 = {**ctx["envs"]["mitts_cas"], "MITTS_TIMINGS": "1"}
+        exp_runs = [run_timed([str(mitts_bin), "explain", "--json"], cwd=src_dir, env=env_t0) for _ in range(repeats)]
+        ok_ms = [r["wall_s"] * 1000.0 for r in exp_runs if r["exit_code"] == 0]
+        c_meta_cmd = ["cargo", "metadata", "--offline", "--format-version", "1"] + locked_flag
+        c_meta_runs = [run_timed(c_meta_cmd, cwd=src_dir, env=ctx["envs"]["cargo_bare"]) for _ in range(repeats)]
+        c_ok_ms = [r["wall_s"] * 1000.0 for r in c_meta_runs if r["exit_code"] == 0]
+        m_st, c_st = compute_stats(ok_ms), compute_stats(c_ok_ms)
+        res["stages"]["t0_explain"] = {
+            "exit_code": exp_runs[0]["exit_code"],
+            "failures": sum(1 for r in exp_runs if r["exit_code"] != 0),
+            "explain_ms": m_st,
+            "cargo_metadata_ms": c_st,
+            "cargo_failures": sum(1 for r in c_meta_runs if r["exit_code"] != 0),
+            "speedup_vs_cargo_metadata": round(c_st["median"] / m_st["median"], 2) if (c_st["median"] and m_st["median"]) else None,
+            "stderr_tail": exp_runs[0]["stderr_tail"],
+            **parse_explain_metrics(exp_runs[0]["output"]),
+        }
+
+    # ---------------- T1: Source Store Fetch/Unpack (Mitts vs Cargo) & Cross-Clone Build (All 4 Arms) ----------------
+    if "t1" in stages:
+        purge_mitts_cas(ctx["mitts_cas"], keep_sources=False)
+        assert_dir_empty_or_absent(ctx["mitts_cas"])
+        r_m_cold = run_timed([str(mitts_bin), "fetch", "--cache-dir", str(ctx["mitts_cas"]), "--offline"], cwd=src_dir, env=ctx["envs"]["mitts_cas"])
+        m_warm = [run_timed([str(mitts_bin), "fetch", "--cache-dir", str(ctx["mitts_cas"]), "--offline"], cwd=src_dir, env=ctx["envs"]["mitts_cas"]) for _ in range(repeats)]
+        m_warm_ms = [r["wall_s"] * 1000.0 for r in m_warm if r["exit_code"] == 0]
+
+        reg_src = ctx["cargo_home"] / "registry" / "src"
+        chmod_rmtree(reg_src)
+        reg_src.mkdir(parents=True, exist_ok=True)
+        c_fetch_cmd = ["cargo", "fetch", "--offline"] + locked_flag
+        c_unpack_cmd = ["cargo", "metadata", "--offline", "--format-version", "1"] + locked_flag
+        r_c_cold_fetch = run_timed(c_fetch_cmd, cwd=src_dir, env=ctx["envs"]["cargo_bare"])
+        r_c_cold_unpack = run_timed(c_unpack_cmd, cwd=src_dir, env=ctx["envs"]["cargo_bare"])
+        c_warm = [run_timed(c_fetch_cmd, cwd=src_dir, env=ctx["envs"]["cargo_bare"]) for _ in range(repeats)]
+        c_warm_ms = [r["wall_s"] * 1000.0 for r in c_warm if r["exit_code"] == 0]
+
+        clone_b = proj_work / "repo_clone_b"
+        copy_repo_tree(src_dir, clone_b)
+        cross_arms: dict = {}
+        for arm in TOOLS:
+            stop_sccache(sccache_bin, ctx["sccache_dir"])
+            chmod_rmtree(src_dir / "target")
+            chmod_rmtree(clone_b / "target")
+            purge_mitts_cas(ctx["mitts_cas"], keep_sources=True)
+            chmod_rmtree(ctx["shared_target"])
+            ctx["shared_target"].mkdir(parents=True, exist_ok=True)
+            if arm == "cargo_sccache":
+                reset_sccache(sccache_bin, ctx["sccache_dir"], ctx["envs"]["cargo_sccache"])
+            cmd = tool_cmd(arm, "build", ctx, extra_args)
+            r_ca = run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+            r_cb = run_timed(cmd, cwd=clone_b, env=ctx["envs"][arm])
+            scc_cb = collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"]) if arm == "cargo_sccache" else None
+            p_cb = parse_build_output(r_cb["output"], arm)
+            cross_arms[arm] = {
+                "clone_a_exit_code": r_ca["exit_code"], "clone_a_s": r_ca["wall_s"] if r_ca["exit_code"] == 0 else None,
+                "clone_b_exit_code": r_cb["exit_code"], "clone_b_s": r_cb["wall_s"] if r_cb["exit_code"] == 0 else None,
+                "units_compiled_b": p_cb["units_compiled"], "units_total_b": p_cb["units_total"], "sccache_stats": scc_cb,
+            }
+            if arm == "mitts_cas":
+                st_cb = parse_mitts_stats(r_cb["output"])
+                cross_arms[arm]["mitts_stats_b"] = st_cb
+                cross_arms[arm]["full_cas_hit"] = r_ca["exit_code"] == 0 and r_cb["exit_code"] == 0 and st_cb["compiled"] == 0 and st_cb["cached"] > 0
+        chmod_rmtree(clone_b)
+        m_cc = cross_arms["mitts_cas"]
+        res["stages"]["t1_source_and_cross_clone"] = {
+            "cold_fetch_exit_code": r_m_cold["exit_code"],
+            "cold_fetch_ms": round(r_m_cold["wall_s"] * 1000.0, 2) if r_m_cold["exit_code"] == 0 else None,
+            "warm_fetch_ms": compute_stats(m_warm_ms),
+            "cargo_cold_fetch_ms": round(r_c_cold_fetch["wall_s"] * 1000.0, 2) if r_c_cold_fetch["exit_code"] == 0 else None,
+            "cargo_cold_unpack_ms": round(r_c_cold_unpack["wall_s"] * 1000.0, 2) if r_c_cold_unpack["exit_code"] == 0 else None,
+            "cargo_warm_fetch_ms": compute_stats(c_warm_ms),
+            "cross_clone_arms": cross_arms,
+            "cross_clone_a_exit_code": m_cc["clone_a_exit_code"],
+            "cross_clone_a_s": m_cc["clone_a_s"],
+            "cross_clone_b_exit_code": m_cc["clone_b_exit_code"],
+            "cross_clone_b_s": m_cc["clone_b_s"],
+            "cross_clone_b_stats": m_cc["mitts_stats_b"],
+            "cross_clone_full_cas_hit": m_cc["full_cas_hit"],
+        }
+
+    # Ensure both `<mitts_cas>/sources` and Cargo `registry/src` are populated symmetrically before T2
+    run_timed([str(mitts_bin), "fetch", "--cache-dir", str(ctx["mitts_cas"]), "--offline"], cwd=src_dir, env=ctx["envs"]["mitts_cas"])
+    run_timed(["cargo", "metadata", "--offline", "--format-version", "1"] + locked_flag, cwd=src_dir, env=ctx["envs"]["cargo_bare"])
+
+    # ---------------- T2: S1 Cold Build (n runs), S2 FastBuildLock No-Op, L3b/L3c Mutation ----------------
+    if "t2" in stages:
+        s1_cold, s2_noop, l3_mutation = {}, {}, {}
+        tgt_info = select_workspace_targets(src_dir, env=ctx["envs"]["cargo_bare"])
+        rs_file = tgt_info["lib_or_bin_src"]
+
+        for arm in ["mitts_cas", "cargo_bare", "cargo_bare_no_incr", "cargo_sccache", "cargo_shared"]:
+            cmd = tool_cmd("mitts_cas" if arm == "mitts_cas" else "cargo_bare", "build", ctx, extra_args)
+            cold_runs = []
+            last_scc_stats = None
+            for _ in range(repeats):
+                stop_sccache(sccache_bin, ctx["sccache_dir"])
+                wait_for_quiet_rig(timeout_s=120.0, max_load=max_load)
+                chmod_rmtree(src_dir / "target")
+                assert_dir_empty_or_absent(src_dir / "target")
+                purge_mitts_cas(ctx["mitts_cas"], keep_sources=True)
+                chmod_rmtree(ctx["shared_target"])
+                assert_dir_empty_or_absent(ctx["shared_target"])
+                ctx["shared_target"].mkdir(parents=True, exist_ok=True)
+                if arm == "cargo_sccache":
+                    reset_sccache(sccache_bin, ctx["sccache_dir"], ctx["envs"]["cargo_sccache"])
+
+                df_before = get_df_used_mb([proj_work, proj_cache])
+                r_c = run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+                df_after = get_df_used_mb([proj_work, proj_cache])
+                if arm == "cargo_sccache":
+                    last_scc_stats = collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"])
+
+                d_mb = get_disk_usage_mb(tool_disk_paths(arm, [src_dir], ctx))
+                if d_mb > max_disk_mb:
+                    res["status"] = f"SKIPPED_DISK_LIMIT_{max_disk_gb}GB"
+                    res["disk_mb_observed"] = d_mb
+                    return False
+
+                parsed_c = parse_build_output(r_c["output"], "mitts_cas" if arm == "mitts_cas" else "cargo_bare")
+                cold_runs.append({
+                    "wall_s": r_c["wall_s"],
+                    "exit_code": r_c["exit_code"],
+                    "max_rss_mb": r_c["max_rss_mb"],
+                    "disk_mb": d_mb,
+                    "df_used_delta_mb": round(df_after - df_before, 1) if (df_before is not None and df_after is not None) else None,
+                    "units_compiled": parsed_c["units_compiled"],
+                    "units_total": parsed_c["units_total"],
+                    "stderr_tail": r_c["stderr_tail"],
+                })
+
+            ok_cold = [r["wall_s"] for r in cold_runs if r["exit_code"] == 0]
+            s1_cold[arm] = {
+                "wall_stats_s": compute_stats(ok_cold),
+                "failures": sum(1 for r in cold_runs if r["exit_code"] != 0),
+                "max_rss_mb": max((r["max_rss_mb"] for r in cold_runs), default=0.0),
+                "disk_mb": cold_runs[-1]["disk_mb"] if cold_runs else 0.0,
+                "df_used_delta_mb": cold_runs[-1]["df_used_delta_mb"] if cold_runs else None,
+                "units_compiled": cold_runs[-1]["units_compiled"] if cold_runs else 0,
+                "units_total": cold_runs[-1]["units_total"] if cold_runs else 0,
+                "sccache_stats": last_scc_stats,
+                "stderr_tail": cold_runs[-1]["stderr_tail"] if cold_runs else "",
+            }
+
+            if arm in TOOLS and cold_runs and cold_runs[-1]["exit_code"] == 0:
+                if arm == "cargo_sccache":
+                    start_sccache_zero_stats(sccache_bin, ctx["envs"]["cargo_sccache"])
+                noop_runs = [run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm]) for _ in range(repeats)]
+                if arm == "cargo_sccache":
+                    collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"])
+                s2_noop[arm] = compute_stats([r["wall_s"] * 1000.0 for r in noop_runs if r["exit_code"] == 0])
+
+            if rs_file and rs_file.is_file() and cold_runs and cold_runs[-1]["exit_code"] == 0:
+                orig_txt = rs_file.read_text(encoding="utf-8", errors="replace")
+                try:
+                    if arm == "cargo_sccache":
+                        start_sccache_zero_stats(sccache_bin, ctx["envs"]["cargo_sccache"])
+                    rs_file.write_text(orig_txt + "\n#[allow(dead_code)]\npub const __MITTS_L3_MUTATION: u32 = 7;\n", encoding="utf-8")
+                    r_l3b = run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+                    wt2 = proj_work / "wt_l3c"
+                    copy_repo_tree(src_dir, wt2)
+                    r_l3c = run_timed(cmd, cwd=wt2, env=ctx["envs"][arm])
+                    scc_l3 = collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"]) if arm == "cargo_sccache" else None
+                    chmod_rmtree(wt2)
+                    l3_mutation[arm] = {
+                        "mutated_file": str(rs_file.relative_to(src_dir)),
+                        "l3b_exit_code": r_l3b["exit_code"],
+                        "l3b_in_wt_edit_s": r_l3b["wall_s"] if r_l3b["exit_code"] == 0 else None,
+                        "l3c_exit_code": r_l3c["exit_code"],
+                        "l3c_cross_wt_reuse_s": r_l3c["wall_s"] if r_l3c["exit_code"] == 0 else None,
+                        "sccache_stats": scc_l3,
+                    }
+                    if arm == "mitts_cas":
+                        l3_mutation[arm]["l3c_stats"] = parse_mitts_stats(r_l3c["output"])
+                finally:
+                    rs_file.write_text(orig_txt, encoding="utf-8")
+
+        res["stages"]["t2_cold_noop_and_l3"] = {
+            "s1_cold_build": s1_cold,
+            "s2_fast_noop_ms": s2_noop,
+            "l3_mutation_and_reuse": l3_mutation,
+        }
+
+    # ---------------- T3: S3 Git History Replay & S4 Branch Hopping (All 4 Arms) ----------------
+    if "t3" in stages:
+        s3_replay, s4_hop = {}, {}
+        for arm in TOOLS:
+            stop_sccache(sccache_bin, ctx["sccache_dir"])
+            wait_for_quiet_rig(timeout_s=120.0, max_load=max_load)
+            chmod_rmtree(src_dir / "target")
+            purge_mitts_cas(ctx["mitts_cas"], keep_sources=True)
+            chmod_rmtree(ctx["shared_target"])
+            ctx["shared_target"].mkdir(parents=True, exist_ok=True)
+            if arm == "cargo_sccache":
+                reset_sccache(sccache_bin, ctx["sccache_dir"], ctx["envs"]["cargo_sccache"])
+
+            cmd = tool_cmd(arm, "build", ctx, extra_args)
+            step_records = []
+            for c in replay_commits:
+                git_checkout_clean(src_dir, c, commit_locks)
+                r_st = run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+                step_records.append({
+                    "commit": c[:12],
+                    "wall_s": r_st["wall_s"],
+                    "exit_code": r_st["exit_code"],
+                    "max_rss_mb": r_st["max_rss_mb"],
+                    "stderr_tail": r_st["stderr_tail"],
+                })
+            scc_s3 = collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"]) if arm == "cargo_sccache" else None
+            ok_steps = [s["wall_s"] for s in step_records if s["exit_code"] == 0]
+            d_mb = get_disk_usage_mb(tool_disk_paths(arm, [src_dir], ctx))
+            s3_replay[arm] = {
+                "commits_count": len(replay_commits),
+                "failed_steps": sum(1 for s in step_records if s["exit_code"] != 0),
+                "cumulative_wall_s": round(sum(ok_steps), 3) if len(ok_steps) == len(replay_commits) else None,
+                "step_stats_s": compute_stats(ok_steps),
+                "peak_rss_mb": max((s["max_rss_mb"] for s in step_records), default=0.0),
+                "disk_mb": d_mb,
+                "sccache_stats": scc_s3,
+                "steps": step_records,
+            }
+
+            git_checkout_clean(src_dir, head_commit, commit_locks)
+            if arm == "cargo_sccache":
+                start_sccache_zero_stats(sccache_bin, ctx["envs"]["cargo_sccache"])
+            run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+
+            sw_b_times, rev_a_times, hop_failures = [], [], 0
+            for _ in range(repeats):
+                git_checkout_clean(src_dir, branch_hop_commit, commit_locks)
+                r_sw_b = run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+                git_checkout_clean(src_dir, head_commit, commit_locks)
+                r_rev_a = run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+                if r_sw_b["exit_code"] == 0:
+                    sw_b_times.append(r_sw_b["wall_s"])
+                else:
+                    hop_failures += 1
+                if r_rev_a["exit_code"] == 0:
+                    rev_a_times.append(r_rev_a["wall_s"])
+                else:
+                    hop_failures += 1
+            scc_s4 = collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"]) if arm == "cargo_sccache" else None
+            s4_hop[arm] = {
+                "switch_to_b_stats_s": compute_stats(sw_b_times),
+                "revert_to_a_stats_s": compute_stats(rev_a_times),
+                "failures": hop_failures,
+                "sccache_stats": scc_s4,
+            }
+        git_checkout_clean(src_dir, head_commit, commit_locks)
+        res["stages"]["t3_history_and_hopping"] = {"s3_git_history_replay": s3_replay, "s4_branch_hopping": s4_hop}
+
+    return True
