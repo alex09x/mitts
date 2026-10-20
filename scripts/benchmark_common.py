@@ -42,12 +42,37 @@ WATCHED_COMPILER_BINS = {"rustc", "cargo", "sccache", "mitts", "cc1", "cc1plus",
 # The 1-minute loadavg is recorded but does not gate: a 12-worktree swarm pushes it
 # far above any threshold and it then decays for minutes while the machine is idle.
 QUIET_MAX_BUSY = 0.25
+# Steady background CPU use measured before the run (None = not measured). A shared
+# rig with constant foreign load shifts every arm alike, so the gate only has to
+# catch load above that baseline; the baseline itself is recorded with the results.
+QUIET_BASELINE_BUSY: float | None = None
+QUIET_BASELINE_MARGIN = 0.10
 
 
-def set_quiet_policy(max_busy: float) -> None:
-    """Sets the CPU-busy threshold used by `check_quiet_rig` / `wait_for_quiet_rig`."""
-    global QUIET_MAX_BUSY
+def set_quiet_policy(max_busy: float, baseline_busy: float | None = None) -> None:
+    """Sets the CPU-busy threshold used by `check_quiet_rig` / `wait_for_quiet_rig`,
+    and the measured background level above which `max_busy` is relaxed."""
+    global QUIET_MAX_BUSY, QUIET_BASELINE_BUSY
     QUIET_MAX_BUSY = max_busy
+    QUIET_BASELINE_BUSY = baseline_busy
+
+
+def effective_max_busy(max_busy: float | None = None) -> float:
+    """The busy fraction the gate accepts: `max_busy`, or the measured baseline plus
+    a margin when the rig's steady background is above it."""
+    threshold = QUIET_MAX_BUSY if max_busy is None else max_busy
+    if QUIET_BASELINE_BUSY is not None:
+        threshold = max(threshold, QUIET_BASELINE_BUSY + QUIET_BASELINE_MARGIN)
+    return round(min(threshold, 0.95), 3)
+
+
+def measure_cpu_baseline(samples: int = 5, sample_s: float = 1.0) -> float | None:
+    """Median CPU-busy fraction over `samples` consecutive samples."""
+    values = [v for v in (cpu_busy_fraction(sample_s) for _ in range(samples)) if v is not None]
+    if not values:
+        return None
+    values.sort()
+    return values[len(values) // 2]
 
 
 def _cpu_times_linux() -> tuple[int, int] | None:
@@ -310,7 +335,7 @@ def check_quiet_rig(max_load: float = 1.0, max_busy: float | None = None) -> tup
     `.cargo/bin/prod-code`.
     Returns `(is_quiet, load_1m, foreign_procs, cpu_busy)`.
     """
-    threshold = QUIET_MAX_BUSY if max_busy is None else max_busy
+    threshold = effective_max_busy(max_busy)
     try:
         load_1m = os.getloadavg()[0]
     except Exception:
@@ -381,7 +406,7 @@ def wait_for_quiet_rig(
     if not is_quiet:
         raise RuntimeError(
             f"Preflight quiet rig timeout ({timeout_s}s) exceeded: "
-            f"cpu_busy={busy} (max_busy={QUIET_MAX_BUSY if max_busy is None else max_busy}), "
+            f"cpu_busy={busy} (max_busy={effective_max_busy(max_busy)}, baseline={QUIET_BASELINE_BUSY}), "
             f"loadavg_1m={load_1m} (max_load={max_load}), foreign_processes={foreign_procs}"
         )
     return load_1m, foreign_procs, waited_s, busy

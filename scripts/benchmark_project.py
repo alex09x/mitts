@@ -28,7 +28,7 @@ import time
 import traceback
 from pathlib import Path
 
-from benchmark_common import set_quiet_policy, wait_for_quiet_rig
+from benchmark_common import effective_max_busy, measure_cpu_baseline, set_quiet_policy, wait_for_quiet_rig
 from benchmark_lib import (
     TOOLS, chmod_rmtree, collect_provenance, copy_repo_tree, ensure_commit_history,
     evaluate_t4_invariants, evaluate_t5_invariants, git_checkout_clean, prepare_commit_locks_and_fetch,
@@ -333,7 +333,8 @@ def main() -> None:
     ap.add_argument("--worktrees", type=int, default=12, help="Number of concurrent git worktrees across 4 commits (default: 12)")
     ap.add_argument("--repeats", type=int, default=5, help="Iterations per series (default: 5)")
     ap.add_argument("--max-disk-gb", type=float, default=100.0, help="Skip/abort project if disk exceeds N GB (default: 100.0)")
-    ap.add_argument("--max-busy", type=float, default=0.25, help="Maximum fraction of CPU busy (1 s sample) before starting a benchmark arm (default: 0.25)")
+    ap.add_argument("--max-busy", type=float, default=0.25, help="Maximum fraction of CPU busy (1 s sample) before starting a benchmark arm; a measured steady background above it raises the threshold to baseline + 0.10 (default: 0.25)")
+    ap.add_argument("--baseline-samples", type=int, default=5, help="1 s CPU samples taken before the run to measure the rig's steady background load; 0 disables (default: 5)")
     ap.add_argument("--max-load", type=float, default=1.0, help="1m loadavg recorded with every run; gates only when the CPU sample is unavailable (default: 1.0)")
     ap.add_argument("--background-note", default="", help="Documented reason if --max-busy or --max-load is raised above the default")
     ap.add_argument("--stages", default="t0,t1,t2,t3,t4,t5", help="Comma-separated stages to execute (default: t0,t1,t2,t3,t4,t5)")
@@ -351,8 +352,10 @@ def main() -> None:
     excluded = {x.strip() for x in args.exclude.split(",") if x.strip()}
     script_list = [here / f for f in ("benchmark_project.py", "benchmark_lib.py", "benchmark_stages.py", "benchmark_common.py", "benchmark_pressure.py", "benchmark_worktree.py", "benchmark_diagnostics.py", "t5_parsers.py", "corpus_100.json")]
 
-    set_quiet_policy(args.max_busy)
-    cur_prov = collect_provenance(mitts_bin, sccache_bin, work_dir, cache_dir, script_list, args.max_load, args.background_note, max_busy=args.max_busy)
+    baseline_busy = measure_cpu_baseline(args.baseline_samples) if args.baseline_samples > 0 else None
+    set_quiet_policy(args.max_busy, baseline_busy)
+    print(f"[preflight] cpu busy baseline={baseline_busy} ({args.baseline_samples} x 1 s samples); quiet threshold={effective_max_busy()}", flush=True)
+    cur_prov = collect_provenance(mitts_bin, sccache_bin, work_dir, cache_dir, script_list, args.max_load, args.background_note, max_busy=args.max_busy, baseline_busy=baseline_busy, effective_busy=effective_max_busy())
     report: dict = {
         "schema_version": "mitts_unified_t0_t5_v3",
         "provenance": cur_prov,

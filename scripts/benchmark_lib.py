@@ -376,6 +376,8 @@ def collect_provenance(
     max_load: float,
     background_note: str,
     max_busy: float | None = None,
+    baseline_busy: float | None = None,
+    effective_busy: float | None = None,
 ) -> dict:
     prov = get_binary_provenance(mitts_bin, sccache_bin)
     prov["sccache_cache_size"] = DEFAULT_SCCACHE_SIZE
@@ -391,8 +393,10 @@ def collect_provenance(
     prov["rig"] = get_rig_info()
     prov["preflight_policy"] = {
         "max_busy_cpu_fraction": max_busy,
+        "cpu_busy_baseline": baseline_busy,
+        "effective_max_busy": effective_busy,
         "max_load": max_load,
-        "gate": "cpu busy fraction over a 1 s sample plus no foreign compiler processes; loadavg recorded, gates only without a CPU sample",
+        "gate": "cpu busy fraction over a 1 s sample must not exceed max(max_busy, baseline + 0.10) and no foreign compiler process may run; the baseline is the median of 1 s samples taken before the run; loadavg is recorded and gates only without a CPU sample",
         "background_note": background_note,
     }
     prov["storage"] = {
