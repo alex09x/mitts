@@ -375,6 +375,7 @@ def collect_provenance(
     script_files: list[Path],
     max_load: float,
     background_note: str,
+    max_busy: float | None = None,
 ) -> dict:
     prov = get_binary_provenance(mitts_bin, sccache_bin)
     prov["sccache_cache_size"] = DEFAULT_SCCACHE_SIZE
@@ -388,7 +389,12 @@ def collect_provenance(
     prov["ci_env_rationale"] = "CI=true disables interactive progress bars and prompts across both cargo and mitts."
     prov["scripts_provenance"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in script_files if p.exists()}
     prov["rig"] = get_rig_info()
-    prov["preflight_policy"] = {"max_load": max_load, "background_note": background_note}
+    prov["preflight_policy"] = {
+        "max_busy_cpu_fraction": max_busy,
+        "max_load": max_load,
+        "gate": "cpu busy fraction over a 1 s sample plus no foreign compiler processes; loadavg recorded, gates only without a CPU sample",
+        "background_note": background_note,
+    }
     prov["storage"] = {
         "worktree_filesystem": get_filesystem_type(work_dir),
         "cache_filesystem": get_filesystem_type(cache_dir),

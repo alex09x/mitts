@@ -28,7 +28,7 @@ import time
 import traceback
 from pathlib import Path
 
-from benchmark_common import wait_for_quiet_rig
+from benchmark_common import set_quiet_policy, wait_for_quiet_rig
 from benchmark_lib import (
     TOOLS, chmod_rmtree, collect_provenance, copy_repo_tree, ensure_commit_history,
     evaluate_t4_invariants, evaluate_t5_invariants, git_checkout_clean, prepare_commit_locks_and_fetch,
@@ -142,7 +142,7 @@ def benchmark_single_project(
                     shift = (run_idx - 1) % len(TOOLS)
                     for arm in TOOLS[shift:] + TOOLS[:shift]:
                         stop_sccache(sccache_bin, ctx["sccache_dir"])
-                        load_before, _, waited_s = wait_for_quiet_rig(timeout_s=300.0, max_load=max_load)
+                        load_before, _, waited_s, busy_before = wait_for_quiet_rig(timeout_s=300.0, max_load=max_load)
                         wts = prepare_swarm_worktrees(src_dir, wt_root, swarm_commits, commit_locks=commit_locks)
                         anomaly_meta = inject_anomaly(wts[-1][1], mode=mode, env=ctx["envs"]["cargo_bare"])
                         if arm == "mitts_cas":
@@ -170,11 +170,14 @@ def benchmark_single_project(
 
                         wt12_tail = "\n".join(runs[-1]["output"].strip().splitlines()[-30:]) if runs and runs[-1]["output"] else ""
                         chmod_rmtree(wt_root)
+                        failures_m = sum(1 for r in runs if r["exit_code"] != 0)
+                        print(f"  [t4/{mode}] run {run_idx}/{repeats} {arm}: swarm {wall_m} s, failures={failures_m}, waited {waited_s} s (cpu busy {busy_before}, load {load_before})", flush=True)
                         mode_series[arm].append({
-                            "iteration": run_idx, "total_wall_s": wall_m, "failures": sum(1 for r in runs if r["exit_code"] != 0),
+                            "iteration": run_idx, "total_wall_s": wall_m, "failures": failures_m,
                             "wt12_exit_code": runs[-1]["exit_code"] if runs else None, "wt12_stderr_tail": wt12_tail,
                             "disk_mb": d_mb, "df_used_delta_mb": df_delta, "device_mb_written": dev_mb, "sccache_stats": scc_st,
-                            "loadavg_before": load_before, "loadavg_after": load_after, "preflight_waited_s": waited_s, "pressure": p_info,
+                            "loadavg_before": load_before, "loadavg_after": load_after, "cpu_busy_before": busy_before,
+                            "preflight_waited_s": waited_s, "pressure": p_info,
                         })
 
                 for arm, runs in mode_series.items():
@@ -225,7 +228,7 @@ def benchmark_single_project(
                 shift = (run_idx - 1) % len(TOOLS)
                 for arm in TOOLS[shift:] + TOOLS[:shift]:
                     stop_sccache(sccache_bin, ctx["sccache_dir"])
-                    load_before, _, waited_s = wait_for_quiet_rig(timeout_s=300.0, max_load=max_load)
+                    load_before, _, waited_s, busy_before = wait_for_quiet_rig(timeout_s=300.0, max_load=max_load)
                     wts = prepare_swarm_worktrees(src_dir, wt_root, swarm_commits, commit_locks=commit_locks)
                     injected_rel = inject_test_defect(wts[-1][1], env=ctx["envs"]["cargo_bare"])
                     if arm == "mitts_cas":
@@ -253,13 +256,16 @@ def benchmark_single_project(
 
                     expected_min_exec = max(1, wt_bins[0] - unharnessed_cnt) if wt_bins[0] > 0 else 1
                     failed_tails = {f"wt-{idx:02d}": r["stderr_tail"] for (idx, _, _), r in zip(wts, wt_runs) if r["exit_code"] != 0}
+                    build_failures = sum(1 for r in wt_runs if r["exit_code"] != 0)
+                    print(f"  [t5] run {run_idx}/{repeats} {arm}: swarm {wall_sw} s, failures={build_failures}, binaries={wt_bins[0]}, waited {waited_s} s (cpu busy {busy_before}, load {load_before})", flush=True)
                     arm_series[arm].append({
                         "iteration": run_idx, "total_wall_s": wall_sw, "wt01_wall_s": wt_runs[0]["wall_s"],
-                        "build_failures": sum(1 for r in wt_runs if r["exit_code"] != 0), "wt_binary_counts": wt_bins,
+                        "build_failures": build_failures, "wt_binary_counts": wt_bins,
                         "failed_wt_stderr_tail": failed_tails,
                         "injected_defect_file": injected_rel, "disk_mb": d_mb, "df_used_delta_mb": df_delta,
                         "device_mb_written": dev_mb, "sccache_stats": scc_st, "pressure": p_info,
-                        "loadavg_before": load_before, "loadavg_after": load_after, "preflight_waited_s": waited_s,
+                        "loadavg_before": load_before, "loadavg_after": load_after, "cpu_busy_before": busy_before,
+                        "preflight_waited_s": waited_s,
                         "smoke_wt01_clean_ok": s_wt01["exit_code"] == 0 and p_wt01["failed"] == 0 and p_wt01["binaries_executed"] >= expected_min_exec,
                         "smoke_wt12_defect_caught": s_wt12["exit_code"] != 0 and p_wt12["defect_reported"],
                     })
@@ -327,8 +333,9 @@ def main() -> None:
     ap.add_argument("--worktrees", type=int, default=12, help="Number of concurrent git worktrees across 4 commits (default: 12)")
     ap.add_argument("--repeats", type=int, default=5, help="Iterations per series (default: 5)")
     ap.add_argument("--max-disk-gb", type=float, default=100.0, help="Skip/abort project if disk exceeds N GB (default: 100.0)")
-    ap.add_argument("--max-load", type=float, default=1.0, help="Maximum 1m loadavg before starting a benchmark arm (default: 1.0)")
-    ap.add_argument("--background-note", default="", help="Documented reason if --max-load > 1.0 is used")
+    ap.add_argument("--max-busy", type=float, default=0.25, help="Maximum fraction of CPU busy (1 s sample) before starting a benchmark arm (default: 0.25)")
+    ap.add_argument("--max-load", type=float, default=1.0, help="1m loadavg recorded with every run; gates only when the CPU sample is unavailable (default: 1.0)")
+    ap.add_argument("--background-note", default="", help="Documented reason if --max-busy or --max-load is raised above the default")
     ap.add_argument("--stages", default="t0,t1,t2,t3,t4,t5", help="Comma-separated stages to execute (default: t0,t1,t2,t3,t4,t5)")
     ap.add_argument("--exclude", default="nushell", help="Comma-separated project names to exclude (default: nushell)")
     ap.add_argument("--allow-binary-mismatch", action="store_true", help="Allow resuming an output file created with different binary/scripts/parameters")
@@ -344,11 +351,12 @@ def main() -> None:
     excluded = {x.strip() for x in args.exclude.split(",") if x.strip()}
     script_list = [here / f for f in ("benchmark_project.py", "benchmark_lib.py", "benchmark_stages.py", "benchmark_common.py", "benchmark_pressure.py", "benchmark_worktree.py", "benchmark_diagnostics.py", "t5_parsers.py", "corpus_100.json")]
 
-    cur_prov = collect_provenance(mitts_bin, sccache_bin, work_dir, cache_dir, script_list, args.max_load, args.background_note)
+    set_quiet_policy(args.max_busy)
+    cur_prov = collect_provenance(mitts_bin, sccache_bin, work_dir, cache_dir, script_list, args.max_load, args.background_note, max_busy=args.max_busy)
     report: dict = {
         "schema_version": "mitts_unified_t0_t5_v3",
         "provenance": cur_prov,
-        "parameters": {"commits": args.commits, "worktrees": args.worktrees, "repeats": args.repeats, "max_disk_gb": args.max_disk_gb, "max_load": args.max_load, "stages": sorted(stages), "excluded": sorted(excluded)},
+        "parameters": {"commits": args.commits, "worktrees": args.worktrees, "repeats": args.repeats, "max_disk_gb": args.max_disk_gb, "max_load": args.max_load, "max_busy": args.max_busy, "stages": sorted(stages), "excluded": sorted(excluded)},
         "projects": {},
     }
     if out_path.exists():

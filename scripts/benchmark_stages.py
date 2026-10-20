@@ -51,7 +51,7 @@ def measure_swarm_arm(
     _, bytes_after = get_device_bytes_written([wt_root, proj_cache])
     df_after = get_df_used_mb([proj_work, proj_cache])
     scc_st = collect_sccache_stats_and_stop(ctx["sccache_bin"], ctx["envs"]["cargo_sccache"]) if arm == "cargo_sccache" else None
-    _, load_after, _ = check_quiet_rig(max_load=max_load)
+    _, load_after, _, _ = check_quiet_rig(max_load=max_load)
     dev_mb = round((bytes_after - bytes_before) / (1024.0 * 1024.0), 1) if (bytes_before is not None and bytes_after is not None) else None
     df_delta = round(df_after - df_before, 1) if (df_before is not None and df_after is not None) else None
     d_mb = get_disk_usage_mb(tool_disk_paths(arm, [w[1] for w in wts], ctx))
@@ -143,6 +143,7 @@ def run_stages_t0_t1_t2_t3(
             "stderr_tail": exp_runs[0]["stderr_tail"],
             **parse_explain_metrics(exp_runs[0]["output"]),
         }
+        print(f"  [t0] explain {m_st['median']} ms vs cargo metadata {c_st['median']} ms (n={repeats})", flush=True)
 
     # ---------------- T1: Source Store Fetch/Unpack (Mitts vs Cargo) & Cross-Clone Build (All 4 Arms) ----------------
     if "t1" in stages:
@@ -205,6 +206,7 @@ def run_stages_t0_t1_t2_t3(
             "cross_clone_b_stats": m_cc["mitts_stats_b"],
             "cross_clone_full_cas_hit": m_cc["full_cas_hit"],
         }
+        print(f"  [t1] fetch cold {res['stages']['t1_source_and_cross_clone']['cold_fetch_ms']} ms; cross-clone full CAS hit={m_cc['full_cas_hit']}", flush=True)
 
     # Ensure both `<mitts_cas>/sources` and Cargo `registry/src` are populated symmetrically before T2
     run_timed([str(mitts_bin), "fetch", "--cache-dir", str(ctx["mitts_cas"]), "--offline"], cwd=src_dir, env=ctx["envs"]["mitts_cas"])
@@ -248,6 +250,7 @@ def run_stages_t0_t1_t2_t3(
                     return False
 
                 parsed_c = parse_build_output(r_c["output"], "mitts_cas" if arm == "mitts_cas" else "cargo_bare")
+                print(f"  [t2] rep {rep_idx + 1}/{repeats} {arm}: cold build {r_c['wall_s']} s, exit {r_c['exit_code']}", flush=True)
                 cold_by_arm[arm].append({
                     "wall_s": r_c["wall_s"], "exit_code": r_c["exit_code"], "max_rss_mb": r_c["max_rss_mb"],
                     "disk_mb": d_mb, "df_used_delta_mb": round(df_after - df_before, 1) if (df_before is not None and df_after is not None) else None,
@@ -317,6 +320,7 @@ def run_stages_t0_t1_t2_t3(
                 reset_sccache(sccache_bin, ctx["sccache_dir"], ctx["envs"]["cargo_sccache"])
 
             cmd = tool_cmd(arm, "build", ctx, extra_args)
+            print(f"  [t3] {arm}: replaying {len(replay_commits)} commits, then branch hop", flush=True)
             step_records = []
             for c in replay_commits:
                 git_checkout_clean(src_dir, c, commit_locks)

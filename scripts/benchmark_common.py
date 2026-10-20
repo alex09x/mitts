@@ -38,6 +38,69 @@ if CARGO_BIN_DIR not in os.environ.get("PATH", ""):
 
 WATCHED_COMPILER_BINS = {"rustc", "cargo", "sccache", "mitts", "cc1", "cc1plus", "rustdoc", "clippy-driver"}
 
+# Fraction of CPU time that may be busy (1 s sample) for the rig to count as quiet.
+# The 1-minute loadavg is recorded but does not gate: a 12-worktree swarm pushes it
+# far above any threshold and it then decays for minutes while the machine is idle.
+QUIET_MAX_BUSY = 0.25
+
+
+def set_quiet_policy(max_busy: float) -> None:
+    """Sets the CPU-busy threshold used by `check_quiet_rig` / `wait_for_quiet_rig`."""
+    global QUIET_MAX_BUSY
+    QUIET_MAX_BUSY = max_busy
+
+
+def _cpu_times_linux() -> tuple[int, int] | None:
+    try:
+        with open("/proc/stat", encoding="utf-8") as fh:
+            fields = fh.readline().split()
+    except OSError:
+        return None
+    if len(fields) < 5 or fields[0] != "cpu":
+        return None
+    values = [int(x) for x in fields[1:]]
+    idle = values[3] + (values[4] if len(values) > 4 else 0)  # idle + iowait
+    return sum(values), idle
+
+
+def cpu_busy_fraction(sample_s: float = 1.0) -> float | None:
+    """Fraction of all CPU time that was busy over the last `sample_s` seconds (0..1).
+
+    Linux reads /proc/stat twice; macOS asks `top` for two samples. `None` when the
+    platform offers neither, in which case the loadavg threshold gates instead.
+    """
+    if sys.platform.startswith("linux"):
+        first = _cpu_times_linux()
+        if first is None:
+            return None
+        time.sleep(sample_s)
+        second = _cpu_times_linux()
+        if second is None:
+            return None
+        total, idle = second[0] - first[0], second[1] - first[1]
+        return round(1.0 - idle / total, 3) if total > 0 else None
+    if sys.platform == "darwin":
+        # `iostat -c 2 -w N` prints two samples; the second covers the last N seconds.
+        # Its last line ends with `us sy id` followed by the three load averages.
+        try:
+            out = subprocess.check_output(
+                ["iostat", "-c", "2", "-w", str(max(1, int(round(sample_s))))],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            return None
+        data_lines = [ln for ln in out.splitlines() if ln.strip() and re.match(r"\s*[\d.]", ln)]
+        if not data_lines:
+            return None
+        parts = data_lines[-1].split()
+        try:
+            idle = float(parts[-4])
+        except (IndexError, ValueError):
+            return None
+        return round(1.0 - idle / 100.0, 3)
+    return None
+
 
 def get_dir_size_mb(path: Path | str) -> float:
     p = Path(path)
@@ -236,17 +299,23 @@ def get_filesystem_type(path: Path) -> str:
     return "unknown"
 
 
-def check_quiet_rig(max_load: float = 1.0) -> tuple[bool, float, list[dict]]:
+def check_quiet_rig(max_load: float = 1.0, max_busy: float | None = None) -> tuple[bool, float, list[dict], float | None]:
     """
-    Checks 1-minute loadavg and whether any compiler/build processes (`rustc`, `cargo`,
-    `sccache`, `mitts`, `cc1`, `cc1plus`, `rustdoc`, `clippy-driver`) are running.
-    Matches exact executable basename via `ps -eo pid=,comm=,args=` to avoid
-    false positives on paths containing 'mitts' or `.cargo/bin/prod-code`.
+    Decides whether the rig is quiet: no compiler/build processes (`rustc`, `cargo`,
+    `sccache`, `mitts`, `cc1`, `cc1plus`, `rustdoc`, `clippy-driver`) are running and
+    the CPU was at most `max_busy` busy over a 1 s sample (`QUIET_MAX_BUSY` when
+    `None`). The 1-minute loadavg is returned for the record and gates only when the
+    CPU sample is unavailable. Processes are matched by exact executable basename via
+    `ps -eo pid=,comm=,args=` to avoid false positives on paths containing 'mitts' or
+    `.cargo/bin/prod-code`.
+    Returns `(is_quiet, load_1m, foreign_procs, cpu_busy)`.
     """
+    threshold = QUIET_MAX_BUSY if max_busy is None else max_busy
     try:
         load_1m = os.getloadavg()[0]
     except Exception:
         load_1m = 0.0
+    busy = cpu_busy_fraction(1.0)
 
     foreign_procs: list[dict] = []
     current_pid = os.getpid()
@@ -266,38 +335,46 @@ def check_quiet_rig(max_load: float = 1.0) -> tuple[bool, float, list[dict]]:
                 continue
             if pid == current_pid:
                 continue
-            comm_base = os.path.basename(parts[1]).lower()
             args_str = parts[2] if len(parts) > 2 else parts[1]
-            if comm_base in WATCHED_COMPILER_BINS:
-                foreign_procs.append({"pid": pid, "bin": comm_base, "cmd": args_str[:120]})
+            # macOS truncates `comm` to 16 characters (a path becomes `/Users/alex/.`), so the
+            # executable name comes from the first token of `args`; `comm` stays as a fallback.
+            exe_base = os.path.basename(args_str.split(None, 1)[0]).lower()
+            comm_base = os.path.basename(parts[1]).lower()
+            if exe_base in WATCHED_COMPILER_BINS or comm_base in WATCHED_COMPILER_BINS:
+                foreign_procs.append({"pid": pid, "bin": exe_base if exe_base in WATCHED_COMPILER_BINS else comm_base, "cmd": args_str[:120]})
     except Exception:
         pass
 
-    is_quiet = (load_1m <= max_load) and (len(foreign_procs) == 0)
-    return is_quiet, round(load_1m, 2), foreign_procs
+    cpu_quiet = (busy <= threshold) if busy is not None else (load_1m <= max_load)
+    is_quiet = cpu_quiet and (len(foreign_procs) == 0)
+    return is_quiet, round(load_1m, 2), foreign_procs, busy
 
 
 def wait_for_quiet_rig(
     timeout_s: float = 300.0,
     max_load: float = 1.0,
     poll_interval_s: float = 2.0,
-) -> tuple[float, list[dict], float]:
+    max_busy: float | None = None,
+) -> tuple[float, list[dict], float, float | None]:
     """
-    Waits until loadavg_1m <= max_load and no compiler/build processes exist.
+    Waits until the CPU is at most `max_busy` busy (1 s sample) and no compiler/build
+    processes exist; `max_load` gates only when the CPU sample is unavailable.
     Raises RuntimeError if timeout expires so caller can record or abort cleanly.
+    Returns `(loadavg_1m, foreign_procs, waited_s, cpu_busy)`.
     """
     start = time.perf_counter()
     while time.perf_counter() - start < timeout_s:
-        is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
+        is_quiet, load_1m, foreign_procs, busy = check_quiet_rig(max_load=max_load, max_busy=max_busy)
         if is_quiet:
-            return load_1m, foreign_procs, round(time.perf_counter() - start, 2)
+            return load_1m, foreign_procs, round(time.perf_counter() - start, 2), busy
         time.sleep(poll_interval_s)
 
     waited_s = round(time.perf_counter() - start, 2)
-    is_quiet, load_1m, foreign_procs = check_quiet_rig(max_load=max_load)
+    is_quiet, load_1m, foreign_procs, busy = check_quiet_rig(max_load=max_load, max_busy=max_busy)
     if not is_quiet:
         raise RuntimeError(
             f"Preflight quiet rig timeout ({timeout_s}s) exceeded: "
+            f"cpu_busy={busy} (max_busy={QUIET_MAX_BUSY if max_busy is None else max_busy}), "
             f"loadavg_1m={load_1m} (max_load={max_load}), foreign_processes={foreign_procs}"
         )
-    return load_1m, foreign_procs, waited_s
+    return load_1m, foreign_procs, waited_s, busy
