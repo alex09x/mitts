@@ -18,6 +18,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_cli_check_and_clippy_execution() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let manifest = tmp.path().join("Cargo.toml");
     let src = tmp.path().join("src");
@@ -63,12 +64,14 @@ fn test_m8_cli_check_and_clippy_execution() {
 
     // 3. Error cases on missing manifest
     let bad_check = CheckArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(tmp.path().join("missing/Cargo.toml")),
         ..Default::default()
     };
     assert_ne!(handle_check(&bad_check), 0);
 
     let bad_clippy = ClippyArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(tmp.path().join("missing/Cargo.toml")),
         ..Default::default()
     };
@@ -77,6 +80,7 @@ fn test_m8_cli_check_and_clippy_execution() {
 
 #[test]
 fn test_m8_cli_test_execution_and_norun() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let manifest = tmp.path().join("Cargo.toml");
     let src = tmp.path().join("src");
@@ -121,6 +125,7 @@ fn test_m8_cli_test_execution_and_norun() {
 
     // 3. handle_test error case
     let bad_test = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(tmp.path().join("missing/Cargo.toml")),
         ..Default::default()
     };
@@ -129,6 +134,7 @@ fn test_m8_cli_test_execution_and_norun() {
 
 #[test]
 fn test_m8_planner_cdylib_and_target_flags() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let manifest = tmp.path().join("Cargo.toml");
     let src = tmp.path().join("src");
@@ -152,6 +158,7 @@ crate-type = ["cdylib"]
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         extra_args: vec![
             "--target".to_string(),

@@ -24,6 +24,8 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     let old_ch = std::env::var_os("CARGO_HOME");
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     let checkouts = home.join(".cargo").join("git").join("checkouts");
     let repo_dir = checkouts.join("my-repo-1234");
@@ -100,6 +102,7 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
     let empty_home = temp.path().join("empty_home");
     fs::create_dir_all(&empty_home).unwrap();
     std::env::set_var("HOME", &empty_home);
+    std::env::remove_var("XDG_CACHE_HOME");
     assert!(find_crate_source_dir(
         "any_crate",
         "1.0.0",
@@ -110,6 +113,10 @@ fn test_m8_source_lookup_git_and_cargo_flow() {
 
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
@@ -125,6 +132,8 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
     let old_ch = std::env::var_os("CARGO_HOME");
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     let checkouts = home.join(".cargo/git/checkouts");
     fs::create_dir_all(&checkouts).unwrap();
@@ -173,6 +182,10 @@ fn test_t0_g1_git_checkouts_ignores_non_dir_files_and_verifies_package_name_vers
 
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);

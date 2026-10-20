@@ -44,6 +44,7 @@ fn test_m8_resolve_llvm_tool_fallbacks() {
 
 #[test]
 fn test_m8_coverage_no_test_binaries_found() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let target = temp.path().join("target");
     let manifest = temp.path().join("Cargo.toml");
@@ -55,6 +56,7 @@ fn test_m8_coverage_no_test_binaries_found() {
     .unwrap();
 
     let args = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target),
         ..Default::default()
@@ -68,6 +70,7 @@ fn test_m8_coverage_no_test_binaries_found() {
 
 #[test]
 fn test_m8_coverage_threshold_and_report_parsing() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let target = temp.path().join("target");
     let manifest = temp.path().join("Cargo.toml");
@@ -96,6 +99,7 @@ fn test_m8_coverage_threshold_and_report_parsing() {
     }
 
     let args = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target),
         fail_under_lines: Some(99.9), // Extremely high threshold

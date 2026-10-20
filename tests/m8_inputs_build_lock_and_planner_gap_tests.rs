@@ -188,6 +188,7 @@ fn test_m8_build_lock_sha_mtime_tolerance() {
 
 #[test]
 fn test_m8_planner_explain_and_dep_info() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_dir = TempDir::new().expect("tempdir");
     let manifest = temp_dir.path().join("Cargo.toml");
     let src_dir = temp_dir.path().join("src");
@@ -207,6 +208,7 @@ crate-type = ["cdylib", "staticlib"]
     fs::write(src_dir.join("lib.rs"), "pub extern \"C\" fn entry() {}\n").unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         target_dir: Some(temp_dir.path().join("target")),
         ..Default::default()

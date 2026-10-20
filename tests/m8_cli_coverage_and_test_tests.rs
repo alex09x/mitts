@@ -26,6 +26,7 @@ fn test_m8_resolve_llvm_tool_and_fallbacks() {
 
 #[test]
 fn test_m8_handle_test_no_run_and_filter() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let pkg_dir = tmp.path().join("test-pkg");
     fs::create_dir_all(pkg_dir.join("src")).unwrap();
@@ -71,6 +72,7 @@ fn test_m8_handle_test_no_run_and_filter() {
 
     // 3. Invalid manifest error
     let invalid_args = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(tmp.path().join("NonExistent.toml")),
         ..Default::default()
     };

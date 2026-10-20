@@ -15,6 +15,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_coverage_formats_and_thresholds() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -56,6 +57,7 @@ mod tests {
     // 1. Coverage with HTML and LCOV output
     let html_out = root.join("html_report");
     let args_html = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         html: true,
         output_dir: Some(html_out.clone()),
@@ -67,6 +69,7 @@ mod tests {
 
     let lcov_out = root.join("lcov_report");
     let args_lcov = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         lcov: true,
         output_dir: Some(lcov_out.clone()),
@@ -79,6 +82,7 @@ mod tests {
 
     // 2. Coverage with JSON format and pass threshold
     let args_json = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         json: true,
         fail_under_lines: Some(0.0),
@@ -90,6 +94,7 @@ mod tests {
 
     // 3. Coverage with failing threshold (100.1%)
     let args_fail_threshold = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         summary_only: true,
         fail_under_lines: Some(100.1),
@@ -102,6 +107,7 @@ mod tests {
 
 #[test]
 fn test_m8_coverage_and_test_failure_paths() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -136,6 +142,7 @@ mod tests {
 
     // Test execution failure in handle_coverage
     let args_cov = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         no_cache: true,
         ..Default::default()
@@ -145,6 +152,7 @@ mod tests {
 
     // Test execution failure in handle_test
     let args_test = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         no_cache: true,
         ..Default::default()
@@ -155,6 +163,7 @@ mod tests {
 
 #[test]
 fn test_m8_test_empty_binaries_and_release_mode() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -183,6 +192,7 @@ pub fn answer() -> i32 { 42 }
 
     // Testing crate with no tests in release mode
     let args = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         release: true,
         no_cache: true,

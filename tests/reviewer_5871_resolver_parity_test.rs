@@ -265,6 +265,7 @@ fn test_effective_resolver_explicit_resolver() {
 
 #[test]
 fn test_explain_plan_serde_like_layout() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = tempfile::tempdir().unwrap();
     let root_dir = temp.path();
 
@@ -356,6 +357,7 @@ fn test_explain_plan_serde_like_layout() {
 
     // Verify explain_plan succeeds on this layout and unifies features of shared_dep across host/target under resolver 1
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root_dir.join("Cargo.toml")),
         ..Default::default()
     };

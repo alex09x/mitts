@@ -109,6 +109,7 @@ fn test_m8_discover_package_env_macros_walk_and_skip() {
 
 #[test]
 fn test_m8_dag_unit_build_script_failure_propagation() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let manifest = tmp.path().join("Cargo.toml");
     let src = tmp.path().join("src");
@@ -129,6 +130,7 @@ fn test_m8_dag_unit_build_script_failure_propagation() {
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         ..Default::default()
     };

@@ -138,6 +138,7 @@ fn test_b1_gc_prunes_cas_artifacts_and_preserves_during_active_locks() {
 
 #[test]
 fn test_b2_clippy_driver_and_user_flags_scoped_to_primary_units() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("ws");
     let ext_dep = tmp.path().join("ext_dep");
@@ -224,6 +225,7 @@ fn test_b2_clippy_driver_and_user_flags_scoped_to_primary_units() {
     assert!(RustAdapter::build(&clippy_opt).unwrap().1.success);
     assert!(
         !RustAdapter::build(&RustBuildOptions {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             package: Some("util".to_string()),
             ..clippy_opt
         })
@@ -346,6 +348,7 @@ fn test_nb1_nb2_check_metadata_only_and_build_upgrade_plus_all_targets() {
 
 #[test]
 fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let proj = tmp.path().join("clean_proj");
     let custom_td = tmp.path().join("custom_target");
@@ -363,12 +366,13 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
         target_dir: Some(unowned_dir.clone()),
         release: false,
         cache: false,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
     };
     assert_eq!(handle_clean(&bad_clean), 1);
     assert!(unowned_dir.join("precious.txt").exists());
     assert_eq!(
         handle_clean(&CleanArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             target_dir: Some(proj.clone()),
             ..bad_clean.clone()
         }),
@@ -377,6 +381,7 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
     assert!(proj.join("Cargo.toml").exists());
 
     let (_, res) = RustAdapter::build(&RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(proj.join("Cargo.toml")),
         target_dir: Some(custom_td.clone()),
         ..Default::default()
@@ -389,6 +394,7 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
     );
     assert_eq!(
         handle_clean(&CleanArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             target_dir: Some(custom_td.clone()),
             ..bad_clean
         }),

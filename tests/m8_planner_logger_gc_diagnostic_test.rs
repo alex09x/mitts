@@ -123,6 +123,7 @@ fn test_m8_gc_active_lock_protection_and_ac_pruning() {
 
 #[test]
 fn test_m8_planner_cdylib_eligibility_and_version_selection() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -144,6 +145,7 @@ path = "src/lib.rs"
     fs::write(root.join("src/lib.rs"), "pub extern \"C\" fn foo() {}").unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
     };
@@ -178,6 +180,7 @@ path = "src/lib.rs"
 
 #[test]
 fn test_m8_planner_versioned_dep_spec_and_missing_dep() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -239,6 +242,7 @@ version = "0.2.0"
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
     };

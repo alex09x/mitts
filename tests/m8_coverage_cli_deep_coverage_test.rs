@@ -15,11 +15,13 @@ use std::path::PathBuf;
 
 #[test]
 fn test_m8_coverage_manifest_and_build_errors() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
     // 1. Non-existent manifest for coverage
     let cov_missing = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("nonexistent/Cargo.toml")),
         ..Default::default()
     };
@@ -27,6 +29,7 @@ fn test_m8_coverage_manifest_and_build_errors() {
 
     // 2. Non-existent manifest for test
     let test_missing = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("nonexistent/Cargo.toml")),
         ..Default::default()
     };
@@ -55,6 +58,7 @@ path = "src/main.rs"
     .unwrap();
 
     let cov_broken = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(broken_pkg.join("Cargo.toml")),
         target_dir: Some(broken_pkg.join("target")),
         ..Default::default()
@@ -63,6 +67,7 @@ path = "src/main.rs"
     assert_ne!(exit_cov, 0);
 
     let test_broken = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(broken_pkg.join("Cargo.toml")),
         target_dir: Some(broken_pkg.join("target")),
         ..Default::default()

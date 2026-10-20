@@ -187,8 +187,11 @@ fn test_two_phase_sync_path_generates_lockfile() {
         let _ = fs::remove_file(&lock_path);
     }
 
-    // Lockfile is missing -> resolve_or_sync runs sync-path
-    let lock = CargoLock::resolve_or_sync(&manifest, false).expect("sync-path resolve");
+    // Lockfile is missing -> resolve_or_sync runs sync-path, caching index entries in
+    // its own cache root rather than the user's store.
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let lock = CargoLock::resolve_or_sync(&manifest, false, Some(temp_cache.path()))
+        .expect("sync-path resolve");
     assert!(
         lock_path.is_file(),
         "Cargo.lock must be generated on sync path"
@@ -325,10 +328,13 @@ fn test_mitts_fetch_end_to_end() {
         frozen: false,
     };
 
-    let lock = RustAdapter::resolve_lockfile(&manifest, false).expect("resolve lock");
+    let temp_cache = tempfile::tempdir().expect("cache tempdir");
+    let lock = RustAdapter::resolve_lockfile(&manifest, false, Some(temp_cache.path()))
+        .expect("resolve lock");
     let itoa_pkg = lock.get_package("itoa").expect("itoa package");
 
-    let result = RustAdapter::fetch(&manifest, &store, &opt).expect("mitts fetch");
+    let result =
+        RustAdapter::fetch(&manifest, &store, &opt, Some(temp_cache.path())).expect("mitts fetch");
     assert_eq!(
         result.total_packages, 1,
         "Expected 1 remote dependency package (itoa)"
@@ -341,7 +347,8 @@ fn test_mitts_fetch_end_to_end() {
     );
 
     // Second fetch: must be 100% cached hit
-    let result2 = RustAdapter::fetch(&manifest, &store, &opt).expect("second mitts fetch");
+    let result2 = RustAdapter::fetch(&manifest, &store, &opt, Some(temp_cache.path()))
+        .expect("second mitts fetch");
     assert_eq!(result2.total_packages, 1);
     assert_eq!(result2.already_cached, 1);
     assert_eq!(result2.fetched, 0);

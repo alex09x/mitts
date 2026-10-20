@@ -16,6 +16,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_coverage_threshold_failure_path() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -63,6 +64,7 @@ mod tests {
     // With fail_under_lines = 100.0, because uncovered_dead_code_fn is not executed,
     // the line coverage is < 100%, causing handle_coverage to fail with exit code 1.
     let args_fail = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         fail_under_lines: Some(100.0),
         ..Default::default()

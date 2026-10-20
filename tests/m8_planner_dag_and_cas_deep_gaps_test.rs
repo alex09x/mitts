@@ -17,6 +17,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_planner_versioned_specs_and_toolchain_cache() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -86,6 +87,7 @@ version = "0.1.0"
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(app_dir.join("Cargo.toml")),
         ..Default::default()
     };
@@ -158,6 +160,7 @@ fn test_m8_cas_verify_and_ac_env_paths() {
 
 #[test]
 fn test_m8_run_progress_diagnostic_and_resolve_manifest_none() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -171,6 +174,7 @@ fn test_m8_run_progress_diagnostic_and_resolve_manifest_none() {
     std::env::set_current_dir(root).unwrap();
 
     let opt_none = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: None,
         ..Default::default()
     };

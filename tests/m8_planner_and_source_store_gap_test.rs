@@ -37,6 +37,7 @@ fn make_tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
 
 #[test]
 fn test_m8_planner_sync_lockfile_and_bin_self_lib_dependency() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _guard = ENV_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let pkg_dir = temp.path().join("dual_target_pkg");
@@ -77,7 +78,7 @@ edition = "2021"
         no_default_features: false,
         all_features: false,
         no_cache: false,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         mode: BuildMode::Build,
         native: true,
         cargo: false,
@@ -100,6 +101,7 @@ edition = "2021"
 
 #[test]
 fn test_m8_planner_path_dep_injection_into_lockfile() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _guard = ENV_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let root_dir = temp.path().join("root_pkg");
@@ -157,7 +159,7 @@ dependencies = [
         no_default_features: false,
         all_features: false,
         no_cache: false,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         mode: BuildMode::Build,
         native: true,
         cargo: false,

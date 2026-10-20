@@ -14,6 +14,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_test_cli_profile_dir_scanning_and_extension_skips() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let target = root.join("target");
@@ -47,6 +48,7 @@ fn test_m8_test_cli_profile_dir_scanning_and_extension_skips() {
 
     // 1. Run with --no-run
     let args_no_run = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         target_dir: Some(target.clone()),
         no_run: true,
@@ -57,6 +59,7 @@ fn test_m8_test_cli_profile_dir_scanning_and_extension_skips() {
 
     // 2. Run with test execution
     let args_run = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         target_dir: Some(target.clone()),
         no_run: false,
@@ -83,6 +86,7 @@ fn test_m8_test_cli_profile_dir_scanning_and_extension_skips() {
 
 #[test]
 fn test_m8_test_cli_empty_tests_found() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let target = root.join("target");
@@ -98,6 +102,7 @@ fn test_m8_test_cli_empty_tests_found() {
     fs::write(src.join("lib.rs"), "pub fn compute() -> i32 { 42 }\n").unwrap();
 
     let args = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target),
         no_run: false,
@@ -110,6 +115,7 @@ fn test_m8_test_cli_empty_tests_found() {
 
 #[test]
 fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let target = root.join("target");
@@ -133,6 +139,7 @@ fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
     .unwrap();
 
     let args = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target),
         no_run: false,
@@ -153,6 +160,7 @@ fn test_m8_consecutive_test_runs_with_failing_fixture_must_fail_both_times() {
 
 #[test]
 fn test_m8_test_transition_from_pass_to_fail_must_fail_on_second_run() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let target = root.join("target");
@@ -176,6 +184,7 @@ fn test_m8_test_transition_from_pass_to_fail_must_fail_on_second_run() {
     .unwrap();
 
     let args = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target),
         no_run: false,

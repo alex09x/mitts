@@ -20,6 +20,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_check_and_clippy_compilation_failure_paths() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -46,6 +47,7 @@ path = "src/lib.rs"
 
     // 1. handle_check reports error and returns non-zero
     let check_args = CheckArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
     };
@@ -54,6 +56,7 @@ path = "src/lib.rs"
 
     // 2. handle_clippy reports error and returns non-zero
     let clippy_args = ClippyArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
     };
@@ -63,6 +66,7 @@ path = "src/lib.rs"
 
 #[test]
 fn test_m8_handlers_invalid_cache_dirs_and_missing_default_manifest() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -101,6 +105,7 @@ edition = "2021"
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(empty_temp.path()).unwrap();
     let opt_none = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: None,
         ..Default::default()
     };

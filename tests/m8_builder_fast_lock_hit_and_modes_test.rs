@@ -18,6 +18,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_builder_fast_lock_hit_and_compilation_modes() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -60,6 +61,8 @@ fn main() {
     .unwrap();
 
     let opt_dev = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
+        fast_lock: Some(true),
         manifest_path: Some(root.join("Cargo.toml")),
         mode: BuildMode::Build,
         native: true,
@@ -82,6 +85,7 @@ fn main() {
 
     // 3. Check mode
     let opt_check = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         mode: BuildMode::Check,
         native: true,
@@ -92,6 +96,7 @@ fn main() {
 
     // 4. Clippy mode
     let opt_clippy = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         mode: BuildMode::Clippy,
         native: true,
@@ -102,6 +107,7 @@ fn main() {
 
     // 5. Test mode in release
     let opt_test_rel = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         mode: BuildMode::Test,
         release: true,
@@ -161,6 +167,8 @@ edition = "2021"
     let prev_home = std::env::var_os("HOME");
     let prev_ch = std::env::var_os("CARGO_HOME");
     std::env::set_var("HOME", &fake_home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
     std::env::set_var("CARGO_HOME", fake_home.join(".cargo"));
 
     let remote_pkg = CargoLockPackage {
@@ -185,6 +193,10 @@ edition = "2021"
     let second_res = fetcher.fetch_package(&remote_pkg, &opt_offline).unwrap();
     assert_eq!(second_res, Some(path));
 
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
+    }
     if let Some(h) = prev_home {
         std::env::set_var("HOME", h);
     }

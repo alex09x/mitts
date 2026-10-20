@@ -99,6 +99,8 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
     let old_ch = std::env::var_os("CARGO_HOME");
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     // 1. Package in ~/.cache/mitts/sources/<name>-<version>
     let mitts_pkg = home
@@ -145,6 +147,10 @@ fn test_m8_source_lookup_git_and_cache_hierarchies() {
 
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);

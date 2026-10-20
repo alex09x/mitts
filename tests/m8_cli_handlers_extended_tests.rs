@@ -17,6 +17,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_cli_explain_and_fetch() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let cargo_toml = tmp.path().join("Cargo.toml");
     fs::write(
@@ -30,6 +31,7 @@ fn test_m8_cli_explain_and_fetch() {
 
     // Explain success
     let explain_args = ExplainArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(cargo_toml.clone()),
         ..Default::default()
     };
@@ -38,6 +40,7 @@ fn test_m8_cli_explain_and_fetch() {
     // Explain JSON + --keys output
     let keys_file = tmp.path().join("keys.json");
     let explain_json = ExplainArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(cargo_toml.clone()),
         json: true,
         keys: Some(keys_file.clone()),
@@ -49,6 +52,7 @@ fn test_m8_cli_explain_and_fetch() {
 
     // Explain missing manifest
     let explain_missing = ExplainArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(tmp.path().join("NonExistent.toml")),
         ..Default::default()
     };
@@ -67,6 +71,7 @@ fn test_m8_cli_explain_and_fetch() {
 
 #[test]
 fn test_m8_cli_gc_and_clean_variants() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let cargo_toml = tmp.path().join("Cargo.toml");
     fs::write(
@@ -96,7 +101,7 @@ fn test_m8_cli_gc_and_clean_variants() {
         manifest_path: Some(cargo_toml.clone()),
         release: true,
         cache: false,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         ..Default::default()
     };
     assert_eq!(handle_clean(&clean_release), 0);
@@ -117,6 +122,7 @@ fn test_m8_cli_gc_and_clean_variants() {
 
 #[test]
 fn test_m8_cli_test_no_tests_and_no_run() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let cargo_toml = tmp.path().join("Cargo.toml");
     fs::write(
@@ -137,7 +143,7 @@ fn test_m8_cli_test_no_tests_and_no_run() {
         no_default_features: false,
         all_features: false,
         no_cache: false,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         no_run: true,
         filter: None,
         coverage: false,
@@ -153,6 +159,7 @@ fn test_m8_cli_test_no_tests_and_no_run() {
 
 #[test]
 fn test_m8_cli_fmt_and_run_library() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let cargo_toml = tmp.path().join("Cargo.toml");
     fs::write(
@@ -177,6 +184,7 @@ fn test_m8_cli_fmt_and_run_library() {
     // Run on library without binary target fails gracefully with code 1
     let run_args = RunArgs {
         build_args: BuildArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: Some(cargo_toml),
             target_dir: Some(tmp.path().join("target")),
             ..Default::default()

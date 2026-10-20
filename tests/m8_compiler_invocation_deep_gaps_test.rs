@@ -78,6 +78,7 @@ fn test_m8_compiler_invocation_test_mode_and_dest_binary() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
 
     let out = inv.execute().unwrap();
@@ -139,6 +140,7 @@ fn test_m8_compiler_store_source_fallback() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
 
     let out = inv.execute().unwrap();

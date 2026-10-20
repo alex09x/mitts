@@ -17,6 +17,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_c_adapter_manifest_resolution_and_default_dirs() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -36,6 +37,7 @@ fn test_m8_c_adapter_manifest_resolution_and_default_dirs() {
     .unwrap();
 
     let opt_dir = CBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(proj_dir.clone()),
         ..Default::default()
     };
@@ -44,6 +46,7 @@ fn test_m8_c_adapter_manifest_resolution_and_default_dirs() {
 
     // 2. Non-existent path returns error
     let opt_none = CBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("does_not_exist")),
         ..Default::default()
     };
@@ -53,7 +56,7 @@ fn test_m8_c_adapter_manifest_resolution_and_default_dirs() {
     let opt_defaults = CBuildOptions {
         manifest_path: Some(manifest_file),
         target_dir: None,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         ..Default::default()
     };
     let build_res = CAdapter::build(&opt_defaults);
@@ -77,11 +80,13 @@ fn test_m8_diagnostic_fallback_and_verbose_rendering() {
 
 #[test]
 fn test_m8_handlers_error_branches_with_invalid_cache() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
     // 1. handle_fetch with nonexistent manifest
     let fetch_args = FetchArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("nonexistent_Cargo.toml")),
         ..Default::default()
     };

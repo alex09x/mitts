@@ -38,6 +38,8 @@ fn test_m8_source_store_env_fallbacks_and_empty_discovery() {
     fs::create_dir_all(&empty_cargo).unwrap();
     std::env::set_var("CARGO_HOME", &empty_cargo);
     std::env::set_var("HOME", temp.path().display().to_string());
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
     let store2 = SourceStore::default_store().unwrap();
     assert!(store2.root().starts_with(temp.path()));
 
@@ -50,6 +52,10 @@ fn test_m8_source_store_env_fallbacks_and_empty_discovery() {
     // Restore env
     if let Some(h) = orig_cargo_home {
         std::env::set_var("CARGO_HOME", h);
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);

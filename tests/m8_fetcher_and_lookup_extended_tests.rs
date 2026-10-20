@@ -98,6 +98,8 @@ fn test_m8_fetcher_cargo_registry_src_and_cache_fallbacks() {
     let old_ch = std::env::var("CARGO_HOME").ok();
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", fake_home.to_str().unwrap());
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     // Create unpacked source in fake ~/.cargo/registry/src with .cargo-ok
     let src_pkg_dir = reg_src.join("cached-in-src-1.5.0");
@@ -151,6 +153,10 @@ fn test_m8_fetcher_cargo_registry_src_and_cache_fallbacks() {
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);
     }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
+    }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }
@@ -168,6 +174,8 @@ fn test_m8_source_lookup_git_and_mitts_cache() {
     let old_ch = std::env::var("CARGO_HOME").ok();
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", fake_home.to_str().unwrap());
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     // Create a package in ~/.cache/mitts/sources
     let pkg_dir = mitts_sources.join("mitts-cached-lib-0.9.0");
@@ -191,6 +199,10 @@ fn test_m8_source_lookup_git_and_mitts_cache() {
 
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);

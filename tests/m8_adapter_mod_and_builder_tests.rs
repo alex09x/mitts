@@ -92,7 +92,7 @@ fn test_m8_adapter_lockfile_and_fetch() {
     )
     .unwrap();
 
-    let lock = RustAdapter::resolve_lockfile(&cargo_toml, true).unwrap();
+    let lock = RustAdapter::resolve_lockfile(&cargo_toml, true, None).unwrap();
     assert_eq!(lock.packages.len(), 1);
     assert_eq!(lock.packages[0].name, "fetch-test");
 
@@ -102,7 +102,7 @@ fn test_m8_adapter_lockfile_and_fetch() {
         locked: false,
         frozen: false,
     };
-    let res = RustAdapter::fetch(&cargo_toml, &store, &fetch_opt).unwrap();
+    let res = RustAdapter::fetch(&cargo_toml, &store, &fetch_opt, None).unwrap();
     assert_eq!(res.fetched, 0);
 }
 

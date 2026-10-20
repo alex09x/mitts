@@ -293,6 +293,7 @@ fn test_compiler_args_fails_closed_on_config_cli_arg() {
         dest_binary: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
         extern_crates: &[],
         features: &[],
         directives: None,

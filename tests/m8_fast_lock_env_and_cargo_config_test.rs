@@ -301,6 +301,7 @@ rustflags = ["--cfg", "bad_cfg"]
 
 #[test]
 fn test_compiler_end_to_end_cargo_config_integration() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _lock = SERIAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -342,6 +343,7 @@ rustflags = ["--cfg", "custom_config_active"]
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         mode: BuildMode::Check,
         ..Default::default()
@@ -364,6 +366,7 @@ rustflags = ["--cfg", "custom_config_active"]
 
 #[test]
 fn test_fast_lock_cargo_config_invalidation() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _lock = SERIAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -400,6 +403,8 @@ pub fn run() {}
     std::env::remove_var("RUSTFLAGS");
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
+        fast_lock: Some(true),
         manifest_path: Some(root.join("Cargo.toml")),
         mode: BuildMode::Check,
         ..Default::default()

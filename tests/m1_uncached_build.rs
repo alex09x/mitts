@@ -22,6 +22,7 @@ fn fixture_manifest() -> PathBuf {
 
 #[test]
 fn test_fixture_uncached_build_and_oracle() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let manifest = fixture_manifest();
     assert!(
         manifest.exists(),
@@ -30,6 +31,7 @@ fn test_fixture_uncached_build_and_oracle() {
     );
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -55,6 +57,7 @@ fn test_fixture_uncached_build_and_oracle() {
 
     // Verify observable behavior against M0 oracle
     let run_output = Command::new(&bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()
         .expect("Failed to execute built binary");
     assert_eq!(run_output.status.code(), Some(0));
@@ -68,8 +71,10 @@ fn test_fixture_uncached_build_and_oracle() {
 
 #[test]
 fn test_unsupported_case_explicitly_refused() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let manifest = fixture_manifest();
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         extra_args: vec!["--unsupported-flag-xyz".to_string()],
         ..Default::default()
@@ -86,6 +91,7 @@ fn test_unsupported_case_explicitly_refused() {
 
 #[test]
 fn test_compile_error_preserves_failure_and_exit_code() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_dir = tempfile::tempdir().expect("Failed to create tempdir");
     let temp_path = temp_dir.path();
 
@@ -106,6 +112,7 @@ edition = "2021"
     fs::write(src_dir.join("main.rs"), broken_src).expect("write main.rs");
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp_path.join("Cargo.toml")),
         ..Default::default()
     };
@@ -124,6 +131,7 @@ edition = "2021"
 
 #[test]
 fn test_coexistence_with_ordinary_cargo() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = tempfile::TempDir::new().unwrap();
     let orig_fixture = fixture_manifest();
     let fixture_dir = tmp.path().join("hello-rust");
@@ -149,6 +157,7 @@ fn test_coexistence_with_ordinary_cargo() {
 
     // 2. Run Mitts build with isolated .mitts/target
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -167,8 +176,14 @@ fn test_coexistence_with_ordinary_cargo() {
     );
 
     // Both binaries must be independently executable with identical observable output
-    let out_ordinary = Command::new(&ordinary_bin).output().expect("exec ordinary");
-    let out_mitts = Command::new(&mitts_bin).output().expect("exec mitts");
+    let out_ordinary = Command::new(&ordinary_bin)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
+        .output()
+        .expect("exec ordinary");
+    let out_mitts = Command::new(&mitts_bin)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
+        .output()
+        .expect("exec mitts");
 
     assert_eq!(out_ordinary.status.code(), Some(0));
     assert_eq!(out_mitts.status.code(), Some(0));
@@ -177,8 +192,10 @@ fn test_coexistence_with_ordinary_cargo() {
 
 #[test]
 fn test_explain_effective_plan() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let manifest = fixture_manifest();
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         release: false,
         ..Default::default()
@@ -224,6 +241,7 @@ fn test_explain_effective_plan() {
 
     // Test with release mode
     let opt_release = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         release: true,
         ..Default::default()
@@ -234,6 +252,7 @@ fn test_explain_effective_plan() {
 
 #[test]
 fn test_explain_unselected_workspace_member_excluded() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let ws_root = temp_dir.path();
 
@@ -276,6 +295,7 @@ edition = "2021"
 
     // Explain member_a specifically
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(dir_a.join("Cargo.toml")),
         ..Default::default()
     };
@@ -292,6 +312,7 @@ edition = "2021"
 
 #[test]
 fn test_explain_mixed_crate_type_marked_uncached() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let ws_root = temp_dir.path();
 
@@ -311,6 +332,7 @@ crate-type = ["rlib", "cdylib"]
     fs::write(ws_root.join("src").join("lib.rs"), "pub fn foo() {}").expect("lib.rs");
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(ws_root.join("Cargo.toml")),
         ..Default::default()
     };

@@ -116,6 +116,8 @@ fn test_m8_source_lookup_git_crates_and_fallbacks() {
     let old_ch = std::env::var("CARGO_HOME").ok();
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", &fake_home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     // 1. Setup git checkouts structure with nested crates/
     let git_dir = fake_home
@@ -171,6 +173,10 @@ fn test_m8_source_lookup_git_crates_and_fallbacks() {
 
     if let Some(ch) = old_ch {
         std::env::set_var("CARGO_HOME", ch);
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);

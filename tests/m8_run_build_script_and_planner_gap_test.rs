@@ -18,6 +18,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_run_cli_compilation_and_runtime_failures() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -41,6 +42,7 @@ path = "src/main.rs"
 
     let args_comp_fail = RunArgs {
         build_args: BuildArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: Some(root.join("Cargo.toml")),
             ..Default::default()
         },
@@ -61,6 +63,7 @@ fn main() {
     .unwrap();
     let args_runtime_fail = RunArgs {
         build_args: BuildArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: Some(root.join("Cargo.toml")),
             ..Default::default()
         },
@@ -126,6 +129,7 @@ fn main() {
 
 #[test]
 fn test_m8_planner_dash_underscore_dependency_resolution() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -169,6 +173,7 @@ path = "src/lib.rs"
     fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
     };

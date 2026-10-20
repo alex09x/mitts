@@ -116,6 +116,8 @@ fn test_m8_source_lookup_cache_and_nested_git() {
     let orig_ch = std::env::var("CARGO_HOME").ok();
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", temp_home.path());
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     let found_cached = find_crate_source_dir(
         "cached-pkg",
@@ -133,6 +135,10 @@ fn test_m8_source_lookup_cache_and_nested_git() {
 
     if let Some(ch) = orig_ch {
         std::env::set_var("CARGO_HOME", ch);
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
@@ -185,6 +191,7 @@ fn test_m8_compiler_invocation_execution() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
 
     let res = inv.execute().expect("execute rustc");

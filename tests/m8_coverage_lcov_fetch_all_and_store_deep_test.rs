@@ -41,6 +41,7 @@ fn make_tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
 
 #[test]
 fn test_m8_coverage_lcov_and_threshold_pass() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -83,6 +84,7 @@ mod tests {
 
     let out_dir = root.join("cov_out");
     let args = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         lcov: true,
         output_dir: Some(out_dir.clone()),

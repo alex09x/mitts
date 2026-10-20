@@ -197,6 +197,7 @@ fn test_single_flight_file_lock() {
 
 #[test]
 fn test_cold_and_warm_build_with_cas_and_action_cache() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
     let temp_target = tempfile::tempdir().expect("target tempdir");
     let target_dir = temp_target.path().to_path_buf();
@@ -267,6 +268,7 @@ fn test_cold_and_warm_build_with_cas_and_action_cache() {
 
     // Verify restored binary produces correct observable output
     let run_out = Command::new(&bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()
         .expect("execute restored binary");
     assert_eq!(run_out.status.code(), Some(0));
@@ -292,6 +294,7 @@ fn test_cold_and_warm_build_with_cas_and_action_cache() {
 
 #[test]
 fn test_source_modification_invalidates_action_cache() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
     let temp_target = tempfile::tempdir().expect("target tempdir");
     let temp_ws = tempfile::tempdir().expect("ws tempdir");
@@ -330,6 +333,7 @@ fn test_source_modification_invalidates_action_cache() {
     // Verify modified output
     let bin = temp_target.path().join("debug").join("hello-rust");
     let run_out = Command::new(&bin)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()
         .expect("execute modified binary");
     let stdout = String::from_utf8_lossy(&run_out.stdout);
@@ -513,6 +517,7 @@ fn test_flags_and_features_boundaries_prevent_collision() {
 
 #[test]
 fn test_action_key_incorporates_cargo_config_and_env() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_ws = tempfile::tempdir().expect("ws tempdir");
     let ws_path = temp_ws.path();
 
@@ -521,6 +526,7 @@ fn test_action_key_incorporates_cargo_config_and_env() {
 
     let manifest = ws_path.join("Cargo.toml");
     let opt1 = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -546,6 +552,7 @@ fn test_action_key_incorporates_cargo_config_and_env() {
 
     // 2. Setting CLI --target must alter the action key
     let opt_target = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         extra_args: vec![
             "--target".to_string(),
@@ -561,6 +568,7 @@ fn test_action_key_incorporates_cargo_config_and_env() {
 
 #[test]
 fn test_unread_asset_files_keep_plan_time_keys() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_ws = tempfile::tempdir().expect("ws tempdir");
     let ws_path = temp_ws.path();
 
@@ -569,6 +577,7 @@ fn test_unread_asset_files_keep_plan_time_keys() {
 
     let manifest = ws_path.join("Cargo.toml");
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -602,7 +611,9 @@ fn test_unread_asset_files_keep_plan_time_keys() {
 
 #[test]
 fn test_action_unit_identity_distinguishes_same_named_targets() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(fixture_manifest()),
         ..Default::default()
     };
@@ -629,6 +640,7 @@ fn test_action_unit_identity_distinguishes_same_named_targets() {
 
 #[test]
 fn test_partial_cache_hit_restores_dependency_and_avoids_recompilation() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
     let temp_target = tempfile::tempdir().expect("target tempdir");
     let temp_ws = tempfile::tempdir().expect("ws tempdir");
@@ -685,6 +697,7 @@ fn test_partial_cache_hit_restores_dependency_and_avoids_recompilation() {
     // Verify modified binary runs and prints updated output
     let bin = temp_target.path().join("debug").join("hello-rust");
     let run_out = Command::new(&bin)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()
         .expect("execute restored binary");
     assert_eq!(run_out.status.code(), Some(0));
@@ -698,6 +711,7 @@ fn test_partial_cache_hit_restores_dependency_and_avoids_recompilation() {
 
 #[test]
 fn test_workspace_manifest_modification_invalidates_member_unit_keys() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_ws = tempfile::tempdir().expect("ws tempdir");
     let ws_path = temp_ws.path();
 
@@ -725,6 +739,7 @@ fn test_workspace_manifest_modification_invalidates_member_unit_keys() {
     .expect("write app main.rs");
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(app_cargo_toml.clone()),
         ..Default::default()
     };
@@ -750,6 +765,7 @@ fn test_workspace_manifest_modification_invalidates_member_unit_keys() {
 
 #[test]
 fn test_cargo_manifest_dir_isolates_different_worktrees() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_ws1 = tempfile::tempdir().expect("ws1 tempdir");
     let temp_ws2 = tempfile::tempdir().expect("ws2 tempdir");
 
@@ -758,10 +774,12 @@ fn test_cargo_manifest_dir_isolates_different_worktrees() {
     copy_dir_recursive(&src_fixture, temp_ws2.path()).expect("copy fixture to ws2");
 
     let opt1 = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp_ws1.path().join("Cargo.toml")),
         ..Default::default()
     };
     let opt2 = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp_ws2.path().join("Cargo.toml")),
         ..Default::default()
     };
@@ -794,6 +812,7 @@ fn test_cargo_manifest_dir_isolates_different_worktrees() {
 
 #[test]
 fn test_concurrent_warm_restores_in_same_workspace() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
     let temp_target = tempfile::tempdir().expect("target tempdir");
     let target_dir = Arc::new(temp_target.path().to_path_buf());
@@ -843,7 +862,10 @@ fn test_concurrent_warm_restores_in_same_workspace() {
     // Verify binary is intact and executable
     let bin_path = target_dir.join("debug").join("hello-rust");
     assert!(bin_path.is_file());
-    let out = Command::new(&bin_path).output().expect("execute binary");
+    let out = Command::new(&bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
+        .output()
+        .expect("execute binary");
     assert_eq!(out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&out.stdout).contains("Hello from Mitts fixture: 42"));
 }
@@ -1388,6 +1410,7 @@ fn main() {
 
 #[test]
 fn test_docs_directory_file_keeps_plan_time_keys() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_ws = tempfile::tempdir().expect("temp dir");
     let ws_path = temp_ws.path();
 
@@ -1396,6 +1419,7 @@ fn test_docs_directory_file_keeps_plan_time_keys() {
 
     let manifest = ws_path.join("Cargo.toml");
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -1419,6 +1443,7 @@ fn test_docs_directory_file_keeps_plan_time_keys() {
 
 #[test]
 fn test_out_of_package_rs_dep_info_is_hashed() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_ws = tempfile::tempdir().expect("temp ws");
     let ws_path = temp_ws.path();
 
@@ -1427,6 +1452,7 @@ fn test_out_of_package_rs_dep_info_is_hashed() {
 
     let manifest = ws_path.join("Cargo.toml");
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };

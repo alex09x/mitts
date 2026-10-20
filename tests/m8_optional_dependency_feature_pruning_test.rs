@@ -16,6 +16,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_inactive_optional_dependency_pruned_and_feature_parity_with_cargo() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
 
@@ -94,6 +95,7 @@ extra_feat = []
     // Inactive optional dependency `dep_optional` must NOT be in the plan.
     // Common dependency `common_dep` must NOT have `extra_feat` enabled.
     let opt_without_net = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(app_dir.join("Cargo.toml")),
         ..Default::default()
     };
@@ -149,6 +151,7 @@ extra_feat = []
     // Optional dependency `dep_optional` IS activated.
     // Common dependency `common_dep` MUST receive `extra_feat`.
     let opt_with_net = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(app_dir.join("Cargo.toml")),
         features: vec!["net".to_string()],
         ..Default::default()
@@ -183,6 +186,7 @@ extra_feat = []
 
 #[test]
 fn test_m8_target_dependency_optional_feature_merging_and_dev_dep_isolation() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
 
@@ -243,6 +247,7 @@ feat_from_target = []
 
     // 1. Without 'net': sub_dep must NOT be in plan
     let opt_without = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(app_dir.join("Cargo.toml")),
         ..Default::default()
     };
@@ -260,6 +265,7 @@ feat_from_target = []
 
     // 2. With 'net': sub_dep MUST be in plan AND have 'feat_from_target'
     let opt_with = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(app_dir.join("Cargo.toml")),
         features: vec!["net".to_string()],
         ..Default::default()

@@ -150,6 +150,7 @@ fn test_m8_compiler_non_semver_and_invocation() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
 
     let res = inv.execute();

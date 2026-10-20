@@ -16,6 +16,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_planner_cdylib_and_test_mode_planning() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let root_dir = tmp.path();
 
@@ -40,6 +41,7 @@ crate-type = ["cdylib", "rlib"]
     fs::write(src_dir.join("lib.rs"), "pub fn c_lib() {}").unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(cdylib_toml.clone()),
         ..Default::default()
     };
@@ -56,6 +58,7 @@ crate-type = ["cdylib", "rlib"]
     fs::write(test_dir.join("integration.rs"), "#[test] fn test_it() {}").unwrap();
 
     let opt_test = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(cdylib_toml),
         mode: BuildMode::Test,
         ..Default::default()
@@ -67,6 +70,7 @@ crate-type = ["cdylib", "rlib"]
 
 #[test]
 fn test_m8_planner_untracked_env_macro_eligibility() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let root_dir = tmp.path();
 
@@ -96,6 +100,7 @@ fn main() {
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(toml_path),
         ..Default::default()
     };

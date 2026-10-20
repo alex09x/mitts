@@ -17,6 +17,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_coverage_lcov_json_threshold_and_errors() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_dir = TempDir::new().expect("tempdir");
     let manifest = temp_dir.path().join("Cargo.toml");
     let src_dir = temp_dir.path().join("src");
@@ -38,6 +39,7 @@ fn test_m8_coverage_lcov_json_threshold_and_errors() {
 
     // 1. Missing / invalid manifest error path
     let err_args = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp_dir.path().join("Nonexistent.toml")),
         ..Default::default()
     };
@@ -59,6 +61,7 @@ fn test_m8_coverage_lcov_json_threshold_and_errors() {
     )
     .unwrap();
     let bad_args = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(bad_manifest),
         ..Default::default()
     };
@@ -148,6 +151,7 @@ fn test_m8_run_lib_crate_compilation_error_and_release() {
 
 #[test]
 fn test_m8_test_cli_coverage_flag_and_failures() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_dir = TempDir::new().expect("tempdir");
     let manifest = temp_dir.path().join("Cargo.toml");
     let src_dir = temp_dir.path().join("src");
@@ -155,6 +159,7 @@ fn test_m8_test_cli_coverage_flag_and_failures() {
 
     // 1. Invalid manifest -> handle_test returns 1
     let err_test_args = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp_dir.path().join("Nonexistent.toml")),
         ..Default::default()
     };
@@ -182,6 +187,7 @@ fn test_m8_test_cli_coverage_flag_and_failures() {
 
     // 3. args.coverage = true delegates to handle_coverage
     let cov_test_args = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         coverage: true,
         ..Default::default()

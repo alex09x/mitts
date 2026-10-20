@@ -112,6 +112,8 @@ fn test_t0_p0_1_git_dependency_missing_rejects_without_http() {
     let empty_home = temp.path().join("empty_home");
     fs::create_dir_all(&empty_home).unwrap();
     std::env::set_var("HOME", &empty_home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
     std::env::set_var("CARGO_HOME", empty_home.join(".cargo"));
     std::env::set_var("MITTS_CRATES_IO_URL", format!("http://{}", addr));
 
@@ -153,6 +155,10 @@ fn test_t0_p0_1_git_dependency_missing_rejects_without_http() {
         "Zero HTTP requests may be sent to crates.io for git dependencies"
     );
 
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
+    }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
     }
@@ -226,6 +232,8 @@ fn test_t0_p0_2_cargo_registry_is_strictly_read_only_and_requires_cargo_ok() {
     let orig_mc = std::env::var_os("MITTS_CACHE_DIR");
     std::env::remove_var("MITTS_CACHE_DIR");
     std::env::set_var("HOME", &fake_home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
     std::env::set_var("CARGO_HOME", &cargo_home);
 
     let default_store = SourceStore::default_store().unwrap();
@@ -290,6 +298,10 @@ fn test_t0_p0_2_cargo_registry_is_strictly_read_only_and_requires_cargo_ok() {
         std::env::set_var("CARGO_HOME", ch);
     } else {
         std::env::remove_var("CARGO_HOME");
+    }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
     }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);

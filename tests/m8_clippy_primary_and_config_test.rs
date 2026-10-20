@@ -22,6 +22,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_primary_package_distinction_and_key_isolation() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
 
@@ -82,6 +83,7 @@ version = "0.1.0"
 
     // 1. Build plan when app is selected: app is primary, core is dependency
     let opt_app = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         package: Some("app".to_string()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
@@ -114,6 +116,7 @@ version = "0.1.0"
 
     // 2. Build plan when core is selected: core is primary
     let opt_core = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         package: Some("core".to_string()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()

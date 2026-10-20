@@ -19,10 +19,12 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_m8_coverage_cli_manifest_and_empty_targets() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _guard = ENV_LOCK.lock().unwrap();
 
     // 1. handle_coverage with nonexistent manifest fails
     let args_invalid = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(PathBuf::from("/nonexistent/path/Cargo.toml")),
         ..Default::default()
     };
@@ -30,6 +32,7 @@ fn test_m8_coverage_cli_manifest_and_empty_targets() {
 
     // 2. handle_test with coverage: true on invalid manifest delegates to coverage and fails
     let test_args_cov = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(PathBuf::from("/nonexistent/path/Cargo.toml")),
         coverage: true,
         ..Default::default()
@@ -38,6 +41,7 @@ fn test_m8_coverage_cli_manifest_and_empty_targets() {
 
     // 3. handle_test with coverage: false on invalid manifest fails
     let test_args_invalid = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(PathBuf::from("/nonexistent/path/Cargo.toml")),
         coverage: false,
         ..Default::default()
@@ -50,6 +54,7 @@ fn test_m8_coverage_cli_manifest_and_empty_targets() {
         .join("hello-rust")
         .join("Cargo.toml");
     let args_no_tests = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(hello_manifest.clone()),
         ..Default::default()
     };
@@ -57,6 +62,7 @@ fn test_m8_coverage_cli_manifest_and_empty_targets() {
 
     // 5. handle_test on package with no tests returns 0
     let test_args_no_tests = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(hello_manifest),
         coverage: false,
         ..Default::default()
@@ -66,6 +72,7 @@ fn test_m8_coverage_cli_manifest_and_empty_targets() {
 
 #[test]
 fn test_m8_coverage_cli_live_execution_and_reports() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _guard = ENV_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let pkg_dir = temp.path().join("live_cov_pkg");
@@ -102,6 +109,7 @@ edition = "2021"
 
     // 1. Full coverage run generating LCOV report and verifying threshold pass
     let args_lcov = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         target_dir: Some(target_dir.clone()),
         output_dir: Some(out_dir.clone()),
@@ -116,6 +124,7 @@ edition = "2021"
 
     // 2. High threshold fails with exit code 1
     let args_high_thresh = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         target_dir: Some(target_dir.clone()),
         fail_under_lines: Some(101.0),
@@ -126,6 +135,7 @@ edition = "2021"
     // 3. HTML report generation
     let html_out = temp.path().join("html_output");
     let args_html = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         target_dir: Some(target_dir.clone()),
         output_dir: Some(html_out.clone()),
@@ -137,6 +147,7 @@ edition = "2021"
 
     // 4. JSON report generation
     let args_json = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target_dir),
         json: true,
@@ -147,6 +158,7 @@ edition = "2021"
 
 #[test]
 fn test_m8_coverage_cli_tool_failure_branches() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _guard = ENV_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let pkg_dir = temp.path().join("tool_fail_pkg");
@@ -176,6 +188,7 @@ edition = "2021"
     // 1. MITTS_LLVM_PROFDATA fails
     std::env::set_var("MITTS_LLVM_PROFDATA", "/bin/false");
     let args = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         target_dir: Some(target_dir.clone()),
         ..Default::default()
@@ -186,6 +199,7 @@ edition = "2021"
     // 2. MITTS_LLVM_COV fails
     std::env::set_var("MITTS_LLVM_COV", "/bin/false");
     let args2 = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target_dir),
         ..Default::default()

@@ -17,6 +17,7 @@ use std::fs;
 
 #[test]
 fn test_m8_cli_handlers_default_cache_and_clean() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -45,14 +46,14 @@ edition = "2021"
     let fetch_args = FetchArgs {
         manifest_path: Some(manifest.clone()),
         offline: true,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         ..Default::default()
     };
     let _ = handle_fetch(&fetch_args);
 
     // 2. handle_gc with cache_dir: None (exercises ContentAddressedStore::default_store() and ActionCache::default_cache())
     let gc_args = GcArgs {
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         max_bytes: Some(1024 * 1024),
         max_age_secs: Some(3600),
     };
@@ -63,13 +64,14 @@ edition = "2021"
         manifest_path: Some(manifest.clone()),
         release: false,
         cache: true,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         ..Default::default()
     };
     assert_eq!(handle_clean(&clean_args), 0);
 
     // 4. handle_explain with various args
     let explain_args = ExplainArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         release: false,
         ..Default::default()

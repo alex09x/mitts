@@ -498,6 +498,7 @@ debug = 1
         extra_compiler_args: &[],
         dest_binary: None,
         target_dir: None,
+        cache_root: None,
         jobserver_auth: None,
     };
     let (cmd, _, _) = build_compiler_command(&inv).unwrap();

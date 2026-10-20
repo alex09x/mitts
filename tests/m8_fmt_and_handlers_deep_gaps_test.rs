@@ -87,6 +87,7 @@ path = "src/lib.rs"
 
 #[test]
 fn test_m8_handlers_default_cache_and_clean_variations() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -128,6 +129,7 @@ path = "src/lib.rs"
 
     // 1. handle_clean with release: true
     let clean_rel = CleanArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         release: true,
         ..Default::default()
@@ -142,6 +144,7 @@ path = "src/lib.rs"
     fs::write(mitts_dir.join("build-dev.lock"), "lock").unwrap();
 
     let clean_all = CleanArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         release: false,
         ..Default::default()
@@ -151,7 +154,7 @@ path = "src/lib.rs"
 
     // 3. handle_gc with cache_dir: None (uses default stores)
     let gc_args = GcArgs {
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         max_bytes: Some(1024 * 1024 * 1024),
         max_age_secs: Some(86400),
     };
@@ -160,7 +163,7 @@ path = "src/lib.rs"
     // 4. handle_fetch with cache_dir: None (uses default store)
     let fetch_args = FetchArgs {
         manifest_path: Some(root.join("Cargo.toml")),
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         offline: true,
         locked: false,
         frozen: false,

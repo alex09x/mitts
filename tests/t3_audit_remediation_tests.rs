@@ -220,6 +220,7 @@ default-run = "beta"
 
 #[test]
 fn test_t3_b3_nb3_nb4_runtime_pkg_env_and_dylib_search_path() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().expect("tempdir");
     let root = temp.path();
     fs::create_dir_all(root.join("src")).unwrap();
@@ -292,7 +293,8 @@ rust-version = "1.75"
         build_args: BuildArgs {
             manifest_path: Some(manifest_path.clone()),
             target_dir: Some(target_dir.clone()),
-            cache_dir: None,
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
+            fast_lock: Some(true),
             ..Default::default()
         },
         trailing_args: Vec::new(),
@@ -305,7 +307,7 @@ rust-version = "1.75"
     let test_args = TestArgs {
         manifest_path: Some(manifest_path),
         target_dir: Some(target_dir),
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         ..Default::default()
     };
     assert_eq!(handle_test(&test_args), 0);
@@ -385,6 +387,7 @@ edition = "2021"
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let (pm_cmd, _, _) = build_compiler_command(&pm_inv).expect("pm cmd");
     let pm_args: Vec<String> = pm_cmd
@@ -415,6 +418,7 @@ edition = "2021"
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let (lib_cmd, _, _) = build_compiler_command(&lib_inv).expect("lib cmd");
     let lib_args: Vec<String> = lib_cmd

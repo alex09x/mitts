@@ -67,6 +67,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let out_check = inv_check.execute().unwrap();
     assert!(out_check.success);
@@ -94,6 +95,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let out_bin = inv_bin_check.execute().unwrap();
     assert!(out_bin.success);
@@ -113,6 +115,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let out_clippy = inv_clippy.execute().unwrap();
     // In environments where clippy-driver is a fallback, rustc succeeds with --emit=dep-info,metadata
@@ -186,6 +189,7 @@ fn test_m8_compiler_directives_and_error_handling() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let out = inv.execute().unwrap();
     assert!(out.success);
@@ -210,6 +214,7 @@ fn test_m8_compiler_directives_and_error_handling() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let out_fail = inv_fail.execute().unwrap();
     assert!(!out_fail.success);
@@ -219,6 +224,7 @@ fn test_m8_compiler_directives_and_error_handling() {
 
 #[test]
 fn test_m8_builder_unsupported_options_and_modes() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let manifest = tmp.path().join("Cargo.toml");
     let src = tmp.path().join("src");
@@ -232,6 +238,7 @@ fn test_m8_builder_unsupported_options_and_modes() {
 
     // 1. Explicitly unsupported option error
     let opt_unsupp = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         extra_args: vec!["--unsupported-flag".to_string()],
         ..Default::default()
@@ -241,6 +248,8 @@ fn test_m8_builder_unsupported_options_and_modes() {
 
     // 2. Normal build in check mode (release and dev)
     let opt_check_rel = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
+        fast_lock: Some(true),
         manifest_path: Some(manifest.clone()),
         release: true,
         mode: BuildMode::Check,

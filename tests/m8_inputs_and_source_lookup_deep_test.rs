@@ -76,6 +76,8 @@ edition = "2021"
 
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", &fake_home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
 
     let ws_manifest = ws_root.join("Cargo.toml");
     let inputs = hash_package_base_inputs(&member_dir, Some(&ws_manifest), true).unwrap();
@@ -110,6 +112,10 @@ edition = "2021"
         append_unit_dep_info_inputs(inputs, &member_dir, &target_dir, "core_member").unwrap();
     assert!(appended.iter().any(|(k, _)| k == "weights.bin"));
 
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
+    }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
     } else {
@@ -128,6 +134,8 @@ fn test_m8_source_lookup_commit_root_subfolder_and_mitts_cache() {
     let temp = TempDir::new().unwrap();
     let home = temp.path().join("home_src");
     std::env::set_var("HOME", &home);
+    let orig_xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+    std::env::remove_var("XDG_CACHE_HOME");
     let orig_ch = std::env::var_os("CARGO_HOME");
     std::env::remove_var("CARGO_HOME");
 
@@ -199,6 +207,10 @@ version = "1.2.0"
     if let Some(ch) = orig_ch {
         std::env::set_var("CARGO_HOME", ch);
     }
+    match orig_xdg_cache_home {
+        Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+        None => std::env::remove_var("XDG_CACHE_HOME"),
+    }
     if let Some(h) = orig_home {
         std::env::set_var("HOME", h);
     } else {
@@ -209,6 +221,7 @@ version = "1.2.0"
 #[test]
 fn test_m8_coverage_test_failure_and_open_html() {
     let _guard = ENV_LOCK.lock().unwrap();
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let pkg_dir = temp.path().join("failing_test_pkg");
     fs::create_dir_all(pkg_dir.join("tests")).unwrap();
@@ -236,6 +249,7 @@ edition = "2021"
 
     // Test binary failure returns nonzero exit code
     let args_fail = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         target_dir: Some(target_dir),
         ..Default::default()

@@ -15,6 +15,7 @@ use std::fs;
 
 #[test]
 fn test_m8_check_and_clippy_cache_hits_and_fast_lock() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -40,10 +41,11 @@ edition = "2021"
 
     let target_dir = root.join("target");
 
-    // Check args with cache_dir: None (enables fast build lock and caching)
+    // Check args on an isolated cache with the fast build lock kept active
     let check_args = CheckArgs {
         manifest_path: Some(manifest.clone()),
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
+        fast_lock: Some(true),
         target_dir: Some(target_dir.clone()),
         verbose: 1,
         ..Default::default()
@@ -63,10 +65,11 @@ edition = "2021"
     let code3 = handle_check(&check_args);
     assert_eq!(code3, 0);
 
-    // Clippy args with cache_dir: None
+    // Clippy args on the same isolated cache, fast build lock kept active
     let clippy_args = ClippyArgs {
         manifest_path: Some(manifest),
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
+        fast_lock: Some(true),
         target_dir: Some(target_dir),
         verbose: 1,
         ..Default::default()

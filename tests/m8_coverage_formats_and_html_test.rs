@@ -14,6 +14,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_coverage_multiple_binaries_html_and_open() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -78,6 +79,7 @@ fn test_two() {
     // 1. Run coverage with HTML, open flag, fail_under_lines threshold, and multiple test binaries
     let html_out = root.join("html_report");
     let args_html = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         html: true,
         open: true,
@@ -90,6 +92,7 @@ fn test_two() {
 
     // 2. Run coverage with JSON export
     let args_json = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         json: true,
         summary_only: true,
@@ -100,6 +103,7 @@ fn test_two() {
 
     // 3. Run coverage with text report
     let args_text = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         text: true,
         ..Default::default()
@@ -110,6 +114,7 @@ fn test_two() {
 
 #[test]
 fn test_m8_coverage_build_error_and_empty_binaries() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -118,6 +123,7 @@ fn test_m8_coverage_build_error_and_empty_binaries() {
     fs::write(&invalid_toml, "invalid toml syntax [[[").unwrap();
 
     let args_err = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(invalid_toml),
         ..Default::default()
     };
@@ -149,6 +155,7 @@ test = false
     .unwrap();
 
     let args_empty = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(no_test_root.join("Cargo.toml")),
         ..Default::default()
     };

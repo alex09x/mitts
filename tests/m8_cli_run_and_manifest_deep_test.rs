@@ -16,6 +16,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_run_no_binary_target_and_build_failure() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -35,6 +36,7 @@ fn test_m8_run_no_binary_target_and_build_failure() {
 
     let args_lib = RunArgs {
         build_args: BuildArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: Some(lib_manifest),
             ..Default::default()
         },
@@ -59,6 +61,7 @@ fn test_m8_run_no_binary_target_and_build_failure() {
 
     let args_fail = RunArgs {
         build_args: BuildArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: Some(fail_manifest),
             ..Default::default()
         },

@@ -93,7 +93,7 @@ version = "0.5.0"
     assert_eq!(b_pkg.dependencies, vec!["dep-a", "unix-dep"]);
 
     // 4. resolve_or_sync offline failure when lock missing or incompatible
-    let res = CargoLock::resolve_or_sync(&manifest, true);
+    let res = CargoLock::resolve_or_sync(&manifest, true, None);
     assert!(res.is_err());
     assert!(res
         .unwrap_err()
@@ -120,7 +120,7 @@ name = "unix-dep"
 version = "0.5.0"
 "#;
     fs::write(&lock_path, valid_lock).unwrap();
-    let synced = CargoLock::resolve_or_sync(&manifest, true).unwrap();
+    let synced = CargoLock::resolve_or_sync(&manifest, true, None).unwrap();
     assert_eq!(synced.packages.len(), 4);
 }
 

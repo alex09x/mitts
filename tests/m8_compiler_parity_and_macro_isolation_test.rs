@@ -17,6 +17,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_workspace_with_impure_proc_macro_gets_different_keys_and_no_cross_hit() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let cache_dir = TempDir::new().unwrap();
     let clone1 = TempDir::new().unwrap();
     let clone2 = TempDir::new().unwrap();
@@ -143,7 +144,10 @@ fn main() {
     }
     assert!(res1.success, "Clone 1 build failed:\n{}", res1.stderr);
     let bin1 = clone1.path().join("target/debug/my_app");
-    let out1 = Command::new(&bin1).output().expect("run bin1");
+    let out1 = Command::new(&bin1)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
+        .output()
+        .expect("run bin1");
     let str1 = String::from_utf8_lossy(&out1.stdout);
     assert!(
         str1.contains(&clone1.path().to_string_lossy().to_string()),
@@ -155,7 +159,10 @@ fn main() {
     let (_, res2) = RustAdapter::build(&opt2).expect("build clone 2");
     assert!(res2.success, "Clone 2 build failed:\n{}", res2.stderr);
     let bin2 = clone2.path().join("target/debug/my_app");
-    let out2 = Command::new(&bin2).output().expect("run bin2");
+    let out2 = Command::new(&bin2)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
+        .output()
+        .expect("run bin2");
     let str2 = String::from_utf8_lossy(&out2.stdout);
     assert!(
         str2.contains(&clone2.path().to_string_lossy().to_string()),
@@ -170,6 +177,7 @@ fn main() {
 
 #[test]
 fn test_m8_compiler_error_diagnostics_have_cargo_parity() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let src = temp.path().join("src");
     fs::create_dir_all(&src).unwrap();
@@ -186,6 +194,7 @@ edition = "2021"
     fs::write(src.join("main.rs"), "fn main() { let x: u32 = \"err\"; }\n").unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp.path().join("Cargo.toml")),
         target_dir: Some(temp.path().join("target")),
         ..Default::default()
@@ -209,6 +218,7 @@ edition = "2021"
 
 #[test]
 fn test_m8_package_outside_workspace_root_falls_back_to_absolute_key() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let root = TempDir::new().unwrap();
     let external = TempDir::new().unwrap();
 
@@ -255,6 +265,7 @@ ext_lib = {{ path = {:?} }}
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.path().join("Cargo.toml")),
         target_dir: Some(root.path().join("target")),
         ..Default::default()

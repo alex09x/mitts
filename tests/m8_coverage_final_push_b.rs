@@ -200,6 +200,7 @@ edition = "2021"
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
 
     let res = invocation.execute();

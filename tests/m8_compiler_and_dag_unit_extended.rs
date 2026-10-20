@@ -82,6 +82,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
 
     let out = inv.execute().unwrap();
@@ -102,6 +103,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let out_check = inv_check.execute().unwrap();
     assert!(out_check.success);
@@ -147,6 +149,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let out_pm = inv_pm.execute().unwrap();
     assert!(out_pm.success);

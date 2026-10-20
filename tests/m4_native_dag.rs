@@ -22,8 +22,10 @@ fn fixture_manifest() -> PathBuf {
 
 #[test]
 fn test_m4_compilation_dag_structure() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let manifest = fixture_manifest();
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -90,6 +92,7 @@ fn test_m4_compilation_dag_structure() {
 
 #[test]
 fn test_m4_native_dag_build_end_to_end_and_zero_target_pollution() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
     let temp_target = tempfile::tempdir().expect("target tempdir");
     let target_dir = temp_target.path().to_path_buf();
@@ -123,6 +126,7 @@ fn test_m4_native_dag_build_end_to_end_and_zero_target_pollution() {
     assert!(bin_path.is_file(), "Executable must exist: {:?}", bin_path);
 
     let run_output = Command::new(&bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()
         .expect("Failed to execute native built binary");
     assert_eq!(run_output.status.code(), Some(0));
@@ -238,6 +242,7 @@ fn main() {
 
 #[test]
 fn test_m4_native_dag_multi_crate_parallel_waves() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
     let temp_target = tempfile::tempdir().expect("target tempdir");
     let temp_workspace = tempfile::tempdir().expect("workspace tempdir");
@@ -344,6 +349,7 @@ fn main() {
     );
 
     let run_output = Command::new(&bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()
         .expect("Failed to execute multi-crate built app");
     assert_eq!(run_output.status.code(), Some(0));
@@ -357,6 +363,7 @@ fn main() {
 
 #[test]
 fn test_m4_features_and_build_script_env() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_workspace = tempfile::tempdir().unwrap();
     let temp_cache = tempfile::tempdir().unwrap();
     let temp_target = tempfile::tempdir().unwrap();
@@ -450,6 +457,7 @@ fn main() {
 
     let bin_path = temp_target.path().join("debug").join("app");
     let run_output = Command::new(&bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()
         .expect("Failed to execute app");
     assert_eq!(run_output.status.code(), Some(0));

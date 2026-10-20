@@ -109,6 +109,7 @@ fn test_receives_target_rustflags_predicate_unit_matrix() {
 
 #[test]
 fn test_proc_macro_and_target_rustflags_parity_between_key_and_compiler() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _lock = SERIAL_TEST_LOCK.lock().unwrap();
     let temp = TempDir::new().unwrap();
     let root = temp.path().to_path_buf();
@@ -183,6 +184,7 @@ rustflags = ["--cfg", "native_flag_v1"]
     .unwrap();
 
     let opt_native = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         start_dir: Some(root.clone()),
         ..Default::default()
@@ -219,6 +221,7 @@ rustflags = ["--cfg", "native_flag_v1"]
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let (cmd_pm_nat, _, _) = build_compiler_command(&inv_pm_nat).unwrap();
     let args_pm_nat: Vec<String> = cmd_pm_nat
@@ -261,6 +264,7 @@ rustflags = ["--cfg", "native_flag_v2"]
     let target_triple = "aarch64-unknown-linux-gnu";
     let extra_args_target = vec!["--target".to_string(), target_triple.to_string()];
     let opt_cross = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         start_dir: Some(root.clone()),
         extra_args: extra_args_target.clone(),
@@ -332,6 +336,7 @@ rustflags = ["--cfg", "target_flag_v1"]
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let (cmd_pm_cross_v1, _, _) = build_compiler_command(&inv_pm_cross_v1).unwrap();
     let args_pm_cross_v1: Vec<String> = cmd_pm_cross_v1
@@ -359,6 +364,7 @@ rustflags = ["--cfg", "target_flag_v1"]
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let (cmd_lib_cross_v1, _, _) = build_compiler_command(&inv_lib_cross_v1).unwrap();
     let args_lib_cross_v1: Vec<String> = cmd_lib_cross_v1
@@ -471,6 +477,7 @@ rustflags = ["--cfg", "target_flag_v2"]
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let (cmd_pm_cross_v2, _, _) = build_compiler_command(&inv_pm_cross_v2).unwrap();
     let args_pm_cross_v2: Vec<String> = cmd_pm_cross_v2
@@ -496,6 +503,7 @@ rustflags = ["--cfg", "target_flag_v2"]
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let (cmd_lib_cross_v2, _, _) = build_compiler_command(&inv_lib_cross_v2).unwrap();
     let args_lib_cross_v2: Vec<String> = cmd_lib_cross_v2

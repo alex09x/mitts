@@ -42,6 +42,7 @@ fn test_m8_diagnostic_fallback_and_malformed_sections() {
 
 #[test]
 fn test_m8_adapter_detect_toolchain_cache_and_build_native() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
 
     // 1. Detect toolchain -> searches PATH and saves/updates cache
@@ -68,6 +69,7 @@ edition = "2021"
     fs::write(src_dir.join("lib.rs"), b"pub fn run() -> u32 { 42 }\n").unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(pkg_dir.join("Cargo.toml")),
         ..Default::default()
     };
@@ -84,6 +86,7 @@ edition = "2021"
             offline: true,
             ..Default::default()
         },
+        None,
     )
     .unwrap();
     assert_eq!(fetch_res.total_packages, 0);
@@ -91,6 +94,7 @@ edition = "2021"
 
 #[test]
 fn test_m8_test_cli_failing_binary_and_execution_errors() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let mock_pkg = temp.path().join("mock_test_pkg");
     let mock_src = mock_pkg.join("src");
@@ -112,6 +116,7 @@ edition = "2021"
 
     // 1. Failing test execution -> handle_test catches non-zero exit and finishes failed
     let args_fail = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(mock_pkg.join("Cargo.toml")),
         ..Default::default()
     };
@@ -176,6 +181,7 @@ fn test_m8_handlers_gc_action_cache_dir_error_and_compiler_dest() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
 
     let res = inv.execute().unwrap();
@@ -243,6 +249,7 @@ fn test_m8_reflink_and_c_adapter_and_lock_gap_pushes() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let res_missing = inv_missing.execute().unwrap();
     assert!(!res_missing.success);
@@ -286,6 +293,7 @@ version = "2.0.0"
 
 #[test]
 fn test_m8_planner_path_dep_injection_and_dep_info_empty_inputs() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
 
     // 1. Path dependency injection into lockfile + non-workspace bin target + unresolvable lib unit
@@ -338,6 +346,7 @@ dependencies = [
     .unwrap();
 
     let ws_opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(ws_pkg.join("Cargo.toml")),
         ..Default::default()
     };

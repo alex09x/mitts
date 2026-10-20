@@ -15,6 +15,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_coverage_empty_test_binaries_branch() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -38,6 +39,7 @@ test = false
 
     // 1. handle_coverage with no test binaries found -> returns 0
     let args_cov = CoverageArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         no_cache: true,
         ..Default::default()
@@ -47,6 +49,7 @@ test = false
 
     // 2. handle_test with no test binaries found -> returns 0
     let args_test = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         no_cache: true,
         ..Default::default()
@@ -57,6 +60,7 @@ test = false
 
 #[test]
 fn test_m8_test_and_coverage_target_dir_fallback_discovery() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -103,6 +107,7 @@ exit 0
 
     // Test execution through fallback discovery
     let args_test = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         target_dir: Some(root.join(".mitts").join("target")),
         no_cache: true,

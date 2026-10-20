@@ -17,6 +17,7 @@ use tempfile::tempdir;
 
 #[test]
 fn test_virtual_workspace_all_members_selected() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
@@ -71,6 +72,7 @@ dependencies = ["crate-a"]
     fs::write(root.join("Cargo.lock"), lock).unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
     };
@@ -92,6 +94,7 @@ dependencies = ["crate-a"]
 
 #[test]
 fn test_virtual_workspace_default_members_precedence() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
@@ -139,6 +142,7 @@ version = "0.2.0"
     fs::write(root.join("Cargo.lock"), lock).unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(root.join("Cargo.toml")),
         ..Default::default()
     };

@@ -15,6 +15,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_check_verbose_and_error_paths() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let cargo_toml = tmp.path().join("Cargo.toml");
     let src_dir = tmp.path().join("src");
@@ -29,6 +30,7 @@ fn test_m8_check_verbose_and_error_paths() {
     fs::write(src_dir.join("lib.rs"), "pub fn ok() {}\n").unwrap();
 
     let args_verbose = CheckArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(cargo_toml.clone()),
         target_dir: Some(tmp.path().join("target")),
         verbose: 1,
@@ -43,6 +45,7 @@ fn test_m8_check_verbose_and_error_paths() {
     )
     .unwrap();
     let args_fail = CheckArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(cargo_toml),
         target_dir: Some(tmp.path().join("target_fail")),
         verbose: 0,
@@ -53,6 +56,7 @@ fn test_m8_check_verbose_and_error_paths() {
 
 #[test]
 fn test_m8_clippy_verbose_and_release_paths() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let cargo_toml = tmp.path().join("Cargo.toml");
     let src_dir = tmp.path().join("src");
@@ -66,6 +70,7 @@ fn test_m8_clippy_verbose_and_release_paths() {
     fs::write(src_dir.join("lib.rs"), "pub fn ok() {}\n").unwrap();
 
     let args_verbose = ClippyArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(cargo_toml),
         target_dir: Some(tmp.path().join("target_clippy")),
         release: true,

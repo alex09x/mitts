@@ -206,6 +206,7 @@ fn test_m8_compiler_test_no_dest_and_non_semver() {
         jobserver_auth: None,
         deps_dir: None,
         target_dir: None,
+        cache_root: None,
     };
     let res = inv.execute().unwrap();
     assert!(res.success);
@@ -213,6 +214,7 @@ fn test_m8_compiler_test_no_dest_and_non_semver() {
 
 #[test]
 fn test_m8_builder_native_dag_compilation_failure() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let pkg_dir = temp.path().join("failing_syntax_pkg");
     let src_dir = pkg_dir.join("src");
@@ -225,6 +227,7 @@ fn test_m8_builder_native_dag_compilation_failure() {
     fs::write(src_dir.join("lib.rs"), "syntax error here !!!").unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(pkg_dir.join("Cargo.toml")),
         ..Default::default()
     };

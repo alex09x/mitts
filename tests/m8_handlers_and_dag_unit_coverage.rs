@@ -16,6 +16,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_m8_handlers_explain_clean_and_gc_comprehensive() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp_dir = TempDir::new().expect("tempdir");
     let proj_dir = temp_dir.path().join("proj");
     fs::create_dir_all(&proj_dir).unwrap();
@@ -33,6 +34,7 @@ fn test_m8_handlers_explain_clean_and_gc_comprehensive() {
 
     // 1. handle_explain with valid manifest
     let exp_args = ExplainArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         release: true,
         ..Default::default()
@@ -41,6 +43,7 @@ fn test_m8_handlers_explain_clean_and_gc_comprehensive() {
 
     // 2. handle_explain with invalid manifest -> 1
     let err_exp = ExplainArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp_dir.path().join("Nonexistent.toml")),
         ..Default::default()
     };
@@ -48,6 +51,7 @@ fn test_m8_handlers_explain_clean_and_gc_comprehensive() {
 
     // 3. handle_clean error path
     let err_clean = CleanArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(temp_dir.path().join("Nonexistent.toml")),
         ..Default::default()
     };
@@ -69,6 +73,7 @@ fn test_m8_handlers_explain_clean_and_gc_comprehensive() {
 
     // Clean release mode
     let clean_rel_args = CleanArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         release: true,
         ..Default::default()

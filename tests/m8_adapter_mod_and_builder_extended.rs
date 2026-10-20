@@ -27,6 +27,7 @@ fn test_m8_adapter_detect_toolchain_cache_hit() {
 
 #[test]
 fn test_m8_adapter_manifest_resolution_and_build_native() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let manifest = tmp.path().join("Cargo.toml");
     let src = tmp.path().join("src");
@@ -41,6 +42,7 @@ fn test_m8_adapter_manifest_resolution_and_build_native() {
 
     // 1. Resolve manifest with relative path
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -50,6 +52,7 @@ fn test_m8_adapter_manifest_resolution_and_build_native() {
     // 2. Resolve target dir with and without custom opt.target_dir
     let custom_target = tmp.path().join("custom_target");
     let opt_custom = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         target_dir: Some(custom_target.clone()),
         ..Default::default()
     };
@@ -86,7 +89,7 @@ fn test_m8_adapter_lockfile_and_fetch() {
     fs::write(&lock_path, "# Cargo.lock\nversion = 3\n").unwrap();
 
     // 1. resolve_lockfile
-    let lock = RustAdapter::resolve_lockfile(&manifest, true).unwrap();
+    let lock = RustAdapter::resolve_lockfile(&manifest, true, None).unwrap();
     assert_eq!(lock.version, 3);
 
     // 2. fetch with SourceStore
@@ -96,6 +99,6 @@ fn test_m8_adapter_lockfile_and_fetch() {
         locked: true,
         frozen: true,
     };
-    let fetch_res = RustAdapter::fetch(&manifest, &store, &fetch_opt).unwrap();
+    let fetch_res = RustAdapter::fetch(&manifest, &store, &fetch_opt, None).unwrap();
     assert_eq!(fetch_res.fetched, 0);
 }

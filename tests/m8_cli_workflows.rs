@@ -105,10 +105,12 @@ fn test_m8_cli_handle_test_and_filter() {
 
 #[test]
 fn test_m8_cli_handle_explain_and_fetch() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let manifest = fixture_manifest();
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
 
     let exp_args = ExplainArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest.clone()),
         ..Default::default()
     };
@@ -126,6 +128,7 @@ fn test_m8_cli_handle_explain_and_fetch() {
 
 #[test]
 fn test_m8_cli_handle_gc_and_clean() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let manifest = fixture_manifest();
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
     // Own target dir: cleaning the shared fixture target would delete binaries
@@ -150,7 +153,7 @@ fn test_m8_cli_handle_gc_and_clean() {
         target_dir: Some(temp_target.path().to_path_buf()),
         release: false,
         cache: false,
-        cache_dir: None,
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
     };
     let clean_code = handle_clean(&clean_args);
     assert_eq!(clean_code, 0, "handle_clean dev should exit with 0");
@@ -220,10 +223,12 @@ fn test_m8_cli_warm_and_verbose_runs() {
 
 #[test]
 fn test_m8_cli_error_paths() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let bad_path = Some(PathBuf::from("/non/existent/Cargo.toml"));
 
     assert_eq!(
         handle_build(&BuildArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: bad_path.clone(),
             ..Default::default()
         }),
@@ -231,6 +236,7 @@ fn test_m8_cli_error_paths() {
     );
     assert_eq!(
         handle_check(&CheckArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: bad_path.clone(),
             ..Default::default()
         }),
@@ -238,6 +244,7 @@ fn test_m8_cli_error_paths() {
     );
     assert_eq!(
         handle_clippy(&ClippyArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: bad_path.clone(),
             ..Default::default()
         }),
@@ -245,6 +252,7 @@ fn test_m8_cli_error_paths() {
     );
     assert_eq!(
         handle_test(&TestArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: bad_path.clone(),
             ..Default::default()
         }),
@@ -253,6 +261,7 @@ fn test_m8_cli_error_paths() {
     assert_eq!(
         handle_run(&RunArgs {
             build_args: BuildArgs {
+                cache_dir: Some(isolated_cache.path().to_path_buf()),
                 manifest_path: bad_path.clone(),
                 ..Default::default()
             },
@@ -262,6 +271,7 @@ fn test_m8_cli_error_paths() {
     );
     assert_eq!(
         handle_explain(&ExplainArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: bad_path.clone(),
             ..Default::default()
         }),
@@ -269,6 +279,7 @@ fn test_m8_cli_error_paths() {
     );
     assert_eq!(
         handle_fetch(&FetchArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: bad_path.clone(),
             ..Default::default()
         }),
@@ -276,6 +287,7 @@ fn test_m8_cli_error_paths() {
     );
     assert_eq!(
         handle_clean(&CleanArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: bad_path.clone(),
             ..Default::default()
         }),
@@ -298,24 +310,28 @@ fn test_m8_cli_error_paths() {
     .unwrap();
 
     let broken_b = BuildArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(broken_manifest.clone()),
         ..Default::default()
     };
     assert_ne!(handle_build(&broken_b), 0);
 
     let broken_c = CheckArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(broken_manifest.clone()),
         ..Default::default()
     };
     assert_ne!(handle_check(&broken_c), 0);
 
     let broken_clip = ClippyArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(broken_manifest.clone()),
         ..Default::default()
     };
     assert_ne!(handle_clippy(&broken_clip), 0);
 
     let broken_t = TestArgs {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(broken_manifest.clone()),
         ..Default::default()
     };

@@ -96,6 +96,7 @@ fn main() {
 
 #[test]
 fn test_m8_planner_staticlib_and_untracked_dynamic_env() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -129,6 +130,7 @@ pub fn dynamic_env() -> &'static str {
     .unwrap();
 
     let opt = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(manifest),
         ..Default::default()
     };

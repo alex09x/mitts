@@ -118,12 +118,14 @@ rustflags = ["--cfg", "member_cfg"]
 
 #[test]
 fn test_member_config_yields_distinct_action_keys_from_root_vs_member() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let _lock = SERIAL_TEST_LOCK.lock().unwrap();
     let fix = WorkspaceFixture::new();
     let _guard = EnvGuard::new(&fix.root.join("empty_cargo_home"));
 
     // 1. Derive keys when invoked from workspace root (start_dir = root)
     let opt_root = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(fix.root.join("Cargo.toml")),
         start_dir: Some(fix.root.clone()),
         ..Default::default()
@@ -144,6 +146,7 @@ fn test_member_config_yields_distinct_action_keys_from_root_vs_member() {
 
     // 2. Derive keys when invoked from member (start_dir = member)
     let opt_member = RustBuildOptions {
+        cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(fix.root.join("Cargo.toml")),
         start_dir: Some(fix.member.clone()),
         ..Default::default()

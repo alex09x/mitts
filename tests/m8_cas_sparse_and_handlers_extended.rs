@@ -78,6 +78,7 @@ fn test_m8_sparse_index_client_errors_and_env() {
 
 #[test]
 fn test_m8_handlers_clean_cache_and_gc_options() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let project_dir = tmp.path().join("proj");
     fs::create_dir_all(&project_dir).unwrap();
@@ -114,6 +115,7 @@ fn test_m8_handlers_clean_cache_and_gc_options() {
     let fixture_manifest = PathBuf::from("fixtures/hello-rust/Cargo.toml");
     if fixture_manifest.is_file() {
         let explain_args = ExplainArgs {
+            cache_dir: Some(isolated_cache.path().to_path_buf()),
             manifest_path: Some(fixture_manifest),
             ..Default::default()
         };

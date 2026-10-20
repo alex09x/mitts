@@ -20,12 +20,14 @@ fn fixture_manifest() -> PathBuf {
 
 #[test]
 fn test_m8_binary_cli_execution() {
+    let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let bin_path = env!("CARGO_BIN_EXE_mitts");
     let manifest = fixture_manifest();
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
 
     // 1. --help
     let status = Command::new(bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("--help")
         .status()
         .expect("run --help");
@@ -33,6 +35,7 @@ fn test_m8_binary_cli_execution() {
 
     // 2. explain
     let status = Command::new(bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("explain")
         .arg("--manifest-path")
         .arg(&manifest)
@@ -42,6 +45,7 @@ fn test_m8_binary_cli_execution() {
 
     // 3. check
     let status = Command::new(bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("check")
         .arg("--manifest-path")
         .arg(&manifest)
@@ -53,6 +57,7 @@ fn test_m8_binary_cli_execution() {
 
     // 4. fmt
     let status = Command::new(bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("fmt")
         .arg("--check")
         .arg("--manifest-path")
@@ -63,6 +68,7 @@ fn test_m8_binary_cli_execution() {
 
     // 5. test
     let status = Command::new(bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("test")
         .arg("--manifest-path")
         .arg(&manifest)
@@ -74,6 +80,7 @@ fn test_m8_binary_cli_execution() {
 
     // 6. clean
     let status = Command::new(bin_path)
+        .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("clean")
         .arg("--manifest-path")
         .arg(&manifest)
