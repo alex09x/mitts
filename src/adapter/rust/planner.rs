@@ -87,12 +87,17 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let tomls_to_scan: Vec<(&Path, &CargoToml)> = std::iter::once((project_dir, &root_toml))
         .chain(workspace_manifests.values().map(|(p, t)| (p.as_path(), t)))
         .collect();
+    // Dev-dependencies count too: Cargo.lock lists a path dev-dependency like any
+    // other path package, so the planner must know where it lives even for a build
+    // that never compiles it.
     for (base, toml) in tomls_to_scan {
         scan_deps(base, &toml.dependencies)?;
         scan_deps(base, &toml.build_dependencies)?;
+        scan_deps(base, &toml.dev_dependencies)?;
         for t in toml.target.values() {
             scan_deps(base, &t.dependencies)?;
             scan_deps(base, &t.build_dependencies)?;
+            scan_deps(base, &t.dev_dependencies)?;
         }
     }
 

@@ -8,9 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::manifest::CargoToml;
+use super::manifest::{CargoToml, TomlDependency};
 use super::types::PlannedCompilationUnit;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Resolves the `--extern` dependencies and aliases for a planned compilation unit.
@@ -22,11 +22,35 @@ pub fn resolve_extern_crates(
 }
 
 /// Resolves the `--extern` dependencies specifically for a build script (always for host).
+///
+/// Only the package's `[build-dependencies]` (including target-specific ones) reach a
+/// build script, as in Cargo. Regular and dev dependencies are compiled for the
+/// package's own targets; letting them into the script's link line and cache key made
+/// every script's key depend on the bytes of unrelated artifacts, which re-ran scripts
+/// after each cache restore and hashed every dependency rlib on every build.
 pub fn resolve_extern_crates_for_build_script(
     unit: &PlannedCompilationUnit,
     completed: &HashMap<String, PathBuf>,
 ) -> Vec<(String, PathBuf)> {
+    let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
+    let mut build_dep_names: HashSet<String> = HashSet::new();
+    let build_dep_tables = std::iter::once(&pkg_toml.build_dependencies)
+        .chain(pkg_toml.target.values().map(|spec| &spec.build_dependencies));
+    for (dep_name, dep) in build_dep_tables.flatten() {
+        build_dep_names.insert(dep_name.replace('-', "_"));
+        if let TomlDependency::Detailed(d) = dep {
+            if let Some(real) = &d.package_name {
+                build_dep_names.insert(real.replace('-', "_"));
+            }
+        }
+    }
+    if build_dep_names.is_empty() {
+        return Vec::new();
+    }
     resolve_extern_crates_with_target(unit, completed, true)
+        .into_iter()
+        .filter(|(name, _)| build_dep_names.contains(name))
+        .collect()
 }
 
 pub fn resolve_extern_crates_with_target(

@@ -70,6 +70,8 @@ pub fn compute_build_script_key(
     let verbose_rustc = get_rustc_verbose_version()?;
     hasher.update(verbose_rustc.as_bytes());
 
+    let log_key_inputs = std::env::var_os("MITTS_LOG_COMPILE").is_some();
+    let mut key_log = String::new();
     for (crate_name, artifact_path) in extern_crates {
         hasher.update(b":build_dep:");
         hasher.update(crate_name.as_bytes());
@@ -82,6 +84,9 @@ pub fn compute_build_script_key(
             )
         })?;
         hasher.update(digest.as_bytes());
+        if log_key_inputs {
+            key_log.push_str(&format!(" build_dep:{}={}", crate_name, &digest[..16]));
+        }
     }
 
     for f in features {
@@ -123,7 +128,16 @@ pub fn compute_build_script_key(
             hasher.update(k.as_bytes());
             hasher.update(b"=");
             hasher.update(v.as_bytes());
+            if log_key_inputs {
+                key_log.push_str(&format!(" env:{}={}", k, v));
+            }
         }
+    }
+    if log_key_inputs {
+        eprintln!(
+            "[mitts::build_script_key] {} v{} features={:?}{}",
+            unit.package_name, unit.version, features, key_log
+        );
     }
     let pkg_dir = unit.manifest_path.parent().with_context(|| {
         format!(

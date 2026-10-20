@@ -139,6 +139,21 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     .unwrap();
     fs::write(&p_subdep, format!("{}\n", e_sub)).unwrap();
 
+    // 3. crate "opt_dep": version 0.1.0. Optional dependencies enter the lockfile
+    //    like in Cargo (a lockfile is resolved with every feature enabled).
+    let p_optdep = cache_dir.join("op").join("t_").join("opt_dep");
+    fs::create_dir_all(p_optdep.parent().unwrap()).unwrap();
+    let e_opt = serde_json::to_string(&SparseIndexEntry {
+        name: "opt_dep".to_string(),
+        vers: "0.1.0".to_string(),
+        deps: Vec::new(),
+        cksum: "cksum_opt".to_string(),
+        yanked: false,
+        features: Default::default(),
+    })
+    .unwrap();
+    fs::write(&p_optdep, format!("{}\n", e_opt)).unwrap();
+
     let client = SparseIndexClient::with_cache_dir(cache_dir).unwrap();
     let resolver = NativeResolver::with_client(client);
 
@@ -148,7 +163,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     }];
 
     let lock = resolver.resolve_dependencies(&root_deps, true).unwrap();
-    assert_eq!(lock.packages.len(), 2);
+    assert_eq!(lock.packages.len(), 3);
 
     let pkg_main = lock
         .packages
@@ -159,12 +174,16 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
         pkg_main.version, "1.1.0",
         "Must pick non-yanked 1.1.0 instead of yanked 1.2.0"
     );
+    let mut main_deps = pkg_main.dependencies.clone();
+    main_deps.sort();
     assert_eq!(
-        pkg_main.dependencies,
-        vec!["sub_dep"],
-        "Must exclude dev and optional deps"
+        main_deps,
+        vec!["opt_dep", "sub_dep"],
+        "Must exclude dev deps but keep optional ones"
     );
 
     let pkg_sub = lock.packages.iter().find(|p| p.name == "sub_dep").unwrap();
     assert_eq!(pkg_sub.version, "0.1.5");
+    let pkg_opt = lock.packages.iter().find(|p| p.name == "opt_dep").unwrap();
+    assert_eq!(pkg_opt.version, "0.1.0");
 }

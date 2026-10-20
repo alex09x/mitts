@@ -79,9 +79,22 @@ impl NativeResolver {
             let local_names: HashSet<String> = path_deps.iter().map(|(n, _)| n.clone()).collect();
             for (m_dir, m_toml) in &manifests {
                 let mut m_dep_list = Vec::new();
-                for (dep_name, dep_val) in
-                    m_toml.dependencies.iter().chain(&m_toml.build_dependencies)
-                {
+                // Like `cargo generate-lockfile`: a member's regular, build and dev
+                // dependencies, for every target, all enter the lockfile.
+                let dep_tables = [
+                    &m_toml.dependencies,
+                    &m_toml.build_dependencies,
+                    &m_toml.dev_dependencies,
+                ]
+                .into_iter()
+                .chain(m_toml.target.values().flat_map(|spec| {
+                    [
+                        &spec.dependencies,
+                        &spec.build_dependencies,
+                        &spec.dev_dependencies,
+                    ]
+                }));
+                for (dep_name, dep_val) in dep_tables.flatten() {
                     match dep_val {
                         TomlDependency::Detailed(d) if d.path.is_some() => {
                             let dep_m = m_dir.join(d.path.as_ref().unwrap()).join("Cargo.toml");
@@ -101,8 +114,8 @@ impl NativeResolver {
                         }
                         // NativeResolver only resolves crates.io sparse-index packages; git dependencies
                         // require an existing Cargo.lock (`cargo generate-lockfile` / `cargo fetch`).
-                        TomlDependency::Detailed(d)
-                            if d.git.is_some() || d.optional.unwrap_or(false) => {}
+                        // Optional dependencies stay in: Cargo.lock is feature-independent.
+                        TomlDependency::Detailed(d) if d.git.is_some() => {}
                         TomlDependency::Simple(req) => {
                             m_dep_list.push(dep_name.clone());
                             if !local_names.contains(dep_name) {
@@ -244,7 +257,9 @@ impl NativeResolver {
                 let chosen = select_best_version(&index_cache[&current.name], &current.req)?;
                 let mut sub_deps = Vec::new();
                 for dep in &chosen.deps {
-                    if dep.kind.as_deref() == Some("dev") || dep.optional {
+                    // Transitive dev-dependencies never enter a lockfile; optional ones do,
+                    // because Cargo.lock is resolved with every feature enabled.
+                    if dep.kind.as_deref() == Some("dev") {
                         continue;
                     }
                     let pkg_name = dep.package.as_ref().unwrap_or(&dep.name).clone();

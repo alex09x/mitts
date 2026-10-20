@@ -84,6 +84,7 @@ pub fn execute_build_script(
     )?;
 
     // 1. Check CAS execution cache
+    let log_scripts = std::env::var_os("MITTS_LOG_COMPILE").is_some();
     if let Some(directives) = super::build_script_cas::try_restore_build_script_cas(
         cas_artifacts_dir,
         &build_key,
@@ -93,7 +94,25 @@ pub fn execute_build_script(
         &clean_crate,
         &out_dir,
     ) {
+        crate::core::metrics::record_build_script_hit();
+        if log_scripts {
+            eprintln!(
+                "[mitts::build_script] hit {} v{} key={}",
+                unit.package_name,
+                unit.version,
+                &build_key[..build_key.len().min(16)]
+            );
+        }
         return Ok(directives);
+    }
+    crate::core::metrics::record_build_script_miss();
+    if log_scripts {
+        eprintln!(
+            "[mitts::build_script] miss {} v{} key={}",
+            unit.package_name,
+            unit.version,
+            &build_key[..build_key.len().min(16)]
+        );
     }
 
     // 2. Cache miss: compile and execute build.rs

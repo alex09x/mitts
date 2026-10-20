@@ -72,9 +72,14 @@ pub(crate) fn execute_unit(
         _job_token = jt;
     }
 
+    let t_bs = std::time::Instant::now();
     let (current_directives, staging_dir_holder) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
+    if has_build_script {
+        crate::core::metrics::record_build_script_duration(t_bs.elapsed());
+    }
 
+    let t_key = std::time::Instant::now();
     let pre_key_info = super::dag_unit_build_script::prepare_unit_build_script_keys(
         unit,
         action_key,
@@ -82,6 +87,7 @@ pub(crate) fn execute_unit(
         current_directives.as_ref(),
         staging_dir_holder.as_ref(),
     );
+    crate::core::metrics::record_unit_key_duration(t_key.elapsed());
     let effective_action_key = pre_key_info.effective_action_key.clone();
 
     let try_restore = |ctx: &ExecutionContext| -> Result<bool> {

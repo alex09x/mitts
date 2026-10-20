@@ -23,6 +23,41 @@ static NANOS_RESTORE: AtomicU64 = AtomicU64::new(0);
 static NANOS_RESTORE_MISS: AtomicU64 = AtomicU64::new(0);
 static NANOS_PUBLISH: AtomicU64 = AtomicU64::new(0);
 static NANOS_RUSTC: AtomicU64 = AtomicU64::new(0);
+static NANOS_BUILD_SCRIPT: AtomicU64 = AtomicU64::new(0);
+static NANOS_UNIT_KEY: AtomicU64 = AtomicU64::new(0);
+static COUNT_BUILD_SCRIPT_HIT: AtomicU64 = AtomicU64::new(0);
+static COUNT_BUILD_SCRIPT_MISS: AtomicU64 = AtomicU64::new(0);
+
+/// Records duration spent in a unit's build-script step (cache lookup, or compile and run).
+pub fn record_build_script_duration(dur: Duration) {
+    NANOS_BUILD_SCRIPT.fetch_add(dur.as_nanos() as u64, Ordering::Relaxed);
+}
+
+/// Records duration spent deriving a unit's effective action key.
+pub fn record_unit_key_duration(dur: Duration) {
+    NANOS_UNIT_KEY.fetch_add(dur.as_nanos() as u64, Ordering::Relaxed);
+}
+
+/// Records a build-script execution served from the CAS.
+pub fn record_build_script_hit() {
+    COUNT_BUILD_SCRIPT_HIT.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Records a build script that had to be compiled and run.
+pub fn record_build_script_miss() {
+    COUNT_BUILD_SCRIPT_MISS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Snapshot of the build-script and key-derivation counters:
+/// (build_script_nanos, unit_key_nanos, build_script_hits, build_script_misses).
+pub fn get_phase_metrics_snapshot() -> (u64, u64, u64, u64) {
+    (
+        NANOS_BUILD_SCRIPT.load(Ordering::Relaxed),
+        NANOS_UNIT_KEY.load(Ordering::Relaxed),
+        COUNT_BUILD_SCRIPT_HIT.load(Ordering::Relaxed),
+        COUNT_BUILD_SCRIPT_MISS.load(Ordering::Relaxed),
+    )
+}
 
 /// Records a successful file clone (CoW reflink) and its byte size.
 pub fn record_cloned(bytes: u64) {
@@ -92,6 +127,10 @@ pub fn reset_metrics() {
     NANOS_RESTORE_MISS.store(0, Ordering::Relaxed);
     NANOS_PUBLISH.store(0, Ordering::Relaxed);
     NANOS_RUSTC.store(0, Ordering::Relaxed);
+    NANOS_BUILD_SCRIPT.store(0, Ordering::Relaxed);
+    NANOS_UNIT_KEY.store(0, Ordering::Relaxed);
+    COUNT_BUILD_SCRIPT_HIT.store(0, Ordering::Relaxed);
+    COUNT_BUILD_SCRIPT_MISS.store(0, Ordering::Relaxed);
 }
 
 /// Prints structured timings to stderr when MITTS_TIMINGS=1 or verbose mode is enabled.
@@ -124,6 +163,14 @@ pub fn print_timings(compile_wall: Duration, test_exec_wall: Duration, total_wal
         rest_miss_ns as f64 / 1_000_000_000.0,
         pub_ns as f64 / 1_000_000_000.0,
         rustc_ns as f64 / 1_000_000_000.0
+    );
+    let (bs_ns, key_ns, bs_hits, bs_misses) = get_phase_metrics_snapshot();
+    eprintln!(
+        "[mitts::timings_sum] build_script_sum_s={:.3} unit_key_sum_s={:.3} build_script_hits={} build_script_misses={}",
+        bs_ns as f64 / 1_000_000_000.0,
+        key_ns as f64 / 1_000_000_000.0,
+        bs_hits,
+        bs_misses
     );
 }
 
