@@ -78,21 +78,25 @@ pub fn resolve_package_features_with_resolver(
     // 1. Initial feature requests from root packages and CLI options
     for (idx, ctx) in packages.iter().enumerate() {
         let id = &index.pkg_ids[idx];
-        if ctx.is_root {
-            active_target_packages.insert(id.clone());
-            let target_set = target_requested.entry(id.clone()).or_default();
-            if opt.all_features {
-                target_set.extend(ctx.toml.features.keys().cloned());
+        let is_pm = ctx.is_proc_macro();
+        let is_all_ws = opt.all_features && ctx.is_workspace && opt.package.is_none();
+        if ctx.is_root || is_all_ws {
+            let (active_set, req_map) = if is_pm {
+                (&mut active_host_packages, &mut host_requested)
             } else {
-                target_set.extend(opt.features.iter().cloned());
+                (&mut active_target_packages, &mut target_requested)
+            };
+            active_set.insert(id.clone());
+            let req_set = req_map.entry(id.clone()).or_default();
+            if opt.all_features {
+                req_set.extend(ctx.toml.features.keys().cloned());
+            } else if ctx.is_root {
+                req_set.extend(opt.features.iter().cloned());
             }
-            if !opt.no_default_features && ctx.toml.features.contains_key("default") {
-                target_set.insert("default".to_string());
+            if ctx.is_root && !opt.no_default_features && ctx.toml.features.contains_key("default")
+            {
+                req_set.insert("default".to_string());
             }
-        } else if opt.all_features && ctx.is_workspace && opt.package.is_none() {
-            active_target_packages.insert(id.clone());
-            let target_set = target_requested.entry(id.clone()).or_default();
-            target_set.extend(ctx.toml.features.keys().cloned());
         }
     }
 
@@ -194,14 +198,17 @@ fn propagate_package<'a>(
     let mut runtime_deps: Vec<(&String, &TomlDependency)> = ctx.toml.dependencies.iter().collect();
     let mut build_deps: Vec<(&String, &TomlDependency)> =
         ctx.toml.build_dependencies.iter().collect();
-    if is_test && ctx.is_root && !is_host_ctx {
+    let is_pm = ctx.is_proc_macro();
+    let include_dev_deps =
+        is_test && ctx.is_root && (if is_pm { is_host_ctx } else { !is_host_ctx });
+    if include_dev_deps {
         runtime_deps.extend(&ctx.toml.dev_dependencies);
     }
 
     for (spec, t) in &ctx.toml.target {
         if !index.is_target_incompat(spec, is_host_ctx)? {
             runtime_deps.extend(&t.dependencies);
-            if is_test && ctx.is_root && !is_host_ctx {
+            if include_dev_deps {
                 runtime_deps.extend(&t.dev_dependencies);
             }
         }

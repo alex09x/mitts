@@ -95,12 +95,14 @@ pub fn build_planned_units(
         let has_untracked_env = matches!(env_discovery, EnvMacroDiscovery::UntrackedDynamic);
         let pkg_id =
             super::features::format_package_id(&pkg.name, &pkg.version, pkg.source.as_deref());
-
-        let in_target = *is_workspace
-            || is_primary
+        let is_pm_pkg = pkg_toml.lib.as_ref().is_some_and(|l| {
+            l.proc_macro == Some(true) || l.crate_type.iter().any(|k| k == "proc-macro")
+        });
+        let in_target = (!is_pm_pkg && (*is_workspace || is_primary))
             || package_features.active_target_packages.contains(&pkg_id)
             || package_features.active_target_packages.contains(&pkg.name);
-        let in_host = package_features.active_host_packages.contains(&pkg_id)
+        let in_host = (is_primary && is_pm_pkg)
+            || package_features.active_host_packages.contains(&pkg_id)
             || package_features.active_host_packages.contains(&pkg.name);
 
         for target in targets {
@@ -110,19 +112,12 @@ pub fn build_planned_units(
 
             if is_pm {
                 if in_host || is_primary {
-                    let feats = if in_host {
-                        package_features
-                            .host
-                            .get(&pkg_id)
-                            .or_else(|| package_features.host.get(&pkg.name))
-                    } else {
-                        package_features
-                            .target
-                            .get(&pkg_id)
-                            .or_else(|| package_features.target.get(&pkg.name))
-                    }
-                    .cloned()
-                    .unwrap_or_default();
+                    let feats = package_features
+                        .host
+                        .get(&pkg_id)
+                        .or_else(|| package_features.host.get(&pkg.name))
+                        .cloned()
+                        .unwrap_or_default();
                     if target_features_satisfied(&target, &feats, opt) {
                         units.push(create_unit(
                             pkg,
@@ -130,7 +125,7 @@ pub fn build_planned_units(
                             pkg_toml,
                             &target,
                             &pkg_id,
-                            in_host,
+                            true,
                             feats,
                             *is_workspace,
                             has_untracked_env,
@@ -140,9 +135,6 @@ pub fn build_planned_units(
                     }
                 }
             } else if is_executable {
-                let is_pm_pkg = pkg_toml.lib.as_ref().is_some_and(|l| {
-                    l.proc_macro == Some(true) || l.crate_type.iter().any(|k| k == "proc-macro")
-                });
                 let unit_in_scope = if is_pm_pkg {
                     in_host || is_primary
                 } else {
@@ -233,13 +225,11 @@ fn target_features_satisfied(
     features: &[String],
     opt: &RustBuildOptions,
 ) -> bool {
-    if let Some(ref req_feats) = target.required_features {
+    target.required_features.as_ref().is_none_or(|req_feats| {
         req_feats
             .iter()
             .all(|req| features.contains(req) || opt.features.contains(req))
-    } else {
-        true
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -286,24 +276,18 @@ fn create_unit(
             },
             "Uncached in M1 (eligible for M2 test binary artifact cache)".to_string(),
         )
-    } else if is_bin {
-        (
-            "bin".to_string(),
-            if is_workspace {
-                "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
-            } else {
-                "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
-            },
-        )
     } else {
-        (
-            target.kind.clone(),
-            if is_workspace {
-                "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
-            } else {
-                "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
-            },
-        )
+        let kind = if is_bin {
+            "bin".to_string()
+        } else {
+            target.kind.clone()
+        };
+        let reason = if is_workspace {
+            "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
+        } else {
+            "Uncached in M1 (eligible for M2 immutable dependency cache)".to_string()
+        };
+        (kind, reason)
     };
 
     PlannedCompilationUnit {
