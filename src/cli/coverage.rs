@@ -65,6 +65,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         all_features: args.all_features,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        fast_lock: None,
         mode: BuildMode::Test,
         native: true,
         cargo: false,

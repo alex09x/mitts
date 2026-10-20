@@ -180,17 +180,24 @@ impl RustAdapter {
     }
 
     /// Resolves or validates the project's Cargo.lock according to the two-phase contract.
-    pub fn resolve_lockfile(manifest_path: &Path, offline: bool) -> Result<lockfile::CargoLock> {
-        lockfile::CargoLock::resolve_or_sync(manifest_path, offline)
+    /// `cache_dir` relocates the sparse-index cache used when the lockfile has to be synced.
+    pub fn resolve_lockfile(
+        manifest_path: &Path,
+        offline: bool,
+        cache_dir: Option<&Path>,
+    ) -> Result<lockfile::CargoLock> {
+        lockfile::CargoLock::resolve_or_sync(manifest_path, offline, cache_dir)
     }
 
-    /// Fetches all dependencies in Cargo.lock into the global SourceStore.
+    /// Fetches all dependencies in Cargo.lock into `store`. `cache_dir` is the cache root
+    /// whose `index/` caches sparse-index entries when the lockfile has to be synced.
     pub fn fetch(
         manifest_path: &Path,
         store: &crate::core::source_store::SourceStore,
         opt: &fetcher::FetchOptions,
+        cache_dir: Option<&Path>,
     ) -> Result<fetcher::FetchResult> {
-        let lock = Self::resolve_lockfile(manifest_path, opt.offline)?;
+        let lock = Self::resolve_lockfile(manifest_path, opt.offline, cache_dir)?;
         let fetcher = fetcher::CrateFetcher::new(store.clone());
         fetcher.fetch_all(&lock, opt)
     }

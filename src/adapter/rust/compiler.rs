@@ -31,6 +31,9 @@ pub struct RustcInvocation<'a> {
     pub jobserver_auth: Option<&'a str>,
     pub deps_dir: Option<&'a Path>,
     pub target_dir: Option<&'a Path>,
+    /// Root of the Mitts cache the build runs against (the parent of its `cas/`);
+    /// the default cache root when `None`.
+    pub cache_root: Option<&'a Path>,
 }
 
 impl<'a> RustcInvocation<'a> {

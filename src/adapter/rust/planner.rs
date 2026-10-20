@@ -117,7 +117,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .find(|p| p.is_file());
     let mut lockfile = match lock_path {
         Some(ref lp) => CargoLock::from_file(lp)?,
-        None => CargoLock::resolve_or_sync(&manifest_path, false)?,
+        None => CargoLock::resolve_or_sync(&manifest_path, false, opt.cache_dir.as_deref())?,
     };
 
     // Ensure all path dependencies and workspace packages exist in the lockfile

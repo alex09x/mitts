@@ -21,6 +21,7 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
         features: args.features.clone(),
         no_default_features: args.no_default_features,
         all_features: args.all_features,
+        cache_dir: args.cache_dir.clone(),
         ..Default::default()
     };
 
@@ -142,7 +143,12 @@ pub fn handle_fetch(args: &FetchArgs) -> i32 {
         &format!("Resolving dependencies for {}", manifest_path.display()),
     );
 
-    match RustAdapter::fetch(&manifest_path, &store, &fetch_opt) {
+    match RustAdapter::fetch(
+        &manifest_path,
+        &store,
+        &fetch_opt,
+        args.cache_dir.as_deref(),
+    ) {
         Ok(result) => {
             Ui::stage_step("📦", "Synchronizing packages with registry");
             let cached_msg = format!(

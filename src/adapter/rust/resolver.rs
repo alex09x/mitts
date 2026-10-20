@@ -29,10 +29,16 @@ pub struct NativeResolver {
 }
 
 impl NativeResolver {
-    /// Creates a new NativeResolver backed by standard index cache.
+    /// Creates a new NativeResolver backed by the index cache under the default cache root.
     pub fn new() -> Result<Self> {
+        Self::for_cache_dir(None)
+    }
+
+    /// Resolver whose index cache lives under `cache_dir`, or under the default cache
+    /// root when `None`.
+    pub fn for_cache_dir(cache_dir: Option<&Path>) -> Result<Self> {
         Ok(Self {
-            index_client: SparseIndexClient::new()?,
+            index_client: SparseIndexClient::for_cache_dir(cache_dir)?,
         })
     }
 

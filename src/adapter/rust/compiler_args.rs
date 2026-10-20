@@ -13,7 +13,7 @@ use super::compiler_resolve::{find_workspace_root, resolve_clippy_driver, resolv
 use super::types::BuildMode;
 use anyhow::Result;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// Prepares and configures the `Command` for a `RustcInvocation`.
@@ -54,22 +54,14 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     let actual_src = if inv.unit.src_path.is_file() {
         inv.unit.src_path.clone()
     } else {
-        let cache_root = std::env::var_os("MITTS_CACHE_DIR")
-            .map(PathBuf::from)
-            .or_else(|| {
-                inv.out_dir
-                    .ancestors()
-                    .find(|p| p.ends_with(".cache/mitts") || p.ends_with(".cache/mitts/"))
-                    .map(|p| p.to_path_buf())
-            })
-            .unwrap_or_else(|| PathBuf::from("."));
+        let cache_root = crate::core::cache_root::resolve(inv.cache_root);
         let rel = if inv.unit.kind == "bin" {
             "main.rs"
         } else {
             "lib.rs"
         };
         let store_src = cache_root
-            .join("sources")
+            .join(crate::core::cache_root::SOURCES_DIR)
             .join(format!("{}-{}", inv.unit.package_name, inv.unit.version))
             .join("src")
             .join(rel);

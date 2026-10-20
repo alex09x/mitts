@@ -94,14 +94,9 @@ impl<'a> CacheGc<'a> {
     }
 
     pub fn prune(&self, opts: &GcOptions) -> Result<GcReport> {
-        for sources_dir in [
-            self.cas.root().parent().map(|p| p.join("sources")),
-            Some(super::source_store::SourceStore::default_root()),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|d| d.is_dir())
-        {
+        let sources_dir =
+            super::cache_root::from_cas_root(self.cas.root()).join(super::cache_root::SOURCES_DIR);
+        if sources_dir.is_dir() {
             if let Ok(store) = super::source_store::SourceStore::new(sources_dir) {
                 let _ = store.cleanup_dead_staging();
             }

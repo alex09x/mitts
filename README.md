@@ -117,7 +117,9 @@ mitts clean                  # remove this workspace's Mitts artifacts
 ```
 
 Mitts writes only to `target/mitts/` in the workspace and to its shared cache
-(`$MITTS_CACHE_DIR`, else `$XDG_CACHE_HOME/mitts`, else `~/.cache/mitts`).
+(`--cache-dir`, else `$MITTS_CACHE_DIR`, else `$XDG_CACHE_HOME/mitts`, else
+`~/.cache/mitts`). The artifact store, action cache, locks, jobserver, source
+store and index cache all live under that one root.
 
 ## How it works
 
@@ -297,7 +299,8 @@ No. Mitts never writes into `target/debug` or `target/release`; everything goes
 to `target/mitts/`.
 
 **Where is the cache and how do I clear it?**
-`$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` or `~/.cache/mitts`. Use
+`--cache-dir`, else `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` or
+`~/.cache/mitts`; everything Mitts caches lives under that one root. Use
 `mitts gc` to prune within quotas; deleting the directory is also safe when no
 build is running.
 

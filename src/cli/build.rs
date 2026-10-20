@@ -27,6 +27,7 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         extra_args: args.extra_args.clone(),
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        fast_lock: args.fast_lock,
         native: args.native,
         cargo: args.cargo,
         verbose: args.verbose,

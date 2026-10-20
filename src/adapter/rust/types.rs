@@ -137,6 +137,9 @@ pub struct RustBuildOptions {
     pub extra_args: Vec<String>,
     pub no_cache: bool,
     pub cache_dir: Option<PathBuf>,
+    /// Whether the fast build lock may answer a no-op build. `None` keeps it active only
+    /// for the default store; `Some(true)` keeps it active with an explicit `cache_dir` too.
+    pub fast_lock: Option<bool>,
     pub native: bool,
     pub cargo: bool,
     pub verbose: u8,

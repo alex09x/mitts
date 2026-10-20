@@ -54,34 +54,18 @@ pub struct SparseIndexClient {
 }
 
 impl SparseIndexClient {
-    /// Creates a new SparseIndexClient caching downloaded index metadata in `~/.cache/mitts/index`.
+    /// Creates a new SparseIndexClient caching downloaded index metadata under the
+    /// default cache root (`<cache root>/index`).
     pub fn new() -> Result<Self> {
-        let base_dir = if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
-            PathBuf::from(val)
-        } else if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".cache").join("mitts")
-        } else {
-            PathBuf::from(".mitts").join("cache")
-        };
+        Self::for_cache_dir(None)
+    }
 
-        let cache_dir = base_dir.join("index");
-        fs::create_dir_all(&cache_dir)?;
-
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30))
-            .max_idle_connections(64)
-            .max_idle_connections_per_host(64)
-            .build();
-
-        let base_url = std::env::var("MITTS_SPARSE_INDEX_URL")
-            .unwrap_or_else(|_| "https://index.crates.io".to_string());
-
-        Ok(Self {
-            base_url,
-            cache_dir,
-            agent,
-        })
+    /// Client whose index cache lives under `cache_dir` (`<cache_dir>/index`), or under the
+    /// default cache root when `None`.
+    pub fn for_cache_dir(cache_dir: Option<&Path>) -> Result<Self> {
+        Self::with_cache_dir(
+            crate::core::cache_root::resolve(cache_dir).join(crate::core::cache_root::INDEX_DIR),
+        )
     }
 
     /// Custom cache directory for tests or isolated environments.

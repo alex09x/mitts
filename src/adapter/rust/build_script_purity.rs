@@ -156,13 +156,14 @@ pub fn assess_build_script_purity_with_dep_info(
         if home.len() >= 3 {
             home_needle_opt = Some(home.as_bytes().to_vec());
 
-            // Machine-wide shared paths under HOME that are valid across workspaces
-            if let Ok(mitts_cache) = std::env::var("MITTS_CACHE_DIR") {
-                if !mitts_cache.is_empty() {
-                    allowed_home_prefixes.push(mitts_cache.into_bytes());
+            // Machine-wide shared paths under HOME that are valid across workspaces.
+            // With an explicit CAS the cache root was already allowed above.
+            if cas_root.is_none() {
+                let default_root = crate::core::cache_root::default_root();
+                let root_bytes = default_root.to_string_lossy().as_bytes().to_vec();
+                if !root_bytes.is_empty() {
+                    allowed_home_prefixes.push(root_bytes);
                 }
-            } else {
-                allowed_home_prefixes.push(format!("{}/.cache/mitts", home).into_bytes());
             }
 
             if let Ok(cargo_home) = std::env::var("CARGO_HOME") {

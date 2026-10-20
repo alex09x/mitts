@@ -231,6 +231,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        fast_lock: None,
         native: true,
         cargo: false,
         verbose: args.verbose,

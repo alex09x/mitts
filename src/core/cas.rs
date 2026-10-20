@@ -51,19 +51,10 @@ impl ContentAddressedStore {
         })
     }
 
-    /// Resolves the default global CAS directory path, respecting MITTS_CACHE_DIR,
-    /// XDG_CACHE_HOME, or standard user cache directories.
+    /// Resolves the default global CAS directory path (`<cache root>/cas`, see
+    /// [`crate::core::cache_root`] for the precedence).
     pub fn default_path() -> PathBuf {
-        if let Ok(dir) = std::env::var("MITTS_CACHE_DIR") {
-            return PathBuf::from(dir).join("cas");
-        }
-        if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
-            return PathBuf::from(xdg).join("mitts").join("cas");
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(".cache").join("mitts").join("cas");
-        }
-        PathBuf::from(".mitts_cache").join("cas")
+        crate::core::cache_root::default_root().join(crate::core::cache_root::CAS_DIR)
     }
 
     /// Creates a store with the default path.

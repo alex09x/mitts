@@ -208,8 +208,13 @@ impl CargoLock {
 
     /// Two-phase dependency resolver:
     /// - Fast-path: reads existing Cargo.lock directly without re-resolution if compatible.
-    /// - Sync-path: generates/updates standard Cargo.lock when missing or incompatible.
-    pub fn resolve_or_sync(manifest_path: &Path, offline: bool) -> Result<Self> {
+    /// - Sync-path: generates/updates standard Cargo.lock when missing or incompatible,
+    ///   caching sparse-index entries under `cache_dir` (the default cache root when `None`).
+    pub fn resolve_or_sync(
+        manifest_path: &Path,
+        offline: bool,
+        cache_dir: Option<&Path>,
+    ) -> Result<Self> {
         let manifest_dir = manifest_path
             .parent()
             .context("Manifest path has no parent directory")?;
@@ -231,7 +236,7 @@ impl CargoLock {
         }
 
         // Sync-path: standalone native resolution via crates.io sparse index
-        let resolver = super::resolver::NativeResolver::new()?;
+        let resolver = super::resolver::NativeResolver::for_cache_dir(cache_dir)?;
         let lock = resolver.resolve_manifest(manifest_path, offline)?;
         let _ = lock.write_to_file(&lock_path);
         Ok(lock)

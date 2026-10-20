@@ -109,7 +109,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     // Strictly restricted to Build and Check modes. In Test mode, test execution cannot be
     // cached by fast-lock because tests have runtime inputs and assertions that must be executed.
     if !opt.no_cache
-        && opt.cache_dir.is_none()
+        && opt.fast_lock.unwrap_or(opt.cache_dir.is_none())
         && matches!(
             opt.mode,
             super::types::BuildMode::Build | super::types::BuildMode::Check
@@ -274,7 +274,7 @@ fn record_state_and_trace(
 ) {
     if result.success
         && !opt.no_cache
-        && opt.cache_dir.is_none()
+        && opt.fast_lock.unwrap_or(opt.cache_dir.is_none())
         && matches!(
             opt.mode,
             super::types::BuildMode::Build | super::types::BuildMode::Check

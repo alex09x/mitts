@@ -88,14 +88,22 @@ can be configured via `settings set target.source-map "" <workspace_root>`.
 ## 4. Store layout
 
 ```
-$MITTS_CACHE_DIR | $XDG_CACHE_HOME/mitts | ~/.cache/mitts
+--cache-dir | $MITTS_CACHE_DIR | $XDG_CACHE_HOME/mitts | ~/.cache/mitts
 ├── cas/
 │   ├── objects/<sha256>          immutable objects, mode 0444
 │   ├── artifacts/                named views of objects for rustc -L / --extern
 │   ├── build_scripts/<base>/<exec>/{meta.toml, out/}
 │   └── tmp/                      staging for atomic publish
-└── sources/<crate>-<version>/    unpacked registry sources
+├── ac/manifests/                 action cache entries
+├── locks/                        single-flight locks per action key
+├── jobserver/                    managed token pool
+├── sources/<crate>-<version>/    unpacked registry sources
+└── index/                        cached sparse-index entries
 ```
+
+One resolver (`core::cache_root`) picks that root for every store, so an explicit
+`--cache-dir` (or `RustBuildOptions::cache_dir`) relocates all of them together;
+nothing falls back to `~/.cache/mitts` on its own.
 
 The workspace sees only `target/mitts/` (or `$CARGO_TARGET_DIR/mitts`), which
 holds restored outputs, `build.log` and the fast-path snapshots. Mitts creates

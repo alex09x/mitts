@@ -48,7 +48,8 @@ pub fn discover_clippy_config(start_dir: &Path) -> Option<PathBuf> {
 
 /// Returns true only when `package_dir` is an immutable external dependency directory:
 /// 1. Official Cargo registry source (`$CARGO_HOME/registry/src/...` or `~/.cargo/registry/src/...`) with `.cargo-ok`, OR
-/// 2. Mitts source store (`$MITTS_CACHE_DIR/sources/...` or `~/.cache/mitts/sources/...`) with `.mitts-ok`, OR
+/// 2. A Mitts source store entry (`<cache root>/sources/<name>-<version>/`, whichever cache
+///    root the build runs against) with `.mitts-ok`, OR
 /// 3. Official Cargo git checkout (`$CARGO_HOME/git/checkouts/...`) with `.cargo-ok`.
 pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool {
     if is_workspace {
@@ -67,8 +68,10 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
             .take_while(|a| a.starts_with(&cargo_git_checkouts) && *a != cargo_git_checkouts)
             .any(|a| a.join(".cargo-ok").is_file());
 
-    let mitts_sources = crate::core::SourceStore::default_root();
-    let in_mitts_sources = package_dir.starts_with(&mitts_sources)
+    let in_mitts_sources = package_dir
+        .parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|name| name == crate::core::cache_root::SOURCES_DIR)
         && package_dir
             .join(crate::core::source_store::MITTS_OK_MARKER)
             .is_file();

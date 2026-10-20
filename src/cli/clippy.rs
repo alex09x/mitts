@@ -55,6 +55,10 @@ pub struct ClippyArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Keep the fast build lock active with an explicit cache directory (API only)
+    #[arg(skip)]
+    pub fast_lock: Option<bool>,
+
     /// Use verbose output (-v, -vv for very verbose)
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -126,6 +130,7 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        fast_lock: args.fast_lock,
         native: true,
         cargo: false,
         verbose: args.verbose,

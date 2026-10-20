@@ -127,6 +127,7 @@ pub(crate) fn run_build_script_if_needed(
                     jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
                     deps_dir: Some(&artifacts_dir),
                     target_dir: Some(ctx.target_dir),
+                    cache_root: ctx.cas.root().parent(),
                 };
                 let out = inv.execute()?;
                 if !out.stderr.is_empty() {

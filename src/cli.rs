@@ -126,6 +126,10 @@ pub struct BuildArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Keep the fast build lock active with an explicit cache directory (API only)
+    #[arg(skip)]
+    pub fast_lock: Option<bool>,
+
     /// Force native rustc DAG compilation (zero intermediate target bloat)
     #[arg(long)]
     pub native: bool,
@@ -198,6 +202,10 @@ pub struct ExplainArgs {
     /// Activate all available features
     #[arg(long)]
     pub all_features: bool,
+
+    /// Directory for the shared artifact and action cache
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
 
     /// Output explanation in JSON format
     #[arg(long)]

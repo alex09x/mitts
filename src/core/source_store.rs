@@ -39,20 +39,13 @@ impl SourceStore {
         Ok(Self { root, locks_dir })
     }
 
-    /// Returns the default store root path without creating directories on disk.
+    /// Returns the default store root path (`<cache root>/sources`, see
+    /// [`crate::core::cache_root`] for the precedence) without creating directories on disk.
     pub fn default_root() -> PathBuf {
-        if let Ok(val) = std::env::var("MITTS_CACHE_DIR") {
-            return PathBuf::from(val).join("sources");
-        }
-        let base_dir = if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".cache").join("mitts")
-        } else {
-            PathBuf::from("target").join("mitts").join("cache")
-        };
-        base_dir.join("sources")
+        crate::core::cache_root::default_root().join(crate::core::cache_root::SOURCES_DIR)
     }
 
-    /// Default global store location: uses `$MITTS_CACHE_DIR/sources` or `~/.cache/mitts/sources`.
+    /// Default global store location under the default cache root.
     /// Never writes into `$CARGO_HOME/registry`.
     pub fn default_store() -> Result<Self> {
         Self::new(Self::default_root())

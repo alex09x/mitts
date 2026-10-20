@@ -83,18 +83,10 @@ impl ActionCache {
         })
     }
 
-    /// Resolves the default global Action Cache directory path.
+    /// Resolves the default global Action Cache directory path (`<cache root>/ac`, see
+    /// [`crate::core::cache_root`] for the precedence).
     pub fn default_path() -> PathBuf {
-        if let Ok(dir) = std::env::var("MITTS_CACHE_DIR") {
-            return PathBuf::from(dir).join("ac");
-        }
-        if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
-            return PathBuf::from(xdg).join("mitts").join("ac");
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(".cache").join("mitts").join("ac");
-        }
-        PathBuf::from(".mitts_cache").join("ac")
+        crate::core::cache_root::default_root().join(crate::core::cache_root::ACTION_CACHE_DIR)
     }
 
     /// Creates an Action Cache with default path.

@@ -221,6 +221,7 @@ pub(crate) fn execute_unit(
         jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
         deps_dir: Some(deps_dir),
         target_dir: Some(ctx.target_dir),
+        cache_root: ctx.cas.root().parent(),
     };
 
     let post_rustc_resolved: std::sync::OnceLock<(

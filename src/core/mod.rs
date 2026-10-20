@@ -15,6 +15,7 @@ pub mod build_env;
 pub mod build_lock;
 pub mod build_lock_types;
 pub mod build_logger;
+pub mod cache_root;
 pub mod cas;
 pub mod file_scanner;
 pub mod gc;
