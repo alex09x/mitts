@@ -63,6 +63,9 @@ pub fn is_known_pure_proc_macro(name: &str) -> bool {
             | "miette_derive"
             | "serde_repr"
             | "arbitrary_derive"
+            // Expands `#[rustversion::*]` against the compiler version its own build
+            // script recorded; the expansion reads nothing from the user's package.
+            | "rustversion"
     )
 }
 
@@ -245,6 +248,17 @@ pub fn compute_unit_flags_with_ws(
                 }
             }
             _ => {
+                if std::env::var_os("MITTS_LOG_KEYS").is_some() {
+                    eprintln!(
+                        "[mitts::unit_key] {} keyed on the absolute manifest dir: reads_manifest_dir={} impure_proc_macro={} under_root={} pkg_dir={} root={}",
+                        unit.unit_id(),
+                        reads_manifest_dir,
+                        has_impure_proc_macro,
+                        rel_opt.is_some(),
+                        pkg_dir.display(),
+                        root.display()
+                    );
+                }
                 u_flags.push(format!("CARGO_MANIFEST_DIR={}", pkg_dir.display()));
             }
         }
@@ -396,3 +410,72 @@ pub fn compute_unit_flags(
 }
 
 pub use super::profile::resolve_unit_debuginfo;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unit_with_deps(deps: &[&str]) -> PlannedCompilationUnit {
+        PlannedCompilationUnit {
+            package_name: "app".into(),
+            version: "0.1.0".into(),
+            target_name: "app_test".into(),
+            kind: "test".into(),
+            is_workspace: true,
+            is_primary: true,
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn rustversion_counts_as_a_pure_proc_macro() {
+        assert!(is_known_pure_proc_macro("rustversion"));
+        let unit = unit_with_deps(&[
+            "app@0.1.0::lib:app",
+            "rustversion@1.0.23::proc-macro:rustversion:host=fd62cb2578b7",
+            "thiserror-impl@2.0.0::proc-macro:thiserror-impl:host=0a1b",
+        ]);
+        assert!(!unit_has_impure_proc_macro(&unit));
+    }
+
+    #[test]
+    fn unknown_proc_macro_keeps_the_unit_impure() {
+        let unit = unit_with_deps(&["some_derive@0.1.0::proc-macro:some_derive:host=0a1b"]);
+        assert!(unit_has_impure_proc_macro(&unit));
+    }
+
+    #[test]
+    fn pure_proc_macro_deps_keep_the_manifest_dir_relative() {
+        let root = std::env::temp_dir().join("mitts_key_flags_pure_pm");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut unit =
+            unit_with_deps(&["rustversion@1.0.23::proc-macro:rustversion:host=fd62cb2578b7"]);
+        unit.manifest_path = root.join("Cargo.toml");
+        std::fs::write(
+            &unit.manifest_path,
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let flags =
+            compute_unit_flags_with_ws(&unit, &root, &[], BuildMode::Test, false, Some(&root))
+                .unwrap();
+        assert!(
+            flags.iter().any(|f| f == "REMAP_PATH_PREFIX=relative"),
+            "{flags:?}"
+        );
+        assert!(
+            !flags.iter().any(|f| f.starts_with("CARGO_MANIFEST_DIR=")),
+            "{flags:?}"
+        );
+
+        unit.dependencies = vec!["some_derive@0.1.0::proc-macro:some_derive:host=0a1b".into()];
+        let flags =
+            compute_unit_flags_with_ws(&unit, &root, &[], BuildMode::Test, false, Some(&root))
+                .unwrap();
+        assert!(
+            flags.iter().any(|f| f.starts_with("CARGO_MANIFEST_DIR=")),
+            "{flags:?}"
+        );
+    }
+}

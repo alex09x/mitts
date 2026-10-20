@@ -21,6 +21,36 @@ use std::thread;
 
 pub use super::key_flags::*;
 
+/// With `MITTS_LOG_KEYS` set, prints every input of a unit's base action key so two
+/// checkouts can be diffed when one of them misses the cache.
+fn log_unit_key(
+    unit_id: &str,
+    key: &str,
+    flags: &[String],
+    source_refs: &[(&str, &str)],
+    dep_hashes: &[(&str, &str)],
+) {
+    if std::env::var_os("MITTS_LOG_KEYS").is_none() {
+        return;
+    }
+    let inputs: Vec<String> = source_refs
+        .iter()
+        .map(|(p, h)| format!("{}={}", p, &h[..h.len().min(12)]))
+        .collect();
+    let deps: Vec<String> = dep_hashes
+        .iter()
+        .map(|(id, k)| format!("{}={}", id, &k[..k.len().min(12)]))
+        .collect();
+    eprintln!(
+        "[mitts::unit_key] {} key={}\n  flags: {}\n  inputs: {}\n  deps: {}",
+        unit_id,
+        key,
+        flags.join(" | "),
+        inputs.join(" "),
+        deps.join(" ")
+    );
+}
+
 pub fn parallel_map_chunks<T, R, F>(items: &[T], f: F) -> Vec<R>
 where
     T: Sync,
@@ -275,6 +305,7 @@ pub fn derive_unit_action_key_context(
                     &dep_hashes,
                 );
 
+                log_unit_key(&u_id, &key, u_flags, &source_refs, &dep_hashes);
                 unit_keys.insert(u_id, key);
                 progress = true;
             } else {
