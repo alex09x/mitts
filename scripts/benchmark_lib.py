@@ -396,7 +396,7 @@ def collect_provenance(
         "cpu_busy_baseline": baseline_busy,
         "effective_max_busy": effective_busy,
         "max_load": max_load,
-        "gate": "cpu busy fraction over a 1 s sample must not exceed max(max_busy, baseline + 0.10) and no foreign compiler process may run; the baseline is the median of 1 s samples taken before the run; loadavg is recorded and gates only without a CPU sample",
+        "gate": "cpu busy fraction over a 1 s sample must not exceed max(max_busy, baseline + 0.10) and no foreign compiler process may run; the baseline is the median of 1 s samples taken before the run; foreign load that holds within 0.10 over 5 consecutive samples with no compiler process is adopted as the baseline (released once the rig is back under the original threshold); a gate timeout proceeds and flags the project GATE_TIMEOUT; every adoption, release and timeout is listed in the project's gate_events; loadavg is recorded and gates only without a CPU sample",
         "background_note": background_note,
     }
     prov["storage"] = {

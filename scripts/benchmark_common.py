@@ -46,24 +46,45 @@ QUIET_MAX_BUSY = 0.25
 # rig with constant foreign load shifts every arm alike, so the gate only has to
 # catch load above that baseline; the baseline itself is recorded with the results.
 QUIET_BASELINE_BUSY: float | None = None
+# Steady foreign load that appeared during the run and was adopted at a gate; it is
+# released again once a gate sees the rig back under the original threshold.
+QUIET_ADOPTED_BUSY: float | None = None
 QUIET_BASELINE_MARGIN = 0.10
+# A load that holds within STEADY_SPREAD over STEADY_SAMPLES consecutive gate samples
+# (about 15 s) with no compiler process behind it is background, not a spike.
+STEADY_SAMPLES = 5
+STEADY_SPREAD = 0.10
+# What the gate did beyond plain waiting (baseline adopted/released, timeouts); the
+# runner drains it into each project's result.
+GATE_EVENTS: list[dict] = []
 
 
 def set_quiet_policy(max_busy: float, baseline_busy: float | None = None) -> None:
     """Sets the CPU-busy threshold used by `check_quiet_rig` / `wait_for_quiet_rig`,
     and the measured background level above which `max_busy` is relaxed."""
-    global QUIET_MAX_BUSY, QUIET_BASELINE_BUSY
+    global QUIET_MAX_BUSY, QUIET_BASELINE_BUSY, QUIET_ADOPTED_BUSY
     QUIET_MAX_BUSY = max_busy
     QUIET_BASELINE_BUSY = baseline_busy
+    QUIET_ADOPTED_BUSY = None
+    GATE_EVENTS.clear()
 
 
-def effective_max_busy(max_busy: float | None = None) -> float:
+def effective_max_busy(max_busy: float | None = None, include_adopted: bool = True) -> float:
     """The busy fraction the gate accepts: `max_busy`, or the measured baseline plus
     a margin when the rig's steady background is above it."""
     threshold = QUIET_MAX_BUSY if max_busy is None else max_busy
-    if QUIET_BASELINE_BUSY is not None:
-        threshold = max(threshold, QUIET_BASELINE_BUSY + QUIET_BASELINE_MARGIN)
+    levels = [QUIET_BASELINE_BUSY, QUIET_ADOPTED_BUSY if include_adopted else None]
+    for level in levels:
+        if level is not None:
+            threshold = max(threshold, level + QUIET_BASELINE_MARGIN)
     return round(min(threshold, 0.95), 3)
+
+
+def drain_gate_events() -> list[dict]:
+    """Returns and clears the gate events recorded since the last call."""
+    events = list(GATE_EVENTS)
+    GATE_EVENTS.clear()
+    return events
 
 
 def measure_cpu_baseline(samples: int = 5, sample_s: float = 1.0) -> float | None:
@@ -389,24 +410,42 @@ def wait_for_quiet_rig(
     max_busy: float | None = None,
 ) -> tuple[float, list[dict], float, float | None]:
     """
-    Waits until the CPU is at most `max_busy` busy (1 s sample) and no compiler/build
-    processes exist; `max_load` gates only when the CPU sample is unavailable.
-    Raises RuntimeError if timeout expires so caller can record or abort cleanly.
+    Waits until the CPU is at most the effective threshold busy (1 s sample) and no
+    compiler/build processes exist; `max_load` gates only when the CPU sample is
+    unavailable. Foreign load that stays steady for STEADY_SAMPLES samples with no
+    compiler behind it is adopted as the new baseline instead of waited out: it
+    shifts every arm alike. On timeout the measurement proceeds and the event is
+    recorded (the runner flags the result) rather than aborting the project.
     Returns `(loadavg_1m, foreign_procs, waited_s, cpu_busy)`.
     """
+    global QUIET_ADOPTED_BUSY
     start = time.perf_counter()
+    steady: list[float] = []
     while time.perf_counter() - start < timeout_s:
         is_quiet, load_1m, foreign_procs, busy = check_quiet_rig(max_load=max_load, max_busy=max_busy)
+        waited_s = round(time.perf_counter() - start, 2)
         if is_quiet:
-            return load_1m, foreign_procs, round(time.perf_counter() - start, 2), busy
+            if QUIET_ADOPTED_BUSY is not None and busy is not None and busy <= effective_max_busy(max_busy, include_adopted=False):
+                GATE_EVENTS.append({"kind": "baseline_released", "cpu_busy": busy, "adopted_busy": QUIET_ADOPTED_BUSY, "at": time.time()})
+                QUIET_ADOPTED_BUSY = None
+            return load_1m, foreign_procs, waited_s, busy
+        if foreign_procs or busy is None:
+            steady.clear()
+        else:
+            steady.append(busy)
+            window = steady[-STEADY_SAMPLES:]
+            if len(window) == STEADY_SAMPLES and max(window) - min(window) <= STEADY_SPREAD:
+                QUIET_ADOPTED_BUSY = sorted(window)[len(window) // 2]
+                threshold = effective_max_busy(max_busy)
+                GATE_EVENTS.append({"kind": "baseline_adopted", "cpu_busy": QUIET_ADOPTED_BUSY, "samples": window, "threshold": threshold, "waited_s": waited_s, "at": time.time()})
+                print(f"[gate] steady foreign CPU load {QUIET_ADOPTED_BUSY:.2f} over {STEADY_SAMPLES} samples, no compiler processes: adopted as baseline, threshold now {threshold}", flush=True)
+                return load_1m, foreign_procs, waited_s, busy
         time.sleep(poll_interval_s)
 
-    waited_s = round(time.perf_counter() - start, 2)
     is_quiet, load_1m, foreign_procs, busy = check_quiet_rig(max_load=max_load, max_busy=max_busy)
+    waited_s = round(time.perf_counter() - start, 2)
     if not is_quiet:
-        raise RuntimeError(
-            f"Preflight quiet rig timeout ({timeout_s}s) exceeded: "
-            f"cpu_busy={busy} (max_busy={effective_max_busy(max_busy)}, baseline={QUIET_BASELINE_BUSY}), "
-            f"loadavg_1m={load_1m} (max_load={max_load}), foreign_processes={foreign_procs}"
-        )
+        threshold = effective_max_busy(max_busy)
+        GATE_EVENTS.append({"kind": "timeout", "timeout_s": timeout_s, "cpu_busy": busy, "threshold": threshold, "loadavg_1m": load_1m, "foreign_processes": foreign_procs[:8], "at": time.time()})
+        print(f"[gate] quiet-rig timeout ({timeout_s:.0f} s): cpu_busy={busy} threshold={threshold} foreign={[p['bin'] for p in foreign_procs]}; measuring anyway, result flagged GATE_TIMEOUT", flush=True)
     return load_1m, foreign_procs, waited_s, busy

@@ -28,7 +28,7 @@ import time
 import traceback
 from pathlib import Path
 
-from benchmark_common import effective_max_busy, measure_cpu_baseline, set_quiet_policy, wait_for_quiet_rig
+from benchmark_common import drain_gate_events, effective_max_busy, measure_cpu_baseline, set_quiet_policy, wait_for_quiet_rig
 from benchmark_lib import (
     TOOLS, chmod_rmtree, collect_provenance, copy_repo_tree, ensure_commit_history,
     evaluate_t4_invariants, evaluate_t5_invariants, git_checkout_clean, prepare_commit_locks_and_fetch,
@@ -311,6 +311,13 @@ def benchmark_single_project(
         res["traceback"] = traceback.format_exc()
     finally:
         stop_sccache(sccache_bin, ctx["sccache_dir"])
+        gate_events = drain_gate_events()
+        if gate_events:
+            res["gate_events"] = gate_events
+            if any(e["kind"] == "timeout" for e in gate_events):
+                res["status_flags"].append("GATE_TIMEOUT")
+                if res["status"] == "OK":
+                    res["status"] = "NOISY"
         res["total_elapsed_s"] = round(time.perf_counter() - t_start, 2)
         chmod_rmtree(proj_work)
         chmod_rmtree(proj_cache)
