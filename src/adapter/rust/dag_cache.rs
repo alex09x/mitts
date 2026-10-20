@@ -10,48 +10,13 @@
 
 use super::build_script::BuildScriptDirectives;
 use super::manifest::CargoToml;
-use super::types::{BuildProgressEvent, PlannedCompilationUnit, RustBuildOptions};
-use crate::core::action::{Action, ActionKind, ToolchainInfo};
-use crate::core::action_cache::ActionCache;
-use crate::core::cas::ContentAddressedStore;
+use super::types::{BuildProgressEvent, PlannedCompilationUnit};
+use crate::core::action::{Action, ActionKind};
 use anyhow::Result;
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 
-pub type MetadataReadyCallback<'a> = &'a (dyn Fn(&str, &Path) + Send + Sync);
-pub type CompletedCfgsMap = Arc<Mutex<HashMap<String, Vec<String>>>>;
-pub type CompletedEnvMap = Arc<Mutex<HashMap<String, HashMap<String, String>>>>;
-pub type CompletedLinkArgsMap = Arc<Mutex<HashMap<String, Vec<String>>>>;
-pub type TrackedExtraFilesMap = Arc<Mutex<std::collections::BTreeMap<PathBuf, String>>>;
-pub type TrackedEnvVarsMap = Arc<Mutex<std::collections::BTreeMap<String, Option<String>>>>;
-
-pub struct ExecutionContext<'a> {
-    pub opt: &'a RustBuildOptions,
-    pub toolchain: &'a ToolchainInfo,
-    pub target_dir: &'a Path,
-    pub cas: &'a ContentAddressedStore,
-    pub ac: &'a ActionCache,
-    pub is_cache_enabled: bool,
-    pub completed_artifacts: &'a Arc<Mutex<HashMap<String, PathBuf>>>,
-    pub recorded_actions: &'a Arc<Mutex<Vec<Action>>>,
-    pub compiler_messages: &'a Arc<Mutex<Vec<String>>>,
-    pub any_missed: &'a Arc<Mutex<bool>>,
-    pub dep_build_metadata: &'a Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
-    pub resolved_keys: Option<&'a Arc<Mutex<HashMap<String, String>>>>,
-    pub jobserver: Option<&'a Arc<crate::core::JobserverPool>>,
-    pub is_first_job: Option<&'a Arc<std::sync::atomic::AtomicBool>>,
-    pub on_metadata_ready: Option<MetadataReadyCallback<'a>>,
-    pub compiled_actions: Option<&'a Arc<std::sync::atomic::AtomicUsize>>,
-    pub cached_actions: Option<&'a Arc<std::sync::atomic::AtomicUsize>>,
-    pub completed_cfgs: Option<&'a CompletedCfgsMap>,
-    pub completed_env: Option<&'a CompletedEnvMap>,
-    pub completed_link_args: Option<&'a CompletedLinkArgsMap>,
-    pub target_index: Option<&'a Arc<Mutex<crate::core::TargetArtifactIndex>>>,
-    pub tracked_extra_files: Option<&'a TrackedExtraFilesMap>,
-    pub tracked_env_vars: Option<&'a TrackedEnvVarsMap>,
-}
+pub use super::dag_unit::context::*;
 
 /// Checks the Action Cache and restores binary or dependency rlibs from CAS if valid.
 /// Returns Ok(true) if restored from cache, Ok(false) otherwise.
@@ -71,6 +36,25 @@ pub fn try_restore_from_cache_with_directives(
     ctx: &ExecutionContext,
     is_bin: bool,
     current_directives: Option<&BuildScriptDirectives>,
+) -> Result<bool> {
+    try_restore_from_cache_with_directives_and_purity(
+        unit,
+        action_key,
+        ctx,
+        is_bin,
+        current_directives,
+        None,
+    )
+}
+
+/// Checks the Action Cache using explicitly supplied build script directives and precomputed purity for the current run.
+pub fn try_restore_from_cache_with_directives_and_purity(
+    unit: &PlannedCompilationUnit,
+    action_key: &str,
+    ctx: &ExecutionContext,
+    is_bin: bool,
+    current_directives: Option<&BuildScriptDirectives>,
+    purity: Option<&super::build_script_purity::BuildScriptPurity>,
 ) -> Result<bool> {
     if !ctx.is_cache_enabled || action_key.contains(":unhashable:") {
         return Ok(false);
@@ -101,10 +85,15 @@ pub fn try_restore_from_cache_with_directives(
             );
             let out_dir = current_directives.and_then(|d| d.out_dir.as_deref());
             if has_build {
-                if let (Some(d), Some(out)) = (current_directives, out_dir) {
+                let purity_hash = purity
+                    .filter(|p| p.is_pure)
+                    .map(|p| p.out_dir_hash.as_str());
+                if let Some(h) = purity_hash {
+                    unit_env.insert("OUT_DIR".to_string(), h.to_string());
+                } else if let (Some(d), Some(out)) = (current_directives, out_dir) {
                     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
                     let empty_refs = std::collections::HashSet::new();
-                    if let Ok(purity) =
+                    if let Ok(p) =
                         super::build_script_purity::assess_build_script_purity_with_dep_info(
                             pkg_dir,
                             ws_root.as_deref(),
@@ -115,7 +104,9 @@ pub fn try_restore_from_cache_with_directives(
                             Some(&empty_refs),
                         )
                     {
-                        unit_env.insert("OUT_DIR".to_string(), purity.out_dir_hash);
+                        if p.is_pure {
+                            unit_env.insert("OUT_DIR".to_string(), p.out_dir_hash);
+                        }
                     }
                 }
             }
@@ -237,8 +228,8 @@ pub fn try_restore_from_cache_with_directives(
                             true,
                         );
                     }
-                    let clean_crate = unit.target_name.replace('-', "_");
-                    let alt_path = dest_bin.parent().unwrap_or(&dest_bin).join(&clean_crate);
+                    let clean = unit.target_name.replace('-', "_");
+                    let alt_path = dest_bin.parent().unwrap_or(&dest_bin).join(&clean);
                     if alt_path != dest_bin {
                         let _ = crate::core::link_intra_workspace(
                             &dest_bin,
@@ -276,8 +267,8 @@ pub fn try_restore_from_cache_with_directives(
                     {
                         return Ok(false);
                     }
-                    let clean_crate = unit.target_name.replace('-', "_");
-                    let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
+                    let clean = unit.target_name.replace('-', "_");
+                    let unhashed = deps_dir.join(format!("lib{clean}.{ext}"));
                     if unhashed != target_dep_dest {
                         let _ = crate::core::link_intra_workspace(
                             &target_dep_dest,
@@ -360,29 +351,32 @@ pub fn try_restore_from_cache_with_directives(
             }
         }
 
+        let kind = if is_bin {
+            ActionKind::CompileBin
+        } else {
+            ActionKind::CompileRlib
+        };
+        let env = super::unit_env::compute_unit_rustc_env_with_target(
+            unit,
+            effective_dirs.as_ref(),
+            None,
+            Some(ctx.target_dir),
+            ctx.opt.release,
+        );
+        let outputs = entry
+            .outputs
+            .iter()
+            .map(|o| ctx.target_dir.join(&o.relative_path))
+            .collect();
         ctx.recorded_actions.lock().unwrap().push(Action {
             id: entry.action_id.clone(),
-            kind: if is_bin {
-                ActionKind::CompileBin
-            } else {
-                ActionKind::CompileRlib
-            },
+            kind,
             description: format!("Restored {} from CAS", entry.action_id),
             toolchain: ctx.toolchain.clone(),
             inputs: Vec::new(),
-            outputs: entry
-                .outputs
-                .iter()
-                .map(|o| ctx.target_dir.join(&o.relative_path))
-                .collect(),
+            outputs,
             args: Vec::new(),
-            env: super::unit_env::compute_unit_rustc_env_with_target(
-                unit,
-                effective_dirs.as_ref(),
-                None,
-                Some(ctx.target_dir),
-                ctx.opt.release,
-            ),
+            env,
             dependencies: Vec::new(),
         });
         if let Some(ref cb) = ctx.opt.progress {

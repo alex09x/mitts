@@ -43,7 +43,7 @@ pub fn try_restore_build_script_cas(
     pkg_toml: &CargoToml,
     profile_name: &str,
     clean_crate: &str,
-    out_dir: &Path,
+    out_dir: Option<&Path>,
 ) -> Option<BuildScriptDirectives> {
     let artifacts_dir = cas_artifacts_dir?;
     let cas_root = artifacts_dir.parent().unwrap_or(artifacts_dir);
@@ -78,8 +78,10 @@ pub fn try_restore_build_script_cas(
                     let _ = fs::write(entry_dir.join(".last_used"), b"");
                     let persistent_out = if cached_out_dir.is_dir() {
                         cached_out_dir
+                    } else if let Some(od) = out_dir {
+                        od.to_path_buf()
                     } else {
-                        out_dir.to_path_buf()
+                        cached_out_dir
                     };
                     let persistent_str = persistent_out.to_string_lossy().to_string();
                     if let Some(prev) = directives

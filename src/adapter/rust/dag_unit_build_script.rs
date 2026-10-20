@@ -8,6 +8,12 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod compile;
+pub mod keys;
+pub mod script_inputs;
+
+pub(crate) use keys::{prepare_unit_build_script_keys, PreCompileKeyInfo};
+
 use super::build_script::execute_build_script;
 use super::build_script_directives::BuildScriptDirectives;
 use super::dag_cache::ExecutionContext;
@@ -51,8 +57,6 @@ pub(crate) fn run_build_script_if_needed(
         return Ok((None, None));
     }
 
-    let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
-
     let extern_crates = super::dag_unit_externs::resolve_extern_crates_for_build_script(
         unit,
         &ctx.completed_artifacts.lock().unwrap(),
@@ -73,6 +77,21 @@ pub(crate) fn run_build_script_if_needed(
         }
     }
 
+    // 1. Check CAS execution cache BEFORE allocating any staging directory
+    if let Some(directives) = super::build_script::try_restore_build_script(
+        unit,
+        ctx.opt.release,
+        &unit.features,
+        Some(&artifacts_dir),
+        &extern_crates,
+        Some(&build_dep_env),
+    )? {
+        register_directives_in_ctx(unit, &directives, ctx);
+        return Ok((Some(directives), None));
+    }
+
+    // 2. Cache miss: allocate isolated staging directory and execute build.rs
+    let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
     let directives = match execute_build_script(
         unit,
         &staging_dir,
@@ -154,6 +173,16 @@ pub(crate) fn run_build_script_if_needed(
         }
     }
 
+    register_directives_in_ctx(unit, &directives, ctx);
+
+    Ok((Some(directives), Some(staging_dir)))
+}
+
+fn register_directives_in_ctx(
+    unit: &PlannedCompilationUnit,
+    directives: &BuildScriptDirectives,
+    ctx: &ExecutionContext,
+) {
     let dep_vars = directives.dep_env_vars();
     if !dep_vars.is_empty() {
         let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
@@ -179,8 +208,6 @@ pub(crate) fn run_build_script_if_needed(
             guard.insert(fpath, expected_hash.clone());
         }
     }
-
-    Ok((Some(directives), Some(staging_dir)))
 }
 
 /// Records build script directives into thread-safe maps for downstream compilation and doctests.
@@ -210,101 +237,16 @@ pub fn record_completed_directives(
     if let Some(links) = link_map {
         let mut args = Vec::new();
         for s in &directives.link_searches {
-            args.push("-L".to_string());
-            args.push(s.clone());
+            args.extend(["-L".to_string(), s.clone()]);
         }
         for l in &directives.link_libs {
-            args.push("-l".to_string());
-            args.push(l.clone());
+            args.extend(["-l".to_string(), l.clone()]);
         }
         for a in &directives.link_args {
-            args.push("-C".to_string());
-            args.push(format!("link-arg={}", a));
+            args.extend(["-C".to_string(), format!("link-arg={a}")]);
         }
         if !args.is_empty() {
             links.lock().unwrap().insert(unit_id.to_string(), args);
-        }
-    }
-}
-
-pub(crate) struct PreCompileKeyInfo {
-    pub effective_action_key: String,
-    pub ws_fallback_key: Option<String>,
-    pub build_purity_opt: Option<super::build_script_purity::BuildScriptPurity>,
-}
-
-pub(crate) fn prepare_unit_build_script_keys(
-    unit: &PlannedCompilationUnit,
-    action_key: &str,
-    ctx: &ExecutionContext,
-    current_directives: Option<&BuildScriptDirectives>,
-    staging_dir_holder: Option<&PathBuf>,
-) -> PreCompileKeyInfo {
-    let mut build_purity_opt = None;
-    let ws_root = match unit.is_workspace {
-        true => super::compiler::find_workspace_root(&unit.manifest_path),
-        false => ctx
-            .target_dir
-            .parent()
-            .unwrap_or(ctx.target_dir)
-            .to_path_buf(),
-    };
-
-    if let (Some(d), Some(s_dir)) = (current_directives, staging_dir_holder) {
-        let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-        let out_dir_to_scan = d.out_dir.as_deref().unwrap_or(s_dir);
-        let empty_refs = std::collections::HashSet::new();
-        if let Ok(purity) = super::build_script_purity::assess_build_script_purity_with_dep_info(
-            pkg_dir,
-            Some(&ws_root),
-            out_dir_to_scan,
-            Some(ctx.target_dir),
-            Some(ctx.cas.root()),
-            d,
-            Some(&empty_refs),
-        ) {
-            build_purity_opt = Some(purity);
-        }
-    }
-
-    if let Some(d) = current_directives {
-        let bd = d.compute_compile_hash();
-        let ws_hash = crate::core::hash::Sha256::digest(ws_root.to_string_lossy().as_bytes());
-        let ws_key = format!("{action_key}:bd:{bd}:ws:{ws_hash}");
-        if let Some(ref purity) = build_purity_opt {
-            if purity.is_pure {
-                PreCompileKeyInfo {
-                    effective_action_key: format!(
-                        "{action_key}:bd:{bd}:out:{}",
-                        purity.out_dir_hash
-                    ),
-                    ws_fallback_key: Some(ws_key),
-                    build_purity_opt,
-                }
-            } else {
-                let reason = purity.reason.as_deref().unwrap_or("unknown");
-                eprintln!(
-                    "[mitts::purity] Unit '{}' marked impure: {reason}",
-                    unit.unit_id()
-                );
-                PreCompileKeyInfo {
-                    effective_action_key: ws_key,
-                    ws_fallback_key: None,
-                    build_purity_opt,
-                }
-            }
-        } else {
-            PreCompileKeyInfo {
-                effective_action_key: format!("{action_key}:bd:{bd}"),
-                ws_fallback_key: None,
-                build_purity_opt,
-            }
-        }
-    } else {
-        PreCompileKeyInfo {
-            effective_action_key: action_key.to_string(),
-            ws_fallback_key: None,
-            build_purity_opt,
         }
     }
 }

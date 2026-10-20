@@ -8,13 +8,16 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod context;
+
 use super::compiler::RustcInvocation;
-use super::dag_cache::{try_restore_from_cache_with_directives, ExecutionContext};
+use super::dag_cache::try_restore_from_cache_with_directives_and_purity;
 use super::dag_scheduler::{LockMode, UnitExecutionStatus};
 use super::types::{BuildProgressEvent, PlannedCompilationUnit};
 use crate::core::action::{Action, ActionKind};
 use crate::core::lock::FileLock;
 use anyhow::{bail, Result};
+pub use context::ExecutionContext;
 use std::fs;
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
@@ -92,19 +95,21 @@ pub(crate) fn execute_unit(
 
     let try_restore = |ctx: &ExecutionContext| -> Result<bool> {
         let t0 = std::time::Instant::now();
-        let restored = try_restore_from_cache_with_directives(
+        let restored = try_restore_from_cache_with_directives_and_purity(
             unit,
             &effective_action_key,
             ctx,
             is_executable,
             current_directives.as_ref(),
+            pre_key_info.build_purity_opt.as_ref(),
         )? || match pre_key_info.ws_fallback_key.as_deref() {
-            Some(fb_key) => try_restore_from_cache_with_directives(
+            Some(fb_key) => try_restore_from_cache_with_directives_and_purity(
                 unit,
                 fb_key,
                 ctx,
                 is_executable,
                 current_directives.as_ref(),
+                pre_key_info.build_purity_opt.as_ref(),
             )?,
             None => false,
         };
