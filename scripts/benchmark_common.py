@@ -340,8 +340,15 @@ def check_quiet_rig(max_load: float = 1.0, max_busy: float | None = None) -> tup
             # executable name comes from the first token of `args`; `comm` stays as a fallback.
             exe_base = os.path.basename(args_str.split(None, 1)[0]).lower()
             comm_base = os.path.basename(parts[1]).lower()
-            if exe_base in WATCHED_COMPILER_BINS or comm_base in WATCHED_COMPILER_BINS:
-                foreign_procs.append({"pid": pid, "bin": exe_base if exe_base in WATCHED_COMPILER_BINS else comm_base, "cmd": args_str[:120]})
+            bin_name = exe_base if exe_base in WATCHED_COMPILER_BINS else comm_base
+            if bin_name not in WATCHED_COMPILER_BINS:
+                continue
+            # An sccache *server* (the bare binary, no compiler arguments) idles between
+            # builds and consumes nothing; any cargo on the machine leaves one behind.
+            # Only `sccache rustc ...` invocations are compiles.
+            if bin_name == "sccache" and len(args_str.split()) <= 1:
+                continue
+            foreign_procs.append({"pid": pid, "bin": bin_name, "cmd": args_str[:120]})
     except Exception:
         pass
 
