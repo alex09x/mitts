@@ -326,3 +326,43 @@ fn main() {
         "app_modified:shared producer payload"
     );
 }
+
+#[test]
+fn test_cached_build_script_still_runs_clippy() {
+    let _lock = SERIAL_LOCK.lock().unwrap();
+    let cache = TempDir::new().unwrap();
+    let root = TempDir::new().unwrap();
+    write_file(
+        root.path().join("Cargo.toml"),
+        "[package]\nname = \"cached_clippy\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write_file(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> u32 { 1 }\n",
+    );
+    write_file(
+        root.path().join("build.rs"),
+        "fn main() { let _value = 1u32 as u32; println!(\"cargo:rerun-if-changed=build.rs\"); }\n",
+    );
+    let opt = RustBuildOptions {
+        manifest_path: Some(root.path().join("Cargo.toml")),
+        target_dir: Some(root.path().join("target")),
+        cache_dir: Some(cache.path().to_path_buf()),
+        ..Default::default()
+    };
+    let (_, built) = RustAdapter::build(&opt).unwrap();
+    assert!(built.success, "{}", built.stderr);
+    let lint = RustBuildOptions {
+        mode: mitts::adapter::BuildMode::Clippy,
+        extra_args: vec!["-Dclippy::unnecessary_cast".to_string()],
+        ..opt
+    };
+    let diagnostics = match RustAdapter::build(&lint) {
+        Ok((_, result)) => {
+            assert!(!result.success, "cached build.rs must still be linted");
+            result.stderr
+        }
+        Err(error) => format!("{error:#}"),
+    };
+    assert!(diagnostics.contains("unnecessary_cast"), "{diagnostics}");
+}

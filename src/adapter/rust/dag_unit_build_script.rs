@@ -78,14 +78,18 @@ pub(crate) fn run_build_script_if_needed(
     }
 
     // 1. Check CAS execution cache BEFORE allocating any staging directory
-    if let Some(directives) = super::build_script::try_restore_build_script(
+    let cached_directives = super::build_script::try_restore_build_script(
         unit,
         ctx.opt.release,
         &unit.features,
         Some(&artifacts_dir),
         &extern_crates,
         Some(&build_dep_env),
-    )? {
+    )?;
+    // Clippy still checks a primary build.rs even when its execution is cached.
+    if let Some(directives) = cached_directives
+        .filter(|_| ctx.opt.mode != super::types::BuildMode::Clippy || !unit.is_primary)
+    {
         register_directives_in_ctx(unit, &directives, ctx);
         return Ok((Some(directives), None));
     }

@@ -11,7 +11,6 @@
 use super::manifest::CargoToml;
 use super::manifest_models::TomlDependency;
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 /// Resolves inherited fields (version, edition, and dependencies) from workspace root.
@@ -28,8 +27,8 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
     if ws_toml_opt.is_none() {
         while let Some(dir) = parent {
             let candidate = dir.join("Cargo.toml");
-            if candidate.is_file() {
-                if let Ok(content) = fs::read_to_string(&candidate) {
+            if super::manifest_snapshot::is_manifest_file(&candidate) {
+                if let Ok(content) = super::manifest_snapshot::read_text(&candidate) {
                     if let Ok(parent_toml) = CargoToml::parse(&content) {
                         if parent_toml.workspace.is_some() {
                             ws_toml_opt = Some((dir.to_path_buf(), parent_toml));

@@ -52,11 +52,7 @@ impl CargoToml {
 
     /// Reads and parses a Cargo.toml file from disk.
     pub fn from_file(path: &Path) -> Result<Self> {
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read manifest at {:?}", path))?;
-        let mut toml = Self::parse(&content)?;
-        toml.resolve_inherited_workspace_fields(path);
-        Ok(toml)
+        super::manifest_snapshot::parse(path)
     }
 
     pub fn resolve_inherited_workspace_fields(&mut self, path: &Path) {

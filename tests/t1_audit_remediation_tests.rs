@@ -111,6 +111,7 @@ fn test_b1_pipelining_build_script_waits_for_transitive_host_deps_and_aliases() 
     );
 
     let explanation = EffectivePlanExplanation {
+        manifest_snapshot: Default::default(),
         manifest_path: l_dir.join("Cargo.toml"),
         target_directory: tmp.path().join("target"),
         profile: "dev".to_string(),

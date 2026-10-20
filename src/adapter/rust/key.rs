@@ -17,7 +17,9 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread;
+
+mod parallel;
+pub use parallel::parallel_map_chunks;
 
 pub use super::key_flags::*;
 
@@ -49,44 +51,6 @@ fn log_unit_key(
         inputs.join(" "),
         deps.join(" ")
     );
-}
-
-pub fn parallel_map_chunks<T, R, F>(items: &[T], f: F) -> Vec<R>
-where
-    T: Sync,
-    R: Send,
-    F: Fn(&T) -> R + Sync + Send,
-{
-    if items.is_empty() {
-        return Vec::new();
-    }
-    let num_threads = thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(8)
-        .min(items.len());
-
-    if num_threads <= 1 {
-        return items.iter().map(f).collect();
-    }
-
-    let chunk_size = items.len().div_ceil(num_threads);
-    let chunks: Vec<&[T]> = items.chunks(chunk_size).collect();
-    let f = &f;
-
-    thread::scope(|s| {
-        let mut handles = Vec::new();
-        for chunk in chunks {
-            handles.push(s.spawn(move || chunk.iter().map(f).collect::<Vec<R>>()));
-        }
-        let mut all = Vec::with_capacity(items.len());
-        for h in handles {
-            match h.join() {
-                Ok(res) => all.extend(res),
-                Err(payload) => std::panic::resume_unwind(payload),
-            }
-        }
-        all
-    })
 }
 
 /// Context for deriving unit action keys dynamically in the DAG runner
@@ -154,6 +118,8 @@ pub fn derive_unit_action_key_context(
     opt: &RustBuildOptions,
     explanation: &EffectivePlanExplanation,
 ) -> Result<UnitKeyDeriver> {
+    explanation.manifest_snapshot.verify_fresh()?;
+    let _manifest_scope = explanation.manifest_snapshot.enter();
     let active_tc = super::compiler_resolve::active_toolchain()?;
     if explanation.toolchain.version != active_tc.toolchain.version {
         anyhow::bail!(
@@ -339,6 +305,7 @@ pub fn derive_unit_action_key_context(
         remaining = next_remaining;
     }
 
+    explanation.manifest_snapshot.verify_fresh()?;
     Ok(UnitKeyDeriver {
         toolchain_version: explanation.toolchain.version.clone(),
         target_triple,

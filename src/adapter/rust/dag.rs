@@ -250,6 +250,7 @@ mod tests {
         };
 
         let explanation = EffectivePlanExplanation {
+            manifest_snapshot: Default::default(),
             manifest_path: PathBuf::from("Cargo.toml"),
             target_directory: PathBuf::from("target"),
             profile: "debug".to_string(),

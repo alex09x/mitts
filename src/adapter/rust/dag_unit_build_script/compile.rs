@@ -56,10 +56,8 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
     }
     let ed = args.unit.edition.as_deref().unwrap_or("2015");
     let cgu = profile.codegen_units.unwrap_or(256);
-    compile_cmd.args([
-        "--crate-name",
-        "build_script_build",
-        args.build_rs.to_str().unwrap_or("build.rs"),
+    compile_cmd.args(["--crate-name", "build_script_build"]);
+    compile_cmd.arg(args.build_rs).args([
         "--crate-type",
         "bin",
         "--edition",
@@ -91,8 +89,8 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
     compile_cmd
         .args(["--emit=dep-info,link", "-o"])
         .arg(args.bin_path)
+        .env("CARGO_MANIFEST_DIR", args.pkg_dir)
         .envs([
-            ("CARGO_MANIFEST_DIR", args.pkg_dir.to_str().unwrap_or("")),
             ("CARGO", &c_bin),
             ("CARGO_PKG_NAME", &args.unit.package_name),
             ("CARGO_PKG_VERSION", &args.unit.version),

@@ -37,12 +37,13 @@ pub(crate) fn prepare_unit_build_script_keys(
             .to_path_buf(),
     };
 
-    if let Some(d) = current_directives {
-        let out_dir_to_scan = d
+    if let Some((d, out_dir_to_scan)) = current_directives.and_then(|directives| {
+        directives
             .out_dir
             .as_deref()
-            .or_else(|| staging_dir_holder.map(|p| p.as_path()))
-            .unwrap_or_else(|| Path::new(""));
+            .or_else(|| staging_dir_holder.map(|path| path.as_path()))
+            .map(|out| (directives, out))
+    }) {
         let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
         let empty_refs = std::collections::HashSet::new();
         if let Ok(purity) =

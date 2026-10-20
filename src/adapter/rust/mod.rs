@@ -43,6 +43,7 @@ pub mod manifest;
 pub mod manifest_digest;
 pub mod manifest_inherit;
 pub mod manifest_models;
+pub mod manifest_snapshot;
 pub mod manifest_tests;
 pub mod manifest_workspace;
 pub mod package_selection;

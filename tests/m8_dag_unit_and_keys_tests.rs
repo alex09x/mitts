@@ -169,6 +169,7 @@ fn test_m8_derive_unit_action_keys_cycle_fallback() {
     };
 
     let mut explanation = EffectivePlanExplanation {
+        manifest_snapshot: Default::default(),
         manifest_path: cargo_toml,
         target_directory: tmp.path().join("target"),
         profile: "dev".to_string(),

@@ -29,6 +29,8 @@ pub fn run_native_dag_build(
     explanation: &EffectivePlanExplanation,
     deriver: &super::key::UnitKeyDeriver,
 ) -> Result<(BuildPlan, ActionResult)> {
+    explanation.manifest_snapshot.verify_fresh()?;
+    let _manifest_scope = explanation.manifest_snapshot.enter();
     let unit_keys = &deriver.initial_base_keys;
     let cas = match opt.cache_dir {
         Some(ref cd) => ContentAddressedStore::new(cd.join("cas"))?,
@@ -167,6 +169,7 @@ pub fn run_native_dag_build(
         let mut handles = Vec::new();
 
         for _ in 0..concurrency {
+            let manifest_snapshot = explanation.manifest_snapshot.clone();
             let shared = &shared;
             let on_metadata_ready = &on_metadata_ready;
             let cas = cas.clone();
@@ -192,6 +195,7 @@ pub fn run_native_dag_build(
             let tracked_env_vars = Arc::clone(&tracked_env_vars);
 
             handles.push(s.spawn(move || -> Result<()> {
+                let _manifest_scope = manifest_snapshot.enter();
                 let ctx = ExecutionContext {
                     opt: &opt,
                     toolchain: &toolchain,
@@ -242,6 +246,7 @@ pub fn run_native_dag_build(
         }
     });
 
+    explanation.manifest_snapshot.verify_fresh()?;
     let _ = target_index.lock().unwrap().save(&target_dir, profile_name);
 
     if let Some(err) = work_queue.take_error() {

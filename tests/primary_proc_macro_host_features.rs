@@ -23,33 +23,8 @@ fn write_crate(dir: &Path, manifest: &str, lib_src: &str) {
     fs::write(dir.join("src/lib.rs"), lib_src).unwrap();
 }
 
-struct CargoHomeGuard {
-    _dir: TempDir,
-    orig: Option<std::ffi::OsString>,
-}
-
-impl CargoHomeGuard {
-    fn new() -> Self {
-        let dir = TempDir::new().unwrap();
-        let orig = std::env::var_os("CARGO_HOME");
-        std::env::set_var("CARGO_HOME", dir.path());
-        Self { _dir: dir, orig }
-    }
-}
-
-impl Drop for CargoHomeGuard {
-    fn drop(&mut self) {
-        if let Some(ref orig) = self.orig {
-            std::env::set_var("CARGO_HOME", orig);
-        } else {
-            std::env::remove_var("CARGO_HOME");
-        }
-    }
-}
-
 #[test]
 fn test_standalone_root_proc_macro_host_semantics_and_feature_survival() {
-    let _cargo_guard = CargoHomeGuard::new();
     let isolated_cache = TempDir::new().unwrap();
     let root = TempDir::new().unwrap();
 
@@ -74,7 +49,8 @@ fn test_standalone_root_proc_macro_host_semantics_and_feature_survival() {
          [dev-dependencies]\ntest_helper = { path = \"../test_helper\" }\n",
         "extern crate proc_macro;\nuse proc_macro::TokenStream;\n\
          #[proc_macro]\npub fn identity(item: TokenStream) -> TokenStream { item }\n\
-         #[test]\nfn test_in_macro() { assert_eq!(1 + 1, 2); }\n",
+         #[cfg(feature = \"std\")]\nconst _: fn() -> i32 = helper::helper_fn;\n\
+         #[test]\nfn test_in_macro() { assert_eq!(test_helper::test_val(), 20); }\n",
     );
 
     let manifest_path = macro_dir.join("Cargo.toml");
@@ -178,6 +154,21 @@ fn test_standalone_root_proc_macro_host_semantics_and_feature_survival() {
         "explicit extra feature must be present"
     );
 
+    let opt_explicit_test = RustBuildOptions {
+        mode: BuildMode::Test,
+        all_tests: true,
+        ..opt_no_def
+    };
+    let explicit_test_plan = RustAdapter::explain_plan(&opt_explicit_test).unwrap();
+    let explicit_test = explicit_test_plan
+        .units
+        .iter()
+        .find(|unit| unit.package_name == "my_macro" && unit.kind == "test")
+        .unwrap();
+    assert!(explicit_test.for_host);
+    assert!(explicit_test.features.contains(&"extra".to_string()));
+    assert!(!explicit_test.features.contains(&"default".to_string()));
+
     // 4. Actual compilation execution for build and test modes
     let (_, res_build) = RustAdapter::build(&opt_build).expect("build proc macro");
     assert!(
@@ -196,7 +187,6 @@ fn test_standalone_root_proc_macro_host_semantics_and_feature_survival() {
 
 #[test]
 fn test_workspace_macro_selection_without_active_consumer() {
-    let _cargo_guard = CargoHomeGuard::new();
     let isolated_cache = TempDir::new().unwrap();
     let root = TempDir::new().unwrap();
 

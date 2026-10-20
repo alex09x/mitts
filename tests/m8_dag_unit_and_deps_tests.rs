@@ -44,6 +44,7 @@ fn test_m8_dag_empty_and_cycle_detection() {
 
     // 1. Empty plan
     let empty_plan = EffectivePlanExplanation {
+        manifest_snapshot: Default::default(),
         manifest_path: PathBuf::from("Cargo.toml"),
         target_directory: PathBuf::from("target"),
         profile: "dev".to_string(),
@@ -60,6 +61,7 @@ fn test_m8_dag_empty_and_cycle_detection() {
     let u_a = make_unit("pkg-a", "a", "lib", vec!["pkg-b 0.1.0::lib:b".to_string()]);
     let u_b = make_unit("pkg-b", "b", "lib", vec!["pkg-a 0.1.0::lib:a".to_string()]);
     let cycle_plan = EffectivePlanExplanation {
+        manifest_snapshot: Default::default(),
         manifest_path: PathBuf::from("Cargo.toml"),
         target_directory: PathBuf::from("target"),
         profile: "dev".to_string(),
@@ -86,6 +88,7 @@ fn test_m8_dag_topological_waves_and_roots() {
     let u_c = make_unit("pkg-c", "c", "bin", vec![u_b.unit_id()]);
 
     let plan = EffectivePlanExplanation {
+        manifest_snapshot: Default::default(),
         manifest_path: PathBuf::from("Cargo.toml"),
         target_directory: PathBuf::from("target"),
         profile: "dev".to_string(),

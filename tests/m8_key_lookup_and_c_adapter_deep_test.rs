@@ -162,6 +162,7 @@ edition = "2021"
     };
 
     let plan = EffectivePlanExplanation {
+        manifest_snapshot: Default::default(),
         manifest_path,
         target_directory: root.join("target"),
         profile: "debug".to_string(),

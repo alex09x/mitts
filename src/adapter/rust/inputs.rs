@@ -92,7 +92,7 @@ pub fn hash_package_common_inputs(
     if is_immutable_package_dir(package_dir, is_workspace) {
         let cargo_toml = package_dir.join("Cargo.toml");
         let hash = if cargo_toml.is_file() {
-            Sha256::digest_file(&cargo_toml)
+            super::manifest_snapshot::raw_digest(&cargo_toml)
                 .with_context(|| format!("Failed to hash {:?}", cargo_toml))?
         } else {
             Sha256::digest(package_dir.display().to_string().as_bytes())
@@ -136,7 +136,7 @@ pub fn hash_package_common_inputs(
         while let Some(dir) = ancestor_candidate {
             let toml_path = dir.join("Cargo.toml");
             if toml_path.is_file() && toml_path != cargo_toml && Some(dir) != ws_root {
-                let hash = Sha256::digest_file(&toml_path)
+                let hash = super::manifest_snapshot::raw_digest(&toml_path)
                     .with_context(|| format!("Failed to hash ancestor manifest {:?}", toml_path))?;
                 let depth = package_dir.ancestors().position(|a| a == dir).unwrap_or(1);
                 inputs.push((format!("ancestor:{}/Cargo.toml", "../".repeat(depth)), hash));

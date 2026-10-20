@@ -17,7 +17,7 @@
 //! separate digest that only test, bench and example units are keyed on.
 
 use crate::core::hash::Sha256;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::Path;
 
 const PACKAGE_KEYS_OUTSIDE_BUILD: &[&str] = &[
@@ -39,9 +39,11 @@ const TEST_ONLY_TABLES: &[&str] = &[
 /// `(build digest, test-only digest)` of a manifest. A manifest that does not parse
 /// is keyed on its raw bytes, with an empty test-only digest.
 pub fn manifest_digests(path: &Path) -> Result<(String, String)> {
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("Failed to read {:?}", path))?;
-    let Ok(mut doc) = toml::from_str::<toml::Table>(&content) else {
+    super::manifest_snapshot::digests(path)
+}
+
+pub(crate) fn digests_from_content(content: &str) -> Result<(String, String)> {
+    let Ok(mut doc) = toml::from_str::<toml::Table>(content) else {
         return Ok((Sha256::digest(content.as_bytes()), String::new()));
     };
 

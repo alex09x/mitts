@@ -284,20 +284,27 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
             (0..n).map(|_| std::sync::Mutex::new(None)).collect();
         let first_err: std::sync::Mutex<Option<anyhow::Error>> = std::sync::Mutex::new(None);
         let cursor = std::sync::atomic::AtomicUsize::new(0);
+        let snapshot = super::manifest_snapshot::current();
         std::thread::scope(|s| {
+            let (slots, first_err, cursor, resolve_one) =
+                (&slots, &first_err, &cursor, &resolve_one);
             for _ in 0..workers {
-                s.spawn(|| loop {
-                    let i = cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if i >= n {
-                        break;
-                    }
-                    match resolve_one(&selected_packages[i]) {
-                        Ok(Some(res)) => *slots[i].lock().unwrap() = Some(res),
-                        Ok(None) => {}
-                        Err(e) => {
-                            let mut g = first_err.lock().unwrap();
-                            if g.is_none() {
-                                *g = Some(e);
+                let snapshot = snapshot.clone();
+                s.spawn(move || {
+                    let _scope = snapshot.as_ref().map(|snapshot| snapshot.enter());
+                    loop {
+                        let i = cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if i >= n {
+                            break;
+                        }
+                        match resolve_one(&selected_packages[i]) {
+                            Ok(Some(res)) => *slots[i].lock().unwrap() = Some(res),
+                            Ok(None) => {}
+                            Err(e) => {
+                                let mut g = first_err.lock().unwrap();
+                                if g.is_none() {
+                                    *g = Some(e);
+                                }
                             }
                         }
                     }

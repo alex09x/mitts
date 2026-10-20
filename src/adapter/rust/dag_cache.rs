@@ -85,9 +85,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
             );
             let out_dir = current_directives.and_then(|d| d.out_dir.as_deref());
             if has_build {
-                let purity_hash = purity
-                    .filter(|p| p.is_pure)
-                    .map(|p| p.out_dir_hash.as_str());
+                let purity_hash = purity.map(|p| p.out_dir_hash.as_str());
                 if let Some(h) = purity_hash {
                     unit_env.insert("OUT_DIR".to_string(), h.to_string());
                 } else if let (Some(d), Some(out)) = (current_directives, out_dir) {
@@ -104,9 +102,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                             Some(&empty_refs),
                         )
                     {
-                        if p.is_pure {
-                            unit_env.insert("OUT_DIR".to_string(), p.out_dir_hash);
-                        }
+                        unit_env.insert("OUT_DIR".to_string(), p.out_dir_hash);
                     }
                 }
             }

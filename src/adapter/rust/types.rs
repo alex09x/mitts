@@ -96,6 +96,9 @@ pub struct EffectivePlanExplanation {
     pub profile: String,
     pub toolchain: ToolchainInfo,
     pub units: Vec<PlannedCompilationUnit>,
+    /// Runtime-only input snapshot, omitted from the plan's wire format.
+    #[serde(skip)]
+    pub manifest_snapshot: super::manifest_snapshot::ManifestSnapshot,
 }
 
 #[derive(Clone)]
