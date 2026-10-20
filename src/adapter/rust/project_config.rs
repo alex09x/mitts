@@ -44,6 +44,9 @@ pub struct ProjectConfig {
     /// Crates whose macros read package files or paths during expansion,
     /// normalized with `-` replaced by `_`.
     pub impure_proc_macros: BTreeSet<String>,
+    /// Problems that do not stop a build, such as an unknown key; `load` prints
+    /// them to stderr once per read of the manifest.
+    pub warnings: Vec<String>,
 }
 
 impl ProjectConfig {
@@ -71,11 +74,11 @@ impl ProjectConfig {
                     cfg.impure_proc_macros
                         .extend(string_list(value, &label, key, manifest_path)?);
                 } else {
-                    eprintln!(
-                        "[mitts] warning: {}: {label} has an unknown key {key:?} (supported: {})",
+                    cfg.warnings.push(format!(
+                        "{}: {label} has an unknown key {key:?} (supported: {})",
                         manifest_path.display(),
                         SUPPORTED_KEYS.join(", ")
-                    );
+                    ));
                 }
             }
         }
@@ -139,11 +142,13 @@ fn manifest_stamp(path: &Path) -> Option<(SystemTime, u64)> {
 }
 
 /// Loads the config of the workspace rooted at `root`, re-reading the manifest
-/// only when its size or modification time changed.
+/// only when its size or modification time changed. The cache lock is held
+/// across the read so parallel workers that miss together parse, and warn, once.
 pub fn load(root: &Path) -> Result<Arc<ProjectConfig>> {
     let manifest = root.join("Cargo.toml");
     let stamp = manifest_stamp(&manifest);
-    if let Some(entry) = cache().lock().unwrap().get(&manifest) {
+    let mut cache = cache().lock().unwrap();
+    if let Some(entry) = cache.get(&manifest) {
         if entry.stamp == stamp {
             return Ok(Arc::clone(&entry.config));
         }
@@ -151,11 +156,15 @@ pub fn load(root: &Path) -> Result<Arc<ProjectConfig>> {
     let config = if manifest.is_file() {
         let content = std::fs::read_to_string(&manifest)
             .with_context(|| format!("Failed to read {}", manifest.display()))?;
-        Arc::new(ProjectConfig::from_manifest_str(&content, &manifest)?)
+        let cfg = ProjectConfig::from_manifest_str(&content, &manifest)?;
+        for warning in &cfg.warnings {
+            eprintln!("[mitts] warning: {warning}");
+        }
+        Arc::new(cfg)
     } else {
         Arc::new(ProjectConfig::default())
     };
-    cache().lock().unwrap().insert(
+    cache.insert(
         manifest,
         CachedConfig {
             stamp,
@@ -215,6 +224,26 @@ impure-proc-macros = [" askama_derive "]
         let cfg = ProjectConfig::from_manifest_str(content, Path::new("x")).unwrap();
         let names: Vec<&str> = cfg.impure_proc_macros.iter().map(String::as_str).collect();
         assert_eq!(names, ["askama_derive", "rust_embed", "sqlx"]);
+    }
+
+    #[test]
+    fn unknown_keys_in_the_declaration_warn_but_do_not_fail() {
+        let content = r#"
+[workspace.metadata.mitts]
+impure-proc-macro = ["sqlx"]
+foo = 1
+"#;
+        let cfg = ProjectConfig::from_manifest_str(content, Path::new("ws/Cargo.toml")).unwrap();
+        assert!(cfg.impure_proc_macros.is_empty(), "{cfg:?}");
+        assert_eq!(cfg.warnings.len(), 2, "{cfg:?}");
+        assert_eq!(
+            cfg.warnings[0],
+            "ws/Cargo.toml: [workspace.metadata.mitts] has an unknown key \"foo\" (supported: impure-proc-macros)"
+        );
+        assert!(
+            cfg.warnings[1].contains("unknown key \"impure-proc-macro\""),
+            "{cfg:?}"
+        );
     }
 
     #[test]

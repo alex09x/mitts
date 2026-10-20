@@ -191,3 +191,36 @@ fn a_malformed_declaration_fails_the_build_instead_of_being_ignored() {
     };
     assert!(err.contains("impure-proc-macros"), "{err}");
 }
+
+#[test]
+fn an_unknown_key_in_the_declaration_warns_on_stderr_and_still_builds() {
+    let cache = TempDir::new().unwrap();
+    let clone = TempDir::new().unwrap();
+    write_workspace(
+        clone.path(),
+        "[workspace.metadata.mitts]\nimpure-proc-macro = [\"greeter_macro\"]\n",
+        false,
+        "",
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["build", "--package", "greeter_app", "--manifest-path"])
+        .arg(clone.path().join("Cargo.toml"))
+        .arg("--cache-dir")
+        .arg(cache.path())
+        .env("CI", "true")
+        .output()
+        .expect("run mitts");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "mitts build failed:\n{stderr}");
+    assert!(
+        stderr.contains(
+            "[mitts] warning: ",
+        ) && stderr.contains("[workspace.metadata.mitts] has an unknown key \"impure-proc-macro\" (supported: impure-proc-macros)"),
+        "stderr must carry the warning once:\n{stderr}"
+    );
+    assert_eq!(
+        stderr.matches("unknown key \"impure-proc-macro\"").count(),
+        1,
+        "the warning must be printed once per manifest read, not per unit:\n{stderr}"
+    );
+}
