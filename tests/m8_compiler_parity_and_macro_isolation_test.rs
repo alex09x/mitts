@@ -23,13 +23,18 @@ fn test_m8_workspace_with_impure_proc_macro_gets_different_keys_and_no_cross_hit
     let clone2 = TempDir::new().unwrap();
 
     let setup = |root: &Path| {
-        // Workspace root
+        // Workspace root; the project declares the macro impure, which keys its
+        // dependents on the absolute path. Without the declaration the keys would
+        // match across clones and only the artifact path scan would keep them apart.
         fs::write(
             root.join("Cargo.toml"),
             r#"
 [workspace]
 members = ["my_macro", "my_app"]
 resolver = "2"
+
+[workspace.metadata.mitts]
+impure-proc-macros = ["my_macro"]
 "#,
         )
         .unwrap();

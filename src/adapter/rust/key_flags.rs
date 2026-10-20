@@ -34,57 +34,15 @@ pub fn get_clippy_driver_version() -> &'static str {
 /// Relative prefix constant used for path-independent compilation action keys.
 pub const MITTS_REMAP_PREFIX: &str = "";
 
-/// Returns true if a proc-macro is known to be pure and does NOT inspect ambient
-/// directory paths (e.g. via `env::var("CARGO_MANIFEST_DIR")` during macro expansion).
-pub fn is_known_pure_proc_macro(name: &str) -> bool {
-    let clean = name.replace('-', "_");
-    matches!(
-        clean.as_str(),
-        "serde_derive"
-            | "thiserror_impl"
-            | "clap_derive"
-            | "tokio_macros"
-            | "tracing_attributes"
-            | "zerocopy_derive"
-            | "derive_more"
-            | "strum_macros"
-            | "enum_dispatch"
-            | "async_trait"
-            | "pin_project_internal"
-            | "schemars_derive"
-            | "auto_impl"
-            | "shrinkwraprs"
-            | "byteorder"
-            | "prost_derive"
-            | "futures_macro"
-            | "paste"
-            | "num_derive"
-            | "displaydoc"
-            | "miette_derive"
-            | "serde_repr"
-            | "arbitrary_derive"
-            // Expands `#[rustversion::*]` against the compiler version its own build
-            // script recorded; the expansion reads nothing from the user's package.
-            | "rustversion"
-    )
-}
-
-/// Returns true if a unit depends on any proc-macro not in the known-pure whitelist.
-pub fn unit_has_impure_proc_macro(unit: &super::types::PlannedCompilationUnit) -> bool {
-    unit.dependencies.iter().any(|dep| {
-        if dep.contains("::proc-macro:") {
-            let name = dep
-                .split("::proc-macro:")
-                .nth(1)
-                .unwrap_or("")
-                .split(':')
-                .next()
-                .unwrap_or("");
-            !is_known_pure_proc_macro(name)
-        } else {
-            false
-        }
-    })
+/// True when the unit directly depends on a crate the project declared under
+/// `[workspace.metadata.mitts] impure-proc-macros`: a macro that reads package
+/// files or the package path while expanding. Every other macro is pure by
+/// default; see `project_config`.
+pub fn unit_has_impure_proc_macro(
+    unit: &super::types::PlannedCompilationUnit,
+    ws_root: Option<&Path>,
+) -> anyhow::Result<bool> {
+    Ok(super::project_config::for_unit(unit, ws_root)?.unit_has_impure_proc_macro(unit))
 }
 
 /// Resolves explicit target triple from CLI extra_args, Cargo config files, or environment.
@@ -231,11 +189,11 @@ pub fn compute_unit_flags_with_ws(
         let reads_manifest_dir = unit.env_vars.iter().any(|v| v == "CARGO_MANIFEST_DIR")
             || unit.cache_eligibility.contains("untracked dynamic env");
         let has_build_script = super::pipelining::package_has_build_script(&unit.manifest_path);
-        let has_impure_proc_macro = unit_has_impure_proc_macro(unit);
 
         let root = ws_root
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| super::compiler::find_workspace_root(&unit.manifest_path));
+        let has_impure_proc_macro = unit_has_impure_proc_macro(unit, Some(&root))?;
         let rel_opt = pkg_dir.strip_prefix(&root).ok();
 
         match rel_opt {
@@ -428,38 +386,49 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rustversion_counts_as_a_pure_proc_macro() {
-        assert!(is_known_pure_proc_macro("rustversion"));
-        let unit = unit_with_deps(&[
-            "app@0.1.0::lib:app",
-            "rustversion@1.0.23::proc-macro:rustversion:host=fd62cb2578b7",
-            "thiserror-impl@2.0.0::proc-macro:thiserror-impl:host=0a1b",
-        ]);
-        assert!(!unit_has_impure_proc_macro(&unit));
-    }
-
-    #[test]
-    fn unknown_proc_macro_keeps_the_unit_impure() {
-        let unit = unit_with_deps(&["some_derive@0.1.0::proc-macro:some_derive:host=0a1b"]);
-        assert!(unit_has_impure_proc_macro(&unit));
-    }
-
-    #[test]
-    fn pure_proc_macro_deps_keep_the_manifest_dir_relative() {
-        let root = std::env::temp_dir().join("mitts_key_flags_pure_pm");
-        std::fs::create_dir_all(&root).unwrap();
-        let mut unit =
-            unit_with_deps(&["rustversion@1.0.23::proc-macro:rustversion:host=fd62cb2578b7"]);
-        unit.manifest_path = root.join("Cargo.toml");
+    /// Workspace root with `app` as a member; `mitts_table` is appended verbatim.
+    fn workspace(mitts_table: &str) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
         std::fs::write(
-            &unit.manifest_path,
+            root.path().join("Cargo.toml"),
+            format!("[workspace]\nmembers = [\"app\"]\n{mitts_table}"),
+        )
+        .unwrap();
+        let app = root.path().join("app");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::write(
+            app.join("Cargo.toml"),
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        let flags =
-            compute_unit_flags_with_ws(&unit, &root, &[], BuildMode::Test, false, Some(&root))
-                .unwrap();
+        root
+    }
+
+    fn flags_for(root: &Path, deps: &[&str]) -> Vec<String> {
+        let mut unit = unit_with_deps(deps);
+        unit.manifest_path = root.join("app").join("Cargo.toml");
+        unit.workspace_root = Some(root.to_path_buf());
+        compute_unit_flags_with_ws(
+            &unit,
+            &root.join("app"),
+            &[],
+            BuildMode::Test,
+            false,
+            Some(root),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn any_proc_macro_is_pure_unless_the_project_declares_it() {
+        let root = workspace("");
+        let flags = flags_for(
+            root.path(),
+            &[
+                "rustversion@1.0.23::proc-macro:rustversion:host=fd62cb2578b7",
+                "some_derive@0.1.0::proc-macro:some_derive:host=0a1b",
+            ],
+        );
         assert!(
             flags.iter().any(|f| f == "REMAP_PATH_PREFIX=relative"),
             "{flags:?}"
@@ -468,14 +437,49 @@ mod tests {
             !flags.iter().any(|f| f.starts_with("CARGO_MANIFEST_DIR=")),
             "{flags:?}"
         );
+    }
 
-        unit.dependencies = vec!["some_derive@0.1.0::proc-macro:some_derive:host=0a1b".into()];
-        let flags =
-            compute_unit_flags_with_ws(&unit, &root, &[], BuildMode::Test, false, Some(&root))
-                .unwrap();
+    #[test]
+    fn a_declared_impure_macro_keys_its_dependents_on_the_absolute_manifest_dir() {
+        let root =
+            workspace("[workspace.metadata.mitts]\nimpure-proc-macros = [\"some-derive\"]\n");
+        let flags = flags_for(
+            root.path(),
+            &["some_derive@0.1.0::proc-macro:some_derive:host=0a1b"],
+        );
         assert!(
             flags.iter().any(|f| f.starts_with("CARGO_MANIFEST_DIR=")),
             "{flags:?}"
         );
+        assert!(
+            !flags.iter().any(|f| f == "REMAP_PATH_PREFIX=relative"),
+            "{flags:?}"
+        );
+
+        let flags = flags_for(
+            root.path(),
+            &["other_derive@0.1.0::proc-macro:other_derive:host=0a1b"],
+        );
+        assert!(
+            flags.iter().any(|f| f == "REMAP_PATH_PREFIX=relative"),
+            "{flags:?}"
+        );
+    }
+
+    #[test]
+    fn a_broken_declaration_fails_the_key_instead_of_being_ignored() {
+        let root = workspace("[workspace.metadata.mitts]\nimpure-proc-macros = \"sqlx\"\n");
+        let mut unit = unit_with_deps(&["sqlx@0.8.0::lib:sqlx"]);
+        unit.manifest_path = root.path().join("app").join("Cargo.toml");
+        let err = compute_unit_flags_with_ws(
+            &unit,
+            &root.path().join("app"),
+            &[],
+            BuildMode::Test,
+            false,
+            Some(root.path()),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("impure-proc-macros"), "{err}");
     }
 }

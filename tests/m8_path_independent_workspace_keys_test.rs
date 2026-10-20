@@ -379,10 +379,12 @@ resolver = "2"
         )
         .unwrap();
 
+        // Any proc macro is pure unless the project declares it otherwise, so a
+        // local crate with an arbitrary name must share keys across clones.
         fs::write(
             root.join("pure_macro/Cargo.toml"),
             r#"[package]
-name = "serde_derive"
+name = "my_derive"
 version = "1.0.0"
 edition = "2021"
 
@@ -412,14 +414,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde_derive = { path = "../pure_macro" }
+my_derive = { path = "../pure_macro" }
 "#,
         )
         .unwrap();
 
         fs::write(
             root.join("app/src/main.rs"),
-            r#"use serde_derive::MyDerive;
+            r#"use my_derive::MyDerive;
 
 #[derive(MyDerive)]
 struct TestStruct;

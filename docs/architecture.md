@@ -70,14 +70,19 @@ Workspace crates compile with `--remap-path-prefix=<workspace_root>/=` to
 stabilize compiler diagnostics, `file!()`, panic locations, and debuginfo to relative
 paths (e.g. `src/main.rs`), maintaining full Cargo parity and terminal/IDE clickability.
 Units that do not read `CARGO_MANIFEST_DIR` at compile time, do not have a custom `build.rs`,
-depend only on pure proc-macros (from an allowlist such as `serde_derive`, `clap_derive`, `thiserror`),
-and reside within the workspace root receive path-independent action keys with
-`REMAP_PATH_PREFIX=relative` and `MANIFEST_DIR_REL=<rel>`, enabling 100% cache hits
-across independent checkouts, clones, and agent worktrees.
+do not depend on a proc macro the project declared impure, and reside within the
+workspace root receive path-independent action keys with `REMAP_PATH_PREFIX=relative`
+and `MANIFEST_DIR_REL=<rel>`, enabling 100% cache hits across independent checkouts,
+clones, and agent worktrees.
 Crates that read `CARGO_MANIFEST_DIR` via `env!` / `option_env!`, define `build.rs`,
-depend on impure/custom proc-macros that may inspect the manifest dir during macro expansion,
-or reside outside the workspace root (`../shared`) conservatively retain the local absolute
-path in their action key.
+depend on a declared impure proc macro, or reside outside the workspace root
+(`../shared`) conservatively retain the local absolute path in their action key.
+Proc macros are pure by default. A project lists the ones that read package files or
+the package path while expanding (`sqlx`, `askama`, `rust-embed`, a local derive) under
+`[workspace.metadata.mitts] impure-proc-macros` in the root `Cargo.toml`
+(`adapter/rust/project_config.rs`); their direct dependents are then keyed on the whole
+package tree, so an edited template invalidates them, and on the absolute path.
+There is no built-in list: a macro Mitts does not know is treated like any other.
 As an additional defense-in-depth safeguard before publishing to the CAS, Mitts scans
 all generated artifacts for the byte sequence of the workspace root path; if found, the artifact
 is never published under the path-independent key.

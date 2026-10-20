@@ -208,6 +208,22 @@ input, it does not reuse the result.
 | Cargo configuration | the `.cargo/config(.toml)` files Cargo would read |
 | Build scripts | their directives, `OUT_DIR`, and the content of `rerun-if-changed` paths and values of `rerun-if-env-changed` variables |
 
+Some proc macros read files from your package while they expand: `sqlx` checks
+queries against `.sqlx/`, `askama` compiles `templates/`, `rust-embed` and
+`include_dir` embed whole directories. rustc only learns about such reads when
+the macro registers them, so declare these crates in the root `Cargo.toml`:
+
+```toml
+[workspace.metadata.mitts]          # [package.metadata.mitts] in a single crate
+impure-proc-macros = ["sqlx", "askama", "rust-embed"]
+```
+
+Crates that depend on a listed macro are keyed on every file in their package
+and on their absolute path: an edited template rebuilds them, and another
+checkout never reuses them. Every other macro is treated as pure, and its
+dependents are shared across worktrees. Name the crate you depend on; the
+macro crate it pulls in (`sqlx-macros`) works too.
+
 ## Comparison
 
 A qualitative comparison of how each tool reuses work. It is not a
@@ -239,8 +255,13 @@ Mitts is pre-release. Know these before you rely on it:
   build; they are reported by `mitts explain`.
 - **Workspace crates across checkouts.** Your own crates are reused across
   worktrees only when their key can be made path-independent (no
-  `CARGO_MANIFEST_DIR` reads, no build script, only known-pure proc macros).
+  `CARGO_MANIFEST_DIR` reads, no build script, no declared impure proc macro).
   Otherwise the key includes the absolute path.
+- **Macros that read your files are yours to declare.** A proc macro is treated
+  as pure unless the project lists it (see above). A listed macro's dependents
+  follow every file in their package; an unlisted macro that reads a file
+  without registering it with rustc can produce a stale result, exactly as
+  with Cargo.
 - **Build scripts are not sandboxed.** A script that reads files or variables it
   did not declare with `rerun-if-*` can produce a stale result — exactly as with
   Cargo.

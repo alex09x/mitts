@@ -184,11 +184,12 @@ pub fn compute_unit_coarse_inputs_with_checksum(
         inputs.retain(|(k, _)| k != super::inputs::MANIFEST_TEST_ONLY_LABEL);
     }
 
-    // An impure proc macro may read any package file without telling rustc, so its
+    // A macro the project declared impure (`[workspace.metadata.mitts]
+    // impure-proc-macros`) may read any package file without telling rustc, so its
     // units keep the whole package tree. Every other unit is keyed on its crate root
     // only: rustc's dep-info lists every module, `#[path]`, `include_*!` and `env!`
     // it actually read, and those become the unit's manifest-level extra inputs.
-    if super::key_flags::unit_has_impure_proc_macro(unit) {
+    if super::key_flags::unit_has_impure_proc_macro(unit, None)? {
         inputs.extend_from_slice(&pkg_entry.src_inputs);
         for extra_dir in &["tests", "benches", "examples"] {
             let p = pkg_dir.join(extra_dir);
@@ -270,7 +271,9 @@ pub fn is_file_in_unit_coarse_inputs(
     }
     // Must mirror `compute_unit_coarse_inputs_with_checksum` exactly: a file treated
     // here as already hashed but missing from the coarse key would be a false hit.
-    if !super::key_flags::unit_has_impure_proc_macro(unit) {
+    // A config that fails to load fails that key computation too; here it reads as
+    // "not hashed", which only ever adds an input.
+    if !super::key_flags::unit_has_impure_proc_macro(unit, None).unwrap_or(false) {
         return false;
     }
     cleaned_file.parent() == Some(&cleaned_pkg)

@@ -621,6 +621,12 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
     fs::write(root.join("tests/my_test.rs"), "fn t() {}").unwrap();
     fs::write(root.join("benches/my_bench.rs"), "fn b() {}").unwrap();
     fs::write(root.join("examples/my_example.rs"), "fn ex() {}").unwrap();
+    // The project declares which macro reads package files; nothing is impure by default.
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[package.metadata.mitts]\nimpure-proc-macros = [\"sqlx-macros\"]\n",
+    )
+    .unwrap();
 
     let pkg_entry = PackageInputsCacheEntry {
         common_inputs: vec![("Cargo.toml".to_string(), "h1".to_string())],
@@ -646,12 +652,12 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
         &root.join("tests/my_test.rs")
     ));
 
-    // 2. Unit with impure proc macro (e.g. sqlx_macros): coarse inputs includes tests/, benches/, examples/
+    // 2. Unit with a declared impure proc macro: coarse inputs includes tests/, benches/, examples/
     let impure_unit = PlannedCompilationUnit {
         kind: "lib".to_string(),
         src_path: root.join("src/lib.rs"),
         manifest_path: root.join("Cargo.toml"),
-        dependencies: vec!["some_crate::proc-macro:sqlx_macros:0.7.0".to_string()],
+        dependencies: vec!["sqlx-macros@0.7.0::proc-macro:sqlx_macros:host".to_string()],
         ..Default::default()
     };
     let impure_coarse = compute_unit_coarse_inputs(&impure_unit, root, &pkg_entry).unwrap();
@@ -666,12 +672,12 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
         &root.join("tests/my_test.rs")
     ));
 
-    // 3. Unit with pure proc macro (e.g. serde_derive): coarse inputs does NOT include tests/
+    // 3. Unit with an undeclared proc macro: pure by default, coarse inputs do NOT include tests/
     let pure_unit = PlannedCompilationUnit {
         kind: "lib".to_string(),
         src_path: root.join("src/lib.rs"),
         manifest_path: root.join("Cargo.toml"),
-        dependencies: vec!["serde_derive::proc-macro:serde_derive:1.0.0".to_string()],
+        dependencies: vec!["serde_derive@1.0.0::proc-macro:serde_derive:host".to_string()],
         ..Default::default()
     };
     let pure_coarse = compute_unit_coarse_inputs(&pure_unit, root, &pkg_entry).unwrap();
@@ -683,14 +689,14 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
         &root.join("tests/my_test.rs")
     ));
 
-    // 4. Test unit with impure proc macro: coarse inputs includes tests/, benches/, examples/
+    // 4. Test unit with a declared impure proc macro: coarse inputs includes tests/, benches/, examples/
     fs::create_dir_all(root.join("tests/fixtures")).unwrap();
     fs::write(root.join("tests/fixtures/query.sql"), "SELECT 1;").unwrap();
     let test_unit_impure = PlannedCompilationUnit {
         kind: "test".to_string(),
         src_path: root.join("tests/my_test.rs"),
         manifest_path: root.join("Cargo.toml"),
-        dependencies: vec!["some_crate::proc-macro:sqlx_macros:0.7.0".to_string()],
+        dependencies: vec!["sqlx-macros@0.7.0::proc-macro:sqlx_macros:host".to_string()],
         ..Default::default()
     };
     let test_coarse = compute_unit_coarse_inputs(&test_unit_impure, root, &pkg_entry).unwrap();
@@ -708,12 +714,12 @@ fn test_impure_proc_macro_coarse_inputs_includes_tests_benches_examples() {
         &root.join("src/lib.rs")
     ));
 
-    // 5. Test unit with pure proc macro: coarse inputs does NOT include fixtures in other directories
+    // 5. Test unit with an undeclared proc macro: coarse inputs do NOT include fixtures in other directories
     let test_unit_pure = PlannedCompilationUnit {
         kind: "test".to_string(),
         src_path: root.join("tests/my_test.rs"),
         manifest_path: root.join("Cargo.toml"),
-        dependencies: vec!["serde_derive::proc-macro:serde_derive:1.0.0".to_string()],
+        dependencies: vec!["serde_derive@1.0.0::proc-macro:serde_derive:host".to_string()],
         ..Default::default()
     };
     let test_pure_coarse = compute_unit_coarse_inputs(&test_unit_pure, root, &pkg_entry).unwrap();

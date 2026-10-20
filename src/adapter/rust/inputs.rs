@@ -237,8 +237,8 @@ pub fn hash_package_common_inputs(
 /// Hashes root-level files directly in `package_dir` (build.rs, README.md, etc.).
 ///
 /// They are not common inputs: rustc reports through dep-info every root file a
-/// unit reads, so only build scripts without rerun directives and units with
-/// impure proc macros, which can read any package file, depend on all of them.
+/// unit reads, so only build scripts without rerun directives and units with a
+/// declared impure proc macro, which can read any package file, depend on all of them.
 pub(crate) fn scan_root_file_inputs(
     package_dir: &Path,
     inputs: &mut Vec<(String, String)>,
@@ -308,7 +308,8 @@ fn hash_package_inputs_impl(
     Ok(inputs)
 }
 
-/// Gathers full package base inputs including tests/, benches/, and examples/ for build scripts and impure macros.
+/// Gathers full package base inputs including tests/, benches/, and examples/ for build
+/// scripts and units with a declared impure proc macro.
 pub fn hash_package_full_inputs(
     package_dir: &Path,
     workspace_manifest: Option<&Path>,

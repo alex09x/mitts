@@ -51,6 +51,7 @@ pub mod planner;
 pub mod planner_deps;
 pub mod planner_units;
 pub mod profile;
+pub mod project_config;
 pub mod resolver;
 pub mod single_flight;
 pub mod source_lookup;
