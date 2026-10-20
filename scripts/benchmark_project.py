@@ -365,7 +365,13 @@ def main() -> None:
     if out_path.exists():
         existing = json.loads(out_path.read_text(encoding="utf-8"))
         old_prov = existing.get("provenance", {})
-        if not args.allow_binary_mismatch:
+        # Only an OK project is reused on resume; a failed or noisy one is measured
+        # again from scratch, so it has no result that the provenance guard protects.
+        stale = [n for n, p in existing.get("projects", {}).items() if p.get("status") != "OK"]
+        for name in stale:
+            print(f"[resume] {name}: previous run ended {existing['projects'][name].get('status')}, starting over", flush=True)
+            existing["projects"].pop(name)
+        if existing.get("projects") and not args.allow_binary_mismatch:
             if old_prov.get("binary_sha256") and old_prov.get("binary_sha256") != cur_prov.get("binary_sha256"):
                 sys.exit(f"Refusing to resume {out_path}: binary_sha256 mismatch")
             if old_prov.get("scripts_provenance") and old_prov.get("scripts_provenance") != cur_prov.get("scripts_provenance"):
