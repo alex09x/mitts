@@ -16,10 +16,11 @@ T3 (S3 Git History Replay & S4 Branch Hopping) in `benchmark_project.py`.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import os
 import time
 from pathlib import Path
 
-from benchmark_common import check_quiet_rig, get_disk_usage_mb, wait_for_quiet_rig
+from benchmark_common import get_disk_usage_mb, wait_for_quiet_rig
 from benchmark_lib import (
     TOOLS, assert_dir_empty_or_absent, chmod_rmtree, collect_sccache_stats_and_stop, copy_repo_tree,
     git_checkout_clean, parse_explain_metrics, prepare_swarm_worktrees, purge_mitts_cas, reset_sccache,
@@ -51,7 +52,11 @@ def measure_swarm_arm(
     _, bytes_after = get_device_bytes_written([wt_root, proj_cache])
     df_after = get_df_used_mb([proj_work, proj_cache])
     scc_st = collect_sccache_stats_and_stop(ctx["sccache_bin"], ctx["envs"]["cargo_sccache"]) if arm == "cargo_sccache" else None
-    _, load_after, _, _ = check_quiet_rig(max_load=max_load)
+    # Recorded for the provenance only; the next arm's gate does the real check.
+    try:
+        load_after = round(os.getloadavg()[0], 2)
+    except OSError:
+        load_after = 0.0
     dev_mb = round((bytes_after - bytes_before) / (1024.0 * 1024.0), 1) if (bytes_before is not None and bytes_after is not None) else None
     df_delta = round(df_after - df_before, 1) if (df_before is not None and df_after is not None) else None
     d_mb = get_disk_usage_mb(tool_disk_paths(arm, [w[1] for w in wts], ctx))

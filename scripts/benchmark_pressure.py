@@ -90,7 +90,21 @@ def _linux_maj_min_for_path(p: Path) -> str | None:
     return None
 
 
+_DARWIN_DISKS_CACHE: dict[tuple[str, ...], set[str]] = {}
+
+
 def _darwin_whole_disks(paths: list[Path]) -> set[str]:
+    # `diskutil info` takes about a second per call and the device behind a path does
+    # not change during a run, so the answer is kept for the process lifetime.
+    key = tuple(str(p) for p in paths)
+    if key in _DARWIN_DISKS_CACHE:
+        return _DARWIN_DISKS_CACHE[key]
+    disks = _darwin_whole_disks_uncached(paths)
+    _DARWIN_DISKS_CACHE[key] = disks
+    return disks
+
+
+def _darwin_whole_disks_uncached(paths: list[Path]) -> set[str]:
     disks: set[str] = set()
     for p in paths:
         try:
