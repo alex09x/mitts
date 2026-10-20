@@ -93,12 +93,18 @@ store safely.
 
 ## Quick start
 
-Mitts is not published yet. Build it from source with a recent stable Rust:
+Install Mitts from crates.io with a recent stable Rust:
+
+```sh
+cargo install mitts --locked
+```
+
+Or build from source:
 
 ```sh
 git clone https://github.com/alex09x/mitts
 cd mitts
-cargo install --path .
+cargo install --path . --locked
 ```
 
 Then run it inside any Cargo workspace:
