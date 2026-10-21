@@ -253,19 +253,41 @@ fn test_b4b_follower_does_not_inflate_rustc_fifo_tokens() {
     let n_written = unsafe { libc::write(fd, held.as_ptr() as *const libc::c_void, 3) };
     assert_eq!(n_written, 3);
 
-    let mut unread: std::os::raw::c_int = 0;
-    let rc = unsafe { libc::ioctl(fd, libc::FIONREAD, &mut unread) };
-    assert_eq!(rc, 0);
+    // FIONREAD can report zero for a macOS FIFO that contains readable bytes.
+    // Drain this isolated test pool without blocking to count its actual tokens.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    assert!(flags >= 0);
+    assert_eq!(
+        unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+        0
+    );
+    let mut unread = 0usize;
+    let mut buf = [0u8; 64];
+    while unread <= capacity {
+        let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+        if n > 0 {
+            unread += n as usize;
+        } else if n == 0 {
+            break;
+        } else {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock, "{error}");
+            break;
+        }
+    }
     unsafe {
         libc::close(fd);
     }
 
     assert!(
-        (unread as usize) <= capacity,
+        unread <= capacity,
         "FIFO tokens inflated beyond capacity {}: unread={}",
         capacity,
         unread
     );
-    assert_eq!(unread as usize, capacity);
+    assert_eq!(unread, capacity);
     drop((follower2, follower1, leader));
 }
