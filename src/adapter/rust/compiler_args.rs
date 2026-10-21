@@ -11,6 +11,7 @@
 use super::compiler::RustcInvocation;
 use super::compiler_resolve::{find_workspace_root, resolve_clippy_driver, resolve_rustc};
 use super::types::BuildMode;
+use crate::adapter::rust::compiler_remap::append_path_remaps;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
@@ -194,27 +195,8 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     }
 
     let pkg_dir = inv.unit.manifest_path.parent().unwrap_or(Path::new("."));
-    if !super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace) {
-        let ws_root = find_workspace_root(&inv.unit.manifest_path);
-        if pkg_dir.starts_with(&ws_root) {
-            let ws = ws_root.to_string_lossy();
-            let ws = ws.trim_end_matches('/');
-            cmd.args([
-                format!("--remap-path-prefix={ws}/="),
-                format!("--remap-path-prefix={ws}="),
-            ]);
-        }
-    }
-
-    let stable_out = format!("/mitts/out/{clean_crate}");
-    for p in std::iter::once(inv.out_dir).chain(inv.directives.and_then(|d| d.out_dir.as_deref())) {
-        let s = p.to_string_lossy();
-        let c = s.trim_end_matches('/');
-        cmd.args([
-            format!("--remap-path-prefix={c}/={stable_out}/"),
-            format!("--remap-path-prefix={c}={stable_out}"),
-        ]);
-    }
+    fs::create_dir_all(inv.out_dir)?;
+    append_path_remaps(inv, &clean_crate, &mut cmd, pkg_dir);
 
     cmd.args(["--check-cfg", "cfg(docsrs,test)"]);
     if let Ok(toml) = super::manifest::CargoToml::from_file(&inv.unit.manifest_path) {
@@ -285,7 +267,6 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             cmd.args(["-L", &format!("dependency={}", meta_deps.display())]);
         }
     }
-    fs::create_dir_all(inv.out_dir)?;
     let cwd = if inv.unit.is_workspace {
         find_workspace_root(&inv.unit.manifest_path)
     } else if pkg_dir.is_dir() {

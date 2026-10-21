@@ -20,10 +20,14 @@ where
     if items.is_empty() {
         return Vec::new();
     }
-    let num_threads = thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(8)
-        .min(items.len());
+    let num_threads = if cfg!(target_os = "macos") {
+        1
+    } else {
+        thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(8)
+            .min(items.len())
+    };
     if num_threads <= 1 {
         return items.iter().map(f).collect();
     }

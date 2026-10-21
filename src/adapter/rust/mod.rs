@@ -18,6 +18,7 @@ pub mod builder;
 pub mod cargo_config;
 pub mod compiler;
 pub mod compiler_args;
+mod compiler_remap;
 pub mod compiler_resolve;
 pub mod dag;
 pub mod dag_cache;

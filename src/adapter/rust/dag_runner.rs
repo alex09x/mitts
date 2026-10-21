@@ -165,11 +165,13 @@ pub fn run_native_dag_build(
         deriver,
     };
 
+    let cache_budget = crate::core::cache_phase::CachePhaseBudget::for_platform();
     thread::scope(|s| {
         let mut handles = Vec::new();
 
         for _ in 0..concurrency {
             let manifest_snapshot = explanation.manifest_snapshot.clone();
+            let cache_budget = cache_budget.clone();
             let shared = &shared;
             let on_metadata_ready = &on_metadata_ready;
             let cas = cas.clone();
@@ -196,6 +198,7 @@ pub fn run_native_dag_build(
 
             handles.push(s.spawn(move || -> Result<()> {
                 let _manifest_scope = manifest_snapshot.enter();
+                let _cache_budget = cache_budget.activate();
                 let ctx = ExecutionContext {
                     opt: &opt,
                     toolchain: &toolchain,

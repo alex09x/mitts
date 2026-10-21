@@ -160,8 +160,12 @@ pub fn derive_unit_action_key_context(
 
     // 1. Gather all unique package directories and their workspace status
     let mut unique_pkgs: HashMap<PathBuf, bool> = HashMap::new();
+    let mut full_input_pkgs = HashSet::new();
     for unit in &explanation.units {
         let pkg_dir = resolve_unit_pkg_dir(unit);
+        if super::key_flags::unit_has_impure_proc_macro(unit, None)? {
+            full_input_pkgs.insert(pkg_dir.clone());
+        }
         unique_pkgs.entry(pkg_dir).or_insert(unit.is_workspace);
     }
 
@@ -171,7 +175,17 @@ pub fn derive_unit_action_key_context(
     // Parallel hash common and library inputs across chunked workers once per package
     let computed_pkg_inputs = parallel_map_chunks(&pkg_list, |(pkg_dir, is_ws)| {
         let ws_ref = if *is_ws { ws_manifest } else { None };
-        let entry = compute_package_cache_entry(pkg_dir, ws_ref, *is_ws)?;
+        // Pure units consume their crate root and tracked dep-info below, never
+        // the full package tree. Do not hash a tree that no unit will consume.
+        // Build-script freshness retains its independent complete input scan.
+        let entry = if full_input_pkgs.contains(pkg_dir) {
+            compute_package_cache_entry(pkg_dir, ws_ref, *is_ws)?
+        } else {
+            PackageInputsCacheEntry {
+                common_inputs: super::inputs::hash_package_common_inputs(pkg_dir, ws_ref, *is_ws)?,
+                src_inputs: Vec::new(),
+            }
+        };
         Ok::<_, anyhow::Error>((pkg_dir.clone(), entry))
     });
 
@@ -204,6 +218,10 @@ pub fn derive_unit_action_key_context(
             opt.release,
             Some(build_ws_root),
         )?;
+
+        // Canonical path remapping changes generated artifacts, including host
+        // macros. Keep its protocol in every unit key so old outputs miss once.
+        u_flags.push(super::compiler_remap::KEY_FLAG.to_string());
 
         if receives_target_rustflags(unit, explicit_target.as_deref()) {
             for rf in &effective_target_rustflags {

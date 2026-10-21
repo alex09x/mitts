@@ -264,7 +264,7 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
             }
         };
 
-    if selected_packages.len() <= 8 {
+    if selected_packages.len() <= 8 || cfg!(target_os = "macos") {
         let mut out = Vec::with_capacity(selected_packages.len());
         for item in selected_packages {
             if let Some(res) = resolve_one(item)? {

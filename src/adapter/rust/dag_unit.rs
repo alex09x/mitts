@@ -33,8 +33,9 @@ pub(crate) fn acquire_unit_job_token<'a>(
     Option<ImplicitJobGuard<'a>>,
     Option<crate::core::jobserver::JobToken<'a>>,
 )> {
+    crate::core::cache_phase::pause();
     match (ctx.jobserver, ctx.is_first_job) {
-        (Some(js), Some(first_flag)) => {
+        (Some(js), Some(first_flag)) if js.has_implicit_token() => {
             if first_flag
                 .compare_exchange(
                     true,
@@ -49,7 +50,7 @@ pub(crate) fn acquire_unit_job_token<'a>(
                 Ok((None, js.acquire_token()?))
             }
         }
-        (Some(js), None) => Ok((None, js.acquire_token()?)),
+        (Some(js), _) => Ok((None, js.acquire_token()?)),
         _ => Ok((None, None)),
     }
 }
@@ -73,6 +74,7 @@ pub(crate) fn execute_unit(
     let t_bs = std::time::Instant::now();
     let (current_directives, staging_dir_holder) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
+    crate::core::cache_phase::resume();
     if has_build_script {
         crate::core::metrics::record_build_script_duration(t_bs.elapsed());
     }
@@ -124,11 +126,16 @@ pub(crate) fn execute_unit(
         return Ok(UnitExecutionStatus::Success);
     }
 
+    // Reserve execution capacity only after an initial miss, before locking
+    // a unit. No unit lock is held by a worker still waiting for a CPU slot.
+    let (_implicit_job_guard, _job_token) = acquire_unit_job_token(ctx)?;
+
     // 2. Single-flight lock to eliminate duplicate work across processes
     let lock_path = ctx.ac.lock_path(&super::single_flight::single_flight_key(
         unit,
         &effective_action_key,
     ));
+    crate::core::cache_phase::pause();
     let _lock = match lock_mode {
         LockMode::TryLock => match FileLock::try_acquire_exclusive(&lock_path)? {
             Some(l) => l,
@@ -137,13 +144,12 @@ pub(crate) fn execute_unit(
         LockMode::Blocking => FileLock::acquire_exclusive(&lock_path)?,
     };
 
+    // Miss-path I/O already has the global execution budget.
+
     // Double-checked locking: re-check action cache in case a concurrent process just compiled it
     if try_restore(ctx)? {
         return Ok(UnitExecutionStatus::Success);
     }
-
-    // 3. Acquire execution token from jobserver pool ONLY when genuinely compiling this unit
-    let (_implicit_job_guard, _job_token) = acquire_unit_job_token(ctx)?;
 
     // Genuinely missed cache and we hold the exclusive compilation lock
     *ctx.any_missed.lock().unwrap() = true;
@@ -293,6 +299,9 @@ pub(crate) fn execute_unit(
         invocation.execute()?
     };
     crate::core::metrics::record_rustc_duration(t_rustc.elapsed());
+    drop(_job_token);
+    drop(_implicit_job_guard);
+    // Publish completed compiler output without waiting behind cache readers.
 
     if !output.stdout.is_empty() {
         ctx.compiler_messages

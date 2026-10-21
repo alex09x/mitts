@@ -87,6 +87,7 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             .map(|(id, k)| (id.as_str(), k.as_str()))
             .collect();
         let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _cache_phase = crate::core::cache_phase::enter_unit();
             let base_action_key = shared.deriver.compute_dynamic_key(&unit, &dep_refs)?;
             let action_key = if dep_tainted {
                 super::dag_unit_publish::taint_unhashable_key(&base_action_key)

@@ -224,3 +224,48 @@ fn an_unknown_key_in_the_declaration_warns_on_stderr_and_still_builds() {
         "the warning must be printed once per manifest read, not per unit:\n{stderr}"
     );
 }
+
+/// An explicit symlink reproduces Darwin's /var alias on every Unix platform.
+/// Base keys and compiled outputs must be reusable between distinct real roots.
+#[test]
+#[cfg(unix)]
+fn a_pure_macro_is_shared_across_symlinked_checkout_roots() {
+    let cache = TempDir::new().unwrap();
+    let first = TempDir::new().unwrap();
+    let second = TempDir::new().unwrap();
+    let aliases = TempDir::new().unwrap();
+    write_workspace(first.path(), "", false, "");
+    write_workspace(second.path(), "", false, "");
+    let alias1 = aliases.path().join("first");
+    let alias2 = aliases.path().join("second");
+    std::os::unix::fs::symlink(first.path(), &alias1).unwrap();
+    std::os::unix::fs::symlink(second.path(), &alias2).unwrap();
+    let opt1 = options(&alias1, cache.path());
+    let opt2 = options(&alias2, cache.path());
+    assert_eq!(app_key(&opt1), app_key(&opt2));
+    let (restored1, out1) = build_and_run(&alias1, &opt1);
+    let (restored2, out2) = build_and_run(&alias2, &opt2);
+    assert!(!restored1);
+    assert_eq!(out1, "GREETING:hello");
+    assert!(
+        restored2,
+        "canonical source paths must not force ws_leak misses"
+    );
+    assert_eq!(out2, "GREETING:hello");
+    let binary = fs::read(alias2.join("target/debug/greeter_app")).unwrap();
+    for path in [
+        first.path(),
+        second.path(),
+        alias1.as_path(),
+        alias2.as_path(),
+    ] {
+        for spelling in [path.to_path_buf(), path.canonicalize().unwrap()] {
+            let spelling = spelling.to_string_lossy();
+            let needle = spelling.as_bytes();
+            assert!(
+                !binary.windows(needle.len()).any(|window| window == needle),
+                "shared binary retained checkout path {spelling}"
+            );
+        }
+    }
+}

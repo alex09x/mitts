@@ -39,7 +39,8 @@ pub fn compute_options_hash(
     features.sort();
 
     let payload = format!(
-        "manifest={}|target_dir={}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkg={:?}|exclude={:?}|bins={:?}|all_bins={}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
+        "compiler_protocol={}|manifest={}|target_dir={}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkg={:?}|exclude={:?}|bins={:?}|all_bins={}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
+        super::compiler_remap::KEY_FLAG,
         manifest_path.display(),
         target_dir.display(),
         opt.start_dir,

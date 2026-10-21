@@ -10,6 +10,9 @@
 
 use mitts::core::JobserverPool;
 
+#[path = "m8_jobserver_pool_test/managed_cap.rs"]
+mod managed_cap;
+
 #[test]
 fn test_m8_jobserver_pool_managed_fifo_lifecycle() {
     let temp = tempfile::tempdir().unwrap();
@@ -61,6 +64,7 @@ fn test_m8_jobserver_pool_inherited_fifo() {
     let auth_str = format!("fifo:{}", fifo_path.display());
     let pool = JobserverPool::from_auth(&auth_str);
     assert_eq!(pool.auth(), Some(auth_str.as_str()));
+    assert!(pool.has_implicit_token());
 
     // Seed 1 token into the FIFO
     unsafe {
@@ -99,6 +103,7 @@ fn test_m8_jobserver_pool_inherited_pipe_fds() {
         let auth_str = format!("{},{}", r, w);
         let pool = JobserverPool::from_auth(&auth_str);
         assert_eq!(pool.auth(), Some(auth_str.as_str()));
+        assert!(pool.has_implicit_token());
 
         let token = pool.acquire_token().unwrap();
         assert!(token.is_some());
@@ -115,6 +120,7 @@ fn test_m8_jobserver_pool_inherited_pipe_fds() {
 fn test_m8_jobserver_pool_none() {
     let none_pool = JobserverPool::None;
     assert!(none_pool.auth().is_none());
+    assert!(!none_pool.has_implicit_token());
     assert!(none_pool.acquire_token().unwrap().is_none());
     none_pool.release_token(b'+');
 }
