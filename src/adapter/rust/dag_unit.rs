@@ -9,53 +9,17 @@
  */
 
 pub mod context;
+pub(crate) mod lock;
 
 use super::compiler::RustcInvocation;
 use super::dag_cache::try_restore_from_cache_with_directives_and_purity;
 use super::dag_scheduler::{LockMode, UnitExecutionStatus};
 use super::types::{BuildProgressEvent, PlannedCompilationUnit};
 use crate::core::action::{Action, ActionKind};
-use crate::core::lock::FileLock;
 use anyhow::{bail, Result};
 pub use context::ExecutionContext;
+pub(crate) use lock::{acquire_unit_job_token, UnitJobReservation};
 use std::fs;
-
-pub(crate) struct ImplicitJobGuard<'a>(&'a std::sync::atomic::AtomicBool);
-impl Drop for ImplicitJobGuard<'_> {
-    fn drop(&mut self) {
-        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
-pub(crate) type UnitJobReservation<'a> = (
-    Option<ImplicitJobGuard<'a>>,
-    Option<crate::core::jobserver::JobToken<'a>>,
-);
-
-pub(crate) fn acquire_unit_job_token<'a>(
-    ctx: &ExecutionContext<'a>,
-) -> Result<UnitJobReservation<'a>> {
-    crate::core::cache_phase::pause();
-    match (ctx.jobserver, ctx.is_first_job) {
-        (Some(js), Some(first_flag)) if js.has_implicit_token() => {
-            if first_flag
-                .compare_exchange(
-                    true,
-                    false,
-                    std::sync::atomic::Ordering::SeqCst,
-                    std::sync::atomic::Ordering::SeqCst,
-                )
-                .is_ok()
-            {
-                Ok((Some(ImplicitJobGuard(first_flag)), None))
-            } else {
-                Ok((None, js.acquire_token()?))
-            }
-        }
-        (Some(js), _) => Ok((None, js.acquire_token()?)),
-        _ => Ok((None, None)),
-    }
-}
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
 pub(crate) fn execute_unit(
@@ -130,32 +94,24 @@ pub(crate) fn execute_unit(
         return Ok(UnitExecutionStatus::Success);
     }
 
-    // Reserve execution capacity only after an initial miss, before locking
-    // a unit. Reuse the reservation already held from a build.rs miss.
-    let (_implicit_job_guard, _job_token) = retained_job
-        .take()
-        .map_or_else(|| acquire_unit_job_token(ctx), Ok)?;
-
-    // 2. Single-flight lock to eliminate duplicate work across processes
+    // 2. Single-flight lock, double-checked restore, then CPU reservation on genuine miss
     let lock_path = ctx.ac.lock_path(&super::single_flight::single_flight_key(
         unit,
         &effective_action_key,
     ));
-    crate::core::cache_phase::pause();
-    let _lock = match lock_mode {
-        LockMode::TryLock => match FileLock::try_acquire_exclusive(&lock_path)? {
-            Some(l) => l,
-            None => return Ok(UnitExecutionStatus::Contested),
-        },
-        LockMode::Blocking => FileLock::acquire_exclusive(&lock_path)?,
+    let eager_reservation = ctx.jobserver.is_some_and(|js| js.has_implicit_token());
+    let (_lock, (_implicit_job_guard, _job_token)) = match lock::admit_unit_compilation(
+        &lock_path,
+        lock_mode,
+        eager_reservation,
+        retained_job.take(),
+        || try_restore(ctx),
+        || acquire_unit_job_token(ctx),
+    )? {
+        lock::UnitMissAdmission::Restored => return Ok(UnitExecutionStatus::Success),
+        lock::UnitMissAdmission::Contested => return Ok(UnitExecutionStatus::Contested),
+        lock::UnitMissAdmission::Compile { lock, reservation } => (lock, reservation),
     };
-
-    // Miss-path I/O already has the global execution budget.
-
-    // Double-checked locking: re-check action cache in case a concurrent process just compiled it
-    if try_restore(ctx)? {
-        return Ok(UnitExecutionStatus::Success);
-    }
 
     // Genuinely missed cache and we hold the exclusive compilation lock
     *ctx.any_missed.lock().unwrap() = true;

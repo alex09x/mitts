@@ -14,13 +14,24 @@ use super::types::PlannedCompilationUnit;
 use crate::core::hash::Sha256;
 use std::path::Path;
 
+const SINGLE_FLIGHT_LOCK_NAMESPACE: &str = "single_flight:v2";
+
+fn versioned_action_lock_key(action_key: &str) -> String {
+    let mut payload =
+        String::with_capacity(SINGLE_FLIGHT_LOCK_NAMESPACE.len() + 1 + action_key.len());
+    payload.push_str(SINGLE_FLIGHT_LOCK_NAMESPACE);
+    payload.push(':');
+    payload.push_str(action_key);
+    Sha256::digest(payload.as_bytes())
+}
+
 /// Units that share a coarse action key can still read different modules. Those builds
 /// produce different results, so they must not queue behind each other on one lock.
 /// The lock only dedups identical work and never decides a hit, so the key adds the
 /// crate root's directory tree: the exact dep-info set is unknown before rustc runs.
 pub fn single_flight_key(unit: &PlannedCompilationUnit, action_key: &str) -> String {
     if !super::unit_inputs::is_mutable_unit(unit) {
-        return action_key.to_string();
+        return versioned_action_lock_key(action_key);
     }
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     let Some(dir) = unit
@@ -28,14 +39,14 @@ pub fn single_flight_key(unit: &PlannedCompilationUnit, action_key: &str) -> Str
         .parent()
         .filter(|d| *d != pkg_dir && d.starts_with(pkg_dir))
     else {
-        return action_key.to_string();
+        return versioned_action_lock_key(action_key);
     };
     let mut files = Vec::new();
     if super::unit_inputs::scan_dir_inputs(dir, pkg_dir, &mut files).is_err() {
-        return action_key.to_string();
+        return versioned_action_lock_key(action_key);
     }
     files.sort();
-    let mut payload = format!("single_flight:{action_key}\n");
+    let mut payload = format!("{SINGLE_FLIGHT_LOCK_NAMESPACE}:{action_key}\n");
     for (path, digest) in files {
         payload.push_str(&format!("{path}={digest}\n"));
     }
@@ -78,11 +89,20 @@ mod tests {
         fs::write(c.path().join("README.md"), "other\n").unwrap();
 
         let ka = single_flight_key(&ua, "coarse");
+        assert_ne!(ka, "coarse");
         assert_ne!(ka, single_flight_key(&ub, "coarse"));
         assert_eq!(
             ka,
             single_flight_key(&uc, "coarse"),
             "identical crate sources in another checkout must share the lock"
+        );
+
+        let mut immutable = ua.clone();
+        immutable.is_workspace = false;
+        let k_imm = single_flight_key(&immutable, "coarse");
+        assert_ne!(
+            k_imm, "coarse",
+            "versioned unit lock namespace must not collide with raw action_key"
         );
     }
 }
