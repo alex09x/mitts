@@ -27,6 +27,24 @@ static NANOS_BUILD_SCRIPT: AtomicU64 = AtomicU64::new(0);
 static NANOS_UNIT_KEY: AtomicU64 = AtomicU64::new(0);
 static COUNT_BUILD_SCRIPT_HIT: AtomicU64 = AtomicU64::new(0);
 static COUNT_BUILD_SCRIPT_MISS: AtomicU64 = AtomicU64::new(0);
+static NANOS_INPUT_VALIDATION: AtomicU64 = AtomicU64::new(0);
+static COUNT_INPUT_VALIDATION: AtomicU64 = AtomicU64::new(0);
+
+/// Measures an input-validation boundary, including early error returns.
+pub(crate) struct InputValidationTimer(std::time::Instant);
+
+impl InputValidationTimer {
+    pub(crate) fn start() -> Self {
+        Self(std::time::Instant::now())
+    }
+}
+
+impl Drop for InputValidationTimer {
+    fn drop(&mut self) {
+        NANOS_INPUT_VALIDATION.fetch_add(self.0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        COUNT_INPUT_VALIDATION.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 /// Records duration spent in a unit's build-script step (cache lookup, or compile and run).
 pub fn record_build_script_duration(dur: Duration) {
@@ -131,6 +149,8 @@ pub fn reset_metrics() {
     NANOS_UNIT_KEY.store(0, Ordering::Relaxed);
     COUNT_BUILD_SCRIPT_HIT.store(0, Ordering::Relaxed);
     COUNT_BUILD_SCRIPT_MISS.store(0, Ordering::Relaxed);
+    NANOS_INPUT_VALIDATION.store(0, Ordering::Relaxed);
+    COUNT_INPUT_VALIDATION.store(0, Ordering::Relaxed);
 }
 
 /// Prints structured timings to stderr when MITTS_TIMINGS=1 or verbose mode is enabled.
@@ -165,6 +185,11 @@ pub fn print_timings(compile_wall: Duration, test_exec_wall: Duration, total_wal
         rustc_ns as f64 / 1_000_000_000.0
     );
     let (bs_ns, key_ns, bs_hits, bs_misses) = get_phase_metrics_snapshot();
+    eprintln!(
+        "[mitts::input_validation] calls={} elapsed_s={:.3}",
+        COUNT_INPUT_VALIDATION.load(Ordering::Relaxed),
+        NANOS_INPUT_VALIDATION.load(Ordering::Relaxed) as f64 / 1_000_000_000.0
+    );
     eprintln!(
         "[mitts::timings_sum] build_script_sum_s={:.3} unit_key_sum_s={:.3} build_script_hits={} build_script_misses={}",
         bs_ns as f64 / 1_000_000_000.0,

@@ -138,6 +138,7 @@ impl ManifestSnapshot {
     /// Reject a plan whose captured inputs or ancestor-manifest presence changed.
     /// This deliberately reads disk rather than trusting timestamps or this table.
     pub fn verify_fresh(&self) -> Result<()> {
+        let _timer = crate::core::metrics::InputValidationTimer::start();
         if let Some(error) = self.0.errors.lock().unwrap().first() {
             bail!("Manifest snapshot has an unknown input: {error}");
         }
