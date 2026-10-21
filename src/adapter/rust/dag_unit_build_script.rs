@@ -48,13 +48,17 @@ pub(crate) fn create_staging_dir(cas_root: &Path, clean_crate: &str) -> Result<P
     )
 }
 
-pub(crate) fn run_build_script_if_needed(
+pub(crate) fn run_build_script_if_needed<'a>(
     unit: &PlannedCompilationUnit,
     clean_crate: &str,
-    ctx: &ExecutionContext,
-) -> Result<(Option<BuildScriptDirectives>, Option<PathBuf>)> {
+    ctx: &ExecutionContext<'a>,
+) -> Result<(
+    Option<BuildScriptDirectives>,
+    Option<PathBuf>,
+    Option<super::dag_unit::UnitJobReservation<'a>>,
+)> {
     if !super::unit_env::unit_has_build_script(unit) {
-        return Ok((None, None));
+        return Ok((None, None, None));
     }
 
     let extern_crates = super::dag_unit_externs::resolve_extern_crates_for_build_script(
@@ -87,11 +91,11 @@ pub(crate) fn run_build_script_if_needed(
             &extern_crates,
             Some(&build_dep_env),
         )?;
-    let (directives, staging_dir_opt) = if let Some(d) = cached_directives {
-        (d, None)
+    let (directives, staging_dir_opt, retained_job) = if let Some(d) = cached_directives {
+        (d, None, None)
     } else {
         // 2. Cache miss: acquire jobserver token, allocate staging directory, and execute build.rs
-        let (_ig, _jt) = super::dag_unit::acquire_unit_job_token(ctx)?;
+        let job_reservation = super::dag_unit::acquire_unit_job_token(ctx)?;
         let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
         let d = match execute_build_script_with_key(
             unit,
@@ -118,7 +122,7 @@ pub(crate) fn run_build_script_if_needed(
                 );
             }
         };
-        (d, Some(staging_dir))
+        (d, Some(staging_dir), Some(job_reservation))
     };
 
     if ctx.opt.mode == super::types::BuildMode::Clippy && unit.is_primary {
@@ -130,7 +134,11 @@ pub(crate) fn run_build_script_if_needed(
         });
         if !already_linted {
             if let Some(build_rs) = super::build_script::resolve_build_script_path(unit) {
-                let (_ig, _jt) = super::dag_unit::acquire_unit_job_token(ctx)?;
+                let _clippy_job = if retained_job.is_none() {
+                    Some(super::dag_unit::acquire_unit_job_token(ctx)?)
+                } else {
+                    None
+                };
                 let temp_stage = match staging_dir_opt {
                     Some(ref s) => (s.clone(), false),
                     None => (create_staging_dir(ctx.cas.root(), clean_crate)?, true),
@@ -158,6 +166,7 @@ pub(crate) fn run_build_script_if_needed(
                     cache_root: ctx.cas.root().parent(),
                 };
                 let out_res = inv.execute();
+                drop(_clippy_job);
                 if temp_stage.1 {
                     let _ = fs::remove_dir_all(&temp_stage.0);
                 }
@@ -190,7 +199,7 @@ pub(crate) fn run_build_script_if_needed(
 
     register_directives_in_ctx(unit, &directives, ctx);
 
-    Ok((Some(directives), staging_dir_opt))
+    Ok((Some(directives), staging_dir_opt, retained_job))
 }
 
 fn register_directives_in_ctx(

@@ -27,12 +27,14 @@ impl Drop for ImplicitJobGuard<'_> {
     }
 }
 
-pub(crate) fn acquire_unit_job_token<'a>(
-    ctx: &ExecutionContext<'a>,
-) -> Result<(
+pub(crate) type UnitJobReservation<'a> = (
     Option<ImplicitJobGuard<'a>>,
     Option<crate::core::jobserver::JobToken<'a>>,
-)> {
+);
+
+pub(crate) fn acquire_unit_job_token<'a>(
+    ctx: &ExecutionContext<'a>,
+) -> Result<UnitJobReservation<'a>> {
     crate::core::cache_phase::pause();
     match (ctx.jobserver, ctx.is_first_job) {
         (Some(js), Some(first_flag)) if js.has_implicit_token() => {
@@ -72,9 +74,11 @@ pub(crate) fn execute_unit(
 
     let has_build_script = super::unit_env::unit_has_build_script(unit);
     let t_bs = std::time::Instant::now();
-    let (current_directives, staging_dir_holder) =
+    let (current_directives, staging_dir_holder, mut retained_job) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
-    crate::core::cache_phase::resume();
+    if retained_job.is_none() {
+        crate::core::cache_phase::resume();
+    }
     if has_build_script {
         crate::core::metrics::record_build_script_duration(t_bs.elapsed());
     }
@@ -127,8 +131,10 @@ pub(crate) fn execute_unit(
     }
 
     // Reserve execution capacity only after an initial miss, before locking
-    // a unit. No unit lock is held by a worker still waiting for a CPU slot.
-    let (_implicit_job_guard, _job_token) = acquire_unit_job_token(ctx)?;
+    // a unit. Reuse the reservation already held from a build.rs miss.
+    let (_implicit_job_guard, _job_token) = retained_job
+        .take()
+        .map_or_else(|| acquire_unit_job_token(ctx), Ok)?;
 
     // 2. Single-flight lock to eliminate duplicate work across processes
     let lock_path = ctx.ac.lock_path(&super::single_flight::single_flight_key(
