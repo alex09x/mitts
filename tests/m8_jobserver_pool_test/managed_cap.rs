@@ -155,76 +155,80 @@ fn test_build_script_and_lib_share_single_managed_reservation() {
         return;
     }
 
-    let temp = tempfile::tempdir().unwrap();
-    let cache_root = temp.path().join("cache");
-    fs::create_dir_all(&cache_root).unwrap();
+    for capacity in [1usize, 2] {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_root = temp.path().join("cache");
+        fs::create_dir_all(&cache_root).unwrap();
 
-    let leader = JobserverPool::create_managed(&cache_root, 1).unwrap();
-    let held_slot = leader.acquire_token().unwrap();
-    assert!(held_slot.is_some());
+        let leader = JobserverPool::create_managed(&cache_root, capacity).unwrap();
+        let held_slots: Vec<_> = (0..capacity)
+            .map(|_| leader.acquire_token().unwrap())
+            .collect();
+        assert!(held_slots.iter().all(Option::is_some));
 
-    let dir = temp.path().join("pkg_with_build");
-    fs::create_dir_all(dir.join("src")).unwrap();
-    let marker = dir.join("build_script_started");
-    fs::write(
-        dir.join("Cargo.toml"),
-        "[package]\nname = \"pkg_with_build\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
-    fs::write(
-        dir.join("build.rs"),
-        format!(
-            "fn main() {{\n    std::fs::write({:?}, \"1\").unwrap();\n    let out = std::env::var(\"OUT_DIR\").unwrap();\n    std::fs::write(std::path::Path::new(&out).join(\"gen.rs\"), \"pub const V: u32 = 77;\\n\").unwrap();\n    println!(\"cargo:rerun-if-changed=build.rs\");\n}}\n",
-            marker
-        ),
-    )
-    .unwrap();
-    fs::write(
-        dir.join("src/lib.rs"),
-        "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\npub fn val() -> u32 { V }\n",
-    )
-    .unwrap();
-    fs::write(
-        dir.join("Cargo.lock"),
-        "version = 3\n[[package]]\nname = \"pkg_with_build\"\nversion = \"0.1.0\"\n",
-    )
-    .unwrap();
+        let dir = temp.path().join("pkg_with_build");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        let marker = dir.join("build_script_started");
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"pkg_with_build\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("build.rs"),
+            format!(
+                "fn main() {{\n    std::fs::write({:?}, \"1\").unwrap();\n    let out = std::env::var(\"OUT_DIR\").unwrap();\n    std::fs::write(std::path::Path::new(&out).join(\"gen.rs\"), \"pub const V: u32 = 77;\\n\").unwrap();\n    println!(\"cargo:rerun-if-changed=build.rs\");\n}}\n",
+                marker
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("src/lib.rs"),
+            "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\npub fn val() -> u32 { V }\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("Cargo.lock"),
+            "version = 3\n[[package]]\nname = \"pkg_with_build\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
 
-    let child_dir = dir.clone();
-    let child_cache = cache_root.clone();
-    let (tx, rx) = mpsc::channel();
-    let handle = std::thread::spawn(move || {
-        let status = Command::new(std::env::current_exe().unwrap())
-            .arg("--exact")
-            .arg("managed_cap::test_build_script_and_lib_share_single_managed_reservation")
-            .arg("--nocapture")
-            .env_remove("CARGO_MAKEFLAGS")
-            .env_remove("MAKEFLAGS")
-            .env("MITTS_TEST_BS_SLOT_CHILD_PROJECT", &child_dir)
-            .env("MITTS_TEST_BS_SLOT_CHILD_CACHE", &child_cache)
-            .status()
-            .unwrap();
-        tx.send(status.success()).unwrap();
-    });
+        let child_dir = dir.clone();
+        let child_cache = cache_root.clone();
+        let (tx, rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg("managed_cap::test_build_script_and_lib_share_single_managed_reservation")
+                .arg("--nocapture")
+                .env_remove("CARGO_MAKEFLAGS")
+                .env_remove("MAKEFLAGS")
+                .env("MITTS_TEST_BS_SLOT_CHILD_PROJECT", &child_dir)
+                .env("MITTS_TEST_BS_SLOT_CHILD_CACHE", &child_cache)
+                .status()
+                .unwrap();
+            tx.send(status.success()).unwrap();
+        });
 
-    assert!(
-        rx.recv_timeout(Duration::from_millis(350)).is_err(),
-        "child build completed while capacity=1 slot was pre-held"
-    );
-    assert!(
-        !marker.exists(),
-        "pre-held capacity=1 slot must block build.rs execution before it starts"
-    );
+        assert!(
+            rx.recv_timeout(Duration::from_millis(350)).is_err(),
+            "child build completed while capacity={capacity} slots were pre-held"
+        );
+        assert!(
+            !marker.exists(),
+            "pre-held capacity={capacity} slots must block build.rs execution before it starts"
+        );
 
-    drop(held_slot);
-    assert!(
-        rx.recv_timeout(Duration::from_secs(15)).unwrap(),
-        "child build failed or acquired wrong number of reservations"
-    );
-    assert!(
-        marker.exists(),
-        "build.rs must have executed after slot release"
-    );
-    handle.join().unwrap();
-    drop(leader);
+        drop(held_slots);
+        assert!(
+            rx.recv_timeout(Duration::from_secs(15)).unwrap(),
+            "child build failed or acquired wrong number of reservations"
+        );
+        assert!(
+            marker.exists(),
+            "build.rs must have executed after slot release"
+        );
+        handle.join().unwrap();
+        drop(leader);
+    }
 }

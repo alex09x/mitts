@@ -16,7 +16,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-use unix::{acquire_managed_slot, create_managed_unix, try_open_inherited};
+use unix::{create_managed_unix, try_open_inherited};
+
+#[cfg(unix)]
+mod managed_slots;
 
 static TOKENS_ACQUIRED: AtomicUsize = AtomicUsize::new(0);
 
@@ -58,6 +61,9 @@ pub enum JobserverPool {
 pub struct JobToken<'a> {
     pool: &'a JobserverPool,
     byte: u8,
+    #[cfg(unix)]
+    slot_lock: Option<managed_slots::ManagedSlotLease>,
+    #[cfg(not(unix))]
     slot_lock: Option<FileLock>,
 }
 
@@ -183,7 +189,7 @@ impl JobserverPool {
                     capacity,
                     ..
                 } => {
-                    let lock = acquire_managed_slot(slots_dir, *capacity)?;
+                    let lock = managed_slots::acquire(slots_dir, *capacity)?;
                     TOKENS_ACQUIRED.fetch_add(1, Ordering::Relaxed);
                     return Ok(Some(JobToken {
                         pool: self,
