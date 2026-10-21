@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 from benchmark_common import CARGO_BIN_DIR, get_binary_provenance, get_filesystem_type, get_rig_info
+from benchmark_snapshot import purge_mitts_cas, restore_dir, snapshot_dir
 from benchmark_diagnostics import (
     extract_diagnostics_counter, verify_anomaly_present, verify_diagnostics_match, verify_warning_replay,
 )
@@ -47,19 +48,6 @@ __all__ = [
     "restore_commit_lock", "restore_dir", "run_timed", "setup_environments", "snapshot_dir",
     "start_sccache_zero_stats", "stop_sccache", "tool_cmd", "tool_disk_paths", "verify_diagnostics_parity",
 ]
-
-
-def purge_mitts_cas(mitts_cas: Path, keep_sources: bool = True) -> None:
-    if not mitts_cas.exists():
-        mitts_cas.mkdir(parents=True, exist_ok=True)
-        return
-    for child in list(mitts_cas.iterdir()):
-        if keep_sources and child.name == "sources":
-            continue
-        chmod_rmtree(child)
-    leftover = [c.name for c in mitts_cas.iterdir() if not (keep_sources and c.name == "sources")]
-    if leftover:
-        raise RuntimeError(f"Failed to purge mitts_cas ({mitts_cas}), leftover: {leftover}")
 
 
 def stop_sccache(sccache_bin: Path, sccache_dir: Path | None = None) -> None:
@@ -91,32 +79,6 @@ def collect_sccache_stats_and_stop(sccache_bin: Path, env: dict[str, str]) -> di
         pass
     stop_sccache(sccache_bin)
     return parse_sccache_stats(stats_out)
-
-
-def snapshot_dir(src: Path, dst: Path) -> None:
-    chmod_rmtree(dst)
-    if src.exists():
-        shutil.copytree(src, dst, symlinks=True, ignore=shutil.ignore_patterns("*.fifo", "jobserver", "tmp", "*.lock"))
-
-
-def restore_dir(snap: Path, dst: Path, keep_sources: bool = False) -> None:
-    if keep_sources and dst.exists():
-        purge_mitts_cas(dst, keep_sources=True)
-        if snap.exists():
-            for item in snap.iterdir():
-                if item.name == "sources":
-                    continue
-                target_item = dst / item.name
-                if item.is_dir():
-                    shutil.copytree(item, target_item, symlinks=True)
-                else:
-                    shutil.copy2(item, target_item)
-        return
-    chmod_rmtree(dst)
-    if snap.exists():
-        shutil.copytree(snap, dst, symlinks=True)
-    else:
-        dst.mkdir(parents=True, exist_ok=True)
 
 
 def setup_environments(
@@ -389,6 +351,7 @@ def collect_provenance(
         "cargo_shared": "",
     }
     prov["ci_env_rationale"] = "CI=true disables interactive progress bars and prompts across both cargo and mitts."
+    script_files = [*script_files, Path(__file__).with_name("benchmark_snapshot.py")]
     prov["scripts_provenance"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in script_files if p.exists()}
     prov["rig"] = get_rig_info()
     prov["preflight_policy"] = {

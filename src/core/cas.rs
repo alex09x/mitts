@@ -233,12 +233,13 @@ impl ContentAddressedStore {
                 &disambiguator[..disambiguator.len().min(16)],
             )
         };
-        fs::create_dir_all(&artifacts_dir)?;
         let clean_crate = crate_name.replace('-', "_");
         let artifact_name = format!("lib{}-{}.{}", clean_crate, short_hash, ext);
         let artifact_path = artifacts_dir.join(&artifact_name);
         let obj_path = self.object_path(content_hash);
-        if !obj_path.is_file() {
+        let obj_meta = fs::metadata(&obj_path)
+            .with_context(|| format!("CAS object not found: {}", content_hash))?;
+        if !obj_meta.is_file() {
             bail!("CAS object not found: {}", content_hash);
         }
 
@@ -247,9 +248,7 @@ impl ContentAddressedStore {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            if let (Ok(meta), Ok(obj_meta)) =
-                (fs::metadata(&artifact_path), fs::metadata(&obj_path))
-            {
+            if let Ok(meta) = fs::metadata(&artifact_path) {
                 if meta.ino() == obj_meta.ino() && meta.dev() == obj_meta.dev() {
                     return Ok(artifact_path);
                 }
@@ -265,9 +264,7 @@ impl ContentAddressedStore {
 
         #[cfg(not(unix))]
         {
-            if let (Ok(meta), Ok(obj_meta)) =
-                (fs::metadata(&artifact_path), fs::metadata(&obj_path))
-            {
+            if let Ok(meta) = fs::metadata(&artifact_path) {
                 if meta.len() == obj_meta.len()
                     && fs::read_to_string(&sidecar_path)
                         .map(|s| s.trim() == content_hash)
@@ -278,6 +275,9 @@ impl ContentAddressedStore {
             }
         }
 
+        // A cache hit is read-only. Create directories only when publishing or
+        // repairing an alias, avoiding mkdir contention between cached readers.
+        fs::create_dir_all(&artifacts_dir)?;
         let pid = std::process::id();
         let tid = format!("{:?}", std::thread::current().id());
         let clean_tid: String = tid.chars().filter(|c| c.is_alphanumeric()).collect();
