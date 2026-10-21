@@ -25,6 +25,10 @@ use super::dag_unit_build_script::script_inputs::collect_script_inputs;
 pub fn resolve_build_script_path(unit: &PlannedCompilationUnit) -> Option<PathBuf> {
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
+    resolve_build_script_path_with_toml(pkg_dir, &pkg_toml)
+}
+
+fn resolve_build_script_path_with_toml(pkg_dir: &Path, pkg_toml: &CargoToml) -> Option<PathBuf> {
     match pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()) {
         Some(TomlBuild::Disabled(false)) => None,
         Some(TomlBuild::Path(ref rel)) => Some(pkg_dir.join(rel)).filter(|p| p.is_file()),
@@ -46,10 +50,29 @@ pub fn try_restore_build_script(
     extern_crates: &[(String, PathBuf)],
     extra_env: Option<&HashMap<String, String>>,
 ) -> Result<Option<BuildScriptDirectives>> {
+    Ok(try_restore_build_script_with_key(
+        unit,
+        release,
+        features,
+        cas_artifacts_dir,
+        extern_crates,
+        extra_env,
+    )?
+    .0)
+}
+
+pub(crate) fn try_restore_build_script_with_key(
+    unit: &PlannedCompilationUnit,
+    release: bool,
+    features: &[String],
+    cas_artifacts_dir: Option<&Path>,
+    extern_crates: &[(String, PathBuf)],
+    extra_env: Option<&HashMap<String, String>>,
+) -> Result<(Option<BuildScriptDirectives>, Option<String>)> {
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
-    let Some(build_rs) = resolve_build_script_path(unit) else {
-        return Ok(Some(BuildScriptDirectives::default()));
+    let Some(build_rs) = resolve_build_script_path_with_toml(pkg_dir, &pkg_toml) else {
+        return Ok((Some(BuildScriptDirectives::default()), None));
     };
 
     let target = detect_default_target_triple();
@@ -84,10 +107,10 @@ pub fn try_restore_build_script(
                 &build_key[..build_key.len().min(16)]
             );
         }
-        return Ok(Some(directives));
+        return Ok((Some(directives), Some(build_key)));
     }
 
-    Ok(None)
+    Ok((None, Some(build_key)))
 }
 
 /// Executes a crate's `build.rs` build script in an isolated sandbox with CAS caching.
@@ -100,37 +123,67 @@ pub fn execute_build_script(
     extern_crates: &[(String, PathBuf)],
     extra_env: Option<&HashMap<String, String>>,
 ) -> Result<BuildScriptDirectives> {
-    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-    let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
-    let Some(build_rs) = resolve_build_script_path(unit) else {
-        return Ok(BuildScriptDirectives::default());
-    };
-
-    // 1. Check CAS execution cache (fast hit without creating staging out_dir)
-    if let Some(directives) = try_restore_build_script(
+    execute_build_script_with_key(
         unit,
+        staging_dir,
         release,
         features,
         cas_artifacts_dir,
         extern_crates,
         extra_env,
-    )? {
-        return Ok(directives);
-    }
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_build_script_with_key(
+    unit: &PlannedCompilationUnit,
+    staging_dir: &Path,
+    release: bool,
+    features: &[String],
+    cas_artifacts_dir: Option<&Path>,
+    extern_crates: &[(String, PathBuf)],
+    extra_env: Option<&HashMap<String, String>>,
+    precomputed_build_key: Option<&str>,
+) -> Result<BuildScriptDirectives> {
+    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
+    let Some(build_rs) = resolve_build_script_path_with_toml(pkg_dir, &pkg_toml) else {
+        return Ok(BuildScriptDirectives::default());
+    };
 
     let target = detect_default_target_triple();
     let clean_crate = unit.package_name.replace('-', "_");
     let profile_name = if release { "release" } else { "debug" };
 
-    let build_key = compute_build_script_key(
-        unit,
-        &build_rs,
-        release,
-        features,
-        &target,
-        extra_env,
-        extern_crates,
-    )?;
+    let build_key = match precomputed_build_key {
+        Some(k) => k.to_string(),
+        None => {
+            let (restored, key_opt) = try_restore_build_script_with_key(
+                unit,
+                release,
+                features,
+                cas_artifacts_dir,
+                extern_crates,
+                extra_env,
+            )?;
+            if let Some(directives) = restored {
+                return Ok(directives);
+            }
+            match key_opt {
+                Some(k) => k,
+                None => compute_build_script_key(
+                    unit,
+                    &build_rs,
+                    release,
+                    features,
+                    &target,
+                    extra_env,
+                    extern_crates,
+                )?,
+            }
+        }
+    };
 
     crate::core::metrics::record_build_script_miss();
     if std::env::var_os("MITTS_LOG_COMPILE").is_some() {

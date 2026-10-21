@@ -14,7 +14,7 @@ pub mod script_inputs;
 
 pub(crate) use keys::{prepare_unit_build_script_keys, PreCompileKeyInfo};
 
-use super::build_script::execute_build_script;
+use super::build_script::execute_build_script_with_key;
 use super::build_script_directives::BuildScriptDirectives;
 use super::dag_cache::ExecutionContext;
 use super::types::PlannedCompilationUnit;
@@ -77,48 +77,48 @@ pub(crate) fn run_build_script_if_needed(
         }
     }
 
-    // 1. Check CAS execution cache BEFORE allocating any staging directory
-    let cached_directives = super::build_script::try_restore_build_script(
-        unit,
-        ctx.opt.release,
-        &unit.features,
-        Some(&artifacts_dir),
-        &extern_crates,
-        Some(&build_dep_env),
-    )?;
-    // Clippy still checks a primary build.rs even when its execution is cached.
-    if let Some(directives) = cached_directives
-        .filter(|_| ctx.opt.mode != super::types::BuildMode::Clippy || !unit.is_primary)
-    {
-        register_directives_in_ctx(unit, &directives, ctx);
-        return Ok((Some(directives), None));
-    }
-
-    // 2. Cache miss: allocate isolated staging directory and execute build.rs
-    let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
-    let directives = match execute_build_script(
-        unit,
-        &staging_dir,
-        ctx.opt.release,
-        &unit.features,
-        Some(&artifacts_dir),
-        &extern_crates,
-        Some(&build_dep_env),
-    ) {
-        Ok(d) => d,
-        Err(err) => {
-            let _ = fs::remove_dir_all(&staging_dir);
-            let pkg_dir = unit
-                .manifest_path
-                .parent()
-                .unwrap_or(std::path::Path::new("."));
-            bail!(
-                "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
-                unit.unit_id(),
-                pkg_dir.display(),
-                err
-            );
-        }
+    // 1. Check CAS execution cache BEFORE allocating any staging directory or jobserver token
+    let (cached_directives, build_key_opt) =
+        super::build_script::try_restore_build_script_with_key(
+            unit,
+            ctx.opt.release,
+            &unit.features,
+            Some(&artifacts_dir),
+            &extern_crates,
+            Some(&build_dep_env),
+        )?;
+    let (directives, staging_dir_opt) = if let Some(d) = cached_directives {
+        (d, None)
+    } else {
+        // 2. Cache miss: acquire jobserver token, allocate staging directory, and execute build.rs
+        let (_ig, _jt) = super::dag_unit::acquire_unit_job_token(ctx)?;
+        let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
+        let d = match execute_build_script_with_key(
+            unit,
+            &staging_dir,
+            ctx.opt.release,
+            &unit.features,
+            Some(&artifacts_dir),
+            &extern_crates,
+            Some(&build_dep_env),
+            build_key_opt.as_deref(),
+        ) {
+            Ok(d) => d,
+            Err(err) => {
+                let _ = fs::remove_dir_all(&staging_dir);
+                let pkg_dir = unit
+                    .manifest_path
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."));
+                bail!(
+                    "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
+                    unit.unit_id(),
+                    pkg_dir.display(),
+                    err
+                );
+            }
+        };
+        (d, Some(staging_dir))
     };
 
     if ctx.opt.mode == super::types::BuildMode::Clippy && unit.is_primary {
@@ -130,12 +130,17 @@ pub(crate) fn run_build_script_if_needed(
         });
         if !already_linted {
             if let Some(build_rs) = super::build_script::resolve_build_script_path(unit) {
+                let (_ig, _jt) = super::dag_unit::acquire_unit_job_token(ctx)?;
+                let temp_stage = match staging_dir_opt {
+                    Some(ref s) => (s.clone(), false),
+                    None => (create_staging_dir(ctx.cas.root(), clean_crate)?, true),
+                };
                 let mut bs_unit = unit.clone();
                 bs_unit.kind = "custom-build".to_string();
                 bs_unit.target_name = "build_script_build".to_string();
                 bs_unit.src_path = build_rs;
                 bs_unit.for_host = true;
-                let bs_out = staging_dir.join("clippy_build_script");
+                let bs_out = temp_stage.0.join("clippy_build_script");
                 let inv = super::compiler::RustcInvocation {
                     unit: &bs_unit,
                     action_key: "build_script_clippy",
@@ -152,7 +157,11 @@ pub(crate) fn run_build_script_if_needed(
                     target_dir: Some(ctx.target_dir),
                     cache_root: ctx.cas.root().parent(),
                 };
-                let out = inv.execute()?;
+                let out_res = inv.execute();
+                if temp_stage.1 {
+                    let _ = fs::remove_dir_all(&temp_stage.0);
+                }
+                let out = out_res?;
                 if !out.stderr.is_empty() {
                     let mut msgs = ctx.compiler_messages.lock().unwrap();
                     if !msgs.contains(&out.stderr) {
@@ -165,7 +174,9 @@ pub(crate) fn run_build_script_if_needed(
                     }
                 }
                 if !out.success {
-                    let _ = fs::remove_dir_all(&staging_dir);
+                    if let Some(ref s) = staging_dir_opt {
+                        let _ = fs::remove_dir_all(s);
+                    }
                     bail!(
                         "clippy failed for build.rs of unit '{}' (exit code {}):\n{}",
                         unit.unit_id(),
@@ -179,7 +190,7 @@ pub(crate) fn run_build_script_if_needed(
 
     register_directives_in_ctx(unit, &directives, ctx);
 
-    Ok((Some(directives), Some(staging_dir)))
+    Ok((Some(directives), staging_dir_opt))
 }
 
 fn register_directives_in_ctx(

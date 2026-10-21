@@ -15,6 +15,9 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
+#[path = "cache_hit_lazy_staging/read_only_hit.rs"]
+mod read_only_hit;
+
 static SERIAL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 struct EnvGuard {

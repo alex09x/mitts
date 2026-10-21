@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 static NEXT_SLOT: AtomicUsize = AtomicUsize::new(0);
+static TOKENS_ACQUIRED: AtomicUsize = AtomicUsize::new(0);
 
 /// Global or process-level jobserver coordination pool for rustc codegen units.
 #[derive(Debug)]
@@ -40,6 +41,12 @@ pub enum JobserverPool {
         #[cfg(unix)]
         open_fd: std::os::raw::c_int,
         auth: String,
+    },
+    /// Lazily initialized pool that defers filesystem lock/FIFO creation until a cache miss.
+    Lazy {
+        cache_root: PathBuf,
+        token_count: usize,
+        inner: std::sync::OnceLock<Box<JobserverPool>>,
     },
     /// No jobserver active (e.g. disabled or unsupported platform).
     None,
@@ -115,17 +122,13 @@ impl JobserverPool {
             let slots_dir = js_dir.join("slots");
             fs::create_dir_all(&slots_dir)
                 .with_context(|| format!("Failed to create jobserver directory {:?}", slots_dir))?;
-
             let init_lock_path = js_dir.join("init.lock");
             let pool_lock_path = js_dir.join("pool.lock");
             let fifo_path = js_dir.join("pool.fifo");
             let cap_path = js_dir.join("pool.cap");
-
             let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap_or(""))
                 .context("Invalid FIFO path for CString")?;
-
             let init_lock = FileLock::acquire_exclusive(&init_lock_path)?;
-
             let (pool_lock, fd, capacity) = match FileLock::try_acquire_exclusive(&pool_lock_path)?
             {
                 Some(ex_pool_lock) => {
@@ -139,30 +142,24 @@ impl JobserverPool {
                         return Err(std::io::Error::last_os_error())
                             .with_context(|| format!("Failed to create FIFO {:?}", fifo_path));
                     }
-
                     let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
                     if fd < 0 {
                         return Err(std::io::Error::last_os_error())
                             .with_context(|| format!("Failed to open FIFO {:?}", fifo_path));
                     }
-
                     let tokens = token_count.max(1);
                     let _ = fs::write(&cap_path, tokens.to_string());
                     let buf = vec![b'|'; tokens];
                     let written =
                         unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
                     if written < 0 {
-                        unsafe {
-                            libc::close(fd);
-                        }
+                        unsafe { libc::close(fd) };
                         return Err(std::io::Error::last_os_error()).with_context(|| {
                             format!("Failed to write tokens to FIFO {:?}", fifo_path)
                         });
                     }
-
                     drop(ex_pool_lock);
-                    let sh_pool_lock = FileLock::acquire_shared(&pool_lock_path)?;
-                    (sh_pool_lock, fd, tokens)
+                    (FileLock::acquire_shared(&pool_lock_path)?, fd, tokens)
                 }
                 None => {
                     let sh_pool_lock = FileLock::acquire_shared(&pool_lock_path)?;
@@ -173,22 +170,19 @@ impl JobserverPool {
                     let cap = fs::read_to_string(&cap_path)
                         .ok()
                         .and_then(|s| s.trim().parse::<usize>().ok())
-                        .unwrap_or_else(|| token_count.max(1))
+                        .unwrap_or(token_count)
                         .max(1);
                     (sh_pool_lock, fd, cap)
                 }
             };
-
             drop(init_lock);
-
-            let auth = format!("fifo:{}", fifo_path.display());
             Ok(Self::Managed {
                 _lock: pool_lock,
+                auth: format!("fifo:{}", fifo_path.display()),
                 fifo_path,
                 slots_dir,
                 capacity,
                 open_fd: fd,
-                auth,
             })
         }
 
@@ -229,38 +223,63 @@ impl JobserverPool {
         Option<std::os::raw::c_int>,
         bool,
     ) {
-        if let Some(fifo_str) = auth.strip_prefix("fifo:") {
-            if let Ok(c_path) = std::ffi::CString::new(fifo_str) {
-                let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
-                if fd >= 0 {
-                    return (Some(fd), Some(fd), true);
-                }
+        if let Some(c_path) = auth
+            .strip_prefix("fifo:")
+            .and_then(|s| std::ffi::CString::new(s).ok())
+        {
+            let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
+            if fd >= 0 {
+                return (Some(fd), Some(fd), true);
             }
         }
-        let parts: Vec<&str> = auth.split(',').collect();
-        if parts.len() == 2 {
-            if let (Ok(r), Ok(w)) = (
-                parts[0].parse::<std::os::raw::c_int>(),
-                parts[1].parse::<std::os::raw::c_int>(),
-            ) {
+        let mut parts = auth.split(',');
+        if let (Some(Ok(r)), w_part, None) = (
+            parts.next().map(|p| p.parse()),
+            parts.next().map(|p| p.parse()),
+            parts.next(),
+        ) {
+            if let Ok(w) = w_part.unwrap_or(Ok(r)) {
                 if unsafe {
                     libc::fcntl(r, libc::F_GETFD) >= 0 && libc::fcntl(w, libc::F_GETFD) >= 0
                 } {
                     return (Some(r), Some(w), false);
                 }
             }
-        } else if parts.len() == 1 {
-            if let Ok(r) = parts[0].parse::<std::os::raw::c_int>() {
-                if unsafe { libc::fcntl(r, libc::F_GETFD) >= 0 } {
-                    return (Some(r), Some(r), false);
-                }
-            }
         }
         (None, None, false)
     }
 
+    pub fn acquire_or_create_lazy(cache_root: &Path, token_count: usize) -> Self {
+        Self::Lazy {
+            cache_root: cache_root.to_path_buf(),
+            token_count,
+            inner: std::sync::OnceLock::new(),
+        }
+    }
+    pub fn total_tokens_acquired() -> usize {
+        TOKENS_ACQUIRED.load(Ordering::Relaxed)
+    }
+    pub fn reset_tokens_acquired() {
+        TOKENS_ACQUIRED.store(0, Ordering::Relaxed);
+    }
+    fn resolve_lazy(&self) -> &JobserverPool {
+        match self {
+            Self::Lazy {
+                cache_root,
+                token_count,
+                inner,
+            } => inner.get_or_init(|| {
+                Box::new(Self::acquire_or_create(cache_root, *token_count).unwrap_or(Self::None))
+            }),
+            other => other,
+        }
+    }
+
     /// Acquires a single execution token from the jobserver pool.
     pub fn acquire_token(&self) -> Result<Option<JobToken<'_>>> {
+        if let Self::Lazy { .. } = self {
+            return self.resolve_lazy().acquire_token();
+        }
         #[cfg(unix)]
         {
             match self {
@@ -270,6 +289,7 @@ impl JobserverPool {
                     ..
                 } => {
                     let lock = Self::acquire_managed_slot(slots_dir, *capacity)?;
+                    TOKENS_ACQUIRED.fetch_add(1, Ordering::Relaxed);
                     return Ok(Some(JobToken {
                         pool: self,
                         byte: b'|',
@@ -282,6 +302,7 @@ impl JobserverPool {
                     let mut b = 0u8;
                     let n = unsafe { libc::read(*fd, &mut b as *mut u8 as *mut libc::c_void, 1) };
                     if n == 1 {
+                        TOKENS_ACQUIRED.fetch_add(1, Ordering::Relaxed);
                         return Ok(Some(JobToken {
                             pool: self,
                             byte: b,
@@ -310,12 +331,18 @@ impl JobserverPool {
 
     /// Releases a previously acquired token back to an inherited pipe/FIFO pool.
     pub fn release_token(&self, byte: u8) {
+        if let Self::Lazy { inner, .. } = self {
+            if let Some(pool) = inner.get() {
+                pool.release_token(byte);
+            }
+            return;
+        }
         #[cfg(unix)]
         {
             let write_fd = match self {
                 Self::Managed { open_fd, .. } => Some(*open_fd),
                 Self::Inherited { write_fd, .. } => *write_fd,
-                Self::None => None,
+                Self::Lazy { .. } | Self::None => None,
             };
 
             if let Some(fd) = write_fd {
@@ -340,10 +367,9 @@ impl JobserverPool {
 
     /// Returns the `--jobserver-auth=...` string if active.
     pub fn auth(&self) -> Option<&str> {
-        match self {
-            Self::Inherited { auth, .. } => Some(auth),
-            Self::Managed { auth, .. } => Some(auth),
-            Self::None => None,
+        match self.resolve_lazy() {
+            Self::Inherited { auth, .. } | Self::Managed { auth, .. } => Some(auth),
+            Self::Lazy { .. } | Self::None => None,
         }
     }
 }
@@ -361,10 +387,8 @@ impl Drop for JobserverPool {
                 owned: true,
                 ..
             } => unsafe {
-                if *r == *w {
-                    libc::close(*r);
-                } else {
-                    libc::close(*r);
+                libc::close(*r);
+                if *r != *w {
                     libc::close(*w);
                 }
             },

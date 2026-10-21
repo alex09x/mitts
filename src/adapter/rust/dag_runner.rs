@@ -115,9 +115,9 @@ pub fn run_native_dag_build(
     let concurrency = max_concurrency.min(total_units.max(1));
 
     let cache_root = cas.root().parent().unwrap_or_else(|| cas.root());
-    let jobserver = crate::core::JobserverPool::acquire_or_create(cache_root, max_concurrency)
-        .ok()
-        .map(Arc::new);
+    let jobserver = Some(Arc::new(
+        crate::core::JobserverPool::acquire_or_create_lazy(cache_root, max_concurrency),
+    ));
     let is_first_job = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     let metadata_signaled = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));

@@ -20,6 +20,40 @@ use anyhow::{bail, Result};
 pub use context::ExecutionContext;
 use std::fs;
 
+pub(crate) struct ImplicitJobGuard<'a>(&'a std::sync::atomic::AtomicBool);
+impl Drop for ImplicitJobGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub(crate) fn acquire_unit_job_token<'a>(
+    ctx: &ExecutionContext<'a>,
+) -> Result<(
+    Option<ImplicitJobGuard<'a>>,
+    Option<crate::core::jobserver::JobToken<'a>>,
+)> {
+    match (ctx.jobserver, ctx.is_first_job) {
+        (Some(js), Some(first_flag)) => {
+            if first_flag
+                .compare_exchange(
+                    true,
+                    false,
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                )
+                .is_ok()
+            {
+                Ok((Some(ImplicitJobGuard(first_flag)), None))
+            } else {
+                Ok((None, js.acquire_token()?))
+            }
+        }
+        (Some(js), None) => Ok((None, js.acquire_token()?)),
+        _ => Ok((None, None)),
+    }
+}
+
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
 pub(crate) fn execute_unit(
     unit: &PlannedCompilationUnit,
@@ -35,46 +69,7 @@ pub(crate) fn execute_unit(
                 crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
             ));
 
-    struct ImplicitJobGuard<'a>(&'a std::sync::atomic::AtomicBool);
-    impl Drop for ImplicitJobGuard<'_> {
-        fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-    let acquire_unit_job_token = || -> Result<(
-        Option<ImplicitJobGuard<'_>>,
-        Option<crate::core::jobserver::JobToken<'_>>,
-    )> {
-        match (ctx.jobserver, ctx.is_first_job) {
-            (Some(js), Some(first_flag)) => {
-                if first_flag
-                    .compare_exchange(
-                        true,
-                        false,
-                        std::sync::atomic::Ordering::SeqCst,
-                        std::sync::atomic::Ordering::SeqCst,
-                    )
-                    .is_ok()
-                {
-                    Ok((Some(ImplicitJobGuard(first_flag)), None))
-                } else {
-                    Ok((None, js.acquire_token()?))
-                }
-            }
-            (Some(js), None) => Ok((None, js.acquire_token()?)),
-            _ => Ok((None, None)),
-        }
-    };
-
     let has_build_script = super::unit_env::unit_has_build_script(unit);
-    let mut _implicit_job_guard = None;
-    let mut _job_token = None;
-    if has_build_script {
-        let (ig, jt) = acquire_unit_job_token()?;
-        _implicit_job_guard = ig;
-        _job_token = jt;
-    }
-
     let t_bs = std::time::Instant::now();
     let (current_directives, staging_dir_holder) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
@@ -129,14 +124,7 @@ pub(crate) fn execute_unit(
         return Ok(UnitExecutionStatus::Success);
     }
 
-    // 2. Acquire execution token from jobserver pool BEFORE acquiring the exclusive unit lock
-    if !has_build_script {
-        let (ig, jt) = acquire_unit_job_token()?;
-        _implicit_job_guard = ig;
-        _job_token = jt;
-    }
-
-    // 3. Single-flight lock to eliminate duplicate work across processes
+    // 2. Single-flight lock to eliminate duplicate work across processes
     let lock_path = ctx.ac.lock_path(&super::single_flight::single_flight_key(
         unit,
         &effective_action_key,
@@ -153,6 +141,9 @@ pub(crate) fn execute_unit(
     if try_restore(ctx)? {
         return Ok(UnitExecutionStatus::Success);
     }
+
+    // 3. Acquire execution token from jobserver pool ONLY when genuinely compiling this unit
+    let (_implicit_job_guard, _job_token) = acquire_unit_job_token(ctx)?;
 
     // Genuinely missed cache and we hold the exclusive compilation lock
     *ctx.any_missed.lock().unwrap() = true;

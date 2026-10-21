@@ -15,6 +15,24 @@ use std::path::Path;
 
 use super::build_script_directives::{compute_execution_key, BuildScriptDirectives};
 
+/// Minimum age of `.last_used` before a warm CAS hit refreshes its mtime on disk.
+/// Coalesces concurrent warm-hit reads while keeping active entries fresh for GC.
+pub const LAST_USED_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn touch_last_used_throttled(entry_dir: &Path) {
+    let last_used = entry_dir.join(".last_used");
+    let should_refresh = match fs::metadata(&last_used).and_then(|m| m.modified()) {
+        Ok(mtime) => std::time::SystemTime::now()
+            .duration_since(mtime)
+            .map(|age| age >= LAST_USED_REFRESH_INTERVAL)
+            .unwrap_or(true),
+        Err(_) => true,
+    };
+    if should_refresh {
+        let _ = fs::write(last_used, b"");
+    }
+}
+
 pub fn remap_out_dir(directives: &mut BuildScriptDirectives, from: &str, to: &str) {
     if from.is_empty() || from == to {
         return;
@@ -75,7 +93,7 @@ pub fn try_restore_build_script_cas(
         if let Ok(content) = fs::read_to_string(&meta_file) {
             if let Ok(mut directives) = toml::from_str::<BuildScriptDirectives>(&content) {
                 if directives.is_fresh(pkg_dir) {
-                    let _ = fs::write(entry_dir.join(".last_used"), b"");
+                    touch_last_used_throttled(&entry_dir);
                     let persistent_out = if cached_out_dir.is_dir() {
                         cached_out_dir
                     } else if let Some(od) = out_dir {
