@@ -150,6 +150,13 @@ pub fn save_build_script_cas(
     let out_str = out_dir.to_string_lossy();
     let cas_out_str = cas_out.to_string_lossy();
 
+    // An entry without its directives can never be restored: an interrupted writer or a
+    // cleanup that could not delete the read-only output tree leaves one behind, and every
+    // later build would re-run the script while believing the entry exists. Replace it.
+    if entry_dir.exists() && !entry_dir.join("meta.toml").is_file() {
+        let _ = remove_dir_all_readonly_safe(&entry_dir);
+    }
+
     if !entry_dir.exists() {
         let _ = fs::create_dir_all(&script_cas_dir);
         let pid = std::process::id();
