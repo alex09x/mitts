@@ -78,10 +78,12 @@ store safely.
 - **Concurrent builds cooperate.** Per-key locks: two terminals or worktrees
   that need the same dependency compile it once. One jobserver bounds
   parallelism for all Mitts processes on the machine.
-- **Safe sharing.** Store objects are immutable, verified by hash before use and
-  restored by reflink or copy. Never hardlinked into a writable workspace; hardlinks
-  occur only between Mitts' own build outputs (per-unit staging and `target/`), never
-  with store objects.
+- **Safe sharing.** Store objects are immutable: published atomically, stored
+  read-only and restored by reflink or copy. `MITTS_VERIFY_RESTORE=1` re-hashes every
+  object before it is restored (the default trusts the store, which saves one read of
+  every restored byte). Never hardlinked into a writable workspace; hardlinks occur only
+  between Mitts' own build outputs (per-unit staging and `target/`), never with store
+  objects.
 - **Zero-copy workspace staging.** Intra-workspace library aliases, secondary binaries,
   and atomic unit staging use intra-workspace hardlinks and rename promotion without
   copying bytes. When `MITTS_CACHE_DIR` and the workspace `target/` reside on the same
