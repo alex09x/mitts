@@ -23,7 +23,15 @@ pub struct ContentAddressedStore {
     root: PathBuf,
     objects_dir: PathBuf,
     tmp_dir: PathBuf,
+    /// Re-hash every object before restoring it. Objects are published atomically
+    /// (staged, then renamed) and stored read-only, so the default trusts them; the
+    /// full check costs one read of every restored byte and is enabled with
+    /// `MITTS_VERIFY_RESTORE=1` or [`Self::with_restore_verification`].
+    verify_on_restore: bool,
 }
+
+/// Environment variable that turns full integrity hashing on every restore back on.
+pub const VERIFY_RESTORE_VAR: &str = "MITTS_VERIFY_RESTORE";
 
 impl ContentAddressedStore {
     /// Initializes or opens a CAS at the specified directory.
@@ -44,11 +52,26 @@ impl ContentAddressedStore {
         fs::create_dir_all(&tmp_dir)
             .with_context(|| format!("Failed to create CAS tmp directory: {:?}", tmp_dir))?;
 
+        let verify_on_restore = std::env::var(VERIFY_RESTORE_VAR)
+            .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+            .unwrap_or(false);
         Ok(Self {
             root,
             objects_dir,
             tmp_dir,
+            verify_on_restore,
         })
+    }
+
+    /// Sets whether every restore re-hashes the object first (see `verify_on_restore`).
+    pub fn with_restore_verification(mut self, enabled: bool) -> Self {
+        self.verify_on_restore = enabled;
+        self
+    }
+
+    /// Whether restores re-hash objects before linking them.
+    pub fn verifies_on_restore(&self) -> bool {
+        self.verify_on_restore
     }
 
     /// Resolves the default global CAS directory path (`<cache root>/cas`, see
@@ -188,15 +211,16 @@ impl ContentAddressedStore {
         Ok((hash, file_size))
     }
 
-    /// Restores an object from CAS into `dest_path` via CoW reflink or byte copy,
-    /// verifying its integrity first.
+    /// Restores an object from CAS into `dest_path` via CoW reflink or byte copy.
+    /// With restore verification on, the object is re-hashed first and a corrupted one
+    /// is removed instead of restored.
     pub fn restore_object(&self, hash: &str, dest_path: &Path, executable: bool) -> Result<()> {
         let obj_path = self.object_path(hash);
         if !obj_path.is_file() {
             bail!("CAS object not found: {}", hash);
         }
 
-        if !self.verify_object(hash)? {
+        if self.verify_on_restore && !self.verify_object(hash)? {
             // Remove corrupted object so it does not poison future builds
             let _ = fs::remove_file(&obj_path);
             bail!("CAS object corrupted (integrity hash mismatch): {}", hash);

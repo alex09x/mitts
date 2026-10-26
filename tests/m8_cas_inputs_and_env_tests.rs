@@ -19,7 +19,9 @@ use tempfile::TempDir;
 #[allow(clippy::permissions_set_readonly_false)]
 fn test_m8_cas_extended_integrity_and_artifacts() {
     let tmp = TempDir::new().unwrap();
-    let cas = ContentAddressedStore::new(tmp.path().join("cas")).unwrap();
+    let cas = ContentAddressedStore::new(tmp.path().join("cas"))
+        .unwrap()
+        .with_restore_verification(true);
 
     // 1. Store bytes and check existence
     let (hash, size) = cas.store_bytes(b"hello mitts cas").unwrap();

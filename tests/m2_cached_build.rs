@@ -77,7 +77,9 @@ fn test_cas_store_and_integrity_verification() {
 #[test]
 fn test_cas_detects_corrupted_object() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
-    let cas = ContentAddressedStore::new(temp_dir.path().join("cas")).expect("new CAS");
+    let cas = ContentAddressedStore::new(temp_dir.path().join("cas"))
+        .expect("new CAS")
+        .with_restore_verification(true);
 
     let payload = b"legitimate artifact data";
     let (hash, _) = cas.store_bytes(payload).expect("store bytes");

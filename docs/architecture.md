@@ -218,6 +218,8 @@ workspace and never shared.
 
 - `MITTS_TIMINGS=1`: Enables sub-millisecond phase timing breakdowns (`[mitts::phases]`) and I/O byte and file counters (`[mitts::io]`) on stderr.
 - `MITTS_NO_REFLINK=1`: Diagnostic flag to disable copy-on-write block cloning (`FICLONE` on Linux, `clonefile` on macOS), forcing fallback to byte copying for isolation studies and benchmarking.
+- `MITTS_VERIFY_RESTORE=1`: Re-hash every CAS object before restoring it. Objects are published atomically and stored read-only, so by default a restore trusts them and does not read their bytes; this flag restores the full integrity check (one read of every restored byte) for audits or suspect disks.
+- `MITTS_CACHE_IO_BUDGET=<n>`: Number of DAG workers allowed in the cache-read phase at once (`0` = unbounded). Default: `1` on macOS, unbounded elsewhere.
 - `MITTS_NO_HARDLINK=1`: Diagnostic flag to disable intra-workspace zero-copy hardlinks, forcing fallback to byte copying or reflink.
 
 

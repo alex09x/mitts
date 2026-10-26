@@ -86,7 +86,9 @@ fn test_m8_cas_store_and_restore_bytes() {
 #[test]
 fn test_m8_cas_corrupted_object_recovery() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
-    let cas = ContentAddressedStore::new(temp_dir.path().join("cas")).expect("init cas");
+    let cas = ContentAddressedStore::new(temp_dir.path().join("cas"))
+        .expect("init cas")
+        .with_restore_verification(true);
 
     let src_file = temp_dir.path().join("source.txt");
     fs::write(&src_file, "original content to store").unwrap();

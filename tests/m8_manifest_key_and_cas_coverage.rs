@@ -76,7 +76,9 @@ build = false
 #[test]
 fn test_m8_cas_error_paths_and_corrupted_restoration() {
     let temp_dir = TempDir::new().expect("tempdir");
-    let cas = ContentAddressedStore::new(temp_dir.path().join("cas")).unwrap();
+    let cas = ContentAddressedStore::new(temp_dir.path().join("cas"))
+        .unwrap()
+        .with_restore_verification(true);
 
     // 1. store_file on nonexistent path -> Err
     let non_file = temp_dir.path().join("nonexistent.txt");
