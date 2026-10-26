@@ -10,7 +10,6 @@
 
 use super::types::EnvMacroDiscovery;
 use super::unescape::unescape_rust_string;
-use std::fs;
 use std::path::Path;
 
 /// Skips whitespace, line comments (//...), and block comments (/*...*/) including nested block comments.
@@ -275,43 +274,10 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
     EnvMacroDiscovery::Tracked(vars)
 }
 
-/// Recursively scans a package directory for compile-time env!/option_env! usages across all .rs files.
+/// Recursively scans a package directory for compile-time env!/option_env! usages across
+/// all .rs files, reusing the per-file memo in `env_macro_cache` for unchanged files.
 pub fn discover_package_env_macros(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
-    let mut all_vars = Vec::new();
-    let mut stack = vec![package_dir.to_path_buf()];
-
-    while let Some(dir) = stack.pop() {
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let fname = entry.file_name();
-                let fname_str = fname.to_string_lossy();
-
-                if path.is_dir() {
-                    if fname_str == "target" || fname_str == ".mitts" || fname_str == ".git" {
-                        continue;
-                    }
-                    stack.push(path);
-                } else if path.is_file() && fname_str.ends_with(".rs") {
-                    if let Ok(content) = fs::read_to_string(&path) {
-                        let scan_result = std::panic::catch_unwind(|| scan_env_macros(&content));
-                        match scan_result {
-                            Ok(EnvMacroDiscovery::Tracked(vars)) => {
-                                all_vars.extend(vars);
-                            }
-                            Ok(EnvMacroDiscovery::UntrackedDynamic) | Err(_) => {
-                                return (EnvMacroDiscovery::UntrackedDynamic, Vec::new());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    all_vars.sort();
-    all_vars.dedup();
-    (EnvMacroDiscovery::Tracked(all_vars.clone()), all_vars)
+    super::env_macro_cache::discover(package_dir)
 }
 
 #[cfg(test)]

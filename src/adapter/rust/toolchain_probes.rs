@@ -34,14 +34,19 @@ pub const TOOLCHAIN_DIR: &str = "toolchain";
 
 static CACHE_ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
 
-/// Enables the on-disk cache under `<cache_root>/toolchain`.
+/// Enables the on-disk caches under `cache_root` (`toolchain/`, `env_macros/`).
 pub fn set_cache_root(cache_root: &Path) {
-    *CACHE_ROOT.write().unwrap_or_else(|e| e.into_inner()) = Some(cache_root.join(TOOLCHAIN_DIR));
+    *CACHE_ROOT.write().unwrap_or_else(|e| e.into_inner()) = Some(cache_root.to_path_buf());
+}
+
+/// The cache root the invocation runs against, once the builder has set it.
+pub fn cache_root() -> Option<PathBuf> {
+    CACHE_ROOT.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// Directory of the probe cache, when enabled.
 pub fn cache_dir() -> Option<PathBuf> {
-    CACHE_ROOT.read().unwrap_or_else(|e| e.into_inner()).clone()
+    cache_root().map(|root| root.join(TOOLCHAIN_DIR))
 }
 
 #[derive(Serialize, Deserialize)]

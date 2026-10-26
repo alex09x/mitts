@@ -33,6 +33,7 @@ pub mod dep_info;
 pub mod dependency_check;
 pub mod doctest;
 pub mod env_macro;
+pub mod env_macro_cache;
 pub mod features;
 pub mod features_helpers;
 pub mod fetcher;
