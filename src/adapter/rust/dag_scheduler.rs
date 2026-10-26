@@ -156,11 +156,16 @@ impl WaveWorkQueue {
     }
 
     /// Marks a unit as successfully completed.
+    /// Records a finished unit. Dependents it made ready were pushed (and one waiter woken
+    /// per unit) before this call, so waiters are only woken here when the DAG is done or
+    /// nothing is in flight any more and they must exit.
     pub fn mark_completed(&self, _unit_id: &str) {
         let mut state = self.state_lock();
         state.in_flight = state.in_flight.saturating_sub(1);
         state.completed_count += 1;
-        self.cvar.notify_all();
+        if state.completed_count >= state.total_count || state.in_flight == 0 {
+            self.cvar.notify_all();
+        }
     }
 
     /// Marks a unit as contested by an external process, deferring it for later retry.
@@ -168,7 +173,11 @@ impl WaveWorkQueue {
         let mut state = self.state_lock();
         state.in_flight = state.in_flight.saturating_sub(1);
         state.contested.push_back(unit_id);
-        self.cvar.notify_all();
+        if state.in_flight == 0 {
+            self.cvar.notify_all();
+        } else {
+            self.cvar.notify_one();
+        }
     }
 
     /// Records a fatal compilation error and wakes up all waiting threads to abort.

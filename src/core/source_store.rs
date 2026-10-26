@@ -10,9 +10,11 @@
 
 use crate::core::hash::Sha256;
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 static STAGING_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -331,6 +333,42 @@ pub struct RegistryLookup {
 
 impl RegistryLookup {
     pub fn discover(exclude_store_root: &Path) -> Self {
+        Self::discover_with_home(SourceStore::active_cargo_home(), exclude_store_root)
+    }
+
+    /// `discover` for an explicit Cargo home. The listing is taken once per process for
+    /// each `(cargo_home, exclude_store_root)`: Mitts never writes into Cargo's registry,
+    /// so the index directories cannot change underneath a running build, and the planner
+    /// asks once per package.
+    pub fn discover_with_home(cargo_home: Option<PathBuf>, exclude_store_root: &Path) -> Self {
+        type Key = (Option<PathBuf>, PathBuf);
+        type Dirs = (Vec<PathBuf>, Vec<PathBuf>);
+        static DISCOVERED: OnceLock<Mutex<HashMap<Key, Dirs>>> = OnceLock::new();
+        let cache = DISCOVERED.get_or_init(|| Mutex::new(HashMap::new()));
+        let key = (cargo_home.clone(), exclude_store_root.to_path_buf());
+        if let Some((cache_dirs, src_dirs)) =
+            cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
+        {
+            return Self {
+                cache_index_dirs: cache_dirs.clone(),
+                src_index_dirs: src_dirs.clone(),
+            };
+        }
+        let found = Self::scan(cargo_home.as_deref(), exclude_store_root);
+        cache.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            key,
+            (found.cache_index_dirs.clone(), found.src_index_dirs.clone()),
+        );
+        found
+    }
+
+    /// Registry `src/` index directories, in discovery order.
+    pub fn src_index_dirs(&self) -> &[PathBuf] {
+        &self.src_index_dirs
+    }
+
+    /// Lists the registry index directories under `cargo_home` right now, uncached.
+    pub fn scan(cargo_home: Option<&Path>, exclude_store_root: &Path) -> Self {
         let mut cache_index_dirs = Vec::new();
         let mut src_index_dirs = Vec::new();
         let is_crates_io_dir = |entry: &fs::DirEntry| -> bool {
@@ -339,7 +377,7 @@ impl RegistryLookup {
                 && entry.path().is_dir()
         };
 
-        if let Some(reg_dir) = SourceStore::active_cargo_home().map(|ch| ch.join("registry")) {
+        if let Some(reg_dir) = cargo_home.map(|ch| ch.join("registry")) {
             if let Ok(entries) = fs::read_dir(reg_dir.join("cache")) {
                 cache_index_dirs.extend(
                     entries

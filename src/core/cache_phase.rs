@@ -49,8 +49,13 @@ impl CachePhaseBudget {
             })
         }))
     }
+    /// Platform default (one cache reader at a time on macOS, unbounded elsewhere),
+    /// overridable with `MITTS_CACHE_IO_BUDGET=<n>` (`0` = unbounded).
     pub(crate) fn for_platform() -> Self {
-        Self::new(if cfg!(target_os = "macos") { 1 } else { 0 })
+        let from_env = std::env::var("MITTS_CACHE_IO_BUDGET")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok());
+        Self::new(from_env.unwrap_or(if cfg!(target_os = "macos") { 1 } else { 0 }))
     }
     pub(crate) fn activate(&self) -> BudgetScope {
         let previous = STATE.with(|s| {
