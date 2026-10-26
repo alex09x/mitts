@@ -83,8 +83,8 @@ store safely.
   object before it is restored (the default trusts the store, which saves one read of
   every restored byte). Never hardlinked into a writable workspace by default; hardlinks
   occur only between Mitts' own build outputs (per-unit staging and `target/`), never with
-  store objects. `MITTS_STORE_HARDLINKS=1` is the experimental opt-out for filesystems
-  without reflink, where a warm restore otherwise copies every artifact byte.
+  store objects. `MITTS_STORE_HARDLINKS=auto` opts into read-only links to store objects
+  where the filesystem cannot reflink (ext4), which removes the per-restore byte copy.
 - **Zero-copy workspace staging.** Intra-workspace library aliases, secondary binaries,
   and atomic unit staging use intra-workspace hardlinks and rename promotion without
   copying bytes. When `MITTS_CACHE_DIR` and the workspace `target/` reside on the same

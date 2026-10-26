@@ -9,7 +9,7 @@
  */
 
 use crate::core::hash::Sha256;
-use crate::core::reflink::reflink_or_copy;
+use crate::core::reflink::{reflink_or_copy, StoreHardlinks};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,18 +28,26 @@ pub struct ContentAddressedStore {
     /// full check costs one read of every restored byte and is enabled with
     /// `MITTS_VERIFY_RESTORE=1` or [`Self::with_restore_verification`].
     verify_on_restore: bool,
-    /// Restore by hardlinking the read-only object into the workspace instead of
-    /// cloning or copying it. Off by default: the documented policy never links store
-    /// objects into a writable workspace. `MITTS_STORE_HARDLINKS=1` or
-    /// [`Self::with_store_hardlinks`] opts in; a link that cannot be made (another
-    /// device) falls back to the clone-or-copy path.
-    store_hardlinks: bool,
+    /// How an object reaches the workspace: by default by reflink or copy, never by a
+    /// link to the store (the documented policy, pinned by the intra-workspace e2e test).
+    /// `MITTS_STORE_HARDLINKS=auto` hardlinks the read-only object where reflink is
+    /// unavailable (ext4), `=1` prefers links everywhere.
+    store_hardlinks: StoreHardlinks,
 }
 
 /// Environment variable that turns full integrity hashing on every restore back on.
 pub const VERIFY_RESTORE_VAR: &str = "MITTS_VERIFY_RESTORE";
-/// Environment variable that restores store objects by hardlink (experimental).
+/// Environment variable selecting the store-hardlink policy: unset or `0` never,
+/// `auto` only where reflink is unavailable, `1` always.
 pub const STORE_HARDLINKS_VAR: &str = "MITTS_STORE_HARDLINKS";
+
+fn store_hardlinks_from_env() -> StoreHardlinks {
+    match std::env::var(STORE_HARDLINKS_VAR).as_deref().map(str::trim) {
+        Ok("1") | Ok("true") | Ok("yes") | Ok("always") => StoreHardlinks::Always,
+        Ok("auto") | Ok("fallback") => StoreHardlinks::Fallback,
+        _ => StoreHardlinks::Never,
+    }
+}
 
 fn env_flag(name: &str) -> bool {
     std::env::var(name)
@@ -71,18 +79,18 @@ impl ContentAddressedStore {
             objects_dir,
             tmp_dir,
             verify_on_restore: env_flag(VERIFY_RESTORE_VAR),
-            store_hardlinks: env_flag(STORE_HARDLINKS_VAR),
+            store_hardlinks: store_hardlinks_from_env(),
         })
     }
 
-    /// Sets whether restores hardlink store objects into the workspace (see `store_hardlinks`).
-    pub fn with_store_hardlinks(mut self, enabled: bool) -> Self {
-        self.store_hardlinks = enabled;
+    /// Sets how restores link store objects into the workspace (see `store_hardlinks`).
+    pub fn with_store_hardlinks(mut self, policy: StoreHardlinks) -> Self {
+        self.store_hardlinks = policy;
         self
     }
 
-    /// Whether restores hardlink store objects instead of cloning or copying them.
-    pub fn hardlinks_store_objects(&self) -> bool {
+    /// The store-hardlink policy restores follow.
+    pub fn store_hardlinks(&self) -> StoreHardlinks {
         self.store_hardlinks
     }
 
@@ -249,13 +257,12 @@ impl ContentAddressedStore {
             bail!("CAS object corrupted (integrity hash mismatch): {}", hash);
         }
 
-        if self.store_hardlinks
-            && crate::core::reflink::hardlink_store_object(&obj_path, dest_path, executable).is_ok()
-        {
-            return Ok(());
-        }
-        reflink_or_copy(&obj_path, dest_path, executable)?;
-        Ok(())
+        crate::core::reflink::restore_store_object(
+            &obj_path,
+            dest_path,
+            executable,
+            self.store_hardlinks,
+        )
     }
 
     /// Returns the path to a named artifact in `{cas_root}/artifacts/lib{crate_name}-{hash}.{ext}`.

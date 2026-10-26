@@ -36,78 +36,148 @@ mod linux_sys {
     }
 }
 
-/// Restores a file from `src` to `dst` using copy-on-write (CoW) reflinking if supported by the OS
-/// and filesystem (APFS on macOS, XFS/Btrfs on Linux), falling back cleanly to full byte copy.
-/// Uses atomic destination staging (write/reflink to unique temp file in destination directory +
-/// chmod + atomic rename) to eliminate race conditions between concurrent readers and restorers.
-pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
+/// How a store object reaches the workspace when it cannot be reflinked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreHardlinks {
+    /// Reflink or copy, never a link to the store (the historical policy).
+    Never,
+    /// Reflink when the filesystem can; otherwise a read-only hardlink; copy as a last resort.
+    Fallback,
+    /// A read-only hardlink first, reflink or copy only when linking fails.
+    Always,
+}
+
+fn staged_tmp(dst: &Path, tag: &str) -> Result<PathBuf> {
     let parent = dst
         .parent()
         .context("Destination path must have a parent directory")?;
     fs::create_dir_all(parent)
         .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
-
     let file_name = dst
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("artifact");
-    let pid = std::process::id();
     let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_dst = parent.join(format!(".{}.tmp.{}.{}", file_name, pid, counter));
+    Ok(parent.join(format!(
+        ".{}.{}.{}.{}",
+        file_name,
+        tag,
+        std::process::id(),
+        counter
+    )))
+}
 
-    let mut reflink_succeeded = false;
-
+/// Attempts a copy-on-write clone of `src` at `tmp_dst` (APFS `clonefile`, Linux `FICLONE`).
+fn try_reflink(src: &Path, tmp_dst: &Path) -> bool {
+    if std::env::var_os("MITTS_NO_REFLINK").is_some() {
+        return false;
+    }
     #[cfg(target_os = "macos")]
     {
         use std::ffi::CString;
         use std::os::unix::ffi::OsStrExt;
-
-        if std::env::var_os("MITTS_NO_REFLINK").is_none() {
-            if let (Ok(c_src), Ok(c_tmp)) = (
-                CString::new(src.as_os_str().as_bytes()),
-                CString::new(tmp_dst.as_os_str().as_bytes()),
-            ) {
-                let ret = unsafe { macos_sys::clonefile(c_src.as_ptr(), c_tmp.as_ptr(), 0) };
-                if ret == 0 {
-                    reflink_succeeded = true;
-                }
-            }
+        if let (Ok(c_src), Ok(c_tmp)) = (
+            CString::new(src.as_os_str().as_bytes()),
+            CString::new(tmp_dst.as_os_str().as_bytes()),
+        ) {
+            return unsafe { macos_sys::clonefile(c_src.as_ptr(), c_tmp.as_ptr(), 0) } == 0;
         }
+        false
     }
-
     #[cfg(target_os = "linux")]
     {
         use std::fs::OpenOptions;
         use std::os::unix::io::AsRawFd;
-
-        if std::env::var_os("MITTS_NO_REFLINK").is_none() {
-            if let (Ok(src_file), Ok(tmp_file)) = (
-                OpenOptions::new().read(true).open(src),
-                OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&tmp_dst),
-            ) {
-                let ret = unsafe {
-                    linux_sys::ioctl(
-                        tmp_file.as_raw_fd(),
-                        linux_sys::FICLONE,
-                        src_file.as_raw_fd(),
-                    )
-                };
-                if ret == 0 {
-                    reflink_succeeded = true;
-                } else {
-                    let _ = fs::remove_file(&tmp_dst);
-                }
+        if let (Ok(src_file), Ok(tmp_file)) = (
+            OpenOptions::new().read(true).open(src),
+            OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(tmp_dst),
+        ) {
+            let ret = unsafe {
+                linux_sys::ioctl(
+                    tmp_file.as_raw_fd(),
+                    linux_sys::FICLONE,
+                    src_file.as_raw_fd(),
+                )
+            };
+            if ret == 0 {
+                return true;
             }
+            let _ = fs::remove_file(tmp_dst);
+        }
+        false
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (src, tmp_dst);
+        false
+    }
+}
+
+/// Hardlinks `src` at `tmp_dst` and pins the shared inode to `0o444` (`0o555` when executable).
+fn try_store_hardlink(src: &Path, tmp_dst: &Path, executable: bool) -> bool {
+    if fs::hard_link(src, tmp_dst).is_err() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if executable { 0o555 } else { 0o444 };
+        if fs::metadata(tmp_dst)
+            .map(|m| m.permissions().mode() & 0o777 != mode)
+            .unwrap_or(true)
+        {
+            let _ = fs::set_permissions(tmp_dst, fs::Permissions::from_mode(mode));
         }
     }
+    true
+}
 
+fn promote(tmp_dst: &Path, dst: &Path) -> Result<()> {
+    if let Err(rename_err) = fs::rename(tmp_dst, dst) {
+        let _ = fs::remove_file(tmp_dst);
+        bail!(
+            "Failed to atomically stage file to {:?}: {}",
+            dst,
+            rename_err
+        );
+    }
+    Ok(())
+}
+
+/// Restores a file from `src` to `dst` using copy-on-write (CoW) reflinking if supported by the OS
+/// and filesystem (APFS on macOS, XFS/Btrfs on Linux), falling back cleanly to full byte copy.
+/// Uses atomic destination staging (write/reflink to unique temp file in destination directory +
+/// chmod + atomic rename) to eliminate race conditions between concurrent readers and restorers.
+pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
+    restore_store_object(src, dst, executable, StoreHardlinks::Never)
+}
+
+/// [`reflink_or_copy`] with a store-hardlink policy: a read-only link to the immutable
+/// object replaces the clone-or-copy step where `policy` allows it. The shared inode
+/// never gains write bits, so the workspace file is `0o444` (`0o555` when executable)
+/// instead of the writable copy the other paths produce.
+pub fn restore_store_object(
+    src: &Path,
+    dst: &Path,
+    executable: bool,
+    policy: StoreHardlinks,
+) -> Result<()> {
+    let tmp_dst = staged_tmp(dst, "tmp")?;
     let file_size = fs::metadata(src).map(|m| m.len()).unwrap_or(0);
-    if reflink_succeeded {
+
+    if policy == StoreHardlinks::Always && try_store_hardlink(src, &tmp_dst, executable) {
+        crate::core::metrics::record_hardlinked(file_size);
+        return promote(&tmp_dst, dst);
+    }
+    if try_reflink(src, &tmp_dst) {
         crate::core::metrics::record_cloned(file_size);
+    } else if policy == StoreHardlinks::Fallback && try_store_hardlink(src, &tmp_dst, executable) {
+        crate::core::metrics::record_hardlinked(file_size);
+        return promote(&tmp_dst, dst);
     } else {
         fs::copy(src, &tmp_dst)
             .with_context(|| format!("Failed to copy bytes from {:?} to {:?}", src, tmp_dst))?;
@@ -120,63 +190,7 @@ pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
         let mode = if executable { 0o755 } else { 0o644 };
         let _ = fs::set_permissions(&tmp_dst, fs::Permissions::from_mode(mode));
     }
-
-    if let Err(rename_err) = fs::rename(&tmp_dst, dst) {
-        let _ = fs::remove_file(&tmp_dst);
-        bail!(
-            "Failed to atomically stage file to {:?}: {}",
-            dst,
-            rename_err
-        );
-    }
-
-    Ok(())
-}
-
-/// Links a read-only store object into the workspace instead of cloning or copying it
-/// (opt-in, see `MITTS_STORE_HARDLINKS`). The link is staged next to `dst` and renamed
-/// into place, and the shared inode never gains write bits: `0o444`, or `0o555` for an
-/// executable. Fails when `src` and `dst` live on different devices.
-pub fn hardlink_store_object(src: &Path, dst: &Path, executable: bool) -> Result<()> {
-    let parent = dst
-        .parent()
-        .context("Destination path must have a parent directory")?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
-    let file_name = dst
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("artifact");
-    let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_dst = parent.join(format!(
-        ".{}.tmp_store_link.{}.{}",
-        file_name,
-        std::process::id(),
-        counter
-    ));
-    fs::hard_link(src, &tmp_dst)
-        .with_context(|| format!("Failed to hardlink store object {:?} to {:?}", src, tmp_dst))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = if executable { 0o555 } else { 0o444 };
-        if fs::metadata(&tmp_dst)
-            .map(|m| m.permissions().mode() & 0o777 != mode)
-            .unwrap_or(true)
-        {
-            let _ = fs::set_permissions(&tmp_dst, fs::Permissions::from_mode(mode));
-        }
-    }
-    if let Err(rename_err) = fs::rename(&tmp_dst, dst) {
-        let _ = fs::remove_file(&tmp_dst);
-        bail!(
-            "Failed to atomically stage store link to {:?}: {}",
-            dst,
-            rename_err
-        );
-    }
-    crate::core::metrics::record_hardlinked(fs::metadata(src).map(|m| m.len()).unwrap_or(0));
-    Ok(())
+    promote(&tmp_dst, dst)
 }
 
 /// Recursively copies or reflinks an entire directory tree from `src` to `dst`.

@@ -14,6 +14,7 @@
 #![cfg(unix)]
 
 use mitts::core::cas::ContentAddressedStore;
+use mitts::core::reflink::StoreHardlinks;
 use mitts::core::target_index::{check_or_restore, TargetArtifactIndex};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -26,8 +27,8 @@ fn a_store_hardlink_restore_shares_the_read_only_inode() {
     let temp = TempDir::new().unwrap();
     let cas = ContentAddressedStore::new(temp.path().join("cas"))
         .unwrap()
-        .with_store_hardlinks(true);
-    assert!(cas.hardlinks_store_objects());
+        .with_store_hardlinks(StoreHardlinks::Always);
+    assert_eq!(cas.store_hardlinks(), StoreHardlinks::Always);
     let (lib_hash, _) = cas.store_bytes(b"rlib bytes").unwrap();
     let (bin_hash, _) = cas.store_bytes(b"test binary bytes").unwrap();
 
@@ -72,10 +73,38 @@ fn a_store_hardlink_restore_shares_the_read_only_inode() {
 }
 
 #[test]
-fn the_default_restore_does_not_link_store_objects() {
+fn the_default_never_links_and_auto_links_only_without_reflink() {
     let temp = TempDir::new().unwrap();
     let cas = ContentAddressedStore::new(temp.path().join("cas")).unwrap();
-    assert!(!cas.hardlinks_store_objects());
+    assert_eq!(
+        cas.store_hardlinks(),
+        StoreHardlinks::Never,
+        "the documented default never links store objects into the workspace"
+    );
+    let fallback = ContentAddressedStore::new(temp.path().join("cas3"))
+        .unwrap()
+        .with_store_hardlinks(StoreHardlinks::Fallback);
+    let (fb_hash, _) = fallback.store_bytes(b"rlib bytes").unwrap();
+    let fb_dest = temp.path().join("target/deps/libfb.rlib");
+    fallback.restore_object(&fb_hash, &fb_dest, false).unwrap();
+    let (fb_obj, fb_out) = (
+        fs::metadata(fallback.object_path(&fb_hash)).unwrap(),
+        fs::metadata(&fb_dest).unwrap(),
+    );
+    assert_eq!(fs::read(&fb_dest).unwrap(), b"rlib bytes");
+    if fb_obj.ino() == fb_out.ino() {
+        assert_eq!(
+            fb_out.permissions().mode() & 0o777,
+            0o444,
+            "a link is read-only"
+        );
+    } else {
+        assert_eq!(
+            fb_out.permissions().mode() & 0o777,
+            0o644,
+            "a clone is a private copy"
+        );
+    }
     let (hash, _) = cas.store_bytes(b"rlib bytes").unwrap();
     let dest = temp.path().join("target/deps/libx.rlib");
     cas.restore_object(&hash, &dest, false).unwrap();
