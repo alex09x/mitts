@@ -259,7 +259,9 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         }
     }
 
-    // 6. Output byte scanning for workspace root leaks (P2)
+    // 6. Output byte scanning for workspace root leaks (P2): an artifact that embeds the
+    // checkout path is published under a per-checkout key, and a marker lets later misses
+    // in other checkouts take a per-checkout lock instead of queueing on the shared one.
     let mut contains_ws_root_path = false;
 
     if let Some(ref root) = ws_root {
@@ -293,8 +295,10 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
 
     let effective_action_key = if contains_ws_root_path {
         let root = ws_root.as_ref().unwrap();
-        let ws_hash = Sha256::digest(root.to_string_lossy().as_bytes());
-        format!("{}:ws_leak:{}", result_key, ws_hash)
+        // Keyed by the coarse action key: that is what a miss in another checkout
+        // knows before rustc has run.
+        mark_ws_leak(ctx.ac.root(), action_key);
+        format!("{}:ws_leak:{}", result_key, workspace_hash(root))
     } else {
         result_key.clone()
     };
@@ -412,3 +416,34 @@ pub fn taint_unhashable_key(key: &str) -> String {
 pub use super::unit_inputs::{
     clean_path, compute_composite_result_key, extract_unit_extra_inputs, resolve_unit_result_key,
 };
+
+/// Hash of a checkout root as used in `:ws_leak:` action keys.
+pub(crate) fn workspace_hash(ws_root: &Path) -> String {
+    Sha256::digest(ws_root.to_string_lossy().as_bytes())
+}
+
+fn ws_leak_marker(ac_root: &Path, result_key: &str) -> PathBuf {
+    ac_root
+        .join("ws_leak")
+        .join(Sha256::digest(result_key.as_bytes()))
+}
+
+/// Records that some checkout produced a path-embedding artifact for the coarse `action_key`.
+pub(crate) fn mark_ws_leak(ac_root: &Path, action_key: &str) {
+    let marker = ws_leak_marker(ac_root, action_key);
+    if let Some(dir) = marker.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let _ = fs::write(marker, b"");
+}
+
+/// The key a miss should take its single-flight lock on: the per-checkout `:ws_leak:` key
+/// once any checkout has shown the artifact embeds its path (those builds cannot share a
+/// result, so they must not wait for each other), otherwise `result_key` itself.
+pub(crate) fn single_flight_action_key(ac_root: &Path, action_key: &str, ws_root: &Path) -> String {
+    if ws_leak_marker(ac_root, action_key).is_file() {
+        format!("{}:ws_leak:{}", action_key, workspace_hash(ws_root))
+    } else {
+        action_key.to_string()
+    }
+}

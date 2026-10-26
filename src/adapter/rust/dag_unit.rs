@@ -95,9 +95,18 @@ pub(crate) fn execute_unit(
     }
 
     // 2. Single-flight lock, double-checked restore, then CPU reservation on genuine miss
+    let lock_action_key = if super::unit_inputs::is_mutable_unit(unit) {
+        super::dag_unit_publish::single_flight_action_key(
+            ctx.ac.root(),
+            &effective_action_key,
+            &super::compiler::find_workspace_root(&unit.manifest_path),
+        )
+    } else {
+        effective_action_key.clone()
+    };
     let lock_path = ctx.ac.lock_path(&super::single_flight::single_flight_key(
         unit,
-        &effective_action_key,
+        &lock_action_key,
     ));
     let eager_reservation = ctx.jobserver.is_some_and(|js| js.has_implicit_token());
     let (_lock, (_implicit_job_guard, _job_token)) = match lock::admit_unit_compilation(
