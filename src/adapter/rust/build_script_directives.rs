@@ -334,32 +334,26 @@ pub fn get_target_cfgs(target: &str) -> HashMap<String, String> {
             return cfgs.clone();
         }
         let mut map = HashMap::new();
-        let mut cmd = std::process::Command::new(crate::adapter::rust::compiler::resolve_rustc());
-        cmd.arg("--print").arg("cfg");
-        if target != "host" {
-            cmd.arg("--target").arg(target);
-        }
-        if let Ok(output) = cmd.output() {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    let line = line.trim();
-                    if line.is_empty() {
-                        continue;
-                    }
-                    if let Some((k, v)) = line.split_once('=') {
-                        let key = format!("CARGO_CFG_{}", k.trim().to_ascii_uppercase());
-                        let val = v.trim().trim_matches('"');
-                        map.entry(key)
-                            .and_modify(|existing: &mut String| {
-                                existing.push(',');
-                                existing.push_str(val);
-                            })
-                            .or_insert_with(|| val.to_string());
-                    } else {
-                        let key = format!("CARGO_CFG_{}", line.to_ascii_uppercase());
-                        map.entry(key).or_insert_with(String::new);
-                    }
+        let rustc = crate::adapter::rust::compiler::resolve_rustc();
+        let explicit = (target != "host").then_some(target);
+        if let Ok(stdout) = super::toolchain_probes::rustc_print_cfg(&rustc, explicit) {
+            for line in stdout.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    let key = format!("CARGO_CFG_{}", k.trim().to_ascii_uppercase());
+                    let val = v.trim().trim_matches('"');
+                    map.entry(key)
+                        .and_modify(|existing: &mut String| {
+                            existing.push(',');
+                            existing.push_str(val);
+                        })
+                        .or_insert_with(|| val.to_string());
+                } else {
+                    let key = format!("CARGO_CFG_{}", line.to_ascii_uppercase());
+                    map.entry(key).or_insert_with(String::new);
                 }
             }
         }

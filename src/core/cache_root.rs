@@ -9,7 +9,7 @@
  */
 
 //! One resolver for the root of the Mitts cache, shared by every store that
-//! lives under it: `cas/`, `ac/`, `locks/`, `jobserver/`, `sources/`, `index/`.
+//! lives under it: `cas/`, `ac/`, `locks/`, `jobserver/`, `sources/`, `index/`, `toolchain/`.
 //!
 //! Precedence: an explicit directory (`--cache-dir`, `RustBuildOptions::cache_dir`),
 //! then `$MITTS_CACHE_DIR`, then `$XDG_CACHE_HOME/mitts`, then `$HOME/.cache/mitts`,

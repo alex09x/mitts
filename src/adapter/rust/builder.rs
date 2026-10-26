@@ -68,6 +68,9 @@ pub fn compute_options_hash(
 
 /// Executes the build purely natively with parallel rustc DAG compilation and CAS caching.
 pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
+    super::toolchain_probes::set_cache_root(&crate::core::cache_root::resolve(
+        opt.cache_dir.as_deref(),
+    ));
     let _manifest_scope = super::manifest_snapshot::ManifestSnapshot::default().enter();
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;

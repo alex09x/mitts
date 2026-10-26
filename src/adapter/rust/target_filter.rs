@@ -134,28 +134,9 @@ pub fn get_base_cfg_atoms(explicit_target: Option<&str>) -> Result<Arc<HashSet<S
             return cached.clone();
         }
     }
-    let mut cmd = std::process::Command::new(&rustc);
-    cmd.arg("--print").arg("cfg");
-    if let Some(target) = explicit_target {
-        cmd.arg("--target").arg(target);
-    }
     let res = (|| -> Result<Arc<HashSet<String>>, String> {
-        let t0 = std::time::Instant::now();
-        let output = cmd
-            .output()
-            .map_err(|e| format!("Failed to execute {:?} to discover cfg atoms: {}", rustc, e));
-        crate::adapter::rust::compiler_resolve::record_rustc_subproc(t0.elapsed());
-        let output = output?;
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "rustc --print cfg failed with exit code {:?}:\n{}",
-                output.status.code(),
-                err
-            ));
-        }
-        let text = std::str::from_utf8(&output.stdout)
-            .map_err(|e| format!("rustc cfg output not valid utf8: {}", e))?;
+        let text = super::toolchain_probes::rustc_print_cfg(&rustc, explicit_target)
+            .map_err(|e| format!("Failed to discover cfg atoms: {e}"))?;
         let mut atoms = HashSet::new();
         for line in text.lines() {
             let trimmed = line.trim();

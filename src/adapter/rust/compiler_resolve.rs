@@ -9,14 +9,14 @@
  */
 
 use crate::core::action::ToolchainInfo;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 /// Results from invoking `rustc` or `clippy-driver`.
 #[derive(Debug, Clone)]
@@ -94,8 +94,9 @@ pub fn resolve_cargo() -> PathBuf {
         .clone()
 }
 
-/// Probes `<rustc_path> -vV` once and caches the parsed `ToolchainInfo`, host triple,
-/// and verbose version string in memory keyed by `(rustc_path, RUSTUP_TOOLCHAIN, mtime)`.
+/// Probes `<rustc_path> -vV` once per process (and once per compiler on disk, see
+/// `toolchain_probes`) and caches the parsed `ToolchainInfo`, host triple and verbose
+/// version string in memory keyed by `(rustc_path, RUSTUP_TOOLCHAIN, mtime)`.
 /// Fails closed if the process exits non-zero or does not emit valid `release:` and `host:` lines.
 pub fn toolchain_for(rustc_path: &Path) -> Result<ProbedRustc> {
     let mtime = fs::metadata(rustc_path).and_then(|m| m.modified()).ok();
@@ -114,25 +115,9 @@ pub fn toolchain_for(rustc_path: &Path) -> Result<ProbedRustc> {
         return Ok(cached);
     }
 
-    let t0 = Instant::now();
-    let output = std::process::Command::new(rustc_path)
-        .arg("-vV")
-        .output()
-        .with_context(|| format!("Failed to invoke {:?} -vV", rustc_path))?;
-    record_rustc_subproc(t0.elapsed());
+    let text = super::toolchain_probes::rustc_verbose_version(rustc_path)
+        .map_err(|e| anyhow::anyhow!("rustc -vV failed for {:?}: {}", rustc_path, e))?;
     RUSTC_VV_CALLS.fetch_add(1, Ordering::Relaxed);
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "rustc -vV failed for {:?} (exit code {:?}): {}",
-            rustc_path,
-            output.status.code(),
-            stderr.trim()
-        );
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
     let mut version_str = String::new();
     let mut target_triple = None;
     let mut has_release = false;
@@ -158,12 +143,10 @@ pub fn toolchain_for(rustc_path: &Path) -> Result<ProbedRustc> {
     let host_triple = match target_triple.clone() {
         Some(h) if !version_str.is_empty() && has_release => h,
         _ => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!(
-                "rustc -vV output for {:?} is missing required 'release:' or 'host:' fields (stdout: {:?}, stderr: {:?})",
+                "rustc -vV output for {:?} is missing required 'release:' or 'host:' fields (stdout: {:?})",
                 rustc_path,
-                text.trim(),
-                stderr.trim()
+                text.trim()
             );
         }
     };
@@ -222,21 +205,8 @@ pub fn resolve_rustc() -> PathBuf {
                 .chain(home_cargo_rustup)
                 .collect::<Vec<PathBuf>>();
             for rustup in candidates {
-                let t0 = Instant::now();
-                let out = std::process::Command::new(&rustup)
-                    .arg("which")
-                    .arg("rustc")
-                    .output();
-                record_rustc_subproc(t0.elapsed());
-                if let Ok(output) = out {
-                    if output.status.success() {
-                        if let Ok(s) = String::from_utf8(output.stdout) {
-                            let p = PathBuf::from(s.trim());
-                            if p.is_file() {
-                                return p;
-                            }
-                        }
-                    }
+                if let Some(p) = super::toolchain_probes::rustup_which_rustc(&rustup) {
+                    return p;
                 }
             }
             if let Ok(paths) = std::env::var("PATH") {
