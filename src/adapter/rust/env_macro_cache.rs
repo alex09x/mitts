@@ -96,9 +96,23 @@ fn scan_file(path: &Path) -> Option<Option<Vec<String>>> {
     )
 }
 
+/// Result of scanning one package: the discovery, the sorted variable names and the
+/// files that read `CARGO_MANIFEST_DIR` (empty when the scan stopped on a dynamic use).
+pub struct PackageEnvScan {
+    pub discovery: EnvMacroDiscovery,
+    pub vars: Vec<String>,
+    pub manifest_dir_readers: Vec<PathBuf>,
+}
+
 /// Walks `package_dir` like the uncached scan (skipping `target`, `.mitts` and `.git`) and
 /// returns the union of tracked variables, or `UntrackedDynamic` as soon as one file is.
 pub fn discover(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
+    let scan = discover_detailed(package_dir);
+    (scan.discovery, scan.vars)
+}
+
+/// [`discover`] plus the per-file facts the planner scopes the manifest-dir key lock on.
+pub fn discover_detailed(package_dir: &Path) -> PackageEnvScan {
     let memo_file = memo_path(package_dir);
     let mut memo = memo_file
         .as_deref()
@@ -110,6 +124,7 @@ pub fn discover(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
     };
     let mut changed = false;
     let mut all_vars = Vec::new();
+    let mut manifest_dir_readers = Vec::new();
     let mut dynamic = false;
     let mut stack = vec![package_dir.to_path_buf()];
 
@@ -150,7 +165,12 @@ pub fn discover(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
                 }
             };
             match &scan.vars {
-                Some(vars) => all_vars.extend(vars.iter().cloned()),
+                Some(vars) => {
+                    if vars.iter().any(|v| v == "CARGO_MANIFEST_DIR") {
+                        manifest_dir_readers.push(path.clone());
+                    }
+                    all_vars.extend(vars.iter().cloned());
+                }
                 None => dynamic = true,
             }
             fresh.files.insert(key, scan);
@@ -172,9 +192,18 @@ pub fn discover(package_dir: &Path) -> (EnvMacroDiscovery, Vec<String>) {
         }
     }
     if dynamic {
-        return (EnvMacroDiscovery::UntrackedDynamic, Vec::new());
+        return PackageEnvScan {
+            discovery: EnvMacroDiscovery::UntrackedDynamic,
+            vars: Vec::new(),
+            manifest_dir_readers: Vec::new(),
+        };
     }
     all_vars.sort();
     all_vars.dedup();
-    (EnvMacroDiscovery::Tracked(all_vars.clone()), all_vars)
+    manifest_dir_readers.sort();
+    PackageEnvScan {
+        discovery: EnvMacroDiscovery::Tracked(all_vars.clone()),
+        vars: all_vars,
+        manifest_dir_readers,
+    }
 }

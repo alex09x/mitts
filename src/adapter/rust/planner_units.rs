@@ -8,7 +8,6 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::env_macro::discover_package_env_macros;
 use super::features::ResolvedFeatures;
 use super::lockfile::CargoLockPackage;
 use super::manifest::CargoToml;
@@ -87,10 +86,15 @@ pub fn build_planned_units(
             targets.retain(|t| t.kind != "bin" && t.kind != "test");
         }
 
-        let (env_discovery, env_vars) = if is_local {
-            discover_package_env_macros(pkg_dir)
+        let (env_discovery, env_vars, manifest_dir_readers) = if is_local {
+            let scan = super::env_macro_cache::discover_detailed(pkg_dir);
+            (scan.discovery, scan.vars, scan.manifest_dir_readers)
         } else {
-            (EnvMacroDiscovery::Tracked(Vec::new()), Vec::new())
+            (
+                EnvMacroDiscovery::Tracked(Vec::new()),
+                Vec::new(),
+                Vec::new(),
+            )
         };
         let has_untracked_env = matches!(env_discovery, EnvMacroDiscovery::UntrackedDynamic);
         let pkg_id =
@@ -130,6 +134,7 @@ pub fn build_planned_units(
                             *is_workspace,
                             has_untracked_env,
                             &env_vars,
+                            &manifest_dir_readers,
                             ws_root,
                         ));
                     }
@@ -163,6 +168,7 @@ pub fn build_planned_units(
                             *is_workspace,
                             has_untracked_env,
                             &env_vars,
+                            &manifest_dir_readers,
                             ws_root,
                         ));
                     }
@@ -194,6 +200,7 @@ pub fn build_planned_units(
                         *is_workspace,
                         has_untracked_env,
                         &env_vars,
+                        &manifest_dir_readers,
                         ws_root,
                     ));
                 }
@@ -210,6 +217,7 @@ pub fn build_planned_units(
                         *is_workspace,
                         has_untracked_env,
                         &env_vars,
+                        &manifest_dir_readers,
                         ws_root,
                     ));
                 }
@@ -244,9 +252,24 @@ fn create_unit(
     is_workspace: bool,
     has_untracked_env: bool,
     env_vars: &[String],
+    manifest_dir_readers: &[PathBuf],
     ws_root: Option<&Path>,
 ) -> PlannedCompilationUnit {
     let is_bin = target.kind == "bin";
+    // `CARGO_MANIFEST_DIR` keys a unit on its absolute checkout path, so only the units
+    // whose own sources read it carry the variable; see `env_macro_scope`.
+    let env_vars: Vec<String> = env_vars
+        .iter()
+        .filter(|v| {
+            v.as_str() != "CARGO_MANIFEST_DIR"
+                || super::env_macro_scope::unit_reads_manifest_dir(
+                    pkg_dir,
+                    &target.src_path,
+                    manifest_dir_readers,
+                )
+        })
+        .cloned()
+        .collect();
     let has_mixed_or_native = target
         .crate_types
         .iter()
@@ -301,7 +324,7 @@ fn create_unit(
         cache_eligibility: eligibility,
         is_workspace,
         is_primary: false,
-        env_vars: env_vars.to_vec(),
+        env_vars,
         dependencies: Vec::new(),
         edition: target
             .edition
