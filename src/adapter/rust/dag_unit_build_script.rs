@@ -94,7 +94,33 @@ pub(crate) fn run_build_script_if_needed<'a>(
     let (directives, staging_dir_opt, retained_job) = if let Some(d) = cached_directives {
         (d, None, None)
     } else {
-        // 2. Cache miss: acquire jobserver token, allocate staging directory, and execute build.rs
+        // 2. Cache miss. The units of one package (the library and its unit tests, say)
+        // miss together on a cold build; a single-flight lock on the script's key lets
+        // the first one run it and the others restore its result instead of running the
+        // same script again in parallel.
+        let _script_lock = match build_key_opt.as_deref() {
+            Some(key) => Some(crate::core::lock::FileLock::acquire_exclusive(
+                &ctx.ac.lock_path(&format!("build_script:{key}")),
+            )?),
+            None => None,
+        };
+        let rechecked = if build_key_opt.is_some() {
+            super::build_script::try_restore_build_script_with_key(
+                unit,
+                ctx.opt.release,
+                &unit.features,
+                Some(&artifacts_dir),
+                &extern_crates,
+                Some(&build_dep_env),
+            )?
+            .0
+        } else {
+            None
+        };
+        if let Some(d) = rechecked {
+            register_directives_in_ctx(unit, &d, ctx);
+            return Ok((Some(d), None, None));
+        }
         let job_reservation = super::dag_unit::acquire_unit_job_token(ctx)?;
         let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
         let d = match execute_build_script_with_key(
