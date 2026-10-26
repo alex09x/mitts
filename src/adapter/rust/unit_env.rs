@@ -134,7 +134,13 @@ pub fn compute_unit_rustc_env_with_target(
     env
 }
 
-fn insert_manifest_pkg_metadata(env: &mut HashMap<String, String>, manifest_path: &Path) {
+/// The `CARGO_PKG_*` metadata Cargo gives every rustc, build-script compile and
+/// build-script run of a package (description, authors, homepage, repository, license,
+/// readme, rust-version).
+pub(crate) fn insert_manifest_pkg_metadata(
+    env: &mut HashMap<String, String>,
+    manifest_path: &Path,
+) {
     if let Ok(pkg_toml) = CargoToml::from_file(manifest_path) {
         if let Some(ref p) = pkg_toml.package {
             env.insert(

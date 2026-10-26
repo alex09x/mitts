@@ -55,6 +55,14 @@ pub fn configure_build_script_run_cmd(
         .env("CARGO_PKG_VERSION_MINOR", &minor)
         .env("CARGO_PKG_VERSION_PATCH", &patch)
         .env("CARGO_PKG_VERSION_PRE", &pre)
+        .envs({
+            let mut pkg_meta = std::collections::HashMap::new();
+            crate::adapter::rust::unit_env::insert_manifest_pkg_metadata(
+                &mut pkg_meta,
+                &unit.manifest_path,
+            );
+            pkg_meta
+        })
         .env("OUT_DIR", out_dir)
         .env("TARGET", target)
         .env("HOST", target)

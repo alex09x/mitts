@@ -99,6 +99,14 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
             ("CARGO_PKG_VERSION_PATCH", &patch),
             ("CARGO_PKG_VERSION_PRE", &pre),
         ]);
+    // Derive macros such as clap's `#[command(about)]` read the package description
+    // while the build script itself is compiled (lsd does exactly that).
+    let mut pkg_meta = std::collections::HashMap::new();
+    crate::adapter::rust::unit_env::insert_manifest_pkg_metadata(
+        &mut pkg_meta,
+        &args.unit.manifest_path,
+    );
+    compile_cmd.envs(pkg_meta);
 
     if args.unit.is_workspace {
         let ws_root = crate::adapter::rust::compiler::find_workspace_root(args.pkg_dir);
