@@ -133,6 +133,52 @@ pub fn reflink_or_copy(src: &Path, dst: &Path, executable: bool) -> Result<()> {
     Ok(())
 }
 
+/// Links a read-only store object into the workspace instead of cloning or copying it
+/// (opt-in, see `MITTS_STORE_HARDLINKS`). The link is staged next to `dst` and renamed
+/// into place, and the shared inode never gains write bits: `0o444`, or `0o555` for an
+/// executable. Fails when `src` and `dst` live on different devices.
+pub fn hardlink_store_object(src: &Path, dst: &Path, executable: bool) -> Result<()> {
+    let parent = dst
+        .parent()
+        .context("Destination path must have a parent directory")?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
+    let file_name = dst
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("artifact");
+    let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_dst = parent.join(format!(
+        ".{}.tmp_store_link.{}.{}",
+        file_name,
+        std::process::id(),
+        counter
+    ));
+    fs::hard_link(src, &tmp_dst)
+        .with_context(|| format!("Failed to hardlink store object {:?} to {:?}", src, tmp_dst))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = if executable { 0o555 } else { 0o444 };
+        if fs::metadata(&tmp_dst)
+            .map(|m| m.permissions().mode() & 0o777 != mode)
+            .unwrap_or(true)
+        {
+            let _ = fs::set_permissions(&tmp_dst, fs::Permissions::from_mode(mode));
+        }
+    }
+    if let Err(rename_err) = fs::rename(&tmp_dst, dst) {
+        let _ = fs::remove_file(&tmp_dst);
+        bail!(
+            "Failed to atomically stage store link to {:?}: {}",
+            dst,
+            rename_err
+        );
+    }
+    crate::core::metrics::record_hardlinked(fs::metadata(src).map(|m| m.len()).unwrap_or(0));
+    Ok(())
+}
+
 /// Recursively copies or reflinks an entire directory tree from `src` to `dst`.
 pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     if !src.exists() {

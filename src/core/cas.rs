@@ -28,10 +28,24 @@ pub struct ContentAddressedStore {
     /// full check costs one read of every restored byte and is enabled with
     /// `MITTS_VERIFY_RESTORE=1` or [`Self::with_restore_verification`].
     verify_on_restore: bool,
+    /// Restore by hardlinking the read-only object into the workspace instead of
+    /// cloning or copying it. Off by default: the documented policy never links store
+    /// objects into a writable workspace. `MITTS_STORE_HARDLINKS=1` or
+    /// [`Self::with_store_hardlinks`] opts in; a link that cannot be made (another
+    /// device) falls back to the clone-or-copy path.
+    store_hardlinks: bool,
 }
 
 /// Environment variable that turns full integrity hashing on every restore back on.
 pub const VERIFY_RESTORE_VAR: &str = "MITTS_VERIFY_RESTORE";
+/// Environment variable that restores store objects by hardlink (experimental).
+pub const STORE_HARDLINKS_VAR: &str = "MITTS_STORE_HARDLINKS";
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
 
 impl ContentAddressedStore {
     /// Initializes or opens a CAS at the specified directory.
@@ -52,15 +66,24 @@ impl ContentAddressedStore {
         fs::create_dir_all(&tmp_dir)
             .with_context(|| format!("Failed to create CAS tmp directory: {:?}", tmp_dir))?;
 
-        let verify_on_restore = std::env::var(VERIFY_RESTORE_VAR)
-            .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
-            .unwrap_or(false);
         Ok(Self {
             root,
             objects_dir,
             tmp_dir,
-            verify_on_restore,
+            verify_on_restore: env_flag(VERIFY_RESTORE_VAR),
+            store_hardlinks: env_flag(STORE_HARDLINKS_VAR),
         })
+    }
+
+    /// Sets whether restores hardlink store objects into the workspace (see `store_hardlinks`).
+    pub fn with_store_hardlinks(mut self, enabled: bool) -> Self {
+        self.store_hardlinks = enabled;
+        self
+    }
+
+    /// Whether restores hardlink store objects instead of cloning or copying them.
+    pub fn hardlinks_store_objects(&self) -> bool {
+        self.store_hardlinks
     }
 
     /// Sets whether every restore re-hashes the object first (see `verify_on_restore`).
@@ -226,6 +249,11 @@ impl ContentAddressedStore {
             bail!("CAS object corrupted (integrity hash mismatch): {}", hash);
         }
 
+        if self.store_hardlinks
+            && crate::core::reflink::hardlink_store_object(&obj_path, dest_path, executable).is_ok()
+        {
+            return Ok(());
+        }
         reflink_or_copy(&obj_path, dest_path, executable)?;
         Ok(())
     }
