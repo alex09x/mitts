@@ -95,3 +95,23 @@ fn test_m8_scan_package_env_vars_with_dynamic_file() {
     assert_eq!(disc, EnvMacroDiscovery::UntrackedDynamic);
     assert!(vars.is_empty());
 }
+
+/// `env!(#lit)` inside `quote!` is a proc macro emitting the call for another crate
+/// (clap_derive), not a dynamic read of this crate's environment.
+#[test]
+fn quote_interpolation_is_not_a_dynamic_env_read() {
+    let src = r#"
+        fn emit(env_var_lit: &str) -> TokenStream {
+            quote! { let _ = ::core::env!(#env_var_lit); }
+        }
+        const HERE: &str = env!("REAL_VAR");
+    "#;
+    assert_eq!(
+        scan_env_macros(src),
+        EnvMacroDiscovery::Tracked(vec!["REAL_VAR".to_string()])
+    );
+    assert_eq!(
+        scan_env_macros("let v = env!(name);"),
+        EnvMacroDiscovery::UntrackedDynamic
+    );
+}

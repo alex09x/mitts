@@ -254,6 +254,11 @@ pub fn scan_env_macros(source: &str) -> EnvMacroDiscovery {
                             } else {
                                 return EnvMacroDiscovery::UntrackedDynamic;
                             }
+                        } else if source[j..].starts_with('#') {
+                            // `env!(#var)` is `quote!` interpolation: a proc macro emitting
+                            // the call for another crate, not a read of this crate's env.
+                            i = j;
+                            continue;
                         } else {
                             return EnvMacroDiscovery::UntrackedDynamic;
                         }

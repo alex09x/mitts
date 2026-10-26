@@ -142,6 +142,11 @@ pub fn discover_detailed(package_dir: &Path) -> PackageEnvScan {
                 if name == "target" || name == ".mitts" || name == ".git" {
                     continue;
                 }
+                // A nested package (a root package with its members as subdirectories,
+                // like clap) is scanned when that package is planned, not as part of this one.
+                if path.join("Cargo.toml").is_file() {
+                    continue;
+                }
                 stack.push(path);
                 continue;
             }
