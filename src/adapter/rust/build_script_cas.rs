@@ -208,8 +208,10 @@ pub fn save_build_script_cas(
     }
 }
 
-/// Sets files to `0o444` and directories to `0o555` recursively (post-order on directories)
-/// so shared CAS build script outputs cannot be mutated by downstream build scripts.
+/// Sets files to `0o444` (`0o555` when they were executable: a vendored `protoc` written
+/// into `OUT_DIR` must still run from the store) and directories to `0o555` recursively
+/// (post-order on directories) so shared CAS build script outputs cannot be mutated by
+/// downstream build scripts.
 pub fn make_tree_readonly_recursive(dir: &Path) {
     #[cfg(unix)]
     {
@@ -226,7 +228,12 @@ pub fn make_tree_readonly_recursive(dir: &Path) {
                 if ft.is_dir() {
                     make_tree_readonly_recursive(&path);
                 } else if ft.is_file() {
-                    let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o444));
+                    let executable = entry
+                        .metadata()
+                        .map(|m| m.permissions().mode() & 0o111 != 0)
+                        .unwrap_or(false);
+                    let mode = if executable { 0o555 } else { 0o444 };
+                    let _ = fs::set_permissions(&path, fs::Permissions::from_mode(mode));
                 }
             }
         }

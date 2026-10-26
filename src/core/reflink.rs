@@ -208,7 +208,17 @@ pub fn reflink_or_copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         if file_type.is_dir() {
             reflink_or_copy_dir_recursive(&entry_path, &target_path)?;
         } else if file_type.is_file() {
-            reflink_or_copy(&entry_path, &target_path, false)?;
+            #[cfg(unix)]
+            let executable = {
+                use std::os::unix::fs::PermissionsExt;
+                entry
+                    .metadata()
+                    .map(|m| m.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false)
+            };
+            #[cfg(not(unix))]
+            let executable = false;
+            reflink_or_copy(&entry_path, &target_path, executable)?;
         }
     }
     Ok(())
