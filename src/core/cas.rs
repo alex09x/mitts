@@ -28,24 +28,25 @@ pub struct ContentAddressedStore {
     /// full check costs one read of every restored byte and is enabled with
     /// `MITTS_VERIFY_RESTORE=1` or [`Self::with_restore_verification`].
     verify_on_restore: bool,
-    /// How an object reaches the workspace: by default by reflink or copy, never by a
-    /// link to the store (the documented policy, pinned by the intra-workspace e2e test).
-    /// `MITTS_STORE_HARDLINKS=auto` hardlinks the read-only object where reflink is
-    /// unavailable (ext4), `=1` prefers links everywhere.
+    /// How an object reaches the workspace: reflink where the filesystem can, otherwise
+    /// a read-only hardlink to the immutable object (the default, `auto`), so filesystems
+    /// without reflink stop copying every artifact byte. `MITTS_STORE_HARDLINKS=0` keeps
+    /// the copy-only policy, `=1` prefers links everywhere. A link never carries write
+    /// bits; the intra-workspace e2e test pins that.
     store_hardlinks: StoreHardlinks,
 }
 
 /// Environment variable that turns full integrity hashing on every restore back on.
 pub const VERIFY_RESTORE_VAR: &str = "MITTS_VERIFY_RESTORE";
-/// Environment variable selecting the store-hardlink policy: unset or `0` never,
-/// `auto` only where reflink is unavailable, `1` always.
+/// Environment variable selecting the store-hardlink policy: `0` never, `1` always,
+/// unset or `auto` only where reflink is unavailable.
 pub const STORE_HARDLINKS_VAR: &str = "MITTS_STORE_HARDLINKS";
 
 fn store_hardlinks_from_env() -> StoreHardlinks {
     match std::env::var(STORE_HARDLINKS_VAR).as_deref().map(str::trim) {
+        Ok("0") | Ok("false") | Ok("no") | Ok("never") => StoreHardlinks::Never,
         Ok("1") | Ok("true") | Ok("yes") | Ok("always") => StoreHardlinks::Always,
-        Ok("auto") | Ok("fallback") => StoreHardlinks::Fallback,
-        _ => StoreHardlinks::Never,
+        _ => StoreHardlinks::Fallback,
     }
 }
 

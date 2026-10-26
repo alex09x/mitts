@@ -81,10 +81,12 @@ store safely.
 - **Safe sharing.** Store objects are immutable: published atomically, stored
   read-only and restored by reflink or copy. `MITTS_VERIFY_RESTORE=1` re-hashes every
   object before it is restored (the default trusts the store, which saves one read of
-  every restored byte). Never hardlinked into a writable workspace by default; hardlinks
-  occur only between Mitts' own build outputs (per-unit staging and `target/`), never with
-  store objects. `MITTS_STORE_HARDLINKS=auto` opts into read-only links to store objects
-  where the filesystem cannot reflink (ext4), which removes the per-restore byte copy.
+  every restored byte). Where the filesystem cannot reflink, a restore hardlinks the
+  read-only store object into `target/` instead of copying its bytes: the shared inode
+  stays `0o444` (`0o555` for executables), the target index rejects a link that gained
+  write bits, and Mitts only ever replaces workspace files by rename. Never a writable
+  link to a store object. `MITTS_STORE_HARDLINKS=0` keeps private copies for workspaces
+  that other tools write into in place.
 - **Zero-copy workspace staging.** Intra-workspace library aliases, secondary binaries,
   and atomic unit staging use intra-workspace hardlinks and rename promotion without
   copying bytes. When `MITTS_CACHE_DIR` and the workspace `target/` reside on the same

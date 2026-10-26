@@ -46,7 +46,11 @@ fn test_check_or_restore_skips_intact_and_detects_mutations() {
     let target_dir = tmp.path().join("target");
     fs::create_dir_all(&target_dir).unwrap();
 
-    let cas = ContentAddressedStore::new(cas_dir).unwrap();
+    // This test mutates the restored file in place to exercise the sidecar checks, so
+    // it restores private copies rather than read-only links to the store.
+    let cas = ContentAddressedStore::new(cas_dir)
+        .unwrap()
+        .with_store_hardlinks(mitts::core::reflink::StoreHardlinks::Never);
 
     let src_file = tmp.path().join("source_artifact.bin");
     fs::write(&src_file, b"compiled test runner binary v1").unwrap();

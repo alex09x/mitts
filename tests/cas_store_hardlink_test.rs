@@ -73,14 +73,18 @@ fn a_store_hardlink_restore_shares_the_read_only_inode() {
 }
 
 #[test]
-fn the_default_never_links_and_auto_links_only_without_reflink() {
+fn never_copies_and_the_default_links_only_without_reflink() {
     let temp = TempDir::new().unwrap();
-    let cas = ContentAddressedStore::new(temp.path().join("cas")).unwrap();
     assert_eq!(
-        cas.store_hardlinks(),
-        StoreHardlinks::Never,
-        "the documented default never links store objects into the workspace"
+        ContentAddressedStore::new(temp.path().join("cas0"))
+            .unwrap()
+            .store_hardlinks(),
+        StoreHardlinks::Fallback,
+        "the default links store objects only where reflink is unavailable"
     );
+    let cas = ContentAddressedStore::new(temp.path().join("cas"))
+        .unwrap()
+        .with_store_hardlinks(StoreHardlinks::Never);
     let fallback = ContentAddressedStore::new(temp.path().join("cas3"))
         .unwrap()
         .with_store_hardlinks(StoreHardlinks::Fallback);

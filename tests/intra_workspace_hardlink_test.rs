@@ -406,11 +406,16 @@ version = "0.1.0"
             alt_meta_v3.ino(),
             "dest and alt_path after cache restore must share the same inode"
         );
-        assert_ne!(
-            dest_meta_v3.ino(),
-            cas_meta_v1.ino(),
-            "dest after cache restore must NOT share inode with CAS object"
-        );
+        // A restore may share the store object's inode (read-only hardlink where the
+        // filesystem cannot reflink), but never as a writable file.
+        use std::os::unix::fs::PermissionsExt;
+        if dest_meta_v3.ino() == cas_meta_v1.ino() {
+            assert_eq!(
+                dest_meta_v3.permissions().mode() & 0o222,
+                0,
+                "a restore that links the store object must stay read-only"
+            );
+        }
     }
 
     // Verify both CAS objects remain intact
