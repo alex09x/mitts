@@ -300,3 +300,17 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
         "host dev debuginfo should read [profile.dev.build-override].debug"
     );
 }
+
+/// `[lints.cargo]` belongs to Cargo's own lint set; rustc rejects `cargo::` lints
+/// (E0602), so they must never reach the compiler command line (actix-tls 3.6.1).
+#[test]
+fn cargo_lints_are_not_forwarded_to_rustc() {
+    let lints: toml::Value = toml::from_str(
+        "[cargo]\nunused_dependencies = \"allow\"\n[rust]\nmissing_docs = \"warn\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        extract_lint_flags_from_lints(&lints),
+        vec!["-Wmissing_docs"]
+    );
+}

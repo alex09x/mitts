@@ -187,6 +187,11 @@ pub fn extract_lint_flags_from_lints(lints_val: &toml::Value) -> Vec<String> {
         return flags;
     };
     for (tool_name, tool_val) in tbl {
+        // `[lints.cargo]` configures Cargo's own (unstable) lints; rustc has no `cargo`
+        // lint tool and rejects `-A cargo::…` with E0602, so Cargo never forwards them.
+        if tool_name == "cargo" {
+            continue;
+        }
         let Some(tool_tbl) = tool_val.as_table() else {
             continue;
         };
