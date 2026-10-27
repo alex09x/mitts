@@ -14,7 +14,7 @@ use std::path::Path;
 use std::process::Command;
 
 // Version the normalized semantics, never the machine-specific alias spellings.
-pub(crate) const KEY_FLAG: &str = "REMAP_ALIASES=canonical-v1";
+pub(crate) const KEY_FLAG: &str = "REMAP_ALIASES=canonical-v2";
 
 /// rustc and the Darwin linker can canonicalize paths independently of the
 /// manifest spelling (notably /var -> /private/var). Cover both spellings so
@@ -42,6 +42,29 @@ fn append_prefix(cmd: &mut Command, path: &Path, replacement: &str) {
     }
 }
 
+/// The Darwin linker records every object file's absolute path in the output's N_OSO
+/// stabs (that is how lldb finds unpacked debug info); `--remap-path-prefix` does not
+/// reach them, so every binary linked in a checkout embedded the checkout's path and
+/// could never be shared with another one. `-oso_prefix` makes the linker store those
+/// paths relative to the workspace root: the same string in every checkout, and still
+/// resolvable by a debugger started there.
+fn append_darwin_oso_prefix(inv: &RustcInvocation<'_>, cmd: &mut Command) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let ws_root = find_workspace_root(&inv.unit.manifest_path);
+    let canonical = ws_root.canonicalize().unwrap_or_else(|_| ws_root.clone());
+    // The paths the linker records are the ones rustc received: the dependency rlibs
+    // restored under the workspace's target directory. Match their spelling.
+    let root = match inv.deps_dir {
+        Some(deps) if deps.starts_with(&canonical) => canonical,
+        Some(deps) if deps.starts_with(&ws_root) => ws_root,
+        _ => return,
+    };
+    let prefix = format!("{}/", root.to_string_lossy().trim_end_matches('/'));
+    cmd.args(["-C", &format!("link-arg=-Wl,-oso_prefix,{prefix}")]);
+}
+
 pub(crate) fn append_path_remaps(
     inv: &RustcInvocation<'_>,
     clean_crate: &str,
@@ -54,6 +77,7 @@ pub(crate) fn append_path_remaps(
             append_aliases(cmd, &ws_root, "");
         }
     }
+    append_darwin_oso_prefix(inv, cmd);
 
     // More specific output mappings follow the workspace mapping: rustc gives
     // the last matching rule precedence when the cache is inside the workspace.

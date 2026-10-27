@@ -312,7 +312,10 @@ Mitts is pre-release. Know these before you rely on it:
 - **Workspace crates across checkouts.** Your own crates are reused across
   worktrees only when their key can be made path-independent (no
   `CARGO_MANIFEST_DIR` reads, no build script, no declared impure proc macro).
-  Otherwise the key includes the absolute path.
+  Otherwise the key includes the absolute path. On macOS the linker's debug
+  stabs are written relative to the workspace (`-oso_prefix`), so linked
+  binaries are shared too; start the debugger in the workspace root for it to
+  find the object files.
 - **Macros that read your files are yours to declare.** A proc macro is treated
   as pure unless the project lists it (see above). A listed macro's dependents
   follow every file in their package; an unlisted macro that reads a file

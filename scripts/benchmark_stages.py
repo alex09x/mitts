@@ -248,8 +248,11 @@ def run_stages_t0_t1_t2_t3(
                 if arm == "cargo_sccache":
                     reset_sccache(sccache_bin, ctx["sccache_dir"], ctx["envs"]["cargo_sccache"])
 
+                # Settle the filesystem first: deletes and writes still in flight made deltas negative.
+                sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
                 df_before = get_df_used_mb([proj_work, proj_cache])
                 r_c = run_timed(cmd, cwd=src_dir, env=ctx["envs"][arm])
+                sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
                 df_after = get_df_used_mb([proj_work, proj_cache])
                 if arm == "cargo_sccache":
                     last_scc_by_arm[arm] = collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"])

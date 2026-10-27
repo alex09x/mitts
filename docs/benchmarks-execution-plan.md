@@ -152,3 +152,22 @@ flowchart TD
     WP4 --> WP5["WP5: sanitised publication package"]
     WP5 --> Done["Owner approval"]
 ```
+
+## Measurement limitations (known, by design)
+
+- `max_disk_mb` comes from `du -scm`, which deduplicates hardlinks but not copy-on-write
+  clones: on XFS and APFS every reflinked copy in the 12 worktrees counts at full size, so
+  the number overstates physical use there. `df_used_delta_mb` and
+  `median_device_mb_written` are the physical figures; the harness settles the filesystem
+  (`sync`, dirty pages below 1 GB) before each `df` sample so deletes in flight do not make
+  a delta negative.
+- `device_mb_written` reads the block device's write counter (`/sys/dev/block/*/stat` on
+  Linux, `ioreg` on macOS): it is the whole disk, so any unrelated write during a long arm
+  lands in it. Compare arms within one run, not across machines.
+- `s2_fast_noop_ms` is the plan + action-cache no-op (the fast build lock is off with an
+  explicit `--cache-dir`); `s2_fast_lock_noop_ms` is the fast-lock hit, measured on
+  `mitts build` only because the lock applies to Build and Check.
+- T4 `copy_fallback_stats_s` runs with `MITTS_NO_REFLINK=1 MITTS_STORE_HARDLINKS=0`; series
+  recorded before that flag (≤ 0.3.6) compared reflink against a read-only store hardlink.
+- `t0_explain.timings_ms` describe the last of the timed runs, after an untimed run warmed
+  the toolchain probe cache; series ≤ 0.3.6 report the first, cold run.
