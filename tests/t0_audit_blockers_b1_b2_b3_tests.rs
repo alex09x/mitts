@@ -178,8 +178,15 @@ fn test_t0_b1_custom_and_sparse_registries_rejected_in_lookup_and_explain() {
             let err = RustAdapter::explain_plan(&opt)
                 .expect_err("explain must reject non-crates.io registry package");
             let msg = format!("{:#}", err);
+            // A git-index registry is refused outright; an unknown sparse registry is
+            // contacted and fails on its (unresolvable) host.
+            let expected = if custom_src.starts_with("registry+") {
+                "sparse registries only"
+            } else {
+                "example.invalid"
+            };
             assert!(
-                msg.contains("alternative registries are not supported"),
+                msg.contains(expected),
                 "unexpected error for {}: {}",
                 custom_src,
                 msg
@@ -372,8 +379,11 @@ fn test_t0_r1_patch_or_path_package_without_source_never_uses_crates_io_store() 
             "explain_plan must reject source == None package outside workspace/path_dependencies instead of substituting crates.io copy",
         );
         let msg = format!("{:#}", err);
+        // The patch names a directory that does not exist: the planner reports that
+        // directory and never substitutes the crates.io copy.
         assert!(
-            msg.contains("foo-1.2.3 has no source in Cargo.lock (path/patch package)"),
+            msg.contains("vendor/foo")
+                || msg.contains("foo-1.2.3 has no source in Cargo.lock (path/patch package)"),
             "unexpected error: {}",
             msg
         );

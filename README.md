@@ -138,6 +138,30 @@ exactly as on the command line; prompts are disabled, so a missing credential
 fails instead of hanging. Nothing goes through Cargo. A checkout Cargo already
 made under `~/.cargo/git/checkouts` is reused instead of cloned again.
 
+Every other way Cargo gets a crate works the same way, from the same config:
+
+- **Alternative registries**: `[registries.<name>] index = "sparse+https://…"`
+  and `registry = "<name>"` on the dependency. Tokens come from
+  `CARGO_REGISTRIES_<NAME>_TOKEN`, `[registries.<name>] token` or
+  `$CARGO_HOME/credentials.toml`; a registry whose `config.json` says
+  `auth-required` fails with a clear message when none is set. Git-index
+  registries are refused: use the sparse protocol.
+- **Mirrors**: `[source.crates-io] replace-with = "<name>"` with
+  `[source.<name>] registry = "sparse+https://…"`. Bytes come from the mirror,
+  `Cargo.lock` keeps naming crates.io, exactly as Cargo writes it.
+- **Vendored sources**: `[source.vendored-sources] directory = "vendor"` from
+  `cargo vendor`. Packages are checked against their `.cargo-checksum.json`
+  and copied into the store; nothing touches the network, git packages
+  included. Without a lockfile the vendor directory serves as the index.
+- **`[patch]`**: `[patch.crates-io] foo = { path = … }` or `{ git = … }`
+  replaces the registry package; without a lockfile the replacement is
+  resolved and pinned, and it has to satisfy the requirement, as with Cargo.
+
+Without a `Cargo.lock`, Mitts resolves one the way Cargo does: highest
+non-yanked version per requirement, features flowing along the edges, an
+optional dependency included only when a feature turns it on, one version per
+compatibility range. The result is a lockfile Cargo accepts as its own.
+
 ## How it works
 
 ```
@@ -268,8 +292,11 @@ Mitts is pre-release. Know these before you rely on it:
 - **Linux and macOS only.** Locks and the jobserver are POSIX.
 - **Host target only.** Cross-compilation is not supported yet.
 - **No remote cache yet.** The store is per machine.
-- **crates.io and git sources only.** A dependency from an alternative
-  registry (`registry+` or `sparse+` other than crates.io) fails loudly.
+- **Sparse registries only.** A registry served as a git index (`registry+…`
+  other than crates.io, or `[source] registry = "https://…"` without
+  `sparse+`) and `local-registry` sources are refused with advice.
+- **Credential providers.** Only `cargo:token` (a token in `credentials.toml`
+  or the environment) is read; keychain and custom providers are not run.
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.

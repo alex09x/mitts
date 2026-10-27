@@ -164,6 +164,7 @@ path = "src/lib.rs"
             cksum: "abc".to_string(),
             features: Default::default(),
             yanked: false,
+            features2: Default::default(),
         },
         SparseIndexEntry {
             name: "foo".to_string(),
@@ -172,6 +173,7 @@ path = "src/lib.rs"
             cksum: "def".to_string(),
             features: Default::default(),
             yanked: true,
+            features2: Default::default(),
         },
     ];
     let chosen = select_best_version(&entries, "invalid-requirement-pattern").unwrap();

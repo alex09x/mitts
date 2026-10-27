@@ -96,6 +96,7 @@ fn test_m8_resolver_detailed_remote_dependency() {
         cksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into(),
         yanked: false,
         features: std::collections::HashMap::new(),
+        features2: Default::default(),
     };
     fs::write(
         &cache_file,

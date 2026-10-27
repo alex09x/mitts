@@ -94,6 +94,7 @@ version = "1.0.0"
             cksum: "abc1".to_string(),
             features: Default::default(),
             yanked: false,
+            features2: Default::default(),
         },
         SparseIndexEntry {
             name: "test-lib".to_string(),
@@ -102,6 +103,7 @@ version = "1.0.0"
             cksum: "abc2".to_string(),
             features: Default::default(),
             yanked: false,
+            features2: Default::default(),
         },
     ];
 
@@ -116,6 +118,7 @@ version = "1.0.0"
         cksum: "y1".to_string(),
         features: Default::default(),
         yanked: true,
+        features2: Default::default(),
     }];
     assert!(select_best_version(&yanked_entries, "*").is_err());
 }
@@ -141,10 +144,16 @@ fn test_m8_resolver_reuse_resolved_and_detailed_manifest_deps() {
         ManifestDirectDep {
             name: "shared-dep".to_string(),
             req: ">= 1.0".to_string(),
+            source: mitts::adapter::rust::registry_config::CRATES_IO_LOCK_SOURCE.to_string(),
+            features: Vec::new(),
+            default_features: true,
         },
         ManifestDirectDep {
             name: "shared-dep".to_string(),
             req: "^1.0".to_string(),
+            source: mitts::adapter::rust::registry_config::CRATES_IO_LOCK_SOURCE.to_string(),
+            features: Vec::new(),
+            default_features: true,
         },
     ];
 

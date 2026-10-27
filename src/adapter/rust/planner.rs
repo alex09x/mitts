@@ -102,6 +102,11 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         }
     }
 
+    // `[patch.*] foo = { path = "…" }` packages are path packages too.
+    for table in root_toml.patch.values() {
+        scan_deps(project_dir, table)?;
+    }
+
     if root_toml.workspace.is_some() {
         let canon_proj = project_dir
             .canonicalize()
@@ -245,6 +250,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         &selected_packages,
         &workspace_manifests,
         &path_dependencies,
+        project_dir,
         opt.cache_dir.as_deref(),
         lockfile.version,
     )?;

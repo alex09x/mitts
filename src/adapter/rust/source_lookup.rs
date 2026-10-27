@@ -121,6 +121,12 @@ pub(crate) fn find_crate_source_dir_with_store(
             let sources_root = store
                 .map(|st| st.root().to_path_buf())
                 .unwrap_or_else(SourceStore::default_root);
+            // A vendored copy of the git package lives in the source's own sub-store.
+            let vendored =
+                CrateFetcher::sub_store_root(&sources_root, s).join(format!("{name}-{version}"));
+            if SourceStore::is_valid_source_dir(&vendored) {
+                return Some(vendored);
+            }
             let mitts_git = GitSourceStore::beside_sources(&sources_root).checkouts_dir();
             if let Some(dir) = find_in_git_checkouts(&mitts_git, name, version, expected_hash) {
                 return Some(dir);
@@ -140,6 +146,15 @@ pub(crate) fn find_crate_source_dir_with_store(
             }
             RegistryLookup::discover(&store_root).find_in_src(name, version)
         }
+        // Another registry, or a mirror: its packages live in a sub-store of the cache root.
+        Some(s) if CrateFetcher::is_registry_source(s) => {
+            let store_root = store
+                .map(|st| st.root().to_path_buf())
+                .unwrap_or_else(SourceStore::default_root);
+            let candidate =
+                CrateFetcher::sub_store_root(&store_root, s).join(format!("{name}-{version}"));
+            SourceStore::is_valid_source_dir(&candidate).then_some(candidate)
+        }
         None | Some(_) => None,
     }
 }
@@ -157,6 +172,7 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
     selected_packages: &[(&'a super::lockfile::CargoLockPackage, bool)],
     workspace_manifests: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
     path_dependencies: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
+    project_dir: &Path,
     cache_dir: Option<&Path>,
     lockfile_version: u32,
 ) -> Result<Vec<ResolvedPackageManifest<'a>>> {
@@ -168,7 +184,11 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
     let store = cache_dir
         .and_then(|cd| SourceStore::new(cd.join("sources")).ok())
         .or_else(|| SourceStore::default_store().ok());
-    let fetcher = store.as_ref().cloned().map(CrateFetcher::new);
+    let config = super::registry_config::RegistryConfig::load(project_dir)?;
+    let fetcher = store
+        .as_ref()
+        .cloned()
+        .map(|st| CrateFetcher::with_config(st, config.clone()));
 
     let matching_path_dep = |pkg: &CargoLockPackage| -> Option<&(PathBuf, CargoToml)> {
         if pkg.source.is_some() {
@@ -192,7 +212,12 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
                     pkg.version
                 );
             }
-            CrateFetcher::locate_non_crates_io(pkg, store.as_ref(), &FetchOptions::default())?;
+            CrateFetcher::locate_non_crates_io_with(
+                &config,
+                pkg,
+                store.as_ref(),
+                &FetchOptions::default(),
+            )?;
         }
     }
 
@@ -206,7 +231,7 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
                     && pkg
                         .source
                         .as_deref()
-                        .is_some_and(CrateFetcher::is_crates_io_registry_source)
+                        .is_some_and(CrateFetcher::is_registry_source)
                     && find_crate_source_dir_with_store(
                         &pkg.name,
                         &pkg.version,
@@ -245,7 +270,12 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
                 );
             } else {
                 let resolved_dir = if let Some(dir) =
-                    CrateFetcher::locate_non_crates_io(pkg, store.as_ref(), &FetchOptions::default())?
+                    CrateFetcher::locate_non_crates_io_with(
+                &config,
+                pkg,
+                store.as_ref(),
+                &FetchOptions::default(),
+            )?
                 {
                     dir
                 } else if let Some(dir) = find_crate_source_dir_with_store(

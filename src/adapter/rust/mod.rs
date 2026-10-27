@@ -39,7 +39,11 @@ pub mod features;
 pub mod features_helpers;
 pub mod fetcher;
 pub mod git_resolve;
+pub mod patch_resolve;
 pub mod git_source;
+pub mod registry_config;
+pub mod resolve_graph;
+pub mod vendor_source;
 pub mod inputs;
 pub mod key;
 pub mod key_flags;
@@ -206,7 +210,9 @@ impl RustAdapter {
         cache_dir: Option<&Path>,
     ) -> Result<fetcher::FetchResult> {
         let lock = Self::resolve_lockfile(manifest_path, opt.offline, cache_dir)?;
-        let fetcher = fetcher::CrateFetcher::new(store.clone());
+        let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
+        let config = registry_config::RegistryConfig::load(project_dir)?;
+        let fetcher = fetcher::CrateFetcher::with_config(store.clone(), config);
         fetcher.fetch_all(&lock, opt)
     }
 }

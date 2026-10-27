@@ -10,24 +10,64 @@
 
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::{CargoToml, TomlDependency};
-use super::sparse_index::SparseIndexClient;
+use super::registry_config::{EffectiveSource, RegistryConfig, CRATES_IO_LOCK_SOURCE};
+use super::sparse_index::{SparseIndexClient, SparseIndexEntry};
+use super::vendor_source::VendorDir;
 use anyhow::{bail, Context, Result};
 use semver::{Version, VersionReq};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct ManifestDirectDep {
     pub name: String,
     pub req: String,
+    /// Lock source id of the registry the requirement is resolved against.
+    pub source: String,
+    /// Features the requester turns on, plus the package's `default` unless opted out.
+    pub features: Vec<String>,
+    pub default_features: bool,
+}
+
+impl ManifestDirectDep {
+    pub fn crates_io(name: impl Into<String>, req: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            req: req.into(),
+            source: CRATES_IO_LOCK_SOURCE.to_string(),
+            features: Vec::new(),
+            default_features: true,
+        }
+    }
+}
+
+/// Where one registry's index entries come from.
+pub(crate) enum IndexSource {
+    Sparse(Arc<SparseIndexClient>),
+    Vendor(Arc<VendorDir>),
+}
+
+impl IndexSource {
+    pub(crate) fn versions(&self, name: &str, offline: bool) -> Result<Vec<SparseIndexEntry>> {
+        match self {
+            IndexSource::Sparse(c) => c.fetch_crate_versions(name, offline),
+            IndexSource::Vendor(v) => Ok(v.entries(name)),
+        }
+    }
 }
 
 /// Standalone native dependency resolver evaluating crates.io sparse index.
 pub struct NativeResolver {
-    index_client: SparseIndexClient,
+    index_client: Arc<SparseIndexClient>,
     /// Cache root whose `git/` holds the mirrors used to resolve git dependencies.
-    cache_dir: Option<std::path::PathBuf>,
+    pub(crate) cache_dir: Option<std::path::PathBuf>,
+    /// `[registries]` and `[source]` of the project being resolved.
+    pub(crate) config: Mutex<RegistryConfig>,
+    sources: Mutex<HashMap<String, Arc<IndexSource>>>,
+    /// `[patch]` of the root manifest being resolved.
+    pub(crate) patches: Mutex<super::patch_resolve::PatchSet>,
 }
 
 impl NativeResolver {
@@ -40,17 +80,52 @@ impl NativeResolver {
     /// root when `None`.
     pub fn for_cache_dir(cache_dir: Option<&Path>) -> Result<Self> {
         Ok(Self {
-            index_client: SparseIndexClient::for_cache_dir(cache_dir)?,
+            index_client: Arc::new(SparseIndexClient::for_cache_dir(cache_dir)?),
             cache_dir: cache_dir.map(Path::to_path_buf),
+            config: Mutex::new(RegistryConfig::default()),
+            sources: Mutex::new(HashMap::new()),
+            patches: Mutex::new(Default::default()),
         })
     }
 
     /// Custom index client for tests or isolated environments.
     pub fn with_client(index_client: SparseIndexClient) -> Self {
         Self {
-            index_client,
+            index_client: Arc::new(index_client),
             cache_dir: None,
+            config: Mutex::new(RegistryConfig::default()),
+            sources: Mutex::new(HashMap::new()),
+            patches: Mutex::new(Default::default()),
         }
+    }
+
+    /// Uses `[registries]`, mirrors and vendor directories from this config.
+    pub fn with_registry_config(self, config: RegistryConfig) -> Self {
+        *self.config.lock().unwrap() = config;
+        self.sources.lock().unwrap().clear();
+        self
+    }
+
+    /// The index to query for a lock source, after `[source]` replacement.
+    pub(crate) fn source_for(&self, lock_source: &str) -> Result<Arc<IndexSource>> {
+        if let Some(found) = self.sources.lock().unwrap().get(lock_source) {
+            return Ok(found.clone());
+        }
+        let effective = self.config.lock().unwrap().effective_source(lock_source)?;
+        let source = match effective {
+            EffectiveSource::CratesIo => IndexSource::Sparse(self.index_client.clone()),
+            EffectiveSource::Sparse { index_url, token } => IndexSource::Sparse(Arc::new(
+                SparseIndexClient::for_index(self.cache_dir.as_deref(), &index_url, token)?,
+            )),
+            EffectiveSource::Directory(dir) => IndexSource::Vendor(VendorDir::open(&dir)?),
+            EffectiveSource::Git => bail!("{lock_source} is not a registry"),
+        };
+        let source = Arc::new(source);
+        self.sources
+            .lock()
+            .unwrap()
+            .insert(lock_source.to_string(), source.clone());
+        Ok(source)
     }
 
     /// Resolves dependencies from a Cargo.toml manifest directly into a valid CargoLock.
@@ -62,8 +137,18 @@ impl NativeResolver {
         let mut path_deps = Vec::new();
         let mut remote_deps = Vec::new();
         let mut member_deps: HashMap<String, Vec<String>> = HashMap::new();
-        let mut git_resolver =
-            super::git_resolve::GitResolver::for_cache_dir(self.cache_dir.as_deref());
+        let config = RegistryConfig::load(manifest_dir)?;
+        *self.config.lock().unwrap() = config.clone();
+        self.sources.lock().unwrap().clear();
+        *self.patches.lock().unwrap() = CargoToml::from_file(manifest_path)
+            .ok()
+            .map(|t| super::patch_resolve::PatchSet::from_manifest(&t, manifest_dir, &config))
+            .transpose()?
+            .unwrap_or_default();
+        let mut git_resolver = super::git_resolve::GitResolver::for_cache_dir(
+            self.cache_dir.as_deref(),
+            config.clone(),
+        );
         let mut git_out = super::git_resolve::GitResolution::default();
 
         if let Ok(toml) = CargoToml::from_file(manifest_path) {
@@ -123,7 +208,7 @@ impl NativeResolver {
                         }
                         // A git dependency is pinned to the commit its tag, branch or rev names
                         // right now; its own dependencies join the resolution below.
-                        // Optional dependencies stay in: Cargo.lock is feature-independent.
+                        // A member's optional dependencies stay in: it resolves with every feature on.
                         TomlDependency::Detailed(d) if d.git.is_some() => {
                             let name = git_resolver.resolve(dep_name, d, offline, &mut git_out)?;
                             m_dep_list.push(name);
@@ -131,10 +216,7 @@ impl NativeResolver {
                         TomlDependency::Simple(req) => {
                             m_dep_list.push(dep_name.clone());
                             if !local_names.contains(dep_name) {
-                                remote_deps.push(ManifestDirectDep {
-                                    name: dep_name.clone(),
-                                    req: req.clone(),
-                                });
+                                remote_deps.push(ManifestDirectDep::crates_io(dep_name, req));
                             }
                         }
                         TomlDependency::Detailed(d) => {
@@ -144,8 +226,25 @@ impl NativeResolver {
                                 remote_deps.push(ManifestDirectDep {
                                     name: pkg,
                                     req: d.version.clone().unwrap_or_else(|| "*".to_string()),
+                                    source: config
+                                        .lock_source_for_registry(d.registry.as_deref())?,
+                                    features: d.features.clone().unwrap_or_default(),
+                                    default_features: d.default_features.unwrap_or(true),
                                 });
                             }
+                        }
+                    }
+                }
+                // A member resolves with every feature on: `dep/feat` entries in its
+                // `[features]` request `feat` on that dependency.
+                for value in m_toml.features.values().flatten() {
+                    let Some((dep, feat)) = value.split_once('/') else {
+                        continue;
+                    };
+                    let dep = dep.trim_end_matches('?');
+                    for r in remote_deps.iter_mut().filter(|r| r.name == dep) {
+                        if !r.features.iter().any(|f| f == feat) {
+                            r.features.push(feat.to_string());
                         }
                     }
                 }
@@ -199,129 +298,14 @@ impl NativeResolver {
         Ok(lock)
     }
 
-    /// Resolves a set of root dependencies recursively by querying the sparse index in parallel BFS waves.
+    /// Resolves root requirements into a lockfile graph (see [`super::resolve_graph`]).
     pub fn resolve_dependencies(
         &self,
         root_deps: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
-        let mut resolved: HashMap<String, ResolvedPackage> = HashMap::new();
-        let mut index_cache: HashMap<String, Vec<super::sparse_index::SparseIndexEntry>> =
-            HashMap::new();
-        let mut queue: VecDeque<ManifestDirectDep> = root_deps.iter().cloned().collect();
-        let mut visited_reqs: HashSet<(String, String)> = HashSet::new();
-
-        let satisfies = |res: &HashMap<String, ResolvedPackage>, dep: &ManifestDirectDep| -> bool {
-            res.get(&dep.name).is_some_and(|ex| {
-                VersionReq::parse(&dep.req)
-                    .ok()
-                    .zip(Version::parse(&ex.version).ok())
-                    .is_some_and(|(r, v)| r.matches(&v))
-            })
-        };
-
-        while !queue.is_empty() {
-            let wave: Vec<ManifestDirectDep> = queue
-                .drain(..)
-                .filter(|c| {
-                    visited_reqs.insert((c.name.clone(), c.req.clone())) && !satisfies(&resolved, c)
-                })
-                .collect();
-            if wave.is_empty() {
-                break;
-            }
-
-            let mut to_fetch: Vec<String> = Vec::new();
-            for dep in &wave {
-                if !index_cache.contains_key(&dep.name) && !to_fetch.contains(&dep.name) {
-                    to_fetch.push(dep.name.clone());
-                }
-            }
-
-            if to_fetch.len() == 1 {
-                let name = to_fetch.pop().unwrap();
-                index_cache.insert(
-                    name.clone(),
-                    self.index_client.fetch_crate_versions(&name, offline)?,
-                );
-            } else if to_fetch.len() > 1 {
-                let n = to_fetch.len();
-                let cursor = std::sync::atomic::AtomicUsize::new(0);
-                let results: Vec<std::sync::Mutex<Option<Result<Vec<_>>>>> =
-                    (0..n).map(|_| std::sync::Mutex::new(None)).collect();
-                std::thread::scope(|s| {
-                    for _ in 0..n.min(32) {
-                        s.spawn(|| loop {
-                            let i = cursor.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            if i >= n {
-                                break;
-                            }
-                            let res = self
-                                .index_client
-                                .fetch_crate_versions(&to_fetch[i], offline);
-                            *results[i].lock().unwrap() = Some(res);
-                        });
-                    }
-                });
-                for (name, slot) in to_fetch.into_iter().zip(results) {
-                    index_cache.insert(name, slot.into_inner().unwrap().unwrap()?);
-                }
-            }
-
-            for current in wave {
-                if satisfies(&resolved, &current) {
-                    continue;
-                }
-                let chosen = select_best_version(&index_cache[&current.name], &current.req)?;
-                let mut sub_deps = Vec::new();
-                for dep in &chosen.deps {
-                    // Transitive dev-dependencies never enter a lockfile; optional ones do,
-                    // because Cargo.lock is resolved with every feature enabled.
-                    if dep.kind.as_deref() == Some("dev") {
-                        continue;
-                    }
-                    let pkg_name = dep.package.as_ref().unwrap_or(&dep.name).clone();
-                    sub_deps.push(pkg_name.clone());
-                    queue.push_back(ManifestDirectDep {
-                        name: pkg_name,
-                        req: dep.req.clone(),
-                    });
-                }
-                resolved.insert(
-                    current.name.clone(),
-                    ResolvedPackage {
-                        name: current.name,
-                        version: chosen.vers.clone(),
-                        checksum: chosen.cksum.clone(),
-                        dependencies: sub_deps,
-                    },
-                );
-            }
-        }
-        let mut packages: Vec<CargoLockPackage> = resolved
-            .into_values()
-            .map(|pkg| CargoLockPackage {
-                name: pkg.name,
-                version: pkg.version,
-                source: Some("registry+https://github.com/rust-lang/crates.io-index".to_string()),
-                checksum: Some(pkg.checksum),
-                dependencies: pkg.dependencies,
-            })
-            .collect();
-        packages.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
-        Ok(CargoLock {
-            version: 3,
-            packages,
-        })
+        self.resolve_graph(root_deps, offline)
     }
-}
-
-#[derive(Debug, Clone)]
-struct ResolvedPackage {
-    name: String,
-    version: String,
-    checksum: String,
-    dependencies: Vec<String>,
 }
 
 /// Selects the highest non-yanked version matching the semver requirement.
@@ -420,7 +404,7 @@ pub fn extract_dependencies_with_reqs(content: &str) -> Vec<ManifestDirectDep> {
                     }
                 }
                 if !name.is_empty() {
-                    deps.push(ManifestDirectDep { name, req });
+                    deps.push(ManifestDirectDep::crates_io(name, req));
                 }
             }
         }

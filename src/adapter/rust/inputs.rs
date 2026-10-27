@@ -52,6 +52,8 @@ pub fn discover_clippy_config(start_dir: &Path) -> Option<PathBuf> {
 ///    root the build runs against) with `.mitts-ok`, OR
 /// 3. Official Cargo git checkout (`$CARGO_HOME/git/checkouts/...`) with `.cargo-ok`, OR
 /// 4. A Mitts git checkout (`<cache root>/git/checkouts/<repo>/<rev>/...`) with `.mitts-ok`.
+///    Rule 2 also covers `<cache root>/sources/src-<digest>/<name>-<version>/`, the store of a
+///    registry other than crates.io, a mirror or a vendor directory.
 pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool {
     if is_workspace {
         return false;
@@ -83,13 +85,14 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
                 .unwrap_or(false)
     });
 
-    let in_mitts_sources = package_dir
-        .parent()
-        .and_then(|p| p.file_name())
-        .is_some_and(|name| name == crate::core::cache_root::SOURCES_DIR)
-        && package_dir
-            .join(crate::core::source_store::MITTS_OK_MARKER)
-            .is_file();
+    // `<cache>/sources/<name>-<version>` (crates.io) or `<cache>/sources/src-<digest>/<name>-<version>`
+    // (another registry, a mirror, a vendor directory).
+    let in_mitts_sources = package_dir.ancestors().skip(1).take(2).any(|p| {
+        p.file_name()
+            .is_some_and(|name| name == crate::core::cache_root::SOURCES_DIR)
+    }) && package_dir
+        .join(crate::core::source_store::MITTS_OK_MARKER)
+        .is_file();
 
     in_cargo_registry || in_mitts_sources || in_cargo_git || in_mitts_git
 }

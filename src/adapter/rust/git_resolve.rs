@@ -21,6 +21,7 @@ use super::git_source::{resolve_reference, GitReference, GitSource, GitSourceSto
 use super::lockfile::CargoLockPackage;
 use super::manifest::CargoToml;
 use super::manifest_models::{TomlDependency, TomlDetailedDep};
+use super::registry_config::RegistryConfig;
 use super::resolver::ManifestDirectDep;
 use crate::core::cache_root::GIT_DIR;
 
@@ -35,17 +36,19 @@ pub struct GitResolution {
 
 pub struct GitResolver {
     store: GitSourceStore,
+    config: RegistryConfig,
     /// `(lock source, package name)` already collected; also breaks dependency cycles.
     seen: HashSet<(String, String)>,
 }
 
 impl GitResolver {
-    pub fn for_cache_dir(cache_dir: Option<&Path>) -> Self {
+    pub fn for_cache_dir(cache_dir: Option<&Path>, config: RegistryConfig) -> Self {
         let root = cache_dir
             .map(|c| c.join(GIT_DIR))
             .unwrap_or_else(GitSourceStore::default_root);
         Self {
             store: GitSourceStore::new(root),
+            config,
             seen: HashSet::new(),
         }
     }
@@ -127,10 +130,8 @@ impl GitResolver {
         for (dname, dval) in tables.flatten() {
             let listed = match dval {
                 TomlDependency::Simple(req) => {
-                    out.registry_deps.push(ManifestDirectDep {
-                        name: dname.clone(),
-                        req: req.clone(),
-                    });
+                    out.registry_deps
+                        .push(ManifestDirectDep::crates_io(dname.clone(), req.clone()));
                     dname.clone()
                 }
                 TomlDependency::Detailed(d) if d.path.is_some() => {
@@ -152,6 +153,11 @@ impl GitResolver {
                     out.registry_deps.push(ManifestDirectDep {
                         name: pkg.clone(),
                         req: d.version.clone().unwrap_or_else(|| "*".to_string()),
+                        source: self
+                            .config
+                            .lock_source_for_registry(d.registry.as_deref())?,
+                        features: d.features.clone().unwrap_or_default(),
+                        default_features: d.default_features.unwrap_or(true),
                     });
                     pkg
                 }

@@ -134,6 +134,7 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
             cksum: "hash1".to_string(),
             yanked: false,
             features: HashMap::new(),
+            features2: Default::default(),
         },
         SparseIndexEntry {
             name: "test-pkg".to_string(),
@@ -142,6 +143,7 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
             cksum: "hash2".to_string(),
             yanked: true, // Yanked version
             features: HashMap::new(),
+            features2: Default::default(),
         },
         SparseIndexEntry {
             name: "test-pkg".to_string(),
@@ -150,6 +152,7 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
             cksum: "hash3".to_string(),
             yanked: false,
             features: HashMap::new(),
+            features2: Default::default(),
         },
     ];
 
@@ -176,6 +179,7 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
         cksum: "h".to_string(),
         yanked: true,
         features: HashMap::new(),
+        features2: Default::default(),
     }];
     let err = select_best_version(&all_yanked, "^2.0").unwrap_err();
     assert!(err

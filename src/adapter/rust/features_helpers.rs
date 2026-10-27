@@ -25,11 +25,17 @@ fn is_registry_source(s: &str) -> bool {
     s.starts_with("registry+") || s.starts_with("sparse+")
 }
 
-fn matches_toml_dep_hint(cand: &PackageFeatureContext, dep: &TomlDependency) -> bool {
+/// `patched`: the root manifest's `[patch]` replaces this package, so a registry
+/// requirement is satisfied by a git or path package.
+fn matches_toml_dep_hint(
+    cand: &PackageFeatureContext,
+    dep: &TomlDependency,
+    patched: bool,
+) -> bool {
     match dep {
         TomlDependency::Simple(req_str) => {
             semver_or_prefix_matches(req_str, cand.version)
-                && cand.source.is_none_or(is_registry_source)
+                && (patched || cand.source.is_none_or(is_registry_source))
         }
         TomlDependency::Detailed(dt) => {
             let ver_ok = dt
@@ -41,7 +47,7 @@ fn matches_toml_dep_hint(cand: &PackageFeatureContext, dep: &TomlDependency) -> 
             } else if dt.git.is_some() {
                 cand.source.is_some_and(|s| s.starts_with("git+"))
             } else {
-                cand.source.is_some_and(is_registry_source)
+                patched || cand.source.is_some_and(is_registry_source)
             };
             ver_ok && src_ok
         }
@@ -60,6 +66,8 @@ pub struct FeatureGraphIndex<'a> {
     candidates_by_norm: HashMap<String, Vec<usize>>,
     ctx_dep_specs: Vec<HashMap<String, Vec<DepSpecEntry<'a>>>>,
     cfg_incompat_cache: HashMap<(String, bool), bool>,
+    /// Package names the root manifest's `[patch]` tables replace.
+    patched: std::collections::HashSet<String>,
 }
 
 impl<'a> FeatureGraphIndex<'a> {
@@ -105,6 +113,23 @@ impl<'a> FeatureGraphIndex<'a> {
             candidates_by_norm,
             ctx_dep_specs,
             cfg_incompat_cache: HashMap::new(),
+            patched: crate::adapter::rust::manifest::CargoToml::from_file(
+                &start_dir.join("Cargo.toml"),
+            )
+            .map(|t| {
+                t.patch
+                    .values()
+                    .flat_map(|tbl| tbl.iter())
+                    .map(|(n, d)| match d {
+                        TomlDependency::Detailed(dd) => {
+                            dd.package_name.clone().unwrap_or_else(|| n.clone())
+                        }
+                        _ => n.clone(),
+                    })
+                    .map(|n| n.replace('-', "_"))
+                    .collect()
+            })
+            .unwrap_or_default(),
         }
     }
 
@@ -188,7 +213,13 @@ impl<'a> FeatureGraphIndex<'a> {
                 let hinted: Vec<usize> = resolved_cands
                     .iter()
                     .copied()
-                    .filter(|&i| matches_toml_dep_hint(&self.packages[i], hint))
+                    .filter(|&i| {
+                        matches_toml_dep_hint(
+                            &self.packages[i],
+                            hint,
+                            self.patched.contains(&dep_name.replace('-', "_")),
+                        )
+                    })
                     .collect();
                 if hinted.len() == 1 {
                     return Ok(Some(self.pkg_ids[hinted[0]].clone()));
@@ -209,7 +240,13 @@ impl<'a> FeatureGraphIndex<'a> {
             let hinted: Vec<usize> = cand_indices
                 .iter()
                 .copied()
-                .filter(|&i| matches_toml_dep_hint(&self.packages[i], hint))
+                .filter(|&i| {
+                    matches_toml_dep_hint(
+                        &self.packages[i],
+                        hint,
+                        self.patched.contains(&dep_name.replace('-', "_")),
+                    )
+                })
                 .collect();
             if hinted.len() == 1 {
                 return Ok(Some(self.pkg_ids[hinted[0]].clone()));

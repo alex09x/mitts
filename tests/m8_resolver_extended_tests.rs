@@ -69,6 +69,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
         cksum: "cksum100".to_string(),
         yanked: true,
         features: Default::default(),
+        features2: Default::default(),
     })
     .unwrap();
 
@@ -85,6 +86,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
                 target: None,
                 kind: Some("normal".to_string()),
                 package: None,
+                registry: None,
             },
             SparseIndexDep {
                 name: "dev_dep".to_string(),
@@ -95,6 +97,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
                 target: None,
                 kind: Some("dev".to_string()),
                 package: None,
+                registry: None,
             },
             SparseIndexDep {
                 name: "opt_dep".to_string(),
@@ -105,11 +108,13 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
                 target: None,
                 kind: None,
                 package: None,
+                registry: None,
             },
         ],
         cksum: "cksum110".to_string(),
         yanked: false,
         features: Default::default(),
+        features2: Default::default(),
     })
     .unwrap();
 
@@ -120,6 +125,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
         cksum: "cksum120".to_string(),
         yanked: true,
         features: Default::default(),
+        features2: Default::default(),
     })
     .unwrap();
 
@@ -135,12 +141,13 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
         cksum: "cksum_sub".to_string(),
         yanked: false,
         features: Default::default(),
+        features2: Default::default(),
     })
     .unwrap();
     fs::write(&p_subdep, format!("{}\n", e_sub)).unwrap();
 
-    // 3. crate "opt_dep": version 0.1.0. Optional dependencies enter the lockfile
-    //    like in Cargo (a lockfile is resolved with every feature enabled).
+    // 3. crate "opt_dep": version 0.1.0. An optional dependency of a transitive package
+    //    enters the lockfile only when a feature turns it on, as in Cargo.
     let p_optdep = cache_dir.join("op").join("t_").join("opt_dep");
     fs::create_dir_all(p_optdep.parent().unwrap()).unwrap();
     let e_opt = serde_json::to_string(&SparseIndexEntry {
@@ -150,6 +157,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
         cksum: "cksum_opt".to_string(),
         yanked: false,
         features: Default::default(),
+        features2: Default::default(),
     })
     .unwrap();
     fs::write(&p_optdep, format!("{}\n", e_opt)).unwrap();
@@ -160,10 +168,13 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     let root_deps = vec![ManifestDirectDep {
         name: "dep_with_sub".to_string(),
         req: "^1.0".to_string(),
+        source: mitts::adapter::rust::registry_config::CRATES_IO_LOCK_SOURCE.to_string(),
+        features: Vec::new(),
+        default_features: true,
     }];
 
     let lock = resolver.resolve_dependencies(&root_deps, true).unwrap();
-    assert_eq!(lock.packages.len(), 3);
+    assert_eq!(lock.packages.len(), 2, "opt_dep is off: {:?}", lock.packages);
 
     let pkg_main = lock
         .packages
@@ -174,16 +185,30 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
         pkg_main.version, "1.1.0",
         "Must pick non-yanked 1.1.0 instead of yanked 1.2.0"
     );
-    let mut main_deps = pkg_main.dependencies.clone();
-    main_deps.sort();
     assert_eq!(
-        main_deps,
-        vec!["opt_dep", "sub_dep"],
-        "Must exclude dev deps but keep optional ones"
+        pkg_main.dependencies,
+        vec!["sub_dep"],
+        "dev and inactive optional dependencies stay out"
     );
-
     let pkg_sub = lock.packages.iter().find(|p| p.name == "sub_dep").unwrap();
     assert_eq!(pkg_sub.version, "0.1.5");
+
+    // Requesting the implicit feature `opt_dep` turns the optional dependency on.
+    let with_opt = vec![ManifestDirectDep {
+        name: "dep_with_sub".to_string(),
+        req: "^1.0".to_string(),
+        source: mitts::adapter::rust::registry_config::CRATES_IO_LOCK_SOURCE.to_string(),
+        features: vec!["opt_dep".to_string()],
+        default_features: true,
+    }];
+    let lock = resolver.resolve_dependencies(&with_opt, true).unwrap();
+    assert_eq!(lock.packages.len(), 3, "{:?}", lock.packages);
+    let pkg_main = lock
+        .packages
+        .iter()
+        .find(|p| p.name == "dep_with_sub")
+        .unwrap();
+    assert_eq!(pkg_main.dependencies, vec!["opt_dep", "sub_dep"]);
     let pkg_opt = lock.packages.iter().find(|p| p.name == "opt_dep").unwrap();
     assert_eq!(pkg_opt.version, "0.1.0");
 }

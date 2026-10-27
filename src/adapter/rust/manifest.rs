@@ -40,6 +40,9 @@ pub struct CargoToml {
     pub target: HashMap<String, TomlTargetSpec>,
     #[serde(default)]
     pub lints: Option<toml::Value>,
+    /// `[patch.<source>]` tables: source (`crates-io`, a registry name or URL) → package → override.
+    #[serde(default)]
+    pub patch: HashMap<String, HashMap<String, TomlDependency>>,
 }
 
 pub use super::manifest_models::*;

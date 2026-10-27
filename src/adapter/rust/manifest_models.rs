@@ -217,6 +217,8 @@ pub struct TomlDetailedDep {
     pub version: Option<String>,
     pub path: Option<String>,
     pub git: Option<String>,
+    /// `registry = "<name>"`: an alternative registry from `[registries]`.
+    pub registry: Option<String>,
     pub branch: Option<String>,
     pub tag: Option<String>,
     pub rev: Option<String>,
