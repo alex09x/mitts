@@ -68,8 +68,13 @@ fn staged_tmp(dst: &Path, tag: &str) -> Result<PathBuf> {
 }
 
 /// Attempts a copy-on-write clone of `src` at `tmp_dst` (APFS `clonefile`, Linux `FICLONE`).
+/// `MITTS_NO_REFLINK=1`: the diagnostic mode that measures a real byte copy.
+fn reflink_disabled() -> bool {
+    std::env::var_os("MITTS_NO_REFLINK").is_some()
+}
+
 fn try_reflink(src: &Path, tmp_dst: &Path) -> bool {
-    if std::env::var_os("MITTS_NO_REFLINK").is_some() {
+    if reflink_disabled() {
         return false;
     }
     #[cfg(target_os = "macos")]
@@ -179,7 +184,7 @@ pub fn restore_store_object(
         crate::core::metrics::record_hardlinked(file_size);
         return promote(&tmp_dst, dst);
     } else {
-        fs::copy(src, &tmp_dst)
+        copy_bytes(src, &tmp_dst)
             .with_context(|| format!("Failed to copy bytes from {:?} to {:?}", src, tmp_dst))?;
         crate::core::metrics::record_copied(file_size);
     }
@@ -191,6 +196,31 @@ pub fn restore_store_object(
         let _ = fs::set_permissions(&tmp_dst, fs::Permissions::from_mode(mode));
     }
     promote(&tmp_dst, dst)
+}
+
+/// The byte-copy fallback. `std::fs::copy` is the fast path, but on APFS it clones
+/// (`fclonefileat`) and on XFS with reflink the kernel turns `copy_file_range` into a
+/// clone as well, so with `MITTS_NO_REFLINK=1`, whose purpose is to measure what a real
+/// copy costs, the bytes go through user space and are physically written.
+fn copy_bytes(src: &Path, dst: &Path) -> std::io::Result<u64> {
+    if !reflink_disabled() {
+        return fs::copy(src, dst);
+    }
+    use std::io::{Read, Write};
+    let mut reader = fs::File::open(src)?;
+    let mut writer = fs::File::create(dst)?;
+    let mut buf = vec![0u8; 1 << 20];
+    let mut total = 0u64;
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buf[..n])?;
+        total += n as u64;
+    }
+    writer.flush()?;
+    Ok(total)
 }
 
 /// Recursively copies or reflinks an entire directory tree from `src` to `dst`.

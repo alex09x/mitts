@@ -169,5 +169,12 @@ flowchart TD
   `mitts build` only because the lock applies to Build and Check.
 - T4 `copy_fallback_stats_s` runs with `MITTS_NO_REFLINK=1 MITTS_STORE_HARDLINKS=0`; series
   recorded before that flag (≤ 0.3.6) compared reflink against a read-only store hardlink.
+  Series ≤ 0.3.8 still did not write bytes on APFS and XFS: `std::fs::copy` clones there
+  (`fclonefileat`; the kernel turns `copy_file_range` into a reflink on XFS), so
+  `copy_median_df_delta_mb` stayed 0 and the arm matched the CoW arm. With
+  `MITTS_NO_REFLINK=1` Mitts now copies through user space. In both arms
+  `io_stats.bytes_hardlinked` also counts the intra-workspace aliases
+  (`deps/lib<crate>-<hash>.rlib` → `deps/lib<crate>.rlib`, `deps/<bin>-<hash>` → `<bin>`),
+  which `MITTS_NO_HARDLINK=1` disables, not `MITTS_STORE_HARDLINKS=0`.
 - `t0_explain.timings_ms` describe the last of the timed runs, after an untimed run warmed
   the toolchain probe cache; series ≤ 0.3.6 report the first, cold run.
