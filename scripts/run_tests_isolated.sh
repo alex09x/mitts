@@ -42,7 +42,7 @@ done < <(env)
 
 cd "$repo"
 status=0
-env "${drop[@]}" \
+env ${drop[@]+"${drop[@]}"} \
   HOME="$sandbox" \
   XDG_CACHE_HOME="$sandbox/xdg" \
   CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \

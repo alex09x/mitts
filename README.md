@@ -162,6 +162,10 @@ Every other way Cargo gets a crate works the same way, from the same config:
   replaces the registry package; without a lockfile the replacement is
   resolved and pinned, and it has to satisfy the requirement, as with Cargo.
 
+`[env]` in a Cargo config is applied to rustc, build scripts and the programs
+`mitts run` and `mitts test` start, with Cargo's `force` and `relative` rules;
+the config files are inputs, so a changed value rebuilds what read it.
+
 Without a `Cargo.lock`, Mitts resolves one the way Cargo does: highest
 non-yanked version per requirement, features flowing along the edges, an
 optional dependency included only when a feature turns it on, one version per

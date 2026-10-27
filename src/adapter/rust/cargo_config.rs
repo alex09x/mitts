@@ -9,9 +9,10 @@
  */
 
 use anyhow::{Context, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 /// Finds the configuration file in `dir`, preferring bare `config` over `config.toml`.
 fn find_configs_in_dir(dir: &Path) -> Vec<PathBuf> {
@@ -170,15 +171,6 @@ fn extract_rustflags_from_toml(
         Some(effective_target)
     };
 
-    if let Some(first_key) = val.get("env").and_then(|e| e.as_table()?.keys().next()) {
-        return Err(super::types::RustAdapterError::UnsupportedOption(format!(
-            "env.{} in {}",
-            first_key,
-            config_path.display()
-        ))
-        .into());
-    }
-
     let check_target_fields = |key: &str, tbl: &toml::Value| -> Result<()> {
         for field in ["linker", "runner"] {
             if tbl.get(field).is_some() {
@@ -324,6 +316,78 @@ pub fn load_cargo_config_build_target(start_dir: &Path) -> Result<Option<String>
         }
     }
     Ok(None)
+}
+
+type ConfigEnv = Vec<(String, String)>;
+static CONFIG_ENV: OnceLock<Mutex<HashMap<PathBuf, ConfigEnv>>> = OnceLock::new();
+
+/// The `[env]` tables of every Cargo config that applies to `start_dir`, with Cargo's
+/// rules: a later (closer) file overrides an earlier one, `force = true` overrides a
+/// variable the environment already has (otherwise it is left alone), `relative = true`
+/// resolves the value against the parent of the config's `.cargo` directory. Cached per
+/// directory for the process.
+pub fn load_cargo_config_env(start_dir: &Path) -> ConfigEnv {
+    let cache = CONFIG_ENV.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(found) = cache.lock().unwrap().get(start_dir) {
+        return found.clone();
+    }
+    let mut merged: ConfigEnv = Vec::new();
+    for path in discover_cargo_config_files(start_dir) {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(value) = toml::from_str::<toml::Value>(&text) else {
+            continue;
+        };
+        let Some(table) = value.get("env").and_then(|e| e.as_table()) else {
+            continue;
+        };
+        let base = path
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        for (name, spec) in table {
+            let (raw, force, relative) = match spec {
+                toml::Value::String(v) => (v.clone(), false, false),
+                toml::Value::Table(t) => (
+                    t.get("value")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    t.get("force").and_then(|v| v.as_bool()).unwrap_or(false),
+                    t.get("relative").and_then(|v| v.as_bool()).unwrap_or(false),
+                ),
+                _ => continue,
+            };
+            if !force && std::env::var_os(name).is_some() {
+                continue;
+            }
+            let val = if relative {
+                base.join(&raw).to_string_lossy().into_owned()
+            } else {
+                raw
+            };
+            merged.retain(|(k, _)| k != name);
+            merged.push((name.clone(), val));
+        }
+    }
+    merged.sort();
+    cache
+        .lock()
+        .unwrap()
+        .insert(start_dir.to_path_buf(), merged.clone());
+    merged
+}
+
+/// A variable as a process spawned for `start_dir` would see it: `[env]` first, then the
+/// environment Mitts itself runs in.
+pub fn config_env_lookup(start_dir: &Path, var: &str) -> Option<String> {
+    load_cargo_config_env(start_dir)
+        .into_iter()
+        .find(|(k, _)| k == var)
+        .map(|(_, v)| v)
+        .or_else(|| std::env::var(var).ok())
 }
 
 #[cfg(test)]

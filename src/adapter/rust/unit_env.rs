@@ -40,6 +40,9 @@ pub fn compute_unit_rustc_env_with_target(
 
     let (major, minor, patch, pre) = parse_version_parts(&unit.version);
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    // `[env]` from the Cargo configs that apply to the package; Cargo's own variables below
+    // take precedence over it, as they do with Cargo.
+    env.extend(super::cargo_config::load_cargo_config_env(pkg_dir));
 
     if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
         env.insert("RUSTUP_TOOLCHAIN".to_string(), tc);
@@ -254,6 +257,9 @@ pub fn apply_runtime_execution_env(
     release: bool,
 ) {
     let mut merged = existing_env.clone();
+    for (k, v) in super::cargo_config::load_cargo_config_env(pkg_dir) {
+        merged.entry(k).or_insert(v);
+    }
     merged
         .entry("CARGO_MANIFEST_DIR".to_string())
         .or_insert_with(|| pkg_dir.to_string_lossy().to_string());

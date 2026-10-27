@@ -396,7 +396,8 @@ split-debuginfo = "packed"
         adapter_err
     );
 
-    // 2. Unsupported .cargo/config.toml [env] must return RustAdapterError::UnsupportedOption.
+    // 2. A .cargo/config.toml [env] table is supported (Cargo semantics) and must not make
+    //    the config unreadable.
     fs::write(
         &manifest,
         "[package]\nname = \"b4_pkg\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -406,16 +407,11 @@ split-debuginfo = "packed"
     fs::create_dir_all(&cargo_dir).unwrap();
     let cfg_file = cargo_dir.join("config.toml");
     fs::write(&cfg_file, "[env]\nCUSTOM_CFG_VAR = \"1\"\n").unwrap();
-    let cfg_err = mitts::adapter::rust::cargo_config::load_cargo_config_rustflags(dir.path(), None)
-        .unwrap_err();
-    let cfg_adapter_err = cfg_err
-        .downcast_ref::<RustAdapterError>()
-        .expect("Expected RustAdapterError");
-    assert!(
-        matches!(cfg_adapter_err, RustAdapterError::UnsupportedOption(msg)
-            if msg.contains("env.CUSTOM_CFG_VAR") && msg.contains("config.toml")),
-        "Unexpected error: {:?}",
-        cfg_adapter_err
+    mitts::adapter::rust::cargo_config::load_cargo_config_rustflags(dir.path(), None)
+        .expect("[env] in a Cargo config is accepted");
+    assert_eq!(
+        mitts::adapter::rust::cargo_config::load_cargo_config_env(dir.path()),
+        vec![("CUSTOM_CFG_VAR".to_string(), "1".to_string())]
     );
     fs::remove_file(&cfg_file).unwrap();
 

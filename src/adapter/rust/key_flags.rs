@@ -348,9 +348,9 @@ pub fn compute_unit_flags_with_ws(
             let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
             format!("ENV_MACRO:CARGO={}", cargo_bin)
         } else {
-            match std::env::var(var) {
-                Ok(val) => format!("ENV_MACRO:{}={}", var, val),
-                Err(_) => format!("ENV_MACRO:{}=<unset>", var),
+            match super::cargo_config::config_env_lookup(pkg_dir, var) {
+                Some(val) => format!("ENV_MACRO:{}={}", var, val),
+                None => format!("ENV_MACRO:{}=<unset>", var),
             }
         };
         u_flags.push(entry);
