@@ -38,6 +38,7 @@ pub mod env_macro_scope;
 pub mod features;
 pub mod features_helpers;
 pub mod fetcher;
+pub mod git_resolve;
 pub mod git_source;
 pub mod inputs;
 pub mod key;

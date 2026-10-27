@@ -26,6 +26,8 @@ pub struct ManifestDirectDep {
 /// Standalone native dependency resolver evaluating crates.io sparse index.
 pub struct NativeResolver {
     index_client: SparseIndexClient,
+    /// Cache root whose `git/` holds the mirrors used to resolve git dependencies.
+    cache_dir: Option<std::path::PathBuf>,
 }
 
 impl NativeResolver {
@@ -39,12 +41,16 @@ impl NativeResolver {
     pub fn for_cache_dir(cache_dir: Option<&Path>) -> Result<Self> {
         Ok(Self {
             index_client: SparseIndexClient::for_cache_dir(cache_dir)?,
+            cache_dir: cache_dir.map(Path::to_path_buf),
         })
     }
 
     /// Custom index client for tests or isolated environments.
     pub fn with_client(index_client: SparseIndexClient) -> Self {
-        Self { index_client }
+        Self {
+            index_client,
+            cache_dir: None,
+        }
     }
 
     /// Resolves dependencies from a Cargo.toml manifest directly into a valid CargoLock.
@@ -56,6 +62,9 @@ impl NativeResolver {
         let mut path_deps = Vec::new();
         let mut remote_deps = Vec::new();
         let mut member_deps: HashMap<String, Vec<String>> = HashMap::new();
+        let mut git_resolver =
+            super::git_resolve::GitResolver::for_cache_dir(self.cache_dir.as_deref());
+        let mut git_out = super::git_resolve::GitResolution::default();
 
         if let Ok(toml) = CargoToml::from_file(manifest_path) {
             let mut manifests = vec![(manifest_dir.to_path_buf(), toml.clone())];
@@ -112,10 +121,13 @@ impl NativeResolver {
                                 }
                             }
                         }
-                        // NativeResolver only resolves crates.io sparse-index packages; git dependencies
-                        // require an existing Cargo.lock (`cargo generate-lockfile` / `cargo fetch`).
+                        // A git dependency is pinned to the commit its tag, branch or rev names
+                        // right now; its own dependencies join the resolution below.
                         // Optional dependencies stay in: Cargo.lock is feature-independent.
-                        TomlDependency::Detailed(d) if d.git.is_some() => {}
+                        TomlDependency::Detailed(d) if d.git.is_some() => {
+                            let name = git_resolver.resolve(dep_name, d, offline, &mut git_out)?;
+                            m_dep_list.push(name);
+                        }
                         TomlDependency::Simple(req) => {
                             m_dep_list.push(dep_name.clone());
                             if !local_names.contains(dep_name) {
@@ -147,7 +159,10 @@ impl NativeResolver {
             remote_deps = extract_dependencies_with_reqs(&manifest_content);
         }
 
+        let direct_remote_names: Vec<String> = remote_deps.iter().map(|d| d.name.clone()).collect();
+        remote_deps.append(&mut git_out.registry_deps);
         let mut lock = self.resolve_dependencies(&remote_deps, offline)?;
+        lock.packages.append(&mut git_out.packages);
         path_deps.sort();
         path_deps.dedup();
         for (p_name, p_ver) in &path_deps {
@@ -161,11 +176,14 @@ impl NativeResolver {
         }
         if let Some((root_name, root_version)) = extract_root_package(&manifest_content) {
             if !path_deps.iter().any(|(n, _)| n == &root_name) {
-                let mut root_dep_names: Vec<String> = remote_deps
-                    .iter()
-                    .map(|d| d.name.clone())
-                    .chain(path_deps.iter().map(|(n, _)| n.clone()))
-                    .collect();
+                let mut root_dep_names: Vec<String> = match member_deps.remove(&root_name) {
+                    Some(listed) => listed,
+                    None => direct_remote_names
+                        .iter()
+                        .cloned()
+                        .chain(path_deps.iter().map(|(n, _)| n.clone()))
+                        .collect(),
+                };
                 root_dep_names.sort();
                 root_dep_names.dedup();
                 lock.packages.push(CargoLockPackage {

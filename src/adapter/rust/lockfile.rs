@@ -182,7 +182,26 @@ impl CargoLock {
                         }
                     }
                     super::manifest::TomlDependency::Detailed(d) => {
-                        if d.optional.unwrap_or(false) || d.path.is_some() || d.git.is_some() {
+                        if d.optional.unwrap_or(false) || d.path.is_some() {
+                            continue;
+                        }
+                        if let Some(url) = d.git.as_deref() {
+                            // The locked commit must come from this URL at this tag/branch/rev;
+                            // a changed reference re-resolves like `cargo update` would.
+                            let pkg_name = d.package_name.as_ref().unwrap_or(dep_name);
+                            let want = match (&d.tag, &d.branch, &d.rev) {
+                                (Some(t), _, _) => format!("git+{url}?tag={t}#"),
+                                (_, Some(b), _) => format!("git+{url}?branch={b}#"),
+                                (_, _, Some(r)) => format!("git+{url}?rev={r}#"),
+                                _ => format!("git+{url}#"),
+                            };
+                            let pinned = self.packages.iter().any(|p| {
+                                &p.name == pkg_name
+                                    && p.source.as_deref().is_some_and(|s| s.starts_with(&want))
+                            });
+                            if !pinned {
+                                return Ok(false);
+                            }
                             continue;
                         }
                         let pkg_name = d.package_name.as_ref().unwrap_or(dep_name);

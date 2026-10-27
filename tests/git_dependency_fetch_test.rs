@@ -11,7 +11,8 @@
 //! Git dependencies are cloned by Mitts itself: no Cargo checkout exists anywhere, the
 //! lockfile pins a commit of a local bare repository, and `mitts build` has to bring it in
 //! with the system `git`, find both packages of the repository (root and `crates/`), build,
-//! hit the cache on the second run, and refuse to clone when offline.
+//! hit the cache on the second run, and refuse to clone when offline. Without a lockfile,
+//! Mitts resolves the tag (or the default branch) to a commit itself and writes the lock.
 
 #![cfg(unix)]
 
@@ -62,10 +63,11 @@ fn make_dep_repo(root: &Path) -> (String, String) {
         "pub fn n() -> u32 { 42 }\n",
     )
     .unwrap();
-    git(&work, &["init", "-q"]);
+    git(&work, &["init", "-q", "-b", "main"]);
     git(&work, &["add", "."]);
     git(&work, &["commit", "-q", "-m", "greet 0.2.0"]);
-    git(&work, &["tag", "v0.2.0"]);
+    // Annotated: the lockfile must pin the tagged commit, not the tag object.
+    git(&work, &["tag", "-a", "v0.2.0", "-m", "release 0.2.0"]);
     let sha = git(&work, &["rev-parse", "HEAD"]);
     let bare = root.join("greet.git");
     git(root, &["clone", "-q", "--bare", "greet_work", "greet.git"]);
@@ -208,4 +210,59 @@ fn offline_mode_refuses_to_clone_and_names_the_repository() {
 
     let (ok, text) = mitts(&["fetch", "--offline"], &app, &cache, &cargo_home);
     assert!(ok, "offline fetch after the clone succeeds:\n{text}");
+}
+
+#[test]
+fn without_a_lockfile_git_dependencies_are_pinned_and_written_to_cargo_lock() {
+    let temp = TempDir::new().unwrap();
+    let (url, sha) = make_dep_repo(temp.path());
+    let app = temp.path().join("app");
+    write_consumer(&app, &url, &sha);
+    fs::remove_file(app.join("Cargo.lock")).unwrap();
+    // `greet` by tag, `inner` from the default branch: both must pin the same commit.
+    fs::write(
+        app.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ngreet = {{ git = \"{url}\", tag = \"v0.2.0\" }}\ninner = {{ git = \"{url}\" }}\n"
+        ),
+    )
+    .unwrap();
+    let cargo_home = temp.path().join("empty_cargo_home");
+    fs::create_dir_all(&cargo_home).unwrap();
+    let cache = temp.path().join("cache");
+
+    let (ok, text) = mitts(&["build"], &app, &cache, &cargo_home);
+    assert!(
+        ok,
+        "build without Cargo.lock must resolve the git deps:\n{text}"
+    );
+    let lock = fs::read_to_string(app.join("Cargo.lock")).unwrap();
+    assert!(
+        lock.contains(&format!("source = \"git+{url}?tag=v0.2.0#{sha}\"")),
+        "greet pinned by tag:\n{lock}"
+    );
+    assert!(
+        lock.contains(&format!("source = \"git+{url}#{sha}\"")),
+        "inner pinned from the default branch:\n{lock}"
+    );
+    assert_eq!(
+        checkout_markers(&cache).len(),
+        1,
+        "one checkout for one commit"
+    );
+    let run = Command::new(app.join("target/mitts/debug/app"))
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim(),
+        "hi from git 42"
+    );
+
+    // The written lockfile is accepted as is: no re-resolution, full cache hit.
+    let (ok, text) = mitts(&["build"], &app, &cache, &cargo_home);
+    assert!(ok && text.contains("100% cache hit"), "{text}");
+    assert_eq!(fs::read_to_string(app.join("Cargo.lock")).unwrap(), lock);
+
+    // An existing lockfile stays authoritative for `mitts build`, as for registry
+    // dependencies; `mitts fetch` re-resolves when the manifest's tag, branch or rev moved.
 }

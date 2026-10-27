@@ -217,6 +217,9 @@ pub struct TomlDetailedDep {
     pub version: Option<String>,
     pub path: Option<String>,
     pub git: Option<String>,
+    pub branch: Option<String>,
+    pub tag: Option<String>,
+    pub rev: Option<String>,
     pub features: Option<Vec<String>>,
     #[serde(rename = "default-features", alias = "default_features")]
     pub default_features: Option<bool>,

@@ -121,6 +121,69 @@ impl GitSource {
     pub fn short_rev(&self) -> &str {
         &self.precise[..self.precise.len().min(7)]
     }
+
+    /// The `source` string Cargo writes for this dependency in `Cargo.lock`.
+    pub fn lock_source(&self) -> String {
+        let query = match &self.reference {
+            GitReference::Tag(t) => format!("?tag={t}"),
+            GitReference::Branch(b) => format!("?branch={b}"),
+            GitReference::Rev(r) => format!("?rev={r}"),
+            GitReference::Default => String::new(),
+        };
+        format!("git+{}{}#{}", self.url, query, self.precise)
+    }
+}
+
+/// `git ls-remote <url> <patterns…>`: `(commit, ref name)` pairs as the server advertises
+/// them. An annotated tag's peeled entry (`refs/tags/x^{}`) is listed only when asked for.
+pub fn ls_remote(url: &str, patterns: &[&str]) -> Result<Vec<(String, String)>> {
+    let mut args = vec!["ls-remote", url];
+    args.extend_from_slice(patterns);
+    let out = run_git(None, &args)?;
+    Ok(out
+        .lines()
+        .filter_map(|l| {
+            let (sha, name) = l.split_once('\t')?;
+            Some((sha.trim().to_string(), name.trim().to_string()))
+        })
+        .collect())
+}
+
+/// Turns a manifest's tag, branch or revision into the commit the lockfile will pin.
+/// Annotated tags resolve to the tagged commit (the `^{}` peeled entry), as Cargo does.
+pub fn resolve_reference(
+    store: &GitSourceStore,
+    url: &str,
+    reference: &GitReference,
+    offline: bool,
+) -> Result<String> {
+    let is_full_sha = |s: &str| s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit());
+    if let GitReference::Rev(r) = reference {
+        if is_full_sha(r) {
+            return Ok(r.to_lowercase());
+        }
+    }
+    if offline {
+        bail!(
+            "git dependency {url}: resolving {reference:?} to a commit needs the network and offline mode was requested"
+        );
+    }
+    let pattern = match reference {
+        GitReference::Tag(t) => format!("refs/tags/{t}"),
+        GitReference::Branch(b) => format!("refs/heads/{b}"),
+        GitReference::Default => "HEAD".to_string(),
+        GitReference::Rev(r) => return store.resolve_rev(url, r),
+    };
+    let peeled = format!("{pattern}^{{}}");
+    let found = ls_remote(url, &[&pattern, &peeled])
+        .with_context(|| format!("git dependency {url}: listing {pattern}"))?;
+    let pick = found
+        .iter()
+        .find(|(_, name)| *name == peeled)
+        .or_else(|| found.iter().find(|(_, name)| *name == pattern))
+        .or_else(|| found.first())
+        .map(|(sha, _)| sha.clone());
+    pick.ok_or_else(|| anyhow!("git dependency {url}: {pattern} not found on the remote"))
 }
 
 /// The git half of a cache root: mirrors and checkouts under `<cache root>/git/`.
@@ -169,6 +232,44 @@ impl GitSourceStore {
 
     pub fn has_checkout(&self, src: &GitSource) -> bool {
         self.checkout_dir(src).join(MITTS_OK_MARKER).is_file()
+    }
+
+    /// Resolves an abbreviated or symbolic `rev` by fetching every ref into the mirror and
+    /// asking git; a remote cannot answer `ls-remote` for a partial SHA.
+    pub fn resolve_rev(&self, url: &str, rev: &str) -> Result<String> {
+        let probe = GitSource {
+            url: url.to_string(),
+            reference: GitReference::Rev(rev.to_string()),
+            precise: rev.to_string(),
+        };
+        let db = self.db_dir(&probe);
+        let locks = self.root.join(".locks");
+        fs::create_dir_all(&locks)?;
+        let _lock = FileLock::acquire_exclusive_timeout(
+            &locks.join(format!("{}.lock", probe.repo_dir_name())),
+            Duration::from_secs(1800),
+        )?;
+        if !db.join("HEAD").is_file() {
+            fs::create_dir_all(&db)?;
+            run_git(None, &["init", "--quiet", "--bare", &db.to_string_lossy()])?;
+        }
+        run_git(
+            Some(&db),
+            &[
+                "fetch",
+                "--quiet",
+                "--tags",
+                url,
+                "+refs/heads/*:refs/remotes/origin/*",
+            ],
+        )
+        .with_context(|| format!("git dependency {url}: fetching to resolve rev {rev}"))?;
+        let sha = run_git(
+            Some(&db),
+            &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
+        )
+        .with_context(|| format!("git dependency {url}: rev {rev} not found"))?;
+        Ok(sha.trim().to_string())
     }
 
     /// Returns the checkout of the locked commit, cloning or fetching it first unless `offline`.
