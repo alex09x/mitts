@@ -141,11 +141,16 @@ made under `~/.cargo/git/checkouts` is reused instead of cloned again.
 Every other way Cargo gets a crate works the same way, from the same config:
 
 - **Alternative registries**: `[registries.<name>] index = "sparse+https://…"`
-  and `registry = "<name>"` on the dependency. Tokens come from
-  `CARGO_REGISTRIES_<NAME>_TOKEN`, `[registries.<name>] token` or
-  `$CARGO_HOME/credentials.toml`; a registry whose `config.json` says
-  `auth-required` fails with a clear message when none is set. Git-index
-  registries are refused: use the sparse protocol.
+  and `registry = "<name>"` on the dependency. Tokens come from Cargo's
+  credential providers, in Cargo's order: `cargo:token` (the environment and
+  `credentials.toml`), `cargo:macos-keychain`, `cargo:libsecret`,
+  `cargo:token-from-stdout <command>`, and plugins such as
+  `cargo-credential-1password` through the credential provider protocol,
+  configured by `[registry] global-credential-providers`,
+  `[registries.<name>] credential-provider` and `[credential-alias]`. A registry
+  whose `config.json` says `auth-required` fails with a clear message when no
+  provider has a token. Git-index registries are refused: use the sparse
+  protocol.
 - **Mirrors**: `[source.crates-io] replace-with = "<name>"` with
   `[source.<name>] registry = "sparse+https://…"`. Bytes come from the mirror,
   `Cargo.lock` keeps naming crates.io, exactly as Cargo writes it.
@@ -295,8 +300,8 @@ Mitts is pre-release. Know these before you rely on it:
 - **Sparse registries only.** A registry served as a git index (`registry+…`
   other than crates.io, or `[source] registry = "https://…"` without
   `sparse+`) and `local-registry` sources are refused with advice.
-- **Credential providers.** Only `cargo:token` (a token in `credentials.toml`
-  or the environment) is read; keychain and custom providers are not run.
+- **Credentials are read, never written.** `cargo login` stays Cargo's job;
+  `cargo:wincred` is Windows-only and skipped.
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.

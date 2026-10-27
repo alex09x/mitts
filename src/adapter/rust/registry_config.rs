@@ -18,6 +18,8 @@ use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use super::credential_provider::{self, ProviderSpec, RegistryRef};
+
 /// The source id Cargo writes for crates.io packages.
 pub const CRATES_IO_LOCK_SOURCE: &str = "registry+https://github.com/rust-lang/crates.io-index";
 /// The sparse index crates.io serves.
@@ -62,6 +64,12 @@ pub struct RegistryConfig {
     /// Registry name → token from config or credentials.
     tokens: HashMap<String, String>,
     sources: HashMap<String, SourceEntry>,
+    /// `[registry] global-credential-providers`, as listed (later entries win).
+    global_providers: Option<Vec<ProviderSpec>>,
+    /// `[registries.<name>] credential-provider`.
+    providers: HashMap<String, ProviderSpec>,
+    /// `[credential-alias]`.
+    aliases: HashMap<String, ProviderSpec>,
 }
 
 impl RegistryConfig {
@@ -101,6 +109,30 @@ impl RegistryConfig {
                 if let Some(index) = def.get("index").and_then(|i| i.as_str()) {
                     self.registries
                         .insert(name.clone(), index_to_lock_source(index));
+                }
+                if let Some(spec) = def
+                    .get("credential-provider")
+                    .and_then(credential_provider::spec_from_toml)
+                {
+                    self.providers.insert(name.clone(), spec);
+                }
+            }
+        }
+        if let Some(list) = value
+            .get("registry")
+            .and_then(|r| r.get("global-credential-providers"))
+            .and_then(|v| v.as_array())
+        {
+            self.global_providers = Some(
+                list.iter()
+                    .filter_map(credential_provider::spec_from_toml)
+                    .collect(),
+            );
+        }
+        if let Some(aliases) = value.get("credential-alias").and_then(|v| v.as_table()) {
+            for (alias, spec) in aliases {
+                if let Some(spec) = credential_provider::spec_from_toml(spec) {
+                    self.aliases.insert(alias.clone(), spec);
                 }
             }
         }
@@ -176,12 +208,64 @@ impl RegistryConfig {
             .map(|(n, _)| n.clone())
     }
 
-    /// The token for a sparse index, if one is configured anywhere Cargo would look.
-    pub fn token_for_index(&self, lock_source: &str) -> Option<String> {
-        let name = self.registry_name_for(lock_source)?;
-        std::env::var(Self::env_key(&name, "TOKEN"))
+    /// Expands a `[credential-alias]` and splits a string spec on spaces.
+    fn expand_alias(&self, spec: ProviderSpec) -> ProviderSpec {
+        match spec.first().and_then(|first| self.aliases.get(first)) {
+            Some(alias) if spec.len() == 1 => alias.clone(),
+            _ => spec,
+        }
+    }
+
+    /// The providers to try for a registry, highest precedence first: the registry's own
+    /// `credential-provider`, else the global list reversed, else `cargo:token`.
+    pub fn providers_for(&self, name: Option<&str>) -> Vec<ProviderSpec> {
+        if let Some(name) = name {
+            let from_env = std::env::var(Self::env_key(name, "CREDENTIAL_PROVIDER"))
+                .ok()
+                .map(|v| v.split_whitespace().map(str::to_string).collect::<Vec<_>>());
+            if let Some(spec) = from_env.or_else(|| self.providers.get(name).cloned()) {
+                return vec![self.expand_alias(spec)];
+            }
+        }
+        let global = std::env::var("CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS")
             .ok()
-            .or_else(|| self.tokens.get(&name).cloned())
+            .map(|v| {
+                v.split_whitespace()
+                    .map(|p| vec![p.to_string()])
+                    .collect::<Vec<_>>()
+            })
+            .or_else(|| self.global_providers.clone())
+            .unwrap_or_else(|| vec![vec!["cargo:token".to_string()]]);
+        global
+            .into_iter()
+            .rev()
+            .map(|spec| self.expand_alias(spec))
+            .collect()
+    }
+
+    /// The token for a sparse index through the configured credential providers.
+    pub fn token_for_index(&self, lock_source: &str) -> Result<Option<String>> {
+        let name = self.registry_name_for(lock_source);
+        let index_url = if is_crates_io(lock_source) {
+            "https://github.com/rust-lang/crates.io-index".to_string()
+        } else {
+            lock_source.to_string()
+        };
+        let providers = self.providers_for(name.as_deref());
+        let from_file = || {
+            let name = name.as_deref()?;
+            std::env::var(Self::env_key(name, "TOKEN"))
+                .ok()
+                .or_else(|| self.tokens.get(name).cloned())
+        };
+        credential_provider::token_for(
+            &providers,
+            &RegistryRef {
+                name: name.as_deref(),
+                index_url: &index_url,
+            },
+            &from_file,
+        )
     }
 
     fn source_name_for(&self, lock_source: &str) -> Option<String> {
@@ -240,9 +324,11 @@ impl RegistryConfig {
 
     fn sparse_from(&self, registry_source: &str, lock_source: &str) -> Result<EffectiveSource> {
         if let Some(url) = registry_source.strip_prefix("sparse+") {
-            let token = self
-                .token_for_index(registry_source)
-                .or_else(|| self.token_for_index(lock_source));
+            let token = match self.token_for_index(registry_source)? {
+                Some(t) => Some(t),
+                None if registry_source != lock_source => self.token_for_index(lock_source)?,
+                None => None,
+            };
             return Ok(EffectiveSource::Sparse {
                 index_url: url.trim_end_matches('/').to_string(),
                 token,

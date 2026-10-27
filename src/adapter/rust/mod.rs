@@ -37,6 +37,7 @@ pub mod env_macro_cache;
 pub mod env_macro_scope;
 pub mod features;
 pub mod features_helpers;
+pub mod credential_provider;
 pub mod fetcher;
 pub mod git_resolve;
 pub mod patch_resolve;
