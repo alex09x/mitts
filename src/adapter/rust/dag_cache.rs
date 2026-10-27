@@ -337,6 +337,14 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                 ctx.completed_link_args,
             );
         }
+        // A restored unit passes its dependencies' link-search directories on like a
+        // compiled one does: a dependent compiled later in this build links against them.
+        let empty_dirs = BuildScriptDirectives::default();
+        let _ = super::dag_unit_build_script::inherit_dep_link_searches(
+            unit,
+            effective_dirs.as_ref().unwrap_or(&empty_dirs),
+            ctx.completed_link_args,
+        );
 
         for msg in [&entry.stdout, &entry.stderr] {
             if !msg.is_empty() {

@@ -19,24 +19,33 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
-/// `app` (tests) → `nat` (lib with a build script that compiles `libforty` as a shared
-/// library in its OUT_DIR and links it as `dylib`).
+/// `app` (tests) → `mid` (plain lib) → `nat` (lib with a build script that compiles
+/// `libforty` as a shared library in its OUT_DIR and links it as `dylib`). The plain
+/// crate in the middle is the one that must pass the directory on, and it must do so
+/// whether it was compiled or restored from the cache.
 fn write_project(dir: &Path) {
-    for sub in ["src", "tests", "nat/src"] {
+    for sub in ["src", "tests", "mid/src", "nat/src"] {
         fs::create_dir_all(dir.join(sub)).unwrap();
     }
     fs::write(
         dir.join("Cargo.toml"),
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
-         [dependencies]\nnat = { path = \"nat\" }\n\n[workspace]\nmembers = [\"nat\"]\n",
+         [dependencies]\nmid = { path = \"mid\" }\n\n[workspace]\nmembers = [\"mid\", \"nat\"]\n",
     )
     .unwrap();
-    fs::write(dir.join("src/lib.rs"), "pub fn answer() -> i32 { unsafe { nat::forty_two() } }\n").unwrap();
+    fs::write(dir.join("src/lib.rs"), "pub fn answer() -> i32 { mid::value() }\n").unwrap();
     fs::write(
         dir.join("tests/link.rs"),
         "#[test]\nfn links_the_native_library_of_a_dependency() { assert_eq!(app::answer(), 42); }\n",
     )
     .unwrap();
+    fs::write(
+        dir.join("mid/Cargo.toml"),
+        "[package]\nname = \"mid\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nnat = { path = \"../nat\" }\n",
+    )
+    .unwrap();
+    fs::write(dir.join("mid/src/lib.rs"), "pub fn value() -> i32 { unsafe { nat::forty_two() } }\n").unwrap();
     fs::write(
         dir.join("nat/Cargo.toml"),
         "[package]\nname = \"nat\"\nversion = \"0.1.0\"\nedition = \"2021\"\nbuild = \"build.rs\"\n",
@@ -83,19 +92,35 @@ fn a_test_binary_links_a_dylib_found_through_a_dependency_build_script() {
     let dir = TempDir::new().unwrap();
     write_project(dir.path());
 
-    let out = Command::new(env!("CARGO_BIN_EXE_mitts"))
-        .args(["test", "--no-run", "--manifest-path"])
-        .arg(dir.path().join("Cargo.toml"))
-        .arg("--cache-dir")
-        .arg(cache.path())
-        .env("CI", "true")
-        .env_remove("MITTS_CACHE_DIR")
-        .output()
-        .expect("run mitts");
-    assert!(
-        out.status.success(),
-        "the test executable links libforty through nat's search directory:\n{}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let run = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["test", "--no-run", "--manifest-path"])
+            .arg(dir.path().join("Cargo.toml"))
+            .arg("--cache-dir")
+            .arg(cache.path())
+            .env("CI", "true")
+            .env_remove("MITTS_CACHE_DIR")
+            .output()
+            .expect("run mitts");
+        (
+            out.status.success(),
+            format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ),
+        )
+    };
+    let (ok, text) = run();
+    assert!(ok, "the test executable links libforty through nat's search directory:\n{text}");
+
+    // Warm: `nat` and `mid` come back from the cache, only the edited test is compiled
+    // and linked. The restored `mid` must still hand `nat`'s directory on.
+    fs::write(
+        dir.path().join("tests/link.rs"),
+        "#[test]\nfn links_after_an_edit() { assert_eq!(app::answer() + 1, 43); }\n",
+    )
+    .unwrap();
+    let (ok, text) = run();
+    assert!(ok, "a test linked against cached dependencies finds the library too:\n{text}");
 }
