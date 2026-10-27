@@ -122,12 +122,12 @@ def benchmark_single_project(
                 pairs = [(cow_runs, env_cow), (copy_runs, env_copy)] if it_idx % 2 == 0 else [(copy_runs, env_copy), (cow_runs, env_cow)]
                 for bucket, env_m in pairs:
                     chmod_rmtree(src_dir / "target")
-                    _, b_before = get_device_bytes_written([src_dir, proj_cache])
                     sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
+                    _, b_before = get_device_bytes_written([src_dir, proj_cache])
                     df_b = get_df_used_mb([proj_work, proj_cache])
                     r_ab = run_timed(cow_cmd, cwd=src_dir, env=env_m)
-                    _, b_after = get_device_bytes_written([src_dir, proj_cache])
                     sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
+                    _, b_after = get_device_bytes_written([src_dir, proj_cache])
                     df_a = get_df_used_mb([proj_work, proj_cache])
                     r_ab["device_mb_written"] = round((b_after - b_before) / (1024.0 * 1024.0), 1) if (b_before is not None and b_after is not None) else None
                     r_ab["df_used_delta_mb"] = round(df_a - df_b, 1) if (df_b is not None and df_a is not None) else None
