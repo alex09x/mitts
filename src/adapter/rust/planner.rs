@@ -20,6 +20,11 @@ use std::path::{Path, PathBuf};
 
 /// Derives the effective build plan and compilation units natively without invoking Cargo.
 pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplanation> {
+    // `mitts explain` reaches the planner without the builder: the toolchain probe cache
+    // has to be pointed at the cache root here too.
+    super::toolchain_probes::set_cache_root(&crate::core::cache_root::resolve(
+        opt.cache_dir.as_deref(),
+    ));
     let manifest_scope = super::manifest_snapshot::scope();
     let t0 = std::time::Instant::now();
     let s0 = super::compiler_resolve::rustc_subproc_stats();

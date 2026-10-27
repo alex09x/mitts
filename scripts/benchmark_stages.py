@@ -80,10 +80,12 @@ def run_warmups_and_snapshot(
     wt01 = init_wts[0][1]
 
     purge_mitts_cas(ctx["mitts_cas"], keep_sources=True)
-    r_wm = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["mitts_cas"])
+    # Both warm-up runs enable the fast build lock (off by default with --cache-dir): the
+    # first records its state, the second is the fast-lock hit that `fast_lock_noop` reports.
+    r_wm = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env={**ctx["envs"]["mitts_cas"], "MITTS_FAST_LOCK": "1"})
     if r_wm["exit_code"] != 0:
         raise RuntimeError(f"Mitts warmup ({subcmd}) failed on WT-01: {r_wm['stderr_tail']}")
-    r_fl = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["mitts_cas"])
+    r_fl = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env={**ctx["envs"]["mitts_cas"], "MITTS_FAST_LOCK": "1"})
     fast_lock_noop = {"exit_code": r_fl["exit_code"], "wall_s": r_fl["wall_s"], **parse_build_output(r_fl["output"], "mitts_cas")}
     snapshot_dir(ctx["mitts_cas"], snap_cas)
 

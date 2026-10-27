@@ -114,7 +114,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     // Strictly restricted to Build and Check modes. In Test mode, test execution cannot be
     // cached by fast-lock because tests have runtime inputs and assertions that must be executed.
     if !opt.no_cache
-        && opt.fast_lock.unwrap_or(opt.cache_dir.is_none())
+        && fast_lock_enabled(opt)
         && matches!(
             opt.mode,
             super::types::BuildMode::Build | super::types::BuildMode::Check
@@ -279,7 +279,7 @@ fn record_state_and_trace(
 ) {
     if result.success
         && !opt.no_cache
-        && opt.fast_lock.unwrap_or(opt.cache_dir.is_none())
+        && fast_lock_enabled(opt)
         && matches!(
             opt.mode,
             super::types::BuildMode::Build | super::types::BuildMode::Check
@@ -378,4 +378,17 @@ fn record_state_and_trace(
         "Build failed"
     };
     let _ = logger.write_trace(profile, result.exit_code, outcome);
+}
+
+/// The fast build lock is on by default only for the default cache root: an isolated
+/// `--cache-dir` (tests, benchmarks) opts out unless `RustBuildOptions::fast_lock` or
+/// `MITTS_FAST_LOCK=1` says otherwise.
+fn fast_lock_enabled(opt: &RustBuildOptions) -> bool {
+    opt.fast_lock
+        .or_else(|| {
+            std::env::var("MITTS_FAST_LOCK")
+                .ok()
+                .map(|v| !matches!(v.trim(), "" | "0" | "false"))
+        })
+        .unwrap_or(opt.cache_dir.is_none())
 }

@@ -191,7 +191,7 @@ Cargo.toml + Cargo.lock
         │    source contents, dependency keys and tracked environment
         ▼
  execute ─── parallel DAG of direct rustc calls, pipelined on .rmeta
-             hit  → verify and restore from the store (reflink or copy)
+             hit  → restore from the store (reflink, read-only link or copy)
              miss → lock the key, compile, publish atomically to the store
 ```
 

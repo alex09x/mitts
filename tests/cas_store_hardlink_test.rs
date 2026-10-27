@@ -70,6 +70,18 @@ fn a_store_hardlink_restore_shares_the_read_only_inode() {
         fs::metadata(&lib).unwrap().permissions().mode() & 0o777,
         0o444
     );
+
+    // Worse: the link was made writable and overwritten, which changed the shared store
+    // inode. The restore must re-hash the object instead of resealing the poisoned bytes.
+    fs::set_permissions(&lib, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::write(&lib, b"poisoned").unwrap();
+    let err = check_or_restore(Some(&index), &cas, &lib_hash, &lib, "deps/libx.rlib", false)
+        .expect_err("a modified store object is corrupted, not resealed");
+    assert!(err.to_string().contains("corrupted"), "{err}");
+    assert!(
+        !cas.object_path(&lib_hash).exists(),
+        "the corrupted object is removed from the store"
+    );
 }
 
 #[test]

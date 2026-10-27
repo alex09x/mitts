@@ -252,10 +252,27 @@ impl ContentAddressedStore {
             bail!("CAS object not found: {}", hash);
         }
 
-        if self.verify_on_restore && !self.verify_object(hash)? {
+        // A store object is published read-only. Write bits on it mean someone reached the
+        // shared inode through a store hardlink in a workspace (`chmod u+w`); its bytes can
+        // no longer be trusted without re-hashing, whatever the restore policy says.
+        #[cfg(unix)]
+        let object_was_writable = {
+            use std::os::unix::fs::PermissionsExt;
+            fs::metadata(&obj_path)
+                .map(|m| m.permissions().mode() & 0o222 != 0)
+                .unwrap_or(false)
+        };
+        #[cfg(not(unix))]
+        let object_was_writable = false;
+        if (self.verify_on_restore || object_was_writable) && !self.verify_object(hash)? {
             // Remove corrupted object so it does not poison future builds
             let _ = fs::remove_file(&obj_path);
             bail!("CAS object corrupted (integrity hash mismatch): {}", hash);
+        }
+        #[cfg(unix)]
+        if object_was_writable {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&obj_path, fs::Permissions::from_mode(0o444));
         }
 
         crate::core::reflink::restore_store_object(

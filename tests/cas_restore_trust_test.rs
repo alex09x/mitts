@@ -23,6 +23,11 @@ fn tamper(cas: &ContentAddressedStore, hash: &str, bytes: &[u8]) {
     perms.set_readonly(false);
     fs::set_permissions(&obj, perms).unwrap();
     fs::write(&obj, bytes).unwrap();
+    // Reseal: a bit-rotted object still looks published (read-only); write bits on an
+    // object are a different signal and make a restore re-hash it.
+    let mut sealed = fs::metadata(&obj).unwrap().permissions();
+    sealed.set_readonly(true);
+    fs::set_permissions(&obj, sealed).unwrap();
 }
 
 #[test]

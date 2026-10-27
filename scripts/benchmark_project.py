@@ -113,7 +113,9 @@ def benchmark_single_project(
 
             env_cow = {k: v for k, v in ctx["envs"]["mitts_cas"].items() if k != "MITTS_NO_REFLINK"}
             env_cow["MITTS_TIMINGS"] = "1"
-            env_copy = {**ctx["envs"]["mitts_cas"], "MITTS_NO_REFLINK": "1", "MITTS_TIMINGS": "1"}
+            # The copy arm must copy bytes: without MITTS_STORE_HARDLINKS=0 the default `auto`
+            # policy answers a disabled reflink with a read-only store hardlink instead.
+            env_copy = {**ctx["envs"]["mitts_cas"], "MITTS_NO_REFLINK": "1", "MITTS_STORE_HARDLINKS": "0", "MITTS_TIMINGS": "1"}
             cow_runs, copy_runs = [], []
             cow_cmd = tool_cmd("mitts_cas", "test_no_run", ctx, extra_args)
             for it_idx in range(repeats):
