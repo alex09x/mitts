@@ -200,18 +200,28 @@ def run_stages_t0_t1_t2_t3(
                     r_on[tool]["store_mb"] = get_disk_usage_mb([net_cas])
                 else:
                     r_on[tool] = run_timed(c_cmd_on, cwd=src_dir, env=env_c_on)
+                    r_on[tool]["download_mb"] = get_disk_usage_mb([net_ch_c / "registry"])
+                    # `cargo fetch` only downloads; the unpack Mitts already did happens at the
+                    # first build or metadata call, timed here offline in the same CARGO_HOME.
+                    r_on["cargo_unpack"] = run_timed(["cargo", "metadata", "--offline", "--format-version", "1"] + locked_flag,
+                                                     cwd=src_dir, env={**env_c_on, "CARGO_NET_OFFLINE": "true"})
                     r_on[tool]["store_mb"] = get_disk_usage_mb([net_ch_c / "registry"])
             for d in (net_cas, net_ch_m, net_ch_c):
                 chmod_rmtree(d)
+            r_cu = r_on["cargo_unpack"]
             net_fetch = {
                 "order": order,
                 "mitts": {"wall_s": r_on["mitts_cas"]["wall_s"], "exit_code": r_on["mitts_cas"]["exit_code"], **timed_resources(r_on["mitts_cas"]),
-                          "store_mb_after": r_on["mitts_cas"]["store_mb"], "stderr_tail": r_on["mitts_cas"]["stderr_tail"]},
+                          "store_mb_after": r_on["mitts_cas"]["store_mb"], "stderr_tail": r_on["mitts_cas"]["stderr_tail"],
+                          "note": "download and unpack into the Mitts source store"},
                 "cargo": {"wall_s": r_on["cargo_bare"]["wall_s"], "exit_code": r_on["cargo_bare"]["exit_code"], **timed_resources(r_on["cargo_bare"]),
-                          "registry_mb_after": r_on["cargo_bare"]["store_mb"], "stderr_tail": r_on["cargo_bare"]["stderr_tail"]},
+                          "download_mb": r_on["cargo_bare"]["download_mb"], "registry_mb_after": r_on["cargo_bare"]["store_mb"],
+                          "unpack_wall_s": r_cu["wall_s"], "unpack_exit_code": r_cu["exit_code"], "unpack_resources": timed_resources(r_cu),
+                          "download_plus_unpack_s": round(r_on["cargo_bare"]["wall_s"] + r_cu["wall_s"], 4),
+                          "stderr_tail": r_on["cargo_bare"]["stderr_tail"], "note": "`cargo fetch` downloads .crate files; the unpack is the first offline `cargo metadata`"},
                 "note": "one cold download per tool over the live network: registry index, .crate files and the Mitts store start empty",
             }
-            print(f"  [t1/net] cold online fetch: mitts {net_fetch['mitts']['wall_s']} s, cargo {net_fetch['cargo']['wall_s']} s (order {order})", flush=True)
+            print(f"  [t1/net] cold online fetch: mitts {net_fetch['mitts']['wall_s']} s (download+unpack), cargo {net_fetch['cargo']['wall_s']} s + unpack {r_cu['wall_s']} s (order {order})", flush=True)
 
         purge_mitts_cas(ctx["mitts_cas"], keep_sources=False)
         assert_dir_empty_or_absent(ctx["mitts_cas"])
