@@ -211,6 +211,13 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
         pb.finish_and_clear();
     }
     drop(term_guard);
+    if std::env::var_os("MITTS_TIMINGS").is_some() || is_verbose {
+        crate::core::metrics::print_timings(
+            start.elapsed(),
+            std::time::Duration::ZERO,
+            start.elapsed(),
+        );
+    }
 
     match build_res {
         Ok((plan, result)) => render_build_result(&plan, &result, profile, start, is_verbose),

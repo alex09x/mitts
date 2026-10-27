@@ -229,6 +229,13 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         pb.finish_and_clear();
     }
     drop(term_guard);
+    if std::env::var_os("MITTS_TIMINGS").is_some() || is_verbose {
+        crate::core::metrics::print_timings(
+            start.elapsed(),
+            std::time::Duration::ZERO,
+            start.elapsed(),
+        );
+    }
 
     match build_res {
         Ok((plan, result)) => {
