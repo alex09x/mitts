@@ -35,7 +35,7 @@ from benchmark_lib import (
     prepare_swarm_worktrees, purge_mitts_cas, restore_dir, run_timed, setup_environments,
     start_sccache_zero_stats, stop_sccache, tool_cmd, verify_diagnostics_parity,
 )
-from benchmark_pressure import get_device_bytes_written, get_df_used_mb
+from benchmark_pressure import sync_and_wait_dirty, get_device_bytes_written, get_df_used_mb
 from benchmark_stages import measure_swarm_arm, run_stages_t0_t1_t2_t3, run_warmups_and_snapshot
 from benchmark_worktree import inject_anomaly
 from t5_parsers import compute_stats, inject_test_defect, parse_build_output, parse_mitts_io, parse_test_results, select_workspace_targets
@@ -123,9 +123,11 @@ def benchmark_single_project(
                 for bucket, env_m in pairs:
                     chmod_rmtree(src_dir / "target")
                     _, b_before = get_device_bytes_written([src_dir, proj_cache])
+                    sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
                     df_b = get_df_used_mb([proj_work, proj_cache])
                     r_ab = run_timed(cow_cmd, cwd=src_dir, env=env_m)
                     _, b_after = get_device_bytes_written([src_dir, proj_cache])
+                    sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
                     df_a = get_df_used_mb([proj_work, proj_cache])
                     r_ab["device_mb_written"] = round((b_after - b_before) / (1024.0 * 1024.0), 1) if (b_before is not None and b_after is not None) else None
                     r_ab["df_used_delta_mb"] = round(df_a - df_b, 1) if (df_b is not None and df_a is not None) else None
