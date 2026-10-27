@@ -323,7 +323,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             version: pkg.version.as_str(),
             source: pkg.source.as_deref(),
             is_workspace: *is_ws,
-            is_root: is_primary_pkg(&pkg.name),
+            // Only a workspace member can be a root: a registry copy of a member (an
+            // older version pulled in by a dev-dependency) shares the name, not the role.
+            is_root: *is_ws && is_primary_pkg(&pkg.name),
             toml,
             dependencies: &pkg.dependencies,
         })
@@ -359,7 +361,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
 
     // Prune compilation units not reachable from active root targets
     for u in &mut units {
-        u.is_primary = is_primary_pkg(&u.package_name);
+        u.is_primary = u.is_workspace && is_primary_pkg(&u.package_name);
     }
 
     super::planner_units::prune_plan_root_units(&mut units, opt, has_all_ws);

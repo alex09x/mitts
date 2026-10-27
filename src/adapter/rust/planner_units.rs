@@ -38,8 +38,10 @@ pub fn build_planned_units(
                         .unwrap_or("0.0.0")
                         == pkg.version
                 }));
-        let is_target_pkg = opt.package.as_deref() == Some(&pkg.name);
-        let is_primary = is_primary_pkg(&pkg.name);
+        // A dependency that shares a member's name (an older published version pulled in
+        // by a dev-dependency) is neither primary nor the `-p` target.
+        let is_target_pkg = *is_workspace && opt.package.as_deref() == Some(&pkg.name);
+        let is_primary = *is_workspace && is_primary_pkg(&pkg.name);
         let mut targets = pkg_toml.discover_targets(pkg_dir);
         let has_tests = opt.mode == crate::adapter::BuildMode::Test
             || opt.all_tests

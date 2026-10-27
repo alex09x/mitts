@@ -301,6 +301,57 @@ pub fn record_completed_directives(
     }
 }
 
+/// The `-L` search directories a unit inherits from the build scripts of its dependency
+/// closure. Cargo passes every dependency's `cargo:rustc-link-search` to the units that
+/// depend on it, because a native library linked as `dylib` is resolved only when the
+/// final binary is linked. The directories are also recorded under this unit's id, so the
+/// closure reaches each dependent through its direct dependencies.
+pub fn inherit_dep_link_searches(
+    unit: &PlannedCompilationUnit,
+    own: &BuildScriptDirectives,
+    link_map: Option<&super::dag_cache::CompletedLinkArgsMap>,
+) -> Vec<String> {
+    let Some(links) = link_map else {
+        return Vec::new();
+    };
+    let own_dirs: std::collections::HashSet<&str> =
+        own.link_searches.iter().map(String::as_str).collect();
+    let mut inherited: Vec<String> = Vec::new();
+    {
+        let map = links.lock().unwrap();
+        for dep_id in &unit.dependencies {
+            let host_id = format!("{dep_id}:host");
+            let args = map
+                .get(dep_id)
+                .or_else(|| map.get(&host_id))
+                .or_else(|| dep_id.strip_suffix(":host").and_then(|d| map.get(d)));
+            let Some(args) = args else {
+                continue;
+            };
+            let mut it = args.iter();
+            while let Some(arg) = it.next() {
+                if arg == "-L" {
+                    if let Some(dir) = it.next() {
+                        if !own_dirs.contains(dir.as_str()) && !inherited.contains(dir) {
+                            inherited.push(dir.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !inherited.is_empty() {
+        let mut map = links.lock().unwrap();
+        let entry = map.entry(unit.unit_id()).or_default();
+        for dir in &inherited {
+            if !entry.windows(2).any(|w| w[0] == "-L" && &w[1] == dir) {
+                entry.extend(["-L".to_string(), dir.clone()]);
+            }
+        }
+    }
+    inherited
+}
+
 pub(crate) fn finalize_post_rustc_purity(
     unit: &PlannedCompilationUnit,
     clean_crate: &str,

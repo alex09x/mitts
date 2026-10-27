@@ -238,12 +238,13 @@ pub fn compute_unit_flags_with_ws(
     }
     u_flags.push("SCHEMA_VERSION=rust_key_v3".to_string());
     let ws_for_profile = unit.workspace_root.as_deref().or(ws_root);
-    let profile = super::profile::resolve_unit_profile(
+    let profile = super::profile::resolve_unit_profile_for(
         &unit.manifest_path,
         &unit.package_name,
         unit.is_workspace,
         unit.for_host,
         release,
+        mode == BuildMode::Test,
         ws_for_profile,
     )?;
     u_flags.push(if unit.for_host {

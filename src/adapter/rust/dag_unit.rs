@@ -173,6 +173,15 @@ pub(crate) fn execute_unit(
         ctx.completed_env,
         ctx.completed_link_args,
     );
+    // The dependencies' link-search directories go to rustc only: they are not this
+    // unit's own directives, so they stay out of its purity scan and cache metadata.
+    let inherited_dirs = super::dag_unit_build_script::inherit_dep_link_searches(
+        unit,
+        &directives,
+        ctx.completed_link_args,
+    );
+    let mut rustc_directives = directives.clone();
+    rustc_directives.link_searches.extend(inherited_dirs);
 
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
     let cas_artifacts = ctx.cas.root().join("artifacts");
@@ -194,7 +203,7 @@ pub(crate) fn execute_unit(
         extern_crates: &extern_crates,
         release: ctx.opt.release,
         features: &unit.features,
-        directives: Some(&directives),
+        directives: Some(&rustc_directives),
         mode: ctx.opt.mode,
         extra_compiler_args: &ctx.opt.extra_args,
         jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),

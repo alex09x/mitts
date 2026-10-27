@@ -109,7 +109,15 @@ pub fn resolve_extern_crates_with_target(
             let norm_pkg = pkg_name_only.replace('-', "_");
             let mut matched_aliases = Vec::new();
 
-            if let Some(alias_list) = aliases
+            // The package's own library (a bin or test linking its lib) is reached under
+            // the package name, never through a dependency alias: a renamed dependency on
+            // an older version of the same package (`foo_old = { package = "foo", … }`)
+            // must not capture it.
+            let is_own_lib = dep_pkg == unit.package_id;
+
+            if is_own_lib {
+                // handled below without alias matching
+            } else if let Some(alias_list) = aliases
                 .real_to_aliases
                 .get(pkg_name_only)
                 .or_else(|| aliases.real_to_aliases.get(&norm_pkg))
@@ -216,7 +224,7 @@ pub fn resolve_extern_crates_with_target(
                 }
             };
 
-            if matched_aliases.is_empty() {
+            if is_own_lib || matched_aliases.is_empty() {
                 add_extern(dep_crate, &chosen_artifact);
                 if dep_crate != norm_pkg {
                     add_extern(&norm_pkg, &chosen_artifact);

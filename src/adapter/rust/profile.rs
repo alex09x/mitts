@@ -59,6 +59,25 @@ fn compute_profile_files_stamp(ws_root: &Path) -> u64 {
     hasher.finish()
 }
 
+/// The derived profile's table (`test`, `bench`) on top of its base's (`dev`, `release`)
+/// at one override level; `None` when neither profile has a table there.
+fn merged_profile_tables<'t>(
+    base_name: &str,
+    profile_name: &str,
+    get: impl Fn(&str) -> Option<&'t toml::Table>,
+) -> Option<toml::Table> {
+    let mut out = get(base_name).cloned();
+    if profile_name != base_name {
+        if let Some(derived) = get(profile_name) {
+            match out.as_mut() {
+                Some(base) => merge_table(base, derived),
+                None => out = Some(derived.clone()),
+            }
+        }
+    }
+    out
+}
+
 /// Deep merges `override_tbl` into `base` key-by-key.
 fn merge_table(base: &mut toml::Table, override_tbl: &toml::Table) {
     for (k, v) in override_tbl {
@@ -75,12 +94,39 @@ fn merge_table(base: &mut toml::Table, override_tbl: &toml::Table) {
 }
 
 /// Resolves all supported profile settings for a compilation unit and rejects unsupported keys.
+///
+/// The `dev` or `release` profile; `mitts test` units resolve through
+/// [`resolve_unit_profile_for`] with the `test` / `bench` profile instead.
 pub fn resolve_unit_profile(
     manifest_path: &Path,
     pkg_name: &str,
     is_workspace: bool,
     for_host: bool,
     release: bool,
+    ws_root: Option<&Path>,
+) -> anyhow::Result<UnitProfileSettings> {
+    resolve_unit_profile_for(
+        manifest_path,
+        pkg_name,
+        is_workspace,
+        for_host,
+        release,
+        false,
+        ws_root,
+    )
+}
+
+/// Like [`resolve_unit_profile`], for the profile Cargo selects: `dev` / `release`, or with
+/// `test` the `test` / `bench` profile, which inherits every setting of its base profile
+/// (top level, package and build overrides, `CARGO_PROFILE_*` environment) and overrides
+/// the keys it sets itself.
+pub fn resolve_unit_profile_for(
+    manifest_path: &Path,
+    pkg_name: &str,
+    is_workspace: bool,
+    for_host: bool,
+    release: bool,
+    test: bool,
     ws_root: Option<&Path>,
 ) -> anyhow::Result<UnitProfileSettings> {
     let effective_ws_root = ws_root.map(|p| p.to_path_buf()).or_else(|| {
@@ -91,8 +137,14 @@ pub fn resolve_unit_profile(
         }
     });
 
-    let profile_name = if release { "release" } else { "dev" };
-    let upper_prof = if release { "RELEASE" } else { "DEV" };
+    let base_name = if release { "release" } else { "dev" };
+    let profile_name = match (test, release) {
+        (true, true) => "bench",
+        (true, false) => "test",
+        (false, _) => base_name,
+    };
+    let base_upper = base_name.to_uppercase();
+    let upper_prof = profile_name.to_uppercase();
     let default_debug = if release || for_host { 0 } else { 2 };
     let default_opt = if release && !for_host { "3" } else { "0" };
     let default_assertions = !release;
@@ -114,27 +166,34 @@ pub fn resolve_unit_profile(
     };
 
     let clean_name = pkg_name.replace('-', "_");
-    let pkg_tbl = loaded
-        .package_overrides
-        .get(&(profile_name.to_string(), pkg_name.to_string()))
-        .or_else(|| {
-            loaded
-                .package_overrides
-                .get(&(profile_name.to_string(), clean_name))
-        });
+    let pkg_tbl = merged_profile_tables(base_name, profile_name, |n| {
+        loaded
+            .package_overrides
+            .get(&(n.to_string(), pkg_name.to_string()))
+            .or_else(|| loaded.package_overrides.get(&(n.to_string(), clean_name.clone())))
+    });
     let wild_tbl = (!is_workspace)
-        .then(|| loaded.wildcard_overrides.get(profile_name))
+        .then(|| merged_profile_tables(base_name, profile_name, |n| loaded.wildcard_overrides.get(n)))
         .flatten();
     let bo_tbl = for_host
-        .then(|| loaded.build_overrides.get(profile_name))
+        .then(|| merged_profile_tables(base_name, profile_name, |n| loaded.build_overrides.get(n)))
         .flatten();
-    let top_tbl = loaded.profiles.get(profile_name);
+    let top_tbl = merged_profile_tables(base_name, profile_name, |n| loaded.profiles.get(n));
+    let (pkg_tbl, wild_tbl, bo_tbl, top_tbl) =
+        (pkg_tbl.as_ref(), wild_tbl.as_ref(), bo_tbl.as_ref(), top_tbl.as_ref());
 
     let lookup_unit_val = |key: &str| -> Option<&toml::Value> {
         pkg_tbl
             .and_then(|t| t.get(key))
             .or_else(|| wild_tbl.and_then(|t| t.get(key)))
             .or_else(|| bo_tbl.and_then(|t| t.get(key)))
+    };
+    let profile_env = |env_suffix: &str| -> Option<String> {
+        read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", upper_prof, env_suffix)).or_else(|| {
+            (profile_name != base_name)
+                .then(|| read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", base_upper, env_suffix)))
+                .flatten()
+        })
     };
 
     let resolve_overridable =
@@ -143,8 +202,7 @@ pub fn resolve_unit_profile(
                 return Some(v.clone());
             }
             if !for_host || inherit_top_for_host {
-                let env_key = format!("CARGO_PROFILE_{}_{}", upper_prof, env_suffix);
-                if let Some(s) = read_env_non_empty(&env_key) {
+                if let Some(s) = profile_env(env_suffix) {
                     return Some(s.parse::<toml::Value>().unwrap_or(toml::Value::String(s)));
                 }
                 if let Some(v) = top_tbl.and_then(|t| t.get(key)) {
@@ -174,14 +232,14 @@ pub fn resolve_unit_profile(
 
     let panic = (!for_host)
         .then(|| {
-            read_env_non_empty(&format!("CARGO_PROFILE_{}_PANIC", upper_prof))
+            profile_env("PANIC")
                 .or_else(|| top_tbl.and_then(|t| t.get("panic")?.as_str().map(String::from)))
         })
         .flatten();
 
     let lto = (!for_host)
         .then(|| {
-            read_env_non_empty(&format!("CARGO_PROFILE_{}_LTO", upper_prof))
+            profile_env("LTO")
                 .and_then(|s| parse_lto_value(&toml::Value::String(s)))
                 .or_else(|| top_tbl.and_then(|t| t.get("lto")).and_then(parse_lto_value))
         })

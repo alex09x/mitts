@@ -139,12 +139,13 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     }
     cmd.args(["--out-dir", &inv.out_dir.to_string_lossy()]);
 
-    let profile = super::profile::resolve_unit_profile(
+    let profile = super::profile::resolve_unit_profile_for(
         &inv.unit.manifest_path,
         &inv.unit.package_name,
         inv.unit.is_workspace,
         inv.unit.for_host,
         inv.release,
+        inv.mode == BuildMode::Test,
         inv.unit.workspace_root.as_deref(),
     )?;
     if profile.opt_level != "0" || (inv.release && !inv.unit.for_host) {
@@ -164,15 +165,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     if let Some(cgu) = profile.codegen_units {
         cmd.args(["-C", &format!("codegen-units={cgu}")]);
     }
+    // LTO happens where the final artifact is linked: binaries, and test executables under
+    // a `[profile.test] lto` setting.
     let is_lto_target = matches!(
         inv.unit.kind.as_str(),
-        "bin" | "cdylib" | "staticlib" | "dylib"
+        "bin" | "cdylib" | "staticlib" | "dylib" | "test" | "custom-test"
     );
-    if let Some(ref lto_mode) = profile
-        .lto
-        .as_ref()
-        .filter(|_| !inv.unit.for_host && is_lto_target && inv.mode == BuildMode::Build)
-    {
+    if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| {
+        !inv.unit.for_host
+            && is_lto_target
+            && matches!(inv.mode, BuildMode::Build | BuildMode::Test)
+    }) {
         cmd.args(["-C", &format!("lto={lto_mode}")]);
     }
     let is_linked =
