@@ -9,12 +9,13 @@
  */
 
 //! On macOS the linker records each linked object's absolute path in the output's N_OSO
-//! stabs; the dependency rlibs Mitts restores under the checkout's `target/` therefore put
-//! the checkout path into every binary, which the leak scanner (rightly) keyed per
-//! checkout. With `-oso_prefix` those paths are relative to the workspace: no checkout
-//! path in the binary, and a second checkout restores it instead of linking again.
-//!
-//! Needs the network once: the dependency comes from crates.io.
+//! stabs. Direct dependencies reach rustc through `--extern <store>/artifacts/…`, but
+//! transitive ones are found through `-L dependency=<checkout>/target/…/deps`, so a
+//! binary with a two-hop dependency chain named its checkout and was keyed per checkout.
+//! With `-oso_prefix` those paths are relative to the workspace: no checkout path in the
+//! binary, and a second checkout restores it instead of linking again. Workspace rlibs
+//! leave no OSO entry of their own (their debug info is remapped away), so the transitive
+//! hop is a crates.io crate: the test needs the network once.
 
 #![cfg(target_os = "macos")]
 
@@ -23,16 +24,30 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
+/// `osoapp` (bin) → `mid` (lib) → `semver` (crates.io): `semver` is transitive for the
+/// binary, so rustc finds its rlib through the checkout's deps directory.
 fn write_project(dir: &Path) {
-    fs::create_dir_all(dir.join("src")).unwrap();
+    for sub in ["src", "mid/src"] {
+        fs::create_dir_all(dir.join(sub)).unwrap();
+    }
     fs::write(
         dir.join("Cargo.toml"),
-        "[package]\nname = \"osoapp\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsemver = \"=1.0.23\"\n",
+        "[package]\nname = \"osoapp\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nmid = { path = \"mid\" }\n\n[workspace]\nmembers = [\"mid\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("mid/Cargo.toml"),
+        "[package]\nname = \"mid\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsemver = \"=1.0.23\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("mid/src/lib.rs"),
+        "#[inline(never)]\npub fn mid_val(x: u64) -> u64 { semver::Version::parse(\"6.0.0\").unwrap().major * x + 1 }\n",
     )
     .unwrap();
     fs::write(
         dir.join("src/main.rs"),
-        "fn main() {\n    let v = semver::Version::parse(\"1.2.3\").unwrap();\n    println!(\"{}.{}\", v.major, v.minor + v.patch);\n}\n",
+        "fn main() { println!(\"{}\", mid::mid_val(7) - 1); }\n",
     )
     .unwrap();
 }
@@ -68,9 +83,8 @@ fn a_linked_binary_names_no_checkout_path_and_is_shared_across_checkouts() {
 
     let bin = first.path().join("target/mitts/debug/osoapp");
     let run = Command::new(&bin).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "1.5");
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
 
-    // The dependency's objects are recorded relative to the workspace, never absolutely.
     let nm = Command::new("nm").args(["-ap"]).arg(&bin).output().unwrap();
     let stabs = String::from_utf8_lossy(&nm.stdout);
     let oso: Vec<&str> = stabs.lines().filter(|l| l.contains(" OSO ")).collect();
@@ -82,9 +96,14 @@ fn a_linked_binary_names_no_checkout_path_and_is_shared_across_checkouts() {
             "OSO entry still names the checkout: {line}"
         );
     }
-    // Where the rlib was linked from depends on the restore mode (the store's artifacts
-    // directory or the checkout's target/); either way no OSO entry may name the checkout.
-    assert!(!oso.is_empty(), "a dev binary carries OSO stabs:\n{stabs}");
+    // The transitive rlib was linked from the checkout's deps directory and is recorded
+    // relative to the workspace: this is the entry that used to be absolute.
+    assert!(
+        oso.iter()
+            .any(|l| l.contains(" OSO target/mitts/debug/deps/libsemver")),
+        "the transitive semver rlib is recorded relative to the workspace:\n{}",
+        oso.join("\n")
+    );
     let bytes = fs::read(&bin).unwrap();
     let needle = root.to_str().unwrap().as_bytes();
     assert!(
@@ -109,5 +128,5 @@ fn a_linked_binary_names_no_checkout_path_and_is_shared_across_checkouts() {
     let run = Command::new(second.path().join("target/mitts/debug/osoapp"))
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "1.5");
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
 }

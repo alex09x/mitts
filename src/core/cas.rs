@@ -243,6 +243,33 @@ impl ContentAddressedStore {
         Ok((hash, file_size))
     }
 
+    /// A store object is published read-only. Write bits on it mean someone reached the
+    /// shared inode through a store hardlink in a workspace (`chmod u+w`); its bytes can no
+    /// longer be trusted without re-hashing, whatever the restore policy says. A mismatch
+    /// removes the object; a match reseals it.
+    fn ensure_trusted_object(&self, hash: &str, obj_path: &Path) -> Result<()> {
+        #[cfg(unix)]
+        let object_was_writable = {
+            use std::os::unix::fs::PermissionsExt;
+            fs::metadata(obj_path)
+                .map(|m| m.permissions().mode() & 0o222 != 0)
+                .unwrap_or(false)
+        };
+        #[cfg(not(unix))]
+        let object_was_writable = false;
+        if (self.verify_on_restore || object_was_writable) && !self.verify_object(hash)? {
+            // Remove corrupted object so it does not poison future builds
+            let _ = fs::remove_file(obj_path);
+            bail!("CAS object corrupted (integrity hash mismatch): {}", hash);
+        }
+        #[cfg(unix)]
+        if object_was_writable {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(obj_path, fs::Permissions::from_mode(0o444));
+        }
+        Ok(())
+    }
+
     /// Restores an object from CAS into `dest_path` via CoW reflink or byte copy.
     /// With restore verification on, the object is re-hashed first and a corrupted one
     /// is removed instead of restored.
@@ -252,28 +279,7 @@ impl ContentAddressedStore {
             bail!("CAS object not found: {}", hash);
         }
 
-        // A store object is published read-only. Write bits on it mean someone reached the
-        // shared inode through a store hardlink in a workspace (`chmod u+w`); its bytes can
-        // no longer be trusted without re-hashing, whatever the restore policy says.
-        #[cfg(unix)]
-        let object_was_writable = {
-            use std::os::unix::fs::PermissionsExt;
-            fs::metadata(&obj_path)
-                .map(|m| m.permissions().mode() & 0o222 != 0)
-                .unwrap_or(false)
-        };
-        #[cfg(not(unix))]
-        let object_was_writable = false;
-        if (self.verify_on_restore || object_was_writable) && !self.verify_object(hash)? {
-            // Remove corrupted object so it does not poison future builds
-            let _ = fs::remove_file(&obj_path);
-            bail!("CAS object corrupted (integrity hash mismatch): {}", hash);
-        }
-        #[cfg(unix)]
-        if object_was_writable {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&obj_path, fs::Permissions::from_mode(0o444));
-        }
+        self.ensure_trusted_object(hash, &obj_path)?;
 
         crate::core::reflink::restore_store_object(
             &obj_path,
@@ -319,6 +325,8 @@ impl ContentAddressedStore {
         if !obj_meta.is_file() {
             bail!("CAS object not found: {}", content_hash);
         }
+        // The alias shares the object's inode: it is only as trustworthy as the object.
+        self.ensure_trusted_object(content_hash, &obj_path)?;
 
         let sidecar_path = artifacts_dir.join(format!(".{}.cas_hash", artifact_name));
 

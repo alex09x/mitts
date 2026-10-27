@@ -204,6 +204,7 @@ fn test_m8_builder_unsupported_options_and_handlers_errors() {
     // 2. handle_explain with missing manifest
     let explain_err = ExplainArgs {
         manifest_path: Some(root.join("nonexistent/Cargo.toml")),
+        cache_dir: Some(root.join("explain_cache")),
         ..Default::default()
     };
     assert_eq!(handle_explain(&explain_err), 1);

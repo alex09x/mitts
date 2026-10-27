@@ -10,7 +10,7 @@
 
 use super::compiler::RustcInvocation;
 use super::compiler_resolve::find_workspace_root;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // Version the normalized semantics, never the machine-specific alias spellings.
@@ -52,14 +52,23 @@ fn append_darwin_oso_prefix(inv: &RustcInvocation<'_>, cmd: &mut Command) {
     if !cfg!(target_os = "macos") {
         return;
     }
-    let ws_root = find_workspace_root(&inv.unit.manifest_path);
-    let canonical = ws_root.canonicalize().unwrap_or_else(|_| ws_root.clone());
-    // The paths the linker records are the ones rustc received: the dependency rlibs
-    // restored under the workspace's target directory. Match their spelling.
-    let root = match inv.deps_dir {
-        Some(deps) if deps.starts_with(&canonical) => canonical,
-        Some(deps) if deps.starts_with(&ws_root) => ws_root,
-        _ => return,
+    // The paths the linker records are the ones rustc received: rlibs under
+    // `<checkout>/target/…/deps` (the `-L dependency` directory) and archives build scripts
+    // leave under `<checkout>/target/…/build`. The checkout spelling is whatever precedes
+    // that `target` component, whichever package (workspace member, registry proc macro)
+    // is being linked.
+    let checkout_of = |p: &Path| -> Option<PathBuf> {
+        p.ancestors()
+            .find(|a| a.file_name().is_some_and(|n| n == "target"))
+            .and_then(|t| t.parent())
+            .map(Path::to_path_buf)
+    };
+    let root = inv
+        .deps_dir
+        .and_then(checkout_of)
+        .or_else(|| inv.target_dir.and_then(checkout_of));
+    let Some(root) = root else {
+        return;
     };
     let prefix = format!("{}/", root.to_string_lossy().trim_end_matches('/'));
     cmd.args(["-C", &format!("link-arg=-Wl,-oso_prefix,{prefix}")]);

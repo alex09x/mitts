@@ -20,15 +20,16 @@ use std::path::{Path, PathBuf};
 
 /// Derives the effective build plan and compilation units natively without invoking Cargo.
 pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplanation> {
-    // `mitts explain` reaches the planner without the builder: the toolchain probe cache
-    // has to be pointed at the cache root here too.
-    super::toolchain_probes::set_cache_root(&crate::core::cache_root::resolve(
-        opt.cache_dir.as_deref(),
-    ));
     let manifest_scope = super::manifest_snapshot::scope();
     let t0 = std::time::Instant::now();
     let s0 = super::compiler_resolve::rustc_subproc_stats();
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
+    // `mitts explain` reaches the planner without the builder: the toolchain probe cache
+    // has to be pointed at the cache root here too (after the manifest resolved, so a
+    // failing call leaves the process-wide cache root alone).
+    super::toolchain_probes::set_cache_root(&crate::core::cache_root::resolve(
+        opt.cache_dir.as_deref(),
+    ));
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let ws_root = super::compiler_resolve::find_workspace_root(&manifest_path);
