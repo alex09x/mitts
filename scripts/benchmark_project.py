@@ -35,10 +35,34 @@ from benchmark_lib import (
     prepare_swarm_worktrees, purge_mitts_cas, restore_dir, run_timed, setup_environments,
     start_sccache_zero_stats, stop_sccache, tool_cmd, verify_diagnostics_parity,
 )
-from benchmark_pressure import sync_and_wait_dirty, get_device_bytes_written, get_df_used_mb
+from benchmark_pressure import sync_and_wait_dirty, get_device_io_bytes, get_df_used_mb
 from benchmark_stages import measure_swarm_arm, run_stages_t0_t1_t2_t3, run_warmups_and_snapshot
 from benchmark_worktree import inject_anomaly
-from t5_parsers import compute_stats, inject_test_defect, parse_build_output, parse_mitts_io, parse_test_results, select_workspace_targets
+from t5_parsers import (
+    compute_stats, inject_test_defect, parse_build_output, parse_mitts_io, parse_test_results, resource_stats,
+    select_workspace_targets, timed_resources,
+)
+
+# Statuses a resumed run keeps: measured results, noisy or not, and policy skips. Only an
+# ERROR (or, on request, NOISY) project is measured again.
+RESUME_KEEP_PREFIXES = ("OK", "NOISY", "INVALID_", "SKIPPED_", "EXCLUDED_")
+SWARM_KEYS = ("runs", "wall_s", "device_mb_written", "df_used_delta_mb", "disk_mb", "sccache_stats", "loadavg_after", "pressure")
+
+
+def _swarm_summary(runs: list[dict], wall_key: str, fail_key: str) -> dict:
+    dev_vals = [r["device_mb_written"] for r in runs if r["device_mb_written"] is not None]
+    rd_vals = [r["device_mb_read"] for r in runs if r["device_mb_read"] is not None]
+    return {
+        "wall_stats_s": compute_stats([r[wall_key] for r in runs if r[fail_key] == 0]),
+        "max_disk_mb": max((r["disk_mb"] for r in runs), default=0.0),
+        "median_device_mb_written": compute_stats(dev_vals)["median"] if dev_vals else None,
+        "median_device_mb_read": compute_stats(rd_vals)["median"] if rd_vals else None,
+        "total_user_stats_s": compute_stats([r["resources"]["total_user_s"] for r in runs]),
+        "total_sys_stats_s": compute_stats([r["resources"]["total_sys_s"] for r in runs]),
+        "max_wt_rss_mb": max((r["resources"]["max_wt_rss_mb"] for r in runs), default=0.0),
+        "units_compiled_median": compute_stats([r["resources"]["units_compiled"] for r in runs])["median"],
+        "units_cached_median": compute_stats([r["resources"]["units_cached"] for r in runs])["median"],
+    }
 
 
 def _project_name_from_spec(repo_spec: str) -> str:
@@ -94,11 +118,15 @@ def benchmark_single_project(
 
         unique_commits = list(dict.fromkeys([head_commit] + replay_commits + [branch_hop_commit] + swarm_commits))
         commit_locks = prepare_commit_locks_and_fetch(src_dir, proj_work, ctx, head_commit, unique_commits, res)
-        res["commits_selected"] = {"head": head_commit, "branch_hop": branch_hop_commit, "replay_count": len(replay_commits), "swarm_distinct": len(set(swarm_commits))}
+        res["commits_selected"] = {
+            "head": head_commit, "branch_hop": branch_hop_commit, "replay_count": len(replay_commits), "swarm_distinct": len(set(swarm_commits)),
+            "replay_commits": [c[:12] for c in replay_commits], "swarm_commits": [c[:12] for c in swarm_commits],
+        }
 
         if not run_stages_t0_t1_t2_t3(
             res, stages, src_dir, proj_work, proj_cache, ctx, mitts_bin, sccache_bin, extra_args,
             repeats, max_disk_mb, max_disk_gb, max_load, head_commit, branch_hop_commit, replay_commits, commit_locks,
+            prewarm_commits=unique_commits,
         ):
             return res
 
@@ -123,14 +151,16 @@ def benchmark_single_project(
                 for bucket, env_m in pairs:
                     chmod_rmtree(src_dir / "target")
                     sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
-                    _, b_before = get_device_bytes_written([src_dir, proj_cache])
+                    _, b_before, rd_before = get_device_io_bytes([src_dir, proj_cache])
                     df_b = get_df_used_mb([proj_work, proj_cache])
                     r_ab = run_timed(cow_cmd, cwd=src_dir, env=env_m)
                     sync_and_wait_dirty(max_dirty_mb=1024.0, timeout_s=60.0)
-                    _, b_after = get_device_bytes_written([src_dir, proj_cache])
+                    _, b_after, rd_after = get_device_io_bytes([src_dir, proj_cache])
                     df_a = get_df_used_mb([proj_work, proj_cache])
                     r_ab["device_mb_written"] = round((b_after - b_before) / (1024.0 * 1024.0), 1) if (b_before is not None and b_after is not None) else None
+                    r_ab["device_mb_read"] = round((rd_after - rd_before) / (1024.0 * 1024.0), 1) if (rd_before is not None and rd_after is not None) else None
                     r_ab["df_used_delta_mb"] = round(df_a - df_b, 1) if (df_b is not None and df_a is not None) else None
+                    r_ab["io"] = parse_mitts_io(r_ab["output"])
                     bucket.append(r_ab)
 
             wt_root = proj_work / "t4_wts"
@@ -157,9 +187,8 @@ def benchmark_single_project(
                         elif arm == "cargo_shared":
                             restore_dir(snap_sh, ctx["shared_target"])
 
-                        runs, wall_m, dev_mb, df_delta, d_mb, scc_st, load_after, p_info = measure_swarm_arm(
-                            arm, mode, wts, wt_root, proj_work, proj_cache, ctx, extra_args, max_load
-                        )
+                        m_sw = measure_swarm_arm(arm, mode, wts, wt_root, proj_work, proj_cache, ctx, extra_args, max_load)
+                        runs, wall_m, dev_mb, df_delta, d_mb, scc_st, load_after, p_info = (m_sw[k] for k in SWARM_KEYS)
                         if d_mb > max_disk_mb:
                             res["status"] = f"SKIPPED_DISK_LIMIT_{max_disk_gb}GB"
                             res["disk_mb_observed"] = d_mb
@@ -179,24 +208,33 @@ def benchmark_single_project(
                         mode_series[arm].append({
                             "iteration": run_idx, "total_wall_s": wall_m, "failures": failures_m,
                             "wt12_exit_code": runs[-1]["exit_code"] if runs else None, "wt12_stderr_tail": wt12_tail,
-                            "disk_mb": d_mb, "df_used_delta_mb": df_delta, "device_mb_written": dev_mb, "sccache_stats": scc_st,
+                            "disk_mb": d_mb, "df_used_delta_mb": df_delta, "device_mb_written": dev_mb, "device_mb_read": m_sw["device_mb_read"],
+                            "sccache_stats": scc_st, "resources": m_sw["resources"],
                             "loadavg_before": load_before, "loadavg_after": load_after, "cpu_busy_before": busy_before,
                             "preflight_waited_s": waited_s, "pressure": p_info,
                         })
 
                 for arm, runs in mode_series.items():
-                    ok_w = [r["total_wall_s"] for r in runs if r["failures"] == 0]
-                    dev_vals = [r["device_mb_written"] for r in runs if r["device_mb_written"] is not None]
                     l5_res[mode][arm] = {
-                        "wall_stats_s": compute_stats(ok_w), "failures": sum(r["failures"] for r in runs),
-                        "max_disk_mb": max((r["disk_mb"] for r in runs), default=0.0),
-                        "median_device_mb_written": compute_stats(dev_vals)["median"] if dev_vals else None,
+                        **_swarm_summary(runs, "total_wall_s", "failures"), "failures": sum(r["failures"] for r in runs),
                         "iterations": runs,
                     }
                 l5_res[mode]["diagnostics_parity"] = verify_diagnostics_parity(
                     wt12_outputs.get("cargo_bare", ""), wt12_outputs.get("mitts_cas", ""), wt12_outputs.get("mitts_cached_replay", ""), wt12_root, anomaly_info=anomaly_meta
                 )
+            # The T4 snapshots are not needed any more; T5 takes its own, and both sets
+            # on disk at once pushed large projects over the disk limit.
+            for snap in (snap_cas, snap_scc, snap_sh):
+                chmod_rmtree(snap)
 
+            def cow_samples(runs: list[dict]) -> list[dict]:
+                return [{
+                    "wall_s": r["wall_s"], "exit_code": r["exit_code"], **timed_resources(r), "device_mb_written": r.get("device_mb_written"),
+                    "device_mb_read": r.get("device_mb_read"), "df_used_delta_mb": r.get("df_used_delta_mb"), "io": r.get("io", {}),
+                } for r in runs]
+
+            cow_rd = [r["device_mb_read"] for r in cow_runs if r.get("device_mb_read") is not None]
+            copy_rd = [r["device_mb_read"] for r in copy_runs if r.get("device_mb_read") is not None]
             cow_io = parse_mitts_io(cow_runs[0]["output"]) if cow_runs else {}
             copy_io = parse_mitts_io(copy_runs[0]["output"]) if copy_runs else {}
             ref_eff = cow_io.get("io_stats", {}).get("bytes_cloned", 0) > 0
@@ -217,6 +255,10 @@ def benchmark_single_project(
                 "copy_fallback_stats_s": compute_stats([r["wall_s"] for r in copy_runs if r["exit_code"] == 0]), "copy_io": copy_io,
                 "copy_median_device_mb_written": compute_stats(copy_dev)["median"] if copy_dev else None,
                 "copy_median_df_delta_mb": compute_stats(copy_df)["median"] if copy_df else None,
+                "cow_median_device_mb_read": compute_stats(cow_rd)["median"] if cow_rd else None,
+                "copy_median_device_mb_read": compute_stats(copy_rd)["median"] if copy_rd else None,
+                "cow_resources": resource_stats(cow_runs), "copy_resources": resource_stats(copy_runs),
+                "cow_runs": cow_samples(cow_runs), "copy_runs": cow_samples(copy_runs),
                 "invariants": t4_inv, "l5a_check_swarm": l5_res["check"], "l5b_clippy_swarm": l5_res["clippy"],
             }
 
@@ -243,9 +285,8 @@ def benchmark_single_project(
                     elif arm == "cargo_shared":
                         restore_dir(snap_sh, ctx["shared_target"])
 
-                    wt_runs, wall_sw, dev_mb, df_delta, d_mb, scc_st, load_after, p_info = measure_swarm_arm(
-                        arm, "test_no_run", wts, wt_root, proj_work, proj_cache, ctx, extra_args, max_load
-                    )
+                    m_sw = measure_swarm_arm(arm, "test_no_run", wts, wt_root, proj_work, proj_cache, ctx, extra_args, max_load)
+                    wt_runs, wall_sw, dev_mb, df_delta, d_mb, scc_st, load_after, p_info = (m_sw[k] for k in SWARM_KEYS)
                     smoke_cmd = tool_cmd(arm, "test_smoke", ctx, extra_args)
                     s_wt01 = run_timed(smoke_cmd, cwd=wts[0][1], env=ctx["envs"][arm])
                     s_wt12 = run_timed(smoke_cmd, cwd=wts[-1][1], env=ctx["envs"][arm])
@@ -262,26 +303,32 @@ def benchmark_single_project(
                     failed_tails = {f"wt-{idx:02d}": r["stderr_tail"] for (idx, _, _), r in zip(wts, wt_runs) if r["exit_code"] != 0}
                     build_failures = sum(1 for r in wt_runs if r["exit_code"] != 0)
                     print(f"  [t5] run {run_idx}/{repeats} {arm}: swarm {wall_sw} s, failures={build_failures}, binaries={wt_bins[0]}, waited {waited_s} s (cpu busy {busy_before}, load {load_before})", flush=True)
+                    def smoke_record(r_sm: dict, p_sm: dict) -> dict:
+                        return {
+                            "wall_s": r_sm["wall_s"], "exit_code": r_sm["exit_code"], **timed_resources(r_sm),
+                            "binaries_executed": p_sm["binaries_executed"], "passed": p_sm["passed"], "failed": p_sm["failed"],
+                            "ignored": p_sm["ignored"], "failed_tests": p_sm["failed_tests"][:20],
+                        }
+
                     arm_series[arm].append({
                         "iteration": run_idx, "total_wall_s": wall_sw, "wt01_wall_s": wt_runs[0]["wall_s"],
                         "build_failures": build_failures, "wt_binary_counts": wt_bins,
                         "failed_wt_stderr_tail": failed_tails,
                         "injected_defect_file": injected_rel, "disk_mb": d_mb, "df_used_delta_mb": df_delta,
-                        "device_mb_written": dev_mb, "sccache_stats": scc_st, "pressure": p_info,
+                        "device_mb_written": dev_mb, "device_mb_read": m_sw["device_mb_read"], "sccache_stats": scc_st,
+                        "resources": m_sw["resources"], "pressure": p_info,
                         "loadavg_before": load_before, "loadavg_after": load_after, "cpu_busy_before": busy_before,
                         "preflight_waited_s": waited_s,
+                        "smoke_wt01": smoke_record(s_wt01, p_wt01), "smoke_wt12": smoke_record(s_wt12, p_wt12),
                         "smoke_wt01_clean_ok": s_wt01["exit_code"] == 0 and p_wt01["failed"] == 0 and p_wt01["binaries_executed"] >= expected_min_exec,
                         "smoke_wt12_defect_caught": s_wt12["exit_code"] != 0 and p_wt12["defect_reported"],
                     })
 
+            for snap in (snap_cas, snap_scc, snap_sh):
+                chmod_rmtree(snap)
             t5_summary = {}
             for arm, runs in arm_series.items():
-                ok_w = [r["total_wall_s"] for r in runs if r["build_failures"] == 0]
-                dev_vals = [r["device_mb_written"] for r in runs if r["device_mb_written"] is not None]
-                t5_summary[arm] = {
-                    "wall_stats_s": compute_stats(ok_w), "max_disk_mb": max((r["disk_mb"] for r in runs), default=0.0),
-                    "median_device_mb_written": compute_stats(dev_vals)["median"] if dev_vals else None, "iterations": runs,
-                }
+                t5_summary[arm] = {**_swarm_summary(runs, "total_wall_s", "build_failures"), "iterations": runs}
             lib_trees, test_trees = set(), set()
             for c in set(swarm_commits):
                 r_tr = subprocess.run(["git", "ls-tree", "-r", c], cwd=src_dir, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
@@ -302,6 +349,7 @@ def benchmark_single_project(
             s_med, sh_med = t5_summary["cargo_sccache"]["wall_stats_s"]["median"], t5_summary["cargo_shared"]["wall_stats_s"]["median"]
             res["stages"]["t5_worktree_swarm"] = {
                 "worktrees": len(swarm_commits), "commits_distinct": len(set(swarm_commits)), "repeats": repeats,
+                "swarm_commits": [c[:12] for c in swarm_commits], "unharnessed_test_targets": unharnessed_cnt,
                 "arms": t5_summary, "invariants": inv,
                 "speedup_vs_cargo_bare": round(b_med / m_med, 2) if (m_med and b_med) else None,
                 "speedup_vs_cargo_sccache": round(s_med / m_med, 2) if (m_med and s_med) else None,
@@ -351,6 +399,7 @@ def main() -> None:
     ap.add_argument("--stages", default="t0,t1,t2,t3,t4,t5", help="Comma-separated stages to execute (default: t0,t1,t2,t3,t4,t5)")
     ap.add_argument("--exclude", default="nushell", help="Comma-separated project names to exclude (default: nushell)")
     ap.add_argument("--allow-binary-mismatch", action="store_true", help="Allow resuming an output file created with different binary/scripts/parameters")
+    ap.add_argument("--retry-noisy", action="store_true", help="On resume, measure NOISY projects again as well (by default only ERROR projects are redone)")
     args = ap.parse_args()
 
     work_dir = Path(args.work_dir).resolve()
@@ -376,9 +425,16 @@ def main() -> None:
     if out_path.exists():
         existing = json.loads(out_path.read_text(encoding="utf-8"))
         old_prov = existing.get("provenance", {})
-        # Only an OK project is reused on resume; a failed or noisy one is measured
-        # again from scratch, so it has no result that the provenance guard protects.
-        stale = [n for n, p in existing.get("projects", {}).items() if p.get("status") != "OK"]
+        # A measured project (OK, NOISY, INVALID_*) and a policy skip are reused on resume;
+        # an ERROR project (and NOISY ones with --retry-noisy) is measured again from scratch.
+        def redo(status: str | None) -> bool:
+            if status == "ERROR" or status is None:
+                return True
+            if args.retry_noisy and status == "NOISY":
+                return True
+            return not str(status).startswith(RESUME_KEEP_PREFIXES)
+
+        stale = [n for n, p in existing.get("projects", {}).items() if redo(p.get("status"))]
         for name in stale:
             print(f"[resume] {name}: previous run ended {existing['projects'][name].get('status')}, starting over", flush=True)
             existing["projects"].pop(name)
@@ -409,8 +465,8 @@ def main() -> None:
             report["projects"][pname] = {"project": pname, "status": "EXCLUDED_POLICY"}
             out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
             continue
-        if pname in report["projects"] and report["projects"][pname].get("status") == "OK":
-            print(f"[{idx}/{len(targets)}] {pname}: already completed, skipping", flush=True)
+        if pname in report["projects"]:
+            print(f"[{idx}/{len(targets)}] {pname}: already {report['projects'][pname].get('status')}, skipping", flush=True)
             continue
 
         print(f"[{idx}/{len(targets)}] Benchmarking {pname} ({spec})...", flush=True)

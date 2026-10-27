@@ -131,16 +131,17 @@ def parse_test_results(output: str) -> dict:
 
 def parse_mitts_stats(text: str) -> dict:
     m = re.search(
-        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+(?:tainted=\d+\s+)?total=(\d+)(?:\s+fast_lock=(\d+))?",
+        r"\[mitts::stats\]\s+compiled=(\d+)\s+cached=(\d+)\s+(?:tainted=(\d+)\s+)?total=(\d+)(?:\s+fast_lock=(\d+))?",
         text,
     )
     if not m:
-        return {"compiled": 0, "cached": 0, "total": 0, "fast_lock": 0}
+        return {"compiled": 0, "cached": 0, "tainted": 0, "total": 0, "fast_lock": 0}
     return {
         "compiled": int(m.group(1)),
         "cached": int(m.group(2)),
-        "total": int(m.group(3)),
-        "fast_lock": int(m.group(4)) if m.group(4) is not None else 0,
+        "tainted": int(m.group(3)) if m.group(3) is not None else 0,
+        "total": int(m.group(4)),
+        "fast_lock": int(m.group(5)) if m.group(5) is not None else 0,
     }
 
 
@@ -153,6 +154,7 @@ def parse_build_output(output: str, tool: str) -> dict:
             "test_binaries_count": int(m.group(1)) if m else 0,
             "units_compiled": stats["compiled"],
             "units_cached": stats["cached"],
+            "units_tainted": stats["tainted"],
             "units_total": stats["total"],
             "fast_lock": stats["fast_lock"],
             "targets": [],
@@ -200,7 +202,74 @@ def parse_mitts_io(text: str) -> dict:
     if m_sum:
         keys = ["restore_sum_s", "restore_miss_sum_s", "publish_sum_s", "rustc_sum_s"]
         res["timings_sum_s"] = {k: float(m_sum.group(i + 1)) for i, k in enumerate(keys)}
+    m_bs = re.search(
+        r"\[mitts::timings_sum\]\s+build_script_sum_s=([\d\.]+)\s+unit_key_sum_s=([\d\.]+)"
+        r"\s+build_script_hits=(\d+)\s+build_script_misses=(\d+)",
+        text,
+    )
+    if m_bs:
+        res.setdefault("timings_sum_s", {})
+        res["timings_sum_s"]["build_script_sum_s"] = float(m_bs.group(1))
+        res["timings_sum_s"]["unit_key_sum_s"] = float(m_bs.group(2))
+        res["build_script_hits"] = int(m_bs.group(3))
+        res["build_script_misses"] = int(m_bs.group(4))
+    m_ph = re.search(r"\[mitts::phases\]\s+compile_s=([\d\.]+)\s+test_exec_s=([\d\.]+)\s+total_s=([\d\.]+)", text)
+    if m_ph:
+        res["phases_s"] = {"compile_s": float(m_ph.group(1)), "test_exec_s": float(m_ph.group(2)), "total_s": float(m_ph.group(3))}
     return res
+
+
+def sum_mitts_io(ios: list[dict]) -> dict:
+    """Sums the `[mitts::io]` and `[mitts::timings_sum]` counters of several runs."""
+    total: dict = {"runs_with_io": 0, "io_stats": {}, "timings_sum_s": {}, "build_script_hits": 0, "build_script_misses": 0}
+    for io in ios:
+        if "io_stats" in io:
+            total["runs_with_io"] += 1
+            for k, v in io["io_stats"].items():
+                total["io_stats"][k] = total["io_stats"].get(k, 0) + v
+        for k, v in io.get("timings_sum_s", {}).items():
+            total["timings_sum_s"][k] = round(total["timings_sum_s"].get(k, 0.0) + v, 3)
+        total["build_script_hits"] += io.get("build_script_hits", 0)
+        total["build_script_misses"] += io.get("build_script_misses", 0)
+    return total
+
+
+def timed_resources(r: dict) -> dict:
+    """CPU time and peak RSS of one timed run (rusage of the child process tree)."""
+    return {"user_s": r.get("user_s"), "sys_s": r.get("sys_s"), "max_rss_mb": r.get("max_rss_mb")}
+
+
+def resource_stats(runs: list[dict]) -> dict:
+    """CPU time and peak RSS over the successful runs of one command."""
+    ok = [r for r in runs if r.get("exit_code") == 0]
+    return {
+        "user_s": compute_stats([r["user_s"] for r in ok]),
+        "sys_s": compute_stats([r["sys_s"] for r in ok]),
+        "max_rss_mb": max((r["max_rss_mb"] for r in ok), default=None),
+    }
+
+
+def swarm_resources(runs: list[dict], arm: str) -> dict:
+    """Per-worktree walls, summed CPU time, peak RSS and unit counters of one swarm run."""
+    parsed = [parse_build_output(r["output"], arm) for r in runs]
+    out = {
+        "wt_wall_s": [r["wall_s"] for r in runs],
+        "wt_user_s": [r["user_s"] for r in runs],
+        "wt_sys_s": [r["sys_s"] for r in runs],
+        "total_user_s": round(sum(r["user_s"] for r in runs), 3),
+        "total_sys_s": round(sum(r["sys_s"] for r in runs), 3),
+        "max_wt_rss_mb": max((r["max_rss_mb"] for r in runs), default=0.0),
+        "sum_wt_rss_mb": round(sum(r["max_rss_mb"] for r in runs), 1),
+        "units_compiled": sum(p["units_compiled"] for p in parsed),
+        "units_cached": sum(p["units_cached"] for p in parsed),
+        "units_total": sum(p["units_total"] for p in parsed),
+        "wt_units_compiled": [p["units_compiled"] for p in parsed],
+    }
+    if arm == "mitts_cas":
+        out["units_tainted"] = sum(p.get("units_tainted", 0) for p in parsed)
+        out["fast_lock_hits"] = sum(1 for p in parsed if p.get("fast_lock") == 1)
+        out["mitts_io"] = sum_mitts_io([parse_mitts_io(r["output"]) for r in runs])
+    return out
 
 
 def parse_sccache_stats(text: str) -> dict:
@@ -224,7 +293,7 @@ def parse_sccache_stats(text: str) -> dict:
 
 def compute_stats(vals: list[float]) -> dict:
     if not vals:
-        return {"median": None, "q1": None, "q3": None, "iqr": None, "min": None, "max": None, "n": 0}
+        return {"median": None, "q1": None, "q3": None, "iqr": None, "min": None, "max": None, "n": 0, "samples": []}
     s = sorted(vals)
     n = len(s)
     median = s[n // 2] if n % 2 == 1 else (s[n // 2 - 1] + s[n // 2]) / 2.0
@@ -238,6 +307,7 @@ def compute_stats(vals: list[float]) -> dict:
         "min": round(s[0], 3),
         "max": round(s[-1], 3),
         "n": n,
+        "samples": [round(v, 3) for v in vals],
     }
 
 

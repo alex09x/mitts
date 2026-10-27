@@ -133,7 +133,9 @@ def setup_environments(
     fetch_env = base_env.copy()
     offline_env = {**base_env, "CARGO_NET_OFFLINE": "true"}
 
-    env_mitts = {**offline_env, "MITTS_CACHE_DIR": str(mitts_cas)}
+    # MITTS_TIMINGS only allows the final `[mitts::io]` / `[mitts::timings_sum]` lines on
+    # stderr; the counters behind them are kept by every run anyway.
+    env_mitts = {**offline_env, "MITTS_CACHE_DIR": str(mitts_cas), "MITTS_TIMINGS": "1"}
     env_bare = offline_env.copy()
     env_bare_no_incr = {**offline_env, "CARGO_INCREMENTAL": "0"}
     env_sccache = {
@@ -366,5 +368,49 @@ def collect_provenance(
         "worktree_filesystem": get_filesystem_type(work_dir),
         "cache_filesystem": get_filesystem_type(cache_dir),
         "same_device": os.stat(work_dir).st_dev == os.stat(cache_dir).st_dev,
+        "worktree_volume": get_storage_details(work_dir),
+        "cache_volume": get_storage_details(cache_dir),
     }
     return prov
+
+
+def get_storage_details(path: Path) -> dict:
+    """Device, mount options, disk model and free space of the volume holding `path` (best effort)."""
+    info: dict = {}
+    try:
+        info["free_gb"] = round(shutil.disk_usage(path).free / 1e9, 1)
+    except OSError:
+        pass
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.check_output(["diskutil", "info", str(path)], text=True, stderr=subprocess.DEVNULL)
+            for key, field in (("Device Node", "device"), ("Device / Media Name", "model"), ("Protocol", "transport"),
+                               ("Solid State", "solid_state"), ("File System Personality", "fs_personality")):
+                m = re.search(rf"^\s*{re.escape(key)}:\s*(.+)$", out, re.M)
+                if m:
+                    info[field] = m.group(1).strip()
+            m = re.search(r"^\s*Mount Point:\s*(.+)$", out, re.M)
+            if m:
+                mnt = subprocess.check_output(["mount"], text=True, stderr=subprocess.DEVNULL)
+                m2 = re.search(rf" on {re.escape(m.group(1).strip())} \((.+)\)$", mnt, re.M)
+                if m2:
+                    info["mount_options"] = m2.group(1)
+        else:
+            parts = subprocess.check_output(["findmnt", "-no", "SOURCE,FSTYPE,OPTIONS", "-T", str(path)], text=True, stderr=subprocess.DEVNULL).split(None, 2)
+            if len(parts) == 3:
+                info.update({"device": parts[0], "fstype": parts[1], "mount_options": parts[2].strip()})
+                dev = parts[0]
+                for _ in range(4):  # walk LVM / partition parents up to the disk that carries the model
+                    model = subprocess.check_output(["lsblk", "-dno", "MODEL", dev], text=True, stderr=subprocess.DEVNULL).strip()
+                    if model:
+                        info["model"] = model
+                        info["transport"] = subprocess.check_output(["lsblk", "-dno", "TRAN", dev], text=True, stderr=subprocess.DEVNULL).strip()
+                        info["rotational"] = subprocess.check_output(["lsblk", "-dno", "ROTA", dev], text=True, stderr=subprocess.DEVNULL).strip() == "1"
+                        break
+                    parents = subprocess.check_output(["lsblk", "-no", "PKNAME", dev], text=True, stderr=subprocess.DEVNULL).split()
+                    if not parents:
+                        break
+                    dev = f"/dev/{parents[0]}"
+    except Exception:
+        pass
+    return info

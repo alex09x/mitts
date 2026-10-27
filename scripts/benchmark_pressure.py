@@ -131,9 +131,16 @@ def _darwin_whole_disks_uncached(paths: list[Path]) -> set[str]:
 
 
 def get_device_bytes_written(paths: list[Path] | Path) -> tuple[str | None, int | None]:
+    """Returns (device_id_str, total_bytes_written); see `get_device_io_bytes`."""
+    dev, written, _ = get_device_io_bytes(paths)
+    return dev, written
+
+
+def get_device_io_bytes(paths: list[Path] | Path) -> tuple[str | None, int | None, int | None]:
     """
-    Returns (device_id_str, total_bytes_written) across all unique underlying
-    block devices for `paths`. Returns (None, None) if unavailable (never fake 0).
+    Returns (device_id_str, total_bytes_written, total_bytes_read) across all unique
+    underlying block devices for `paths`. Returns (None, None, None) if unavailable
+    (never fake 0).
     """
     if isinstance(paths, (str, Path)):
         paths = [Path(paths)]
@@ -147,7 +154,7 @@ def get_device_bytes_written(paths: list[Path] | Path) -> tuple[str | None, int 
     if sys.platform == "darwin":
         whole_disks = _darwin_whole_disks(resolved)
         if not whole_disks:
-            return None, None
+            return None, None, None
         try:
             drv_out = subprocess.check_output(
                 ["ioreg", "-c", "IOBlockStorageDriver", "-r", "-l", "-d", "3", "-w0"],
@@ -155,20 +162,24 @@ def get_device_bytes_written(paths: list[Path] | Path) -> tuple[str | None, int 
                 stderr=subprocess.DEVNULL,
             )
             disk_writes: dict[str, int] = {}
+            disk_reads: dict[str, int] = {}
             for block in drv_out.split("+-o IOBlockStorageDriver"):
                 m_w = re.search(r'"Bytes \(Write\)"\s*=\s*(\d+)', block)
+                m_r = re.search(r'"Bytes \(Read\)"\s*=\s*(\d+)', block)
                 if not m_w:
                     continue
                 for dname in whole_disks:
                     if f'"BSD Name" = "{dname}"' in block:
                         disk_writes[dname] = int(m_w.group(1))
+                        disk_reads[dname] = int(m_r.group(1)) if m_r else 0
             if disk_writes:
-                return ",".join(sorted(disk_writes.keys())), sum(disk_writes.values())
+                return ",".join(sorted(disk_writes.keys())), sum(disk_writes.values()), sum(disk_reads.values())
         except Exception:
             pass
-        return None, None
+        return None, None, None
 
     devs: dict[str, int] = {}
+    reads: dict[str, int] = {}
     for p in resolved:
         key = _linux_maj_min_for_path(p)
         if not key or key in devs:
@@ -180,13 +191,14 @@ def get_device_bytes_written(paths: list[Path] | Path) -> tuple[str | None, int 
         )
         try:
             fields = Path(stat_path).read_text(encoding="utf-8").split()
-            devs[key] = int(fields[6]) * 512
+            devs[key] = int(fields[6]) * 512  # sectors written
+            reads[key] = int(fields[2]) * 512  # sectors read
         except Exception:
             pass
 
     if not devs:
-        return None, None
-    return ",".join(sorted(devs.keys())), sum(devs.values())
+        return None, None, None
+    return ",".join(sorted(devs.keys())), sum(devs.values()), sum(reads.values())
 
 
 def get_df_used_mb(paths: list[Path] | Path) -> float | None:
