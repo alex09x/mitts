@@ -13,10 +13,16 @@ use mitts::adapter::RustAdapter;
 use mitts::core::action_cache::ActionCache;
 use mitts::core::cas::ContentAddressedStore;
 use std::fs;
+use std::sync::Mutex;
 use tempfile::TempDir;
+
+/// One test changes the process working directory to a temporary directory; a rustc spawned
+/// by another at that moment would start in a directory about to vanish.
+static CWD_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_m8_planner_versioned_specs_and_toolchain_cache() {
+    let _cwd = CWD_LOCK.lock().unwrap();
     let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -160,6 +166,7 @@ fn test_m8_cas_verify_and_ac_env_paths() {
 
 #[test]
 fn test_m8_run_progress_diagnostic_and_resolve_manifest_none() {
+    let _cwd = CWD_LOCK.lock().unwrap();
     let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -179,7 +186,11 @@ fn test_m8_run_progress_diagnostic_and_resolve_manifest_none() {
         ..Default::default()
     };
     let manifest = RustAdapter::resolve_manifest(&opt_none).unwrap();
-    assert_eq!(manifest, root.join("Cargo.toml"));
+    // macOS reports the working directory as `/private/var/…` for a `/var/…` tempdir.
+    assert_eq!(
+        manifest.canonicalize().unwrap(),
+        root.join("Cargo.toml").canonicalize().unwrap()
+    );
 
     std::env::set_current_dir(&orig_dir).unwrap();
 }

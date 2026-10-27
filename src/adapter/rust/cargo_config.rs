@@ -274,7 +274,11 @@ pub fn resolve_config_start_dir_with_opt(
         return explicit.to_path_buf();
     }
     if let Ok(cwd) = std::env::current_dir() {
-        if cwd.starts_with(base_dir) || base_dir.starts_with(&cwd) {
+        // Compare real paths: on macOS the working directory comes back as
+        // `/private/var/…` while the project may be named `/var/…`.
+        let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let (c_cwd, c_base) = (canon(&cwd), canon(base_dir));
+        if c_cwd.starts_with(&c_base) || c_base.starts_with(&c_cwd) {
             return cwd;
         }
     }
