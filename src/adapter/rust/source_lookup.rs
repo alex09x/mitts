@@ -39,8 +39,9 @@ fn find_in_git_checkouts(
         for commit in commits.flatten() {
             let commit_dir_name = commit.file_name();
             let commit_str = commit_dir_name.to_string_lossy();
-            if !expected_hash.starts_with(commit_str.as_ref())
-                && !commit_str.starts_with(expected_hash)
+            if commit_str.starts_with('.')
+                || (!expected_hash.starts_with(commit_str.as_ref())
+                    && !commit_str.starts_with(expected_hash))
             {
                 continue;
             }
@@ -48,37 +49,48 @@ fn find_in_git_checkouts(
             if !commit_path.is_dir() {
                 continue;
             }
-            if manifest_matches_package(&commit_path.join("Cargo.toml"), name, version) {
-                return Some(commit_path);
+            if let Some(found) = find_package_in_checkout(&commit_path, name, version) {
+                return Some(found);
             }
-            let Ok(subs) = std::fs::read_dir(&commit_path) else {
+        }
+    }
+    None
+}
+
+/// Finds the package inside one checked-out commit: at its root, in a direct subdirectory,
+/// or under `crates/`.
+pub(crate) fn find_package_in_checkout(
+    commit_path: &Path,
+    name: &str,
+    version: &str,
+) -> Option<PathBuf> {
+    if manifest_matches_package(&commit_path.join("Cargo.toml"), name, version) {
+        return Some(commit_path.to_path_buf());
+    }
+    let subs = std::fs::read_dir(commit_path).ok()?;
+    for sub in subs.flatten() {
+        let sub_path = sub.path();
+        if !sub_path.is_dir() {
+            continue;
+        }
+        let s_name = sub.file_name();
+        let s_str = s_name.to_string_lossy();
+        if s_str.starts_with('.') || s_str == "target" {
+            continue;
+        }
+        if manifest_matches_package(&sub_path.join("Cargo.toml"), name, version) {
+            return Some(sub_path);
+        }
+        if s_str == "crates" {
+            let Ok(nested) = std::fs::read_dir(&sub_path) else {
                 continue;
             };
-            for sub in subs.flatten() {
-                let sub_path = sub.path();
-                if !sub_path.is_dir() {
-                    continue;
-                }
-                let s_name = sub.file_name();
-                let s_str = s_name.to_string_lossy();
-                if s_str.starts_with('.') || s_str == "target" {
-                    continue;
-                }
-                if manifest_matches_package(&sub_path.join("Cargo.toml"), name, version) {
-                    return Some(sub_path);
-                }
-                if s_str == "crates" {
-                    let Ok(nested) = std::fs::read_dir(&sub_path) else {
-                        continue;
-                    };
-                    for n in nested.flatten() {
-                        let n_path = n.path();
-                        if n_path.is_dir()
-                            && manifest_matches_package(&n_path.join("Cargo.toml"), name, version)
-                        {
-                            return Some(n_path);
-                        }
-                    }
+            for n in nested.flatten() {
+                let n_path = n.path();
+                if n_path.is_dir()
+                    && manifest_matches_package(&n_path.join("Cargo.toml"), name, version)
+                {
+                    return Some(n_path);
                 }
             }
         }
@@ -100,11 +112,19 @@ pub(crate) fn find_crate_source_dir_with_store(
     store: Option<&crate::core::source_store::SourceStore>,
 ) -> Option<PathBuf> {
     use super::fetcher::CrateFetcher;
+    use super::git_source::GitSourceStore;
     use crate::core::source_store::{RegistryLookup, SourceStore};
 
     match source {
         Some(s) if s.starts_with("git+") || s == "git" => {
             let expected_hash = s.split('#').nth(1).filter(|h| !h.is_empty())?;
+            let sources_root = store
+                .map(|st| st.root().to_path_buf())
+                .unwrap_or_else(SourceStore::default_root);
+            let mitts_git = GitSourceStore::beside_sources(&sources_root).checkouts_dir();
+            if let Some(dir) = find_in_git_checkouts(&mitts_git, name, version, expected_hash) {
+                return Some(dir);
+            }
             let git_src = SourceStore::active_cargo_home()?
                 .join("git")
                 .join("checkouts");
@@ -172,7 +192,7 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
                     pkg.version
                 );
             }
-            CrateFetcher::validate_non_crates_io(pkg)?;
+            CrateFetcher::locate_non_crates_io(pkg, store.as_ref(), &FetchOptions::default())?;
         }
     }
 
@@ -224,7 +244,9 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
                     pkg.version
                 );
             } else {
-                let resolved_dir = if let Some(dir) = CrateFetcher::validate_non_crates_io(pkg)? {
+                let resolved_dir = if let Some(dir) =
+                    CrateFetcher::locate_non_crates_io(pkg, store.as_ref(), &FetchOptions::default())?
+                {
                     dir
                 } else if let Some(dir) = find_crate_source_dir_with_store(
                     &pkg.name,

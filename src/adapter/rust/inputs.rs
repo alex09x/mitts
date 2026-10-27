@@ -50,7 +50,8 @@ pub fn discover_clippy_config(start_dir: &Path) -> Option<PathBuf> {
 /// 1. Official Cargo registry source (`$CARGO_HOME/registry/src/...` or `~/.cargo/registry/src/...`) with `.cargo-ok`, OR
 /// 2. A Mitts source store entry (`<cache root>/sources/<name>-<version>/`, whichever cache
 ///    root the build runs against) with `.mitts-ok`, OR
-/// 3. Official Cargo git checkout (`$CARGO_HOME/git/checkouts/...`) with `.cargo-ok`.
+/// 3. Official Cargo git checkout (`$CARGO_HOME/git/checkouts/...`) with `.cargo-ok`, OR
+/// 4. A Mitts git checkout (`<cache root>/git/checkouts/<repo>/<rev>/...`) with `.mitts-ok`.
 pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool {
     if is_workspace {
         return false;
@@ -68,6 +69,20 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
             .take_while(|a| a.starts_with(&cargo_git_checkouts) && *a != cargo_git_checkouts)
             .any(|a| a.join(".cargo-ok").is_file());
 
+    let in_mitts_git = package_dir.ancestors().skip(1).any(|a| {
+        a.join(crate::core::source_store::MITTS_OK_MARKER).is_file()
+            && a.parent()
+                .and_then(|repo| repo.parent())
+                .and_then(|checkouts| {
+                    let parent = checkouts.parent()?;
+                    Some(
+                        checkouts.file_name()? == "checkouts"
+                            && parent.file_name()? == crate::core::cache_root::GIT_DIR,
+                    )
+                })
+                .unwrap_or(false)
+    });
+
     let in_mitts_sources = package_dir
         .parent()
         .and_then(|p| p.file_name())
@@ -76,7 +91,7 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
             .join(crate::core::source_store::MITTS_OK_MARKER)
             .is_file();
 
-    in_cargo_registry || in_mitts_sources || in_cargo_git
+    in_cargo_registry || in_mitts_sources || in_cargo_git || in_mitts_git
 }
 
 /// Label of a manifest's test-only digest (`[dev-dependencies]`, `[[test]]`, ...).

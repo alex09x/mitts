@@ -9,7 +9,7 @@
  */
 
 //! One resolver for the root of the Mitts cache, shared by every store that
-//! lives under it: `cas/`, `ac/`, `locks/`, `jobserver/`, `sources/`, `index/`, `toolchain/`.
+//! lives under it: `cas/`, `ac/`, `locks/`, `jobserver/`, `sources/`, `git/`, `index/`, `toolchain/`.
 //!
 //! Precedence: an explicit directory (`--cache-dir`, `RustBuildOptions::cache_dir`),
 //! then `$MITTS_CACHE_DIR`, then `$XDG_CACHE_HOME/mitts`, then `$HOME/.cache/mitts`,
@@ -28,6 +28,8 @@ pub const CAS_DIR: &str = "cas";
 pub const ACTION_CACHE_DIR: &str = "ac";
 /// Subdirectory of the unpacked crate sources.
 pub const SOURCES_DIR: &str = "sources";
+/// Subdirectory of the git dependency mirrors and checkouts.
+pub const GIT_DIR: &str = "git";
 /// Subdirectory of the cached sparse-index entries.
 pub const INDEX_DIR: &str = "index";
 /// Subdirectory of the managed jobserver pool.

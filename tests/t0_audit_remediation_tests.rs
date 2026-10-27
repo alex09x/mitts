@@ -123,17 +123,23 @@ fn test_t0_p0_1_git_dependency_missing_rejects_without_http() {
     let git_pkg = CargoLockPackage {
         name: "foo".to_string(),
         version: "0.1.0".to_string(),
-        source: Some("git+https://github.com/example/foo#abcdef1234567890".to_string()),
+        source: Some(format!(
+            "git+file://{}/no-such-repo.git#abcdef1234567890abcdef1234567890abcdef12",
+            temp.path().display()
+        )),
         checksum: None,
         dependencies: Vec::new(),
     };
 
+    // Mitts clones git dependencies itself; a repository that does not exist fails with
+    // git's own diagnostic and never touches crates.io.
     let err_single = fetcher.fetch_package(&git_pkg, &FetchOptions::default());
     assert!(err_single.is_err(), "Missing git dependency must fail");
-    assert!(err_single
-        .unwrap_err()
-        .to_string()
-        .contains("run `cargo fetch`"));
+    let msg = format!("{:#}", err_single.unwrap_err());
+    assert!(
+        msg.contains("git dependency") && msg.contains("no-such-repo.git"),
+        "{msg}"
+    );
 
     let lock = CargoLock {
         version: 3,
@@ -141,10 +147,8 @@ fn test_t0_p0_1_git_dependency_missing_rejects_without_http() {
     };
     let err_all = fetcher.fetch_all(&lock, &FetchOptions::default());
     assert!(err_all.is_err(), "fetch_all with missing git dep must fail");
-    assert!(err_all
-        .unwrap_err()
-        .to_string()
-        .contains("run `cargo fetch`"));
+    let msg = format!("{:#}", err_all.unwrap_err());
+    assert!(msg.contains("git dependency"), "{msg}");
 
     stop.store(1, Ordering::Relaxed);
     let _ = server_handle.join();

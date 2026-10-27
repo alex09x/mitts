@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use super::git_source::{GitSource, GitSourceStore};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use crate::core::lock::FileLock;
 use crate::core::source_store::{RegistryLookup, SourceStore};
@@ -96,24 +97,97 @@ impl CrateFetcher {
         Ok(body_bytes)
     }
 
-    pub(crate) fn validate_non_crates_io(pkg: &CargoLockPackage) -> Result<Option<PathBuf>> {
+    /// Where a non-crates.io package already lives locally: the Mitts git checkouts of the
+    /// store's cache root first, then the Cargo git checkouts. `None` for crates.io sources
+    /// and for anything not present.
+    pub fn find_local_non_crates_io(
+        pkg: &CargoLockPackage,
+        store: Option<&SourceStore>,
+    ) -> Option<PathBuf> {
+        let src = pkg.source.as_deref()?;
+        if Self::is_crates_io_registry_source(src) {
+            return None;
+        }
+        super::source_lookup::find_crate_source_dir_with_store(
+            &pkg.name,
+            &pkg.version,
+            Some(src),
+            store,
+        )
+    }
+
+    /// Resolves a non-crates.io package. A git dependency that is missing locally is cloned
+    /// into the Mitts git store with the system `git` (unless `opt.offline`); any other
+    /// registry is rejected. `Ok(None)` means a crates.io package, handled elsewhere.
+    pub fn locate_non_crates_io(
+        pkg: &CargoLockPackage,
+        store: Option<&SourceStore>,
+        opt: &FetchOptions,
+    ) -> Result<Option<PathBuf>> {
         let Some(ref src) = pkg.source else {
             return Ok(None);
         };
         if Self::is_crates_io_registry_source(src) {
             return Ok(None);
         }
-        if let Some(dir) =
-            super::source_lookup::find_crate_source_dir(&pkg.name, &pkg.version, Some(src))
-        {
+        if let Some(dir) = Self::find_local_non_crates_io(pkg, store) {
             return Ok(Some(dir));
         }
-        bail!(
-            "Package {}-{} uses non-crates.io source ({}) and is missing locally; run `cargo fetch`",
-            pkg.name,
-            pkg.version,
-            src
-        );
+        let Some(git) = GitSource::parse(src) else {
+            bail!(
+                "Package {}-{} comes from {}: Mitts supports crates.io and git sources; alternative registries are not supported yet",
+                pkg.name,
+                pkg.version,
+                src
+            );
+        };
+        let sources_root = store
+            .map(|st| st.root().to_path_buf())
+            .unwrap_or_else(SourceStore::default_root);
+        let checkout = GitSourceStore::beside_sources(&sources_root)
+            .ensure_checkout(&git, opt.offline)
+            .with_context(|| format!("Package {}-{} is a git dependency", pkg.name, pkg.version))?;
+        super::source_lookup::find_package_in_checkout(&checkout, &pkg.name, &pkg.version)
+            .map(Some)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "git dependency {}: commit {} contains no package {} {}",
+                    git.url,
+                    git.precise,
+                    pkg.name,
+                    pkg.version
+                )
+            })
+    }
+
+    /// Clones missing git dependencies a few at a time: they are network-bound and few.
+    fn fetch_git_packages(&self, pkgs: &[CargoLockPackage], opt: &FetchOptions) -> Result<usize> {
+        if pkgs.is_empty() {
+            return Ok(0);
+        }
+        let pb = crate::cli::Ui::create_progress_bar(pkgs.len() as u64, "📥 Cloning");
+        let next = AtomicUsize::new(0);
+        let first_error = Mutex::new(None::<anyhow::Error>);
+        std::thread::scope(|s| {
+            for _ in 0..pkgs.len().min(4) {
+                let (next, first_error, pb) = (&next, &first_error, &pb);
+                s.spawn(move || loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= pkgs.len() {
+                        break;
+                    }
+                    if let Err(e) = Self::locate_non_crates_io(&pkgs[i], Some(&self.store), opt) {
+                        Self::record_error(first_error, e);
+                    }
+                    pb.inc(1);
+                });
+            }
+        });
+        pb.finish_and_clear();
+        if let Some(err) = first_error.into_inner().unwrap() {
+            return Err(err);
+        }
+        Ok(pkgs.len())
     }
 
     fn record_error(slot: &Mutex<Option<anyhow::Error>>, err: anyhow::Error) {
@@ -144,7 +218,7 @@ impl CrateFetcher {
         if pkg.source.is_none() {
             return Ok(None);
         }
-        if let Some(dir) = Self::validate_non_crates_io(pkg)? {
+        if let Some(dir) = Self::locate_non_crates_io(pkg, Some(&self.store), opt)? {
             return Ok(Some(dir));
         }
         if self.store.has_source(&pkg.name, &pkg.version) {
@@ -198,25 +272,34 @@ impl CrateFetcher {
         let mut already_cached = 0;
         let mut to_fetch = Vec::new();
 
+        let mut git_to_fetch = Vec::new();
         for pkg in &lock.packages {
-            if pkg.source.is_none() {
+            let Some(ref src) = pkg.source else {
                 continue;
-            }
+            };
             total_packages += 1;
-            if Self::validate_non_crates_io(pkg)?.is_some()
-                || self.store.has_source(&pkg.name, &pkg.version)
-            {
+            if Self::is_crates_io_registry_source(src) {
+                if self.store.has_source(&pkg.name, &pkg.version) {
+                    already_cached += 1;
+                } else {
+                    to_fetch.push(pkg.clone());
+                }
+            } else if Self::find_local_non_crates_io(pkg, Some(&self.store)).is_some() {
                 already_cached += 1;
+            } else if GitSource::parse(src).is_some() {
+                git_to_fetch.push(pkg.clone());
             } else {
-                to_fetch.push(pkg.clone());
+                // Rejects alternative registries with the explanatory error.
+                Self::locate_non_crates_io(pkg, Some(&self.store), opt)?;
             }
         }
+        let git_fetched = self.fetch_git_packages(&git_to_fetch, opt)?;
 
         if to_fetch.is_empty() {
             return Ok(FetchResult {
                 total_packages,
                 already_cached,
-                fetched: 0,
+                fetched: git_fetched,
                 duration_ms: start.elapsed().as_millis() as u64,
             });
         }
@@ -328,7 +411,7 @@ impl CrateFetcher {
         Ok(FetchResult {
             total_packages,
             already_cached,
-            fetched: fetched_count.load(Ordering::Relaxed),
+            fetched: git_fetched + fetched_count.load(Ordering::Relaxed),
             duration_ms: start.elapsed().as_millis() as u64,
         })
     }

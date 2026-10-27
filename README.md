@@ -130,7 +130,13 @@ mitts clean                  # remove this workspace's Mitts artifacts
 Mitts writes only to `target/mitts/` in the workspace and to its shared cache
 (`--cache-dir`, else `$MITTS_CACHE_DIR`, else `$XDG_CACHE_HOME/mitts`, else
 `~/.cache/mitts`). The artifact store, action cache, locks, jobserver, source
-store and index cache all live under that one root.
+store, git mirrors and index cache all live under that one root.
+
+Git dependencies, public or private, are cloned by Mitts itself with the system
+`git`, so your SSH keys, agent, credential helpers and `GIT_SSH_COMMAND` apply
+exactly as on the command line; prompts are disabled, so a missing credential
+fails instead of hanging. Nothing goes through Cargo. A checkout Cargo already
+made under `~/.cargo/git/checkouts` is reused instead of cloned again.
 
 ## How it works
 
@@ -141,7 +147,8 @@ Cargo.toml + Cargo.lock
  resolve ─── reuse Cargo.lock, or resolve against the crates.io sparse index
         │
         ▼
- fetch ───── download .crate archives in parallel, verify, unpack once per machine
+ fetch ───── download .crate archives in parallel, verify, unpack once per machine;
+        │    clone git dependencies with the system git at the locked commit
         │
         ▼
  plan ────── compilation units: lib · bin · test · build script · proc macro
@@ -261,6 +268,8 @@ Mitts is pre-release. Know these before you rely on it:
 - **Linux and macOS only.** Locks and the jobserver are POSIX.
 - **Host target only.** Cross-compilation is not supported yet.
 - **No remote cache yet.** The store is per machine.
+- **crates.io and git sources only.** A dependency from an alternative
+  registry (`registry+` or `sparse+` other than crates.io) fails loudly.
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.

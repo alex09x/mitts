@@ -179,7 +179,7 @@ fn test_t0_b1_custom_and_sparse_registries_rejected_in_lookup_and_explain() {
                 .expect_err("explain must reject non-crates.io registry package");
             let msg = format!("{:#}", err);
             assert!(
-                msg.contains("uses non-crates.io source") && msg.contains("cargo fetch"),
+                msg.contains("alternative registries are not supported"),
                 "unexpected error for {}: {}",
                 custom_src,
                 msg
@@ -270,19 +270,19 @@ fn test_t0_b2_explain_ignores_unmarked_dirs_and_recovers_from_archive() {
 }
 
 #[test]
-fn test_t0_b3_missing_git_dependency_fails_explain_with_cargo_fetch_error() {
+fn test_t0_b3_unreachable_git_dependency_fails_explain_with_git_error() {
     with_isolated_env(|root, _cargo_home, mitts_cache| {
         let proj = root.join("proj_b3");
         fs::create_dir_all(proj.join("src")).unwrap();
         fs::write(
             proj.join("Cargo.toml"),
-            "[package]\nname = \"proj-b3\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ngit-dep = { git = \"https://github.com/example/git-dep.git\" }\n",
+            "[package]\nname = \"proj-b3\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ngit-dep = { git = \"file:///nonexistent/example/git-dep.git\" }\n",
         )
         .unwrap();
         fs::write(proj.join("src/lib.rs"), "pub fn app() {}\n").unwrap();
         fs::write(
             proj.join("Cargo.lock"),
-            "version = 3\n\n[[package]]\nname = \"git-dep\"\nversion = \"0.1.0\"\nsource = \"git+https://github.com/example/git-dep.git#deadbeef12345678\"\n\n[[package]]\nname = \"proj-b3\"\nversion = \"0.1.0\"\ndependencies = [\"git-dep\"]\n",
+            "version = 3\n\n[[package]]\nname = \"git-dep\"\nversion = \"0.1.0\"\nsource = \"git+file:///nonexistent/example/git-dep.git#deadbeef12345678\"\n\n[[package]]\nname = \"proj-b3\"\nversion = \"0.1.0\"\ndependencies = [\"git-dep\"]\n",
         )
         .unwrap();
 
@@ -292,12 +292,12 @@ fn test_t0_b3_missing_git_dependency_fails_explain_with_cargo_fetch_error() {
             ..Default::default()
         };
         let err = RustAdapter::explain_plan(&opt)
-            .expect_err("explain must fail when git dependency checkout is missing");
+            .expect_err("explain must fail when the git dependency cannot be cloned");
         let msg = format!("{:#}", err);
         assert!(
             msg.contains("git-dep-0.1.0")
-                && msg.contains("uses non-crates.io source")
-                && msg.contains("run `cargo fetch`"),
+                && msg.contains("git dependency")
+                && msg.contains("nonexistent/example/git-dep.git"),
             "unexpected error: {}",
             msg
         );
