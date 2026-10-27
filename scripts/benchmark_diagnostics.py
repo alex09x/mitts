@@ -94,6 +94,12 @@ def extract_diagnostics_counter(stderr_text: str, ws_root: Path) -> collections.
                     break
                 j += 1
 
+            # A header without a source location is the tool talking, not the compiler:
+            # Cargo's `unused manifest key`, `virtual workspace defaulting to resolver 1`,
+            # profile notes and the like. Parity is about compiler diagnostics.
+            if not rel_f:
+                i += 1
+                continue
             counter[(level, code, rel_f, line_num, col_num, msg)] += 1
         i += 1
 
