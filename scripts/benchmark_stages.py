@@ -80,12 +80,13 @@ def run_warmups_and_snapshot(
     wt01 = init_wts[0][1]
 
     purge_mitts_cas(ctx["mitts_cas"], keep_sources=True)
-    # Both warm-up runs enable the fast build lock (off by default with --cache-dir): the
-    # first records its state, the second is the fast-lock hit that `fast_lock_noop` reports.
-    r_wm = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env={**ctx["envs"]["mitts_cas"], "MITTS_FAST_LOCK": "1"})
+    # `fast_lock_noop` below is a second warm run of the same command: for `test --no-run`
+    # the fast build lock never applies (builder: Build | Check only), so this measures the
+    # plan + action-cache no-op path; the fast lock itself is measured in T2 S2.
+    r_wm = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["mitts_cas"])
     if r_wm["exit_code"] != 0:
         raise RuntimeError(f"Mitts warmup ({subcmd}) failed on WT-01: {r_wm['stderr_tail']}")
-    r_fl = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env={**ctx["envs"]["mitts_cas"], "MITTS_FAST_LOCK": "1"})
+    r_fl = run_timed(tool_cmd("mitts_cas", subcmd, ctx, extra_args), cwd=wt01, env=ctx["envs"]["mitts_cas"])
     fast_lock_noop = {"exit_code": r_fl["exit_code"], "wall_s": r_fl["wall_s"], **parse_build_output(r_fl["output"], "mitts_cas")}
     snapshot_dir(ctx["mitts_cas"], snap_cas)
 
@@ -133,6 +134,9 @@ def run_stages_t0_t1_t2_t3(
     locked_flag = ["--locked"] if ctx.get("cargo_locked", True) else []
     if "t0" in stages:
         env_t0 = {**ctx["envs"]["mitts_cas"], "MITTS_TIMINGS": "1"}
+        # One untimed run fills the toolchain probe cache; the timed runs and the parsed
+        # metrics then describe the same warm state.
+        run_timed([str(mitts_bin), "explain", "--json"], cwd=src_dir, env=env_t0)
         exp_runs = [run_timed([str(mitts_bin), "explain", "--json"], cwd=src_dir, env=env_t0) for _ in range(repeats)]
         ok_ms = [r["wall_s"] * 1000.0 for r in exp_runs if r["exit_code"] == 0]
         c_meta_cmd = ["cargo", "metadata", "--offline", "--format-version", "1"] + locked_flag
@@ -147,8 +151,8 @@ def run_stages_t0_t1_t2_t3(
             "cargo_failures": sum(1 for r in c_meta_runs if r["exit_code"] != 0),
             "ratio_vs_cargo_metadata": round(c_st["median"] / m_st["median"], 2) if (c_st["median"] and m_st["median"]) else None,
             "comparison_note": "non-equivalent work: mitts explain plans build units vs cargo metadata resolves full workspace+dev graph",
-            "stderr_tail": exp_runs[0]["stderr_tail"],
-            **parse_explain_metrics(exp_runs[0]["output"]),
+            "stderr_tail": exp_runs[-1]["stderr_tail"],
+            **parse_explain_metrics(exp_runs[-1]["output"]),
         }
         print(f"  [t0] explain {m_st['median']} ms vs cargo metadata {c_st['median']} ms (n={repeats})", flush=True)
 
@@ -224,7 +228,7 @@ def run_stages_t0_t1_t2_t3(
         s1_arms = ["mitts_cas", "cargo_bare", "cargo_bare_no_incr", "cargo_sccache", "cargo_shared"]
         cold_by_arm: dict[str, list[dict]] = {a: [] for a in s1_arms}
         last_scc_by_arm: dict[str, dict | None] = {a: None for a in s1_arms}
-        s1_cold, s2_noop, l3_mutation = {}, {}, {}
+        s1_cold, s2_noop, s2_fast_lock, l3_mutation = {}, {}, {}, {}
         tgt_info = select_workspace_targets(src_dir, env=ctx["envs"]["cargo_bare"])
         rs_file = tgt_info["lib_or_bin_src"]
 
@@ -272,6 +276,16 @@ def run_stages_t0_t1_t2_t3(
                         if arm == "cargo_sccache":
                             collect_sccache_stats_and_stop(sccache_bin, ctx["envs"]["cargo_sccache"])
                         s2_noop[arm] = compute_stats([r["wall_s"] * 1000.0 for r in noop_runs if r["exit_code"] == 0])
+                        if arm == "mitts_cas":
+                            # The fast build lock is off with an explicit --cache-dir; one run
+                            # records its state, the timed runs are fast-lock hits.
+                            env_fl = {**ctx["envs"][arm], "MITTS_FAST_LOCK": "1"}
+                            run_timed(cmd, cwd=src_dir, env=env_fl)
+                            fl_runs = [run_timed(cmd, cwd=src_dir, env=env_fl) for _ in range(repeats)]
+                            s2_fast_lock[arm] = {
+                                **compute_stats([r["wall_s"] * 1000.0 for r in fl_runs if r["exit_code"] == 0]),
+                                "fast_lock_hits": sum(1 for r in fl_runs if parse_build_output(r["output"], arm).get("fast_lock") == 1),
+                            }
 
                     if rs_file and rs_file.is_file():
                         orig_txt = rs_file.read_text(encoding="utf-8", errors="replace")
@@ -310,7 +324,7 @@ def run_stages_t0_t1_t2_t3(
             }
 
         res["stages"]["t2_cold_noop_and_l3"] = {
-            "s1_cold_build": s1_cold, "s2_fast_noop_ms": s2_noop, "l3_mutation_and_reuse": l3_mutation,
+            "s1_cold_build": s1_cold, "s2_fast_noop_ms": s2_noop, "s2_fast_lock_noop_ms": s2_fast_lock, "l3_mutation_and_reuse": l3_mutation,
         }
 
     # ---------------- T3: S3 Git History Replay & S4 Branch Hopping (All 4 Arms) ----------------
