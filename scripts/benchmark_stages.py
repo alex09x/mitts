@@ -175,25 +175,34 @@ def run_stages_t0_t1_t2_t3(
     if "t1" in stages:
         net_fetch: dict | None = None
         if online_fetch:
-            # Cold network: no registry index, no .crate files, no Mitts store. Each tool downloads
-            # the project's dependencies itself; n=1, the order alternates between projects.
-            for sub in ("index", "cache", "src"):
-                chmod_rmtree(ctx["cargo_home"] / "registry" / sub)
-                (ctx["cargo_home"] / "registry" / sub).mkdir(parents=True, exist_ok=True)
-            purge_mitts_cas(ctx["mitts_cas"], keep_sources=False)
-            env_m_on = {k: v for k, v in ctx["envs"]["mitts_cas"].items() if k != "CARGO_NET_OFFLINE"}
-            m_cmd_on = [str(mitts_bin), "fetch", "--cache-dir", str(ctx["mitts_cas"])]
+            # Cold network: an empty, throw-away CARGO_HOME and Mitts store per tool, so neither
+            # tool can reuse the other's download (Mitts unpacks .crate files it finds in
+            # CARGO_HOME) and the multi-commit cache in ctx["cargo_home"] stays intact for the
+            # offline stages. n=1; the order alternates between projects.
+            net_cas = proj_work / "net_mitts_cas"
+            net_ch_m, net_ch_c = proj_work / "net_ch_mitts", proj_work / "net_ch_cargo"
+            for d in (net_cas, net_ch_m, net_ch_c):
+                chmod_rmtree(d)
+                d.mkdir(parents=True, exist_ok=True)
+            env_m_on = {
+                **{k: v for k, v in ctx["envs"]["mitts_cas"].items() if k != "CARGO_NET_OFFLINE"},
+                "CARGO_HOME": str(net_ch_m), "MITTS_CACHE_DIR": str(net_cas),
+            }
+            env_c_on = {**ctx["fetch_env"], "CARGO_HOME": str(net_ch_c)}
+            m_cmd_on = [str(mitts_bin), "fetch", "--cache-dir", str(net_cas)]
             c_cmd_on = ["cargo", "fetch"] + locked_flag
-            first = "mitts_cas" if (sum(ord(ch) for ch in src_dir.name) % 2 == 0) else "cargo_bare"
+            first = "mitts_cas" if (sum(ord(ch) for ch in proj_work.name) % 2 == 0) else "cargo_bare"
             order = [first, "cargo_bare" if first == "mitts_cas" else "mitts_cas"]
             r_on: dict[str, dict] = {}
             for tool in order:
                 if tool == "mitts_cas":
                     r_on[tool] = run_timed(m_cmd_on, cwd=src_dir, env=env_m_on)
-                    r_on[tool]["store_mb"] = get_disk_usage_mb([ctx["mitts_cas"]])
+                    r_on[tool]["store_mb"] = get_disk_usage_mb([net_cas])
                 else:
-                    r_on[tool] = run_timed(c_cmd_on, cwd=src_dir, env=ctx["fetch_env"])
-                    r_on[tool]["store_mb"] = get_disk_usage_mb([ctx["cargo_home"] / "registry"])
+                    r_on[tool] = run_timed(c_cmd_on, cwd=src_dir, env=env_c_on)
+                    r_on[tool]["store_mb"] = get_disk_usage_mb([net_ch_c / "registry"])
+            for d in (net_cas, net_ch_m, net_ch_c):
+                chmod_rmtree(d)
             net_fetch = {
                 "order": order,
                 "mitts": {"wall_s": r_on["mitts_cas"]["wall_s"], "exit_code": r_on["mitts_cas"]["exit_code"], **timed_resources(r_on["mitts_cas"]),
@@ -203,8 +212,6 @@ def run_stages_t0_t1_t2_t3(
                 "note": "one cold download per tool over the live network: registry index, .crate files and the Mitts store start empty",
             }
             print(f"  [t1/net] cold online fetch: mitts {net_fetch['mitts']['wall_s']} s, cargo {net_fetch['cargo']['wall_s']} s (order {order})", flush=True)
-            # the offline measurements below need the .crate files cargo just downloaded
-            run_timed(["cargo", "metadata", "--offline", "--format-version", "1"] + locked_flag, cwd=src_dir, env=ctx["envs"]["cargo_bare"])
 
         purge_mitts_cas(ctx["mitts_cas"], keep_sources=False)
         assert_dir_empty_or_absent(ctx["mitts_cas"])
