@@ -139,6 +139,7 @@ def run_stages_t0_t1_t2_t3(
     replay_commits: list[str],
     commit_locks: dict[str, Path],
     prewarm_commits: list[str] | None = None,
+    online_fetch: bool = False,
 ) -> bool:
     git_checkout_clean(src_dir, head_commit, commit_locks)
 
@@ -172,6 +173,39 @@ def run_stages_t0_t1_t2_t3(
 
     # ---------------- T1: Source Store Fetch/Unpack (Mitts vs Cargo) & Cross-Clone Build (All 4 Arms) ----------------
     if "t1" in stages:
+        net_fetch: dict | None = None
+        if online_fetch:
+            # Cold network: no registry index, no .crate files, no Mitts store. Each tool downloads
+            # the project's dependencies itself; n=1, the order alternates between projects.
+            for sub in ("index", "cache", "src"):
+                chmod_rmtree(ctx["cargo_home"] / "registry" / sub)
+                (ctx["cargo_home"] / "registry" / sub).mkdir(parents=True, exist_ok=True)
+            purge_mitts_cas(ctx["mitts_cas"], keep_sources=False)
+            env_m_on = {k: v for k, v in ctx["envs"]["mitts_cas"].items() if k != "CARGO_NET_OFFLINE"}
+            m_cmd_on = [str(mitts_bin), "fetch", "--cache-dir", str(ctx["mitts_cas"])]
+            c_cmd_on = ["cargo", "fetch"] + locked_flag
+            first = "mitts_cas" if (sum(ord(ch) for ch in src_dir.name) % 2 == 0) else "cargo_bare"
+            order = [first, "cargo_bare" if first == "mitts_cas" else "mitts_cas"]
+            r_on: dict[str, dict] = {}
+            for tool in order:
+                if tool == "mitts_cas":
+                    r_on[tool] = run_timed(m_cmd_on, cwd=src_dir, env=env_m_on)
+                    r_on[tool]["store_mb"] = get_disk_usage_mb([ctx["mitts_cas"]])
+                else:
+                    r_on[tool] = run_timed(c_cmd_on, cwd=src_dir, env=ctx["fetch_env"])
+                    r_on[tool]["store_mb"] = get_disk_usage_mb([ctx["cargo_home"] / "registry"])
+            net_fetch = {
+                "order": order,
+                "mitts": {"wall_s": r_on["mitts_cas"]["wall_s"], "exit_code": r_on["mitts_cas"]["exit_code"], **timed_resources(r_on["mitts_cas"]),
+                          "store_mb_after": r_on["mitts_cas"]["store_mb"], "stderr_tail": r_on["mitts_cas"]["stderr_tail"]},
+                "cargo": {"wall_s": r_on["cargo_bare"]["wall_s"], "exit_code": r_on["cargo_bare"]["exit_code"], **timed_resources(r_on["cargo_bare"]),
+                          "registry_mb_after": r_on["cargo_bare"]["store_mb"], "stderr_tail": r_on["cargo_bare"]["stderr_tail"]},
+                "note": "one cold download per tool over the live network: registry index, .crate files and the Mitts store start empty",
+            }
+            print(f"  [t1/net] cold online fetch: mitts {net_fetch['mitts']['wall_s']} s, cargo {net_fetch['cargo']['wall_s']} s (order {order})", flush=True)
+            # the offline measurements below need the .crate files cargo just downloaded
+            run_timed(["cargo", "metadata", "--offline", "--format-version", "1"] + locked_flag, cwd=src_dir, env=ctx["envs"]["cargo_bare"])
+
         purge_mitts_cas(ctx["mitts_cas"], keep_sources=False)
         assert_dir_empty_or_absent(ctx["mitts_cas"])
         r_m_cold = run_timed([str(mitts_bin), "fetch", "--cache-dir", str(ctx["mitts_cas"]), "--offline"], cwd=src_dir, env=ctx["envs"]["mitts_cas"])
@@ -222,6 +256,7 @@ def run_stages_t0_t1_t2_t3(
                 cross_arms[arm]["full_cas_hit"] = r_ca["exit_code"] == 0 and r_cb["exit_code"] == 0 and st_cb["compiled"] == 0 and st_cb["cached"] > 0
         m_cc = cross_arms["mitts_cas"]
         res["stages"]["t1_source_and_cross_clone"] = {
+            "cold_network_fetch": net_fetch,
             "cold_fetch_exit_code": r_m_cold["exit_code"],
             "cold_fetch_ms": round(r_m_cold["wall_s"] * 1000.0, 2) if r_m_cold["exit_code"] == 0 else None,
             "warm_fetch_ms": compute_stats(m_warm_ms),

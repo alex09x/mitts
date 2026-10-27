@@ -73,7 +73,7 @@ def _project_name_from_spec(repo_spec: str) -> str:
 def benchmark_single_project(
     repo_spec: str, work_dir: Path, cache_dir: Path, mitts_bin: Path, sccache_bin: Path,
     max_disk_gb: float, num_commits: int, num_worktrees: int, repeats: int,
-    stages: set[str], max_load: float, proj_name: str | None = None,
+    stages: set[str], max_load: float, proj_name: str | None = None, online_fetch: bool = False,
 ) -> dict:
     max_disk_mb = max_disk_gb * 1024.0
     proj_name = proj_name or _project_name_from_spec(repo_spec)
@@ -126,7 +126,7 @@ def benchmark_single_project(
         if not run_stages_t0_t1_t2_t3(
             res, stages, src_dir, proj_work, proj_cache, ctx, mitts_bin, sccache_bin, extra_args,
             repeats, max_disk_mb, max_disk_gb, max_load, head_commit, branch_hop_commit, replay_commits, commit_locks,
-            prewarm_commits=unique_commits,
+            prewarm_commits=unique_commits, online_fetch=online_fetch,
         ):
             return res
 
@@ -400,6 +400,7 @@ def main() -> None:
     ap.add_argument("--exclude", default="nushell", help="Comma-separated project names to exclude (default: nushell)")
     ap.add_argument("--allow-binary-mismatch", action="store_true", help="Allow resuming an output file created with different binary/scripts/parameters")
     ap.add_argument("--retry-noisy", action="store_true", help="On resume, measure NOISY projects again as well (by default only ERROR projects are redone)")
+    ap.add_argument("--online-fetch", action="store_true", help="T1: also time one cold download per tool over the live network (empty registry index/cache and empty Mitts store)")
     args = ap.parse_args()
 
     work_dir = Path(args.work_dir).resolve()
@@ -419,7 +420,7 @@ def main() -> None:
     report: dict = {
         "schema_version": "mitts_unified_t0_t5_v3",
         "provenance": cur_prov,
-        "parameters": {"commits": args.commits, "worktrees": args.worktrees, "repeats": args.repeats, "max_disk_gb": args.max_disk_gb, "max_load": args.max_load, "max_busy": args.max_busy, "stages": sorted(stages), "excluded": sorted(excluded)},
+        "parameters": {"commits": args.commits, "worktrees": args.worktrees, "repeats": args.repeats, "max_disk_gb": args.max_disk_gb, "max_load": args.max_load, "max_busy": args.max_busy, "stages": sorted(stages), "excluded": sorted(excluded), "online_fetch": args.online_fetch},
         "projects": {},
     }
     if out_path.exists():
@@ -470,7 +471,7 @@ def main() -> None:
             continue
 
         print(f"[{idx}/{len(targets)}] Benchmarking {pname} ({spec})...", flush=True)
-        r = benchmark_single_project(spec, work_dir, cache_dir, mitts_bin, sccache_bin, args.max_disk_gb, args.commits, args.worktrees, args.repeats, stages, args.max_load, proj_name=pname)
+        r = benchmark_single_project(spec, work_dir, cache_dir, mitts_bin, sccache_bin, args.max_disk_gb, args.commits, args.worktrees, args.repeats, stages, args.max_load, proj_name=pname, online_fetch=args.online_fetch)
         report["projects"][pname] = r
         out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         t5 = r.get("stages", {}).get("t5_worktree_swarm", {})
