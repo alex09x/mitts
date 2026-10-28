@@ -272,10 +272,21 @@ def evaluate_t4_invariants(l5_res: dict) -> dict:
         md = l5_res[m_name]
         dp = md["diagnostics_parity"]
         inv[f"{m_key}_all_sound_builds_exit_zero"] = all(md[t]["failures"] == 0 for t in SOUND_TOOLS)
+        # A project whose own lints fail under Cargo (a deny-level clippy lint on some swarm
+        # commits) fails the same worktrees under every sound tool; only a disagreement with
+        # Cargo is a tool defect, so the gate compares the per-iteration failure counts and
+        # the defect worktree's exit code against cargo_bare instead of demanding exit 0.
+        def _profile(tool: str) -> list[tuple]:
+            return [(it["failures"], it.get("wt12_exit_code")) for it in md[tool].get("iterations", [])]
+        ref = _profile("cargo_bare")
+        inv[f"{m_key}_sound_arms_failures_agree"] = all(_profile(t) == ref for t in SOUND_TOOLS)
+        inv[f"{m_key}_fails_under_cargo"] = md["cargo_bare"]["failures"] > 0
         inv[f"{m_key}_diagnostics_parity_ok"] = bool(
             dp["exact_match_cargo_vs_mitts"] and dp["exact_replay_on_cache_hit"] and dp["anomaly_present_in_mitts"]
         )
-    inv["all_t4_sound_and_parity_ok"] = all(inv.values())
+    inv["all_t4_sound_and_parity_ok"] = all(
+        v for k, v in inv.items() if k.endswith(("_sound_arms_failures_agree", "_diagnostics_parity_ok"))
+    )
     return inv
 
 
