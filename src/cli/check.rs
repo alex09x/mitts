@@ -284,7 +284,9 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
                     );
                 }
             } else {
-                if !result.stderr.is_empty() {
+                // The progress callback already streamed the compiler's output; printing
+                // it again here doubled every diagnostic on a failed check.
+                if opt.progress.is_none() && !result.stderr.is_empty() {
                     if result.stderr.ends_with('\n') {
                         eprint!("{}", result.stderr);
                     } else {

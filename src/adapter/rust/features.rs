@@ -145,17 +145,65 @@ pub fn resolve_package_features_with_resolver(
     );
 
     if is_resolver_1 {
+        let host_snapshot = host_requested.clone();
         for (pkg_id, feats) in &target_requested {
             host_requested
                 .entry(pkg_id.clone())
                 .or_default()
                 .extend(feats.iter().cloned());
         }
-        for (pkg_id, feats) in &host_requested {
+        for (pkg_id, feats) in &host_snapshot {
             target_requested
                 .entry(pkg_id.clone())
                 .or_default()
                 .extend(feats.iter().cloned());
+        }
+        // The unified features can switch optional dependencies on in the other
+        // context (a host library's `serde` feature needs `serde` built for the host):
+        // propagate again until nothing changes.
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for is_host_ctx in [false, true] {
+                for (idx, ctx) in packages.iter().enumerate() {
+                    let active_set = if is_host_ctx {
+                        &active_host_packages
+                    } else {
+                        &active_target_packages
+                    };
+                    if !active_set.contains(&index.pkg_ids[idx]) {
+                        continue;
+                    }
+                    propagate_package(
+                        idx,
+                        ctx,
+                        &mut index,
+                        is_test,
+                        is_host_ctx,
+                        &mut active_target_packages,
+                        &mut active_host_packages,
+                        &mut target_requested,
+                        &mut host_requested,
+                        &mut changed,
+                    )?;
+                }
+            }
+            if changed {
+                // keep both contexts unified while new features appear
+                let host_now = host_requested.clone();
+                for (pkg_id, feats) in &target_requested {
+                    host_requested
+                        .entry(pkg_id.clone())
+                        .or_default()
+                        .extend(feats.iter().cloned());
+                }
+                for (pkg_id, feats) in &host_now {
+                    target_requested
+                        .entry(pkg_id.clone())
+                        .or_default()
+                        .extend(feats.iter().cloned());
+                }
+            }
         }
     }
 
