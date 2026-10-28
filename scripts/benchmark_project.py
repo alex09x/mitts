@@ -432,6 +432,7 @@ def main() -> None:
     ap.add_argument("--exclude", default="nushell", help="Comma-separated project names to exclude (default: nushell)")
     ap.add_argument("--allow-binary-mismatch", action="store_true", help="Allow resuming an output file created with different binary/scripts/parameters")
     ap.add_argument("--retry-noisy", action="store_true", help="On resume, measure NOISY projects again as well (by default only ERROR projects are redone)")
+    ap.add_argument("--redo", default="", help="On resume, measure these comma-separated projects again whatever their status (an environmental failure such as a full disk)")
     ap.add_argument("--online-fetch", action="store_true", help="T1: also time one cold download per tool over the live network (empty registry index/cache and empty Mitts store)")
     args = ap.parse_args()
 
@@ -460,14 +461,16 @@ def main() -> None:
         old_prov = existing.get("provenance", {})
         # A measured project (OK, NOISY, INVALID_*) and a policy skip are reused on resume;
         # an ERROR project (and NOISY ones with --retry-noisy) is measured again from scratch.
-        def redo(status: str | None) -> bool:
-            if status == "ERROR" or status is None:
+        forced = {n.strip() for n in args.redo.split(",") if n.strip()}
+
+        def redo(name: str, status: str | None) -> bool:
+            if name in forced or status == "ERROR" or status is None:
                 return True
             if args.retry_noisy and status == "NOISY":
                 return True
             return not str(status).startswith(RESUME_KEEP_PREFIXES)
 
-        stale = [n for n, p in existing.get("projects", {}).items() if redo(p.get("status"))]
+        stale = [n for n, p in existing.get("projects", {}).items() if redo(n, p.get("status"))]
         for name in stale:
             print(f"[resume] {name}: previous run ended {existing['projects'][name].get('status')}, starting over", flush=True)
             existing["projects"].pop(name)
