@@ -49,6 +49,22 @@ RESUME_KEEP_PREFIXES = ("OK", "NOISY", "INVALID_", "SKIPPED_", "EXCLUDED_")
 SWARM_KEYS = ("runs", "wall_s", "device_mb_written", "df_used_delta_mb", "disk_mb", "sccache_stats", "loadavg_after", "pressure")
 
 
+def cargo_also_fails(res: dict, subcmd: str, cwd: Path, ctx: dict, extra_args: list[str], stage: str, r_mitts: dict) -> bool:
+    """When Mitts cannot build a target set, run Cargo on the same tree: a project Cargo cannot
+    build either is broken upstream, not a Mitts failure, and is recorded as SKIPPED with both
+    outputs instead of ERROR (askama's workspace tests do not compile under either tool)."""
+    r_c = run_timed(tool_cmd("cargo_bare", subcmd, ctx, extra_args), cwd=cwd, env=ctx["envs"]["cargo_bare"])
+    if r_c["exit_code"] == 0:
+        return False
+    res["status"] = f"SKIPPED_CARGO_FAILS_{stage}"
+    res["skip_detail"] = {
+        "stage": stage, "command": subcmd, "mitts_exit_code": r_mitts.get("exit_code"), "mitts_stderr_tail": r_mitts.get("stderr_tail", "")[-3000:],
+        "cargo_exit_code": r_c["exit_code"], "cargo_stderr_tail": r_c["stderr_tail"][-3000:],
+    }
+    print(f"  [{stage.lower()}] cargo fails on the same tree (exit {r_c['exit_code']}): project skipped as broken upstream", flush=True)
+    return True
+
+
 def _swarm_summary(runs: list[dict], wall_key: str, fail_key: str) -> dict:
     dev_vals = [r["device_mb_written"] for r in runs if r["device_mb_written"] is not None]
     rd_vals = [r["device_mb_read"] for r in runs if r["device_mb_read"] is not None]
@@ -137,6 +153,8 @@ def benchmark_single_project(
             purge_mitts_cas(ctx["mitts_cas"], keep_sources=True)
             r_warm_cow = run_timed(tool_cmd("mitts_cas", "test_no_run", ctx, extra_args), cwd=src_dir, env=ctx["envs"]["mitts_cas"])
             if r_warm_cow["exit_code"] != 0:
+                if cargo_also_fails(res, "test_no_run", src_dir, ctx, extra_args, "T4", r_warm_cow):
+                    return res
                 raise RuntimeError(f"T4 CoW ablation warmup failed: {r_warm_cow['stderr_tail']}")
 
             env_cow = {k: v for k, v in ctx["envs"]["mitts_cas"].items() if k != "MITTS_NO_REFLINK"}
@@ -167,7 +185,14 @@ def benchmark_single_project(
             snap_cas, snap_scc, snap_sh = proj_work / "t4_snap_cas", proj_work / "t4_snap_scc", proj_work / "t4_snap_sh"
             l5_res: dict = {"check": {}, "clippy": {}}
             for mode in ("check", "clippy"):
-                run_warmups_and_snapshot(mode, src_dir, wt_root, swarm_commits, commit_locks, ctx, extra_args, snap_cas, snap_scc, snap_sh)
+                try:
+                    run_warmups_and_snapshot(mode, src_dir, wt_root, swarm_commits, commit_locks, ctx, extra_args, snap_cas, snap_scc, snap_sh)
+                except RuntimeError as exc:
+                    if str(exc).startswith("Mitts warmup") and cargo_also_fails(
+                        res, mode, wt_root / "wt-01", ctx, extra_args, "T4", {"exit_code": None, "stderr_tail": str(exc)}
+                    ):
+                        return res
+                    raise
                 mode_series: dict = {t: [] for t in TOOLS}
                 wt12_outputs: dict = {}
                 wt12_root, anomaly_meta = src_dir, None
@@ -266,7 +291,14 @@ def benchmark_single_project(
         if "t5" in stages:
             wt_root = proj_work / "t5_wts"
             snap_cas, snap_scc, snap_sh = proj_work / "snap_cas", proj_work / "snap_scc", proj_work / "snap_sh"
-            fast_lock_noop = run_warmups_and_snapshot("test_no_run", src_dir, wt_root, swarm_commits, commit_locks, ctx, extra_args, snap_cas, snap_scc, snap_sh)
+            try:
+                fast_lock_noop = run_warmups_and_snapshot("test_no_run", src_dir, wt_root, swarm_commits, commit_locks, ctx, extra_args, snap_cas, snap_scc, snap_sh)
+            except RuntimeError as exc:
+                if str(exc).startswith("Mitts warmup") and cargo_also_fails(
+                    res, "test_no_run", wt_root / "wt-01", ctx, extra_args, "T5", {"exit_code": None, "stderr_tail": str(exc)}
+                ):
+                    return res
+                raise
             unharnessed_cnt = select_workspace_targets(src_dir, env=ctx["envs"]["cargo_bare"])["unharnessed_test_targets"]
 
             arm_series: dict = {t: [] for t in TOOLS}
