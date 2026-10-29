@@ -270,6 +270,10 @@ def evaluate_t4_invariants(l5_res: dict) -> dict:
     inv: dict = {}
     for m_key, m_name in (("l5a", "check"), ("l5b", "clippy")):
         md = l5_res[m_name]
+        if md.get("skipped_upstream"):
+            # Cargo cannot lint the project either; nothing to compare for this swarm.
+            inv[f"{m_key}_skipped_upstream"] = True
+            continue
         dp = md["diagnostics_parity"]
         inv[f"{m_key}_all_sound_builds_exit_zero"] = all(md[t]["failures"] == 0 for t in SOUND_TOOLS)
         # A project whose own lints fail under Cargo (a deny-level clippy lint on some swarm

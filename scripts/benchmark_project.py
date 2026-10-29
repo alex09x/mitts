@@ -49,12 +49,18 @@ RESUME_KEEP_PREFIXES = ("OK", "NOISY", "INVALID_", "SKIPPED_", "EXCLUDED_")
 SWARM_KEYS = ("runs", "wall_s", "device_mb_written", "df_used_delta_mb", "disk_mb", "sccache_stats", "loadavg_after", "pressure")
 
 
+def cargo_run_if_fails(subcmd: str, cwd: Path, ctx: dict, extra_args: list[str]) -> dict | None:
+    """Runs Cargo's `subcmd` on the same tree Mitts failed on; the run when Cargo fails too, else None."""
+    r_c = run_timed(tool_cmd("cargo_bare", subcmd, ctx, extra_args), cwd=cwd, env=ctx["envs"]["cargo_bare"])
+    return None if r_c["exit_code"] == 0 else r_c
+
+
 def cargo_also_fails(res: dict, subcmd: str, cwd: Path, ctx: dict, extra_args: list[str], stage: str, r_mitts: dict) -> bool:
     """When Mitts cannot build a target set, run Cargo on the same tree: a project Cargo cannot
     build either is broken upstream, not a Mitts failure, and is recorded as SKIPPED with both
     outputs instead of ERROR (askama's workspace tests do not compile under either tool)."""
-    r_c = run_timed(tool_cmd("cargo_bare", subcmd, ctx, extra_args), cwd=cwd, env=ctx["envs"]["cargo_bare"])
-    if r_c["exit_code"] == 0:
+    r_c = cargo_run_if_fails(subcmd, cwd, ctx, extra_args)
+    if r_c is None:
         return False
     res["status"] = f"SKIPPED_CARGO_FAILS_{stage}"
     res["skip_detail"] = {
@@ -188,10 +194,21 @@ def benchmark_single_project(
                 try:
                     run_warmups_and_snapshot(mode, src_dir, wt_root, swarm_commits, commit_locks, ctx, extra_args, snap_cas, snap_scc, snap_sh)
                 except RuntimeError as exc:
-                    if str(exc).startswith("Mitts warmup") and cargo_also_fails(
-                        res, mode, wt_root / "wt-01", ctx, extra_args, "T4", {"exit_code": None, "stderr_tail": str(exc)}
-                    ):
-                        return res
+                    if str(exc).startswith("Mitts warmup"):
+                        if mode == "clippy":
+                            # A deny-by-default clippy lint at HEAD (blake3) fails under Cargo too:
+                            # only the clippy swarm is lost, the check swarm and T5 still measure.
+                            r_c = cargo_run_if_fails(mode, wt_root / "wt-01", ctx, extra_args)
+                            if r_c is not None:
+                                l5_res["clippy"] = {
+                                    "skipped_upstream": True, "reason": "cargo clippy fails on the project's own code at HEAD",
+                                    "cargo_exit_code": r_c["exit_code"], "cargo_stderr_tail": r_c["stderr_tail"][-3000:], "mitts_stderr_tail": str(exc)[-3000:],
+                                }
+                                res["status_flags"].append("L5B_SKIPPED_UPSTREAM")
+                                print("  [t4/clippy] cargo clippy fails on the same tree: clippy swarm skipped as broken upstream, check swarm kept", flush=True)
+                                continue
+                        elif cargo_also_fails(res, mode, wt_root / "wt-01", ctx, extra_args, "T4", {"exit_code": None, "stderr_tail": str(exc)}):
+                            return res
                     raise
                 mode_series: dict = {t: [] for t in TOOLS}
                 wt12_outputs: dict = {}
