@@ -39,7 +39,7 @@ use std::path::PathBuf;
 pub struct TomlTest {
     pub name: String,
     pub path: Option<String>,
-    #[serde(rename = "required-features")]
+    #[serde(rename = "required-features", alias = "required_features")]
     pub required_features: Option<Vec<String>>,
     #[serde(default)]
     pub harness: Option<bool>,
@@ -177,9 +177,10 @@ pub struct TomlWorkspace {
 pub struct TomlLib {
     pub name: Option<String>,
     pub path: Option<String>,
-    #[serde(default, rename = "proc-macro")]
+    // Cargo accepts the underscore spellings too; derive_arbitrary ships `proc_macro = true`.
+    #[serde(default, rename = "proc-macro", alias = "proc_macro")]
     pub proc_macro: Option<bool>,
-    #[serde(default, rename = "crate-type")]
+    #[serde(default, rename = "crate-type", alias = "crate_type")]
     pub crate_type: Vec<String>,
     #[serde(default)]
     pub harness: Option<bool>,
@@ -195,7 +196,7 @@ pub struct TomlLib {
 pub struct TomlBin {
     pub name: String,
     pub path: Option<String>,
-    #[serde(rename = "required-features")]
+    #[serde(rename = "required-features", alias = "required_features")]
     pub required_features: Option<Vec<String>>,
     #[serde(default)]
     pub harness: Option<bool>,
