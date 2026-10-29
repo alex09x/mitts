@@ -73,9 +73,18 @@ impl CargoToml {
         let mut explicit_test_paths = std::collections::HashSet::new();
         for t in &self.test {
             let test_enabled = t.test.unwrap_or(true);
+            // Cargo infers `tests/<name>.rs` or `tests/<name>/main.rs`; toml_edit declares its
+            // directory tests with `autotests = false`, so nothing else would find them.
             let src = match t.path {
                 Some(ref p) => pkg_dir.join(p),
-                None => pkg_dir.join("tests").join(format!("{}.rs", t.name)),
+                None => {
+                    let flat = pkg_dir.join("tests").join(format!("{}.rs", t.name));
+                    if flat.is_file() {
+                        flat
+                    } else {
+                        pkg_dir.join("tests").join(&t.name).join("main.rs")
+                    }
+                }
             };
             if src.is_file() {
                 explicit_test_paths.insert(src.clone());

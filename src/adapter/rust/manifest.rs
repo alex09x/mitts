@@ -289,8 +289,16 @@ impl CargoToml {
                             .join("src")
                             .join("bin")
                             .join(format!("{}.rs", b.name));
+                        let candidate2 = pkg_dir
+                            .join("src")
+                            .join("bin")
+                            .join(&b.name)
+                            .join("main.rs");
                         if candidate1.is_file() {
                             candidate1
+                        } else if candidate2.is_file() {
+                            // Cargo's second inferred location for a named binary.
+                            candidate2
                         } else {
                             pkg_dir.join("src").join("main.rs")
                         }
