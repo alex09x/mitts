@@ -93,6 +93,38 @@ impl CargoToml {
             }
         }
 
+        // Examples are not tests by default; one declared with `test = true` is, and
+        // Cargo builds it with `--tests` like any other test target.
+        for ex in &self.example {
+            if ex.test != Some(true) {
+                continue;
+            }
+            let src = match ex.path {
+                Some(ref p) => pkg_dir.join(p),
+                None => {
+                    let flat = pkg_dir.join("examples").join(format!("{}.rs", ex.name));
+                    if flat.is_file() {
+                        flat
+                    } else {
+                        pkg_dir.join("examples").join(&ex.name).join("main.rs")
+                    }
+                }
+            };
+            if src.is_file() {
+                targets.push(DiscoveredTarget {
+                    name: ex.name.clone(),
+                    kind: "test".to_string(),
+                    src_path: src,
+                    edition: edition.clone(),
+                    crate_types: vec!["bin".to_string()],
+                    required_features: ex.required_features.clone(),
+                    harness: ex.harness.unwrap_or(true),
+                    test_role: Some(TestRole::Example(ex.name.clone())),
+                    explicit_only: false,
+                });
+            }
+        }
+
         let autotests = self
             .package
             .as_ref()

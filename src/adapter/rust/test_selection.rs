@@ -80,6 +80,8 @@ pub fn select_test_targets(targets: &mut Vec<DiscoveredTarget>, opt: &RustBuildO
                     false
                 }
             }
+            // `--test NAME` never names an example; `--tests` takes every tested example.
+            TestRole::Example(_) => opt.all_tests && !t.explicit_only,
         }
     });
 }

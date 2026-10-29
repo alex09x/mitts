@@ -248,6 +248,9 @@ pub enum TestRole {
     BinUnit(String),
     /// An integration test ([[test]] or tests/*.rs).
     Integration,
+    /// An example declared with `test = true`, carrying the example name; `cargo test
+    /// --tests` compiles it as a test executable (clap's `pacman`).
+    Example(String),
 }
 
 /// A discovered compile target within a package.
