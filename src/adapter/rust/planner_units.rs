@@ -338,6 +338,15 @@ fn create_unit(
     }
 }
 
+/// A library unit: kind `lib`, or the `[lib] crate-type` list a native/dynamic library
+/// carries as its kind (`staticlib,cdylib,rlib` for regex's C API crate `rure`).
+pub fn is_library_kind(kind: &str) -> bool {
+    kind == "lib"
+        || kind.split(',').all(|k| {
+            matches!(k.trim(), "lib" | "rlib" | "dylib" | "cdylib" | "staticlib")
+        })
+}
+
 pub fn prune_plan_root_units(
     units: &mut Vec<PlannedCompilationUnit>,
     opt: &RustBuildOptions,
@@ -377,7 +386,7 @@ pub fn prune_plan_root_units(
                         }))));
         let lib_matches = !only_tests_sel
             && (is_test_mode || opt.lib_only || (opt.bin_targets.is_empty() && !opt.all_bins));
-        let kind_matches = ((u.kind == "lib" || u.kind == "proc-macro") && lib_matches)
+        let kind_matches = ((is_library_kind(&u.kind) || u.kind == "proc-macro") && lib_matches)
             || (u.kind == "bin" && bin_matches);
         let is_primary_or_ws = (is_root_pkg && kind_matches)
             || (has_all_ws

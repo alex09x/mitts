@@ -73,7 +73,11 @@ pub fn plan_doctests(opt: &RustBuildOptions, plan: &BuildPlan) -> Result<Vec<Doc
     for lib in explanation
         .units
         .iter()
-        .filter(|u| u.is_primary && !u.for_host && (u.kind == "lib" || u.kind == "proc-macro"))
+        .filter(|u| {
+            u.is_primary
+                && !u.for_host
+                && (super::planner_units::is_library_kind(&u.kind) || u.kind == "proc-macro")
+        })
     {
         if let Some(inv) = doctest_for_lib(
             lib,
@@ -243,7 +247,7 @@ fn is_library_unit(unit_id: &str) -> bool {
         .nth(1)
         .and_then(|rest| rest.split(':').next())
         .unwrap_or("");
-    matches!(kind, "lib" | "proc-macro")
+    super::planner_units::is_library_kind(kind) || kind == "proc-macro"
 }
 
 /// Looks up a unit artifact, tolerating the host/target split used for dual-compiled crates.
