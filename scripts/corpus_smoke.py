@@ -78,7 +78,9 @@ def count_cargo_test_binaries(proj: Path, env: dict) -> int | None:
             m = json.loads(line)
         except ValueError:
             continue
-        if m.get("reason") == "compiler-artifact" and m.get("executable"):
+        # Only test harnesses count: a bin Cargo builds so integration tests can run it
+        # (bat's `bat`, clap's `stdio-fixture`) is an executable without the test profile.
+        if m.get("reason") == "compiler-artifact" and m.get("executable") and m.get("profile", {}).get("test"):
             n += 1
     return n
 
