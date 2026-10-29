@@ -201,11 +201,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     fs::create_dir_all(inv.out_dir)?;
     append_path_remaps(inv, &clean_crate, &mut cmd, pkg_dir);
 
-    cmd.args(["--check-cfg", "cfg(docsrs,test)"]);
+    // Toolchains before 1.80 reject `--check-cfg`; Cargo of that era did not pass it either.
+    let check_cfg = super::compiler_resolve::active_toolchain_supports_check_cfg();
+    if check_cfg {
+        cmd.args(["--check-cfg", "cfg(docsrs,test)"]);
+    }
     if let Ok(toml) = super::manifest::CargoToml::from_file(&inv.unit.manifest_path) {
         if let Some(ref lints_val) = toml.lints {
             for cc in super::manifest_inherit::extract_check_cfg_from_lints(lints_val) {
-                cmd.args(["--check-cfg", &cc]);
+                if check_cfg {
+                    cmd.args(["--check-cfg", &cc]);
+                }
             }
             cmd.args(super::manifest_inherit::extract_lint_flags_from_lints(
                 lints_val,
@@ -225,11 +231,13 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         all_features.sort();
         all_features.dedup();
         let quoted: Vec<String> = all_features.iter().map(|f| format!("\"{f}\"")).collect();
-        cmd.args([
-            "--check-cfg",
-            &format!("cfg(feature, values({}))", quoted.join(", ")),
-        ]);
-    } else {
+        if check_cfg {
+            cmd.args([
+                "--check-cfg",
+                &format!("cfg(feature, values({}))", quoted.join(", ")),
+            ]);
+        }
+    } else if check_cfg {
         cmd.args(["--check-cfg", "cfg(feature, values(any()))"]);
     }
     for feat in inv.features {
@@ -243,6 +251,9 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             ("-l", &dir.link_libs),
             ("-L", &dir.link_searches),
         ] {
+            if flag == "--check-cfg" && !check_cfg {
+                continue;
+            }
             for v in vals {
                 cmd.args([flag, v]);
             }

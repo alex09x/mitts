@@ -77,8 +77,10 @@ pub fn doctest_command(rustdoc: &Path, inv: &DoctestInvocation, args: &TestArgs)
     for cfg in &inv.cfgs {
         cmd.arg("--cfg").arg(cfg);
     }
-    for check_cfg in &inv.check_cfgs {
-        cmd.arg("--check-cfg").arg(check_cfg);
+    if crate::adapter::rust::compiler_resolve::active_toolchain_supports_check_cfg() {
+        for check_cfg in &inv.check_cfgs {
+            cmd.arg("--check-cfg").arg(check_cfg);
+        }
     }
     for dir in &inv.native_search {
         cmd.arg("-L").arg(dir);

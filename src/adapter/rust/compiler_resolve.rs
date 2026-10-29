@@ -39,6 +39,37 @@ pub struct ProbedRustc {
     pub verbose_version: String,
 }
 
+impl ProbedRustc {
+    /// `(major, minor)` of the `release:` line of `rustc -vV` (`1.70.0`, `1.98.0-nightly`).
+    pub fn release_version(&self) -> Option<(u32, u32)> {
+        parse_release_version(&self.verbose_version)
+    }
+
+    /// `--check-cfg` became a stable rustc and rustdoc flag in 1.80; an older toolchain
+    /// pinned by `rust-toolchain.toml` (dashmap pins 1.70) rejects it outright, and Cargo
+    /// of that era never passed it.
+    pub fn supports_check_cfg(&self) -> bool {
+        self.release_version().is_none_or(|v| v >= (1, 80))
+    }
+}
+
+/// Parses `release: 1.70.0` out of `rustc -vV` output into `(major, minor)`.
+pub fn parse_release_version(verbose_version: &str) -> Option<(u32, u32)> {
+    let rel = verbose_version
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("release: "))?;
+    let mut parts = rel.trim().split(['.', '-']);
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
+
+/// Whether the active toolchain accepts `--check-cfg`; an unprobed toolchain is assumed current.
+pub fn active_toolchain_supports_check_cfg() -> bool {
+    active_toolchain().map_or(true, |t| t.supports_check_cfg())
+}
+
+
 type ProbedRustcCacheKey = (PathBuf, Option<OsString>, Option<SystemTime>);
 
 static RESOLVED_RUSTC: OnceLock<PathBuf> = OnceLock::new();
@@ -352,5 +383,19 @@ pub fn parse_version_parts(version: &str) -> (String, String, String, String) {
             pat.to_string(),
             p.to_string(),
         )
+    }
+}
+
+#[cfg(test)]
+mod release_version_tests {
+    use super::parse_release_version;
+
+    #[test]
+    fn parses_stable_and_nightly_release_lines() {
+        let stable = "rustc 1.70.0 (90c541806 2023-05-31)\nbinary: rustc\nrelease: 1.70.0\nhost: x86_64-unknown-linux-gnu";
+        assert_eq!(parse_release_version(stable), Some((1, 70)));
+        let nightly = "rustc 1.98.0-nightly (48a229cea 2026-09-01)\nrelease: 1.98.0-nightly\nhost: aarch64-unknown-linux-gnu";
+        assert_eq!(parse_release_version(nightly), Some((1, 98)));
+        assert_eq!(parse_release_version("rustc 1.80.0\nhost: x"), None);
     }
 }

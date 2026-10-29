@@ -141,7 +141,11 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
             "1",
         );
     }
-    compile_cmd.args(["--check-cfg", "cfg(docsrs,test)"]);
+    // Toolchains before 1.80 reject `--check-cfg` (dashmap pins 1.70).
+    let check_cfg = crate::adapter::rust::compiler_resolve::active_toolchain_supports_check_cfg();
+    if check_cfg {
+        compile_cmd.args(["--check-cfg", "cfg(docsrs,test)"]);
+    }
     let mut all_features: Vec<String> = args.pkg_toml.features.keys().cloned().collect();
     let mut add_deps = |deps: &HashMap<String, crate::adapter::rust::manifest::TomlDependency>| {
         for (name, dep) in deps {
@@ -159,13 +163,17 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
     all_features.sort();
     all_features.dedup();
     let q: Vec<String> = all_features.iter().map(|f| format!("\"{f}\"")).collect();
-    compile_cmd.args([
-        "--check-cfg",
-        &format!("cfg(feature, values({}))", q.join(", ")),
-    ]);
+    if check_cfg {
+        compile_cmd.args([
+            "--check-cfg",
+            &format!("cfg(feature, values({}))", q.join(", ")),
+        ]);
+    }
     if let Some(ref lints_val) = args.pkg_toml.lints {
         for cc in crate::adapter::rust::manifest_inherit::extract_check_cfg_from_lints(lints_val) {
-            compile_cmd.args(["--check-cfg", &cc]);
+            if check_cfg {
+                compile_cmd.args(["--check-cfg", &cc]);
+            }
         }
         for lf in crate::adapter::rust::manifest_inherit::extract_lint_flags_from_lints(lints_val) {
             compile_cmd.arg(lf);
