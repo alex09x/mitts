@@ -1,0 +1,2183 @@
+{
+ "method": "scripts/corpus_smoke.py: for each corpus project at HEAD, `cargo check|clippy|test --tests --no-run --workspace --offline` and the same Mitts command from an empty cache; a project agrees when both tools succeed or both fail. Build nodes, no timings.",
+ "pass_1": {
+  "mitts_version": "mitts 0.3.13 (be7ef0b61fe6fc6a4b9922447ea720e0af25da20)",
+  "summary": {
+   "OK": 97,
+   "MISMATCH": 3
+  },
+  "mismatches": {
+   "tokei": {
+    "status": "MISMATCH:check,clippy,test_no_run",
+    "commit": "c14f744716272fadeb27a74443cdffa0af35f82f",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 101,
+      "verdict": "MITTS_FAILS"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 101,
+      "verdict": "MITTS_FAILS"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 101,
+      "verdict": "MITTS_FAILS"
+     }
+    }
+   },
+   "dashmap": {
+    "status": "MISMATCH:check,clippy,test_no_run",
+    "commit": "366ce7e7872866a06de66eb95002fa6cf2c117a7",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 101,
+      "verdict": "MITTS_FAILS"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 101,
+      "verdict": "MITTS_FAILS"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 101,
+      "verdict": "MITTS_FAILS"
+     }
+    }
+   },
+   "regex": {
+    "status": "MISMATCH:clippy",
+    "commit": "94ac45b2a6e7b1c30927feb5b66c5ded5b7ad447",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 0,
+      "verdict": "MITTS_PASSES_CARGO_FAILS"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   }
+  }
+ },
+ "pass_2_release_candidate": {
+  "mitts_version": "mitts 0.3.13 (11946b33193a87aa5fb8a577e5aad450b12f1ead)",
+  "summary": {
+   "OK": 100
+  },
+  "projects": {
+   "actix-web": {
+    "status": "OK",
+    "commit": "f2876ace89882e44d1b6287c6a4802cdd6a2f580",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "anyhow": {
+    "status": "OK",
+    "commit": "bb1b0f9af0f645d5fdf1ac63a1fcbf3975ee452c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "axum": {
+    "status": "OK",
+    "commit": "e70ce80de00167019164c791a7df93f00b3e6fdc",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "bitflags": {
+    "status": "OK",
+    "commit": "8384f6f6e1fd1ab3f448ccf17d400a9e1d6a5280",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "bytes": {
+    "status": "OK",
+    "commit": "c08f87663a04eac3b9ab2dfa1976852d9b525a8c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "chumsky": {
+    "status": "OK",
+    "commit": "4879268c589b18927df6ec21331e66d7fb56df86",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "crc32fast": {
+    "status": "OK",
+    "commit": "d2363eab95ebc85fcf726d1c8fa845148e474591",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "curve25519-dalek": {
+    "status": "OK",
+    "commit": "97a020d185970839ed1d3f3a5c22aca816631786",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "dialoguer": {
+    "status": "OK",
+    "commit": "cd2cf4f96f455166be0e5c9df6e8d8cbe1cdae83",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "eza": {
+    "status": "OK",
+    "commit": "471bfbc7b03cbac8c738e8d9050edb06ee79132a",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "flume": {
+    "status": "OK",
+    "commit": "893c3883e58faf55488789cf2293a8ea14765db6",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "hashbrown": {
+    "status": "OK",
+    "commit": "00c175652a71039ff146110b30dd30c52578e21f",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "http": {
+    "status": "OK",
+    "commit": "3dd9f5e1c3c228c26e6836ee60b36129351bfd3b",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "indexmap": {
+    "status": "OK",
+    "commit": "41a870887c4c77adf665886e63df08f406bfe37a",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "itoa": {
+    "status": "OK",
+    "commit": "1577ed901354d0d7448ac162328f9dbf5183124c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "memchr": {
+    "status": "OK",
+    "commit": "bd6068c30e9074a90c285e47912fa0b047d07597",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "nom": {
+    "status": "OK",
+    "commit": "51c3c4e44fa78a8a09b413419372b97b2cc2a787",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "once_cell": {
+    "status": "OK",
+    "commit": "80fe900b21f6d76c1a2ed74d3343e8a3a88c46d0",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "pastel": {
+    "status": "OK",
+    "commit": "01d4252aa794f1331834948f133e75c64532be46",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "proc-macro2": {
+    "status": "OK",
+    "commit": "4626ab98d794f0ff1c3da3fdaf1d6b6e8e6d269c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "pulldown-cmark": {
+    "status": "OK",
+    "commit": "270746a6f165c7fd5e4d123113fbda53bb8faf7a",
+    "commands": {
+     "check": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     }
+    }
+   },
+   "ratatui": {
+    "status": "OK",
+    "commit": "cdcb0c01e4348d868a7bb0a6e392d91418e7a820",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "reqwest": {
+    "status": "OK",
+    "commit": "8e1c8061e5dd936762dcef08a64ef2cff584b295",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "roaring": {
+    "status": "OK",
+    "commit": "f845305c4b6df310ad4aab9e355749c6badd56e4",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "semver": {
+    "status": "OK",
+    "commit": "280ebcb6edac3aa4cdc545dbff8a26c5ac4861fe",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "smallvec": {
+    "status": "OK",
+    "commit": "f759bf38527c442e5f86acf63dde5c4579f33462",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "syntect": {
+    "status": "OK",
+    "commit": "582e44517443fda7fe18273dcf945542ba325d91",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tempfile": {
+    "status": "OK",
+    "commit": "303aaa99f2e2a03ac48643c0486c709d5081d746",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tokei": {
+    "status": "OK",
+    "commit": "c14f744716272fadeb27a74443cdffa0af35f82f",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tonic": {
+    "status": "OK",
+    "commit": "78a8f2dc7760ad29a4113ff49e2a92e14add49be",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tracing": {
+    "status": "OK",
+    "commit": "9d0e557728ecb91e467fc29dfe738b9f28cf6684",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "url": {
+    "status": "OK",
+    "commit": "00a6ce58d02f4e0d43c5ca0702c0bedb8b1ebf3a",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "which": {
+    "status": "OK",
+    "commit": "8e84cb67761b6e19d2cfa512c5d55cbe5fd9e8bc",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "zoxide": {
+    "status": "OK",
+    "commit": "f0b31631d295b0623bc440016ed0aba3c7c49dde",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "ahash": {
+    "status": "OK",
+    "commit": "a9d649d18d6aefeef106a48252dc6708ee7f9e47",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "argh": {
+    "status": "OK",
+    "commit": "939affd3acc60395bb34749cabb80cc19bcd20eb",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "base64": {
+    "status": "OK",
+    "commit": "5b98ee180cc7c2a64af6cb12c724b1721550e0d0",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "blake3": {
+    "status": "OK",
+    "commit": "f55849f89cd85083c1c9daa2c5de20766f309c00",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "camino": {
+    "status": "OK",
+    "commit": "86ed28351d83fa7ef8287bcd5af36b8a4f073c0c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "clap": {
+    "status": "OK",
+    "commit": "ccc89b83875474399e9d9d70841163f6319d1a41",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "crossbeam": {
+    "status": "OK",
+    "commit": "099d0469efcfacb32527bd9451a4fb62586ae537",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "dashmap": {
+    "status": "OK",
+    "commit": "366ce7e7872866a06de66eb95002fa6cf2c117a7",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "dust": {
+    "status": "OK",
+    "commit": "c5e1855143a27c3f7b5e20441fc479fb07e387c8",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "fd": {
+    "status": "OK",
+    "commit": "b7a0a29d07c3d0e9e0a41155019acada08831a6c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "futures": {
+    "status": "OK",
+    "commit": "706e29bce353e3e72655b99a4a6411291cd4762a",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "hex": {
+    "status": "OK",
+    "commit": "e25a8701f7f6b5ec4acedffcb4a45cfb69cc34eb",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "hyper": {
+    "status": "OK",
+    "commit": "b07337878fe57b34b2065335ae8cae9ce5a780a0",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     }
+    }
+   },
+   "indicatif": {
+    "status": "OK",
+    "commit": "4925bce2ec5ffc8deaccc5658585d3fa30f23ec6",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "lsd": {
+    "status": "OK",
+    "commit": "4b6c14a110fe0fd544ec0204501b5fd3a5d6218f",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "miette": {
+    "status": "OK",
+    "commit": "e853bbf9bc78bbe0b225995de54a3108d77dcaf8",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "notify": {
+    "status": "OK",
+    "commit": "7d09a5808f5a99e7e8ef46c4e6cd34db0781301f",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "owo-colors": {
+    "status": "OK",
+    "commit": "7392e40d0093a02ec12b3695e388d123817283b8",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "pest": {
+    "status": "OK",
+    "commit": "c474eecb4185ce5d8ab413b9ecfc508455c690b7",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "procs": {
+    "status": "OK",
+    "commit": "c41ae2593d1410129a1e46a5969ecf698f8ec53b",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "quote": {
+    "status": "OK",
+    "commit": "27be8db3c8eb07e7ccd83c2e695d5297c2466253",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "rayon": {
+    "status": "OK",
+    "commit": "599425d4a4c64714632817f48496dbc53f656a90",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     }
+    }
+   },
+   "ring": {
+    "status": "OK",
+    "commit": "840167e18e4fa837eb48de46500454a616a15a6e",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "rustls": {
+    "status": "OK",
+    "commit": "1783110b45f8e8d3cf3307383a3feebd3443735c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "serde": {
+    "status": "OK",
+    "commit": "0db9b3b504bcb0a7fa9cf001429869519afd3e9a",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "smol": {
+    "status": "OK",
+    "commit": "4157930176b44cb9831283aa4a68ea6d7ab8badf",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tar": {
+    "status": "OK",
+    "commit": "2c19ee2fbd01a306127e027cb05a02568ccda1b3",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tera": {
+    "status": "OK",
+    "commit": "ad95994b2c19edcae8ddc0b98dcb8137cceed58d",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tokio": {
+    "status": "OK",
+    "commit": "e0f829f033008a86f70402b7ec4ea7f7f4652874",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tower": {
+    "status": "OK",
+    "commit": "df06d70dbea345facbffb5881fe8647f53bf424d",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tungstenite": {
+    "status": "OK",
+    "commit": "2f20dc53e2a8d09bba02970d7ba15c5f33fbc17a",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "uuid": {
+    "status": "OK",
+    "commit": "7c7326d55fd502d890169100f64c941b753500da",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "winnow": {
+    "status": "OK",
+    "commit": "bca21ee8e3c9980863d18740cbcf2943f787daf2",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "aho-corasick": {
+    "status": "OK",
+    "commit": "6c0abf5681bfc30bb9d8f7f52b68a350b436fffa",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "askama": {
+    "status": "OK",
+    "commit": "cf572c67ff8726beef2e433cd3775f04932eedba",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     }
+    }
+   },
+   "bat": {
+    "status": "OK",
+    "commit": "fe901f50513946e274e7d4eed6a4e8b5f09ad631",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "bstr": {
+    "status": "OK",
+    "commit": "134195be38c7c9a4887980fd0f6f8bae042dd91e",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "chrono": {
+    "status": "OK",
+    "commit": "6adaa5240c26fecb7bd9077334a91f8f67f4f3fe",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "console": {
+    "status": "OK",
+    "commit": "3271250d3fdd2ccabbb3d590b193c6ef15fd84a5",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "crossterm": {
+    "status": "OK",
+    "commit": "78eff60fdcfdf62ef9247c13d18e2c9de9452750",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "delta": {
+    "status": "OK",
+    "commit": "3c2269c6b845913965575f11b0196d70ef5352f3",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "eyre": {
+    "status": "OK",
+    "commit": "808110cc68ddd47bf48f97d7f827aa8b137dfeeb",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "flate2": {
+    "status": "OK",
+    "commit": "54f49cd9f4c36774f68cc6ab95edf62a3b6c506e",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "glob": {
+    "status": "OK",
+    "commit": "057cef2824f5a96f738e52d7d8ca3e024381bcc6",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "hexyl": {
+    "status": "OK",
+    "commit": "6ecc29b9c8c84d08a7e860f7f69c22b113b480ea",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "hyperfine": {
+    "status": "OK",
+    "commit": "c5161524980522320c7d3425e714cc0965a869a5",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "itertools": {
+    "status": "OK",
+    "commit": "fb3d996d813b07fb6cc83dc600518fde42170c3c",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "lz4_flex": {
+    "status": "OK",
+    "commit": "0c027fd21e7e3545c5b409f11699ac0c6a680111",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "mio": {
+    "status": "OK",
+    "commit": "a88e5e119172e4fb1638926faf65a4fe889e05b1",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "num-traits": {
+    "status": "OK",
+    "commit": "1166177ec398601d6dd4d88891cf7674f3978888",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "parking_lot": {
+    "status": "OK",
+    "commit": "85827ffa2ffb0b60d416e2e2a091f36b0e8e5a91",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "petgraph": {
+    "status": "OK",
+    "commit": "e38de6fed0593b782ef806f1dab6690167a6230e",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "prost": {
+    "status": "OK",
+    "commit": "79ed991edf4f8451c57b89c68b5bce8e53cde367",
+    "commands": {
+     "check": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     }
+    }
+   },
+   "rand": {
+    "status": "OK",
+    "commit": "9e7d328f60d6372ae22927f37d1a816fc980f25e",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "regex": {
+    "status": "OK",
+    "commit": "94ac45b2a6e7b1c30927feb5b66c5ded5b7ad447",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "ripgrep": {
+    "status": "OK",
+    "commit": "91f5d22ef48bde459d90a8c7dbeab416e97d0f2b",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "ryu": {
+    "status": "OK",
+    "commit": "75f9e707e77c89717ffb9c2a01fe2c28a016cc82",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "serde_json": {
+    "status": "OK",
+    "commit": "8c535a260ce561eaab4111aafc29038eb9f77ff3",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "syn": {
+    "status": "OK",
+    "commit": "f81c060acf18657dd354a3cd017b080363ba50da",
+    "commands": {
+     "check": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 101,
+      "mitts_exit": 101,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tealdeer": {
+    "status": "OK",
+    "commit": "993a8e0232ef42c4d9935ff5598796b6e98bf213",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "thiserror": {
+    "status": "OK",
+    "commit": "3b29f0107e7900860c7a061c069958569eb458e7",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "toml": {
+    "status": "OK",
+    "commit": "340b2fa54ce539f47349d0089a6b10b22363eaaf",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "tower-http": {
+    "status": "OK",
+    "commit": "8569ec8b99f661eb0a4406a2e032504188d9f3fd",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "ureq": {
+    "status": "OK",
+    "commit": "0cbee9a9e31883e59e5e9884e6849d99ec080097",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "walkdir": {
+    "status": "OK",
+    "commit": "6fd031c82ba5a4204b4ce6eae73dacb00dc072ec",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   },
+   "xh": {
+    "status": "OK",
+    "commit": "309b135906014e5bc8426a5a3ccd8760fc1b48c5",
+    "commands": {
+     "check": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "clippy": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     },
+     "test_no_run": {
+      "cargo_exit": 0,
+      "mitts_exit": 0,
+      "verdict": "agree"
+     }
+    }
+   }
+  }
+ }
+}
