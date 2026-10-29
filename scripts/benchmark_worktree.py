@@ -95,13 +95,42 @@ def restore_commit_lock(repo_or_wt_dir: Path, commit: str, commit_locks: dict[st
     shutil.copy2(snap, dst)
 
 
+def update_submodules(repo_dir: Path, reference: Path | None = None) -> None:
+    """`git submodule update --init --recursive --force`, cloning each submodule from the
+    already initialised copy under `reference` (the project's source checkout) instead of
+    its remote. bat carries 93 syntax submodules: fetching them from GitHub for twelve fresh
+    worktrees before every swarm took longer than the swarm itself. If a local clone cannot
+    serve a submodule's commit the URLs are restored and the remote is used as before."""
+    if not (repo_dir / ".gitmodules").exists():
+        return
+    git = ["git", "-c", "protocol.file.allow=always"]
+    quiet = {"cwd": repo_dir, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    local_urls = False
+    if reference is not None and reference.resolve() != repo_dir.resolve():
+        subprocess.run([*git, "submodule", "init"], **quiet)
+        listing = subprocess.run(
+            ["git", "config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+            cwd=repo_dir, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        ).stdout
+        for line in listing.splitlines():
+            key, _, sub_path = line.partition(" ")
+            name = key[len("submodule."):-len(".path")]
+            local = reference / sub_path.strip()
+            if (local / ".git").exists():
+                subprocess.run(["git", "config", f"submodule.{name}.url", str(local.resolve())], **quiet)
+                local_urls = True
+    r = subprocess.run([*git, "submodule", "update", "--init", "--recursive", "--force"], **quiet)
+    if r.returncode != 0 and local_urls:
+        subprocess.run(["git", "submodule", "sync", "--recursive"], **quiet)
+        subprocess.run([*git, "submodule", "update", "--init", "--recursive", "--force"], **quiet)
+
+
 def git_checkout_clean(repo_dir: Path, commit: str, commit_locks: dict[str, Path] | None = None) -> None:
     if commit != "HEAD":
         r = subprocess.run(["git", "checkout", "-f", commit], cwd=repo_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"git checkout -f {commit} failed in {repo_dir}: {r.stderr.strip()}")
-        if (repo_dir / ".gitmodules").exists():
-            subprocess.run(["git", "submodule", "update", "--init", "--recursive", "--force"], cwd=repo_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        update_submodules(repo_dir)
     restore_commit_lock(repo_dir, commit, commit_locks)
 
 
@@ -205,8 +234,7 @@ def prepare_swarm_worktrees(
         r = subprocess.run(["git", "worktree", "add", "--force", "--detach", str(wt_d), c], cwd=repo_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if r.returncode != 0:
             raise RuntimeError(f"git worktree add failed for {wt_d} @ {c}: {r.stderr.strip()}")
-        if (wt_d / ".gitmodules").exists():
-            subprocess.run(["git", "submodule", "update", "--init", "--recursive", "--force"], cwd=wt_d, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        update_submodules(wt_d, reference=repo_dir)
         restore_commit_lock(wt_d, c, commit_locks)
         for root, _, files in os.walk(wt_d):
             if ".git" in Path(root).parts:
