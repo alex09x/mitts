@@ -24,6 +24,7 @@ benchmark and may run on any build node.
 import argparse
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -63,6 +64,31 @@ def run(cmd: list[str], cwd: Path, env: dict, timeout: int = 1800) -> dict:
     return {"exit_code": code, "wall_s": round(time.perf_counter() - t0, 1), "tail": "\n".join(out.strip().splitlines()[-40:])}
 
 
+def count_cargo_test_binaries(proj: Path, env: dict) -> int | None:
+    """Number of test executables Cargo's `test --tests --no-run` produces (warm, from its JSON messages)."""
+    r = subprocess.run(
+        ["cargo", "test", "--workspace", "--tests", "--no-run", "--offline", "--message-format=json"],
+        cwd=proj, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace",
+    )
+    if r.returncode != 0:
+        return None
+    n = 0
+    for line in r.stdout.splitlines():
+        try:
+            m = json.loads(line)
+        except ValueError:
+            continue
+        if m.get("reason") == "compiler-artifact" and m.get("executable"):
+            n += 1
+    return n
+
+
+def count_mitts_test_binaries(tail: str) -> int | None:
+    """Mitts prints `(N test binaries ready)` at the end of a successful `test --no-run`."""
+    m = re.search(r"(\d+) test binar(?:y|ies) ready", tail)
+    return int(m.group(1)) if m else None
+
+
 def smoke_project(name: str, url: str, work: Path, mitts_bin: Path, env: dict) -> dict:
     proj = work / name
     rmtree_force(proj)
@@ -94,8 +120,17 @@ def smoke_project(name: str, url: str, work: Path, mitts_bin: Path, env: dict) -
         rmtree_force(cache)
         rm = run([str(mitts_bin), *mitts_args, "--cache-dir", str(cache)], proj, env)
         verdict = "agree" if (rc["exit_code"] == 0) == (rm["exit_code"] == 0) else ("MITTS_FAILS" if rc["exit_code"] == 0 else "MITTS_PASSES_CARGO_FAILS")
-        res["commands"][key] = {"cargo": rc, "mitts": rm, "verdict": verdict}
-        print(f"  [{name}] {key}: cargo exit {rc['exit_code']} ({rc['wall_s']} s), mitts exit {rm['exit_code']} ({rm['wall_s']} s) -> {verdict}", flush=True)
+        rec = {"cargo": rc, "mitts": rm, "verdict": verdict}
+        if key == "test_no_run" and verdict == "agree" and rc["exit_code"] == 0:
+            # Exit codes agree; the executables must too. clap's examples with `test = true`
+            # gave Cargo 24 test binaries and Mitts 22 while both exited 0.
+            rec["cargo_test_binaries"] = count_cargo_test_binaries(proj, env)
+            rec["mitts_test_binaries"] = count_mitts_test_binaries(rm["tail"])
+            if rec["cargo_test_binaries"] is not None and rec["mitts_test_binaries"] is not None and rec["cargo_test_binaries"] != rec["mitts_test_binaries"]:
+                rec["verdict"] = verdict = "TEST_BINARY_COUNT_MISMATCH"
+        res["commands"][key] = rec
+        bins = f", test binaries cargo {rec.get('cargo_test_binaries')} / mitts {rec.get('mitts_test_binaries')}" if "cargo_test_binaries" in rec else ""
+        print(f"  [{name}] {key}: cargo exit {rc['exit_code']} ({rc['wall_s']} s), mitts exit {rm['exit_code']} ({rm['wall_s']} s){bins} -> {verdict}", flush=True)
     rmtree_force(cache)
     rmtree_force(proj / "target")
     bad = [k for k, v in res["commands"].items() if v["verdict"] != "agree"]
