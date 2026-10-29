@@ -17,7 +17,6 @@ use std::path::Path;
 
 pub use crate::adapter::rust::target_filter::{
     is_target_cfg_incompatible_with_host, is_target_cfg_incompatible_with_target,
-    is_target_incompatible_with_host,
 };
 
 /// Selects root packages and performs graph traversal to collect all reachable packages.
@@ -174,9 +173,10 @@ pub fn select_transitive_packages<'a>(
 
             for dep_spec in &pkg.dependencies {
                 let (dep_name, dep_ver, dep_src) = parse_dep_spec(dep_spec);
-                if is_target_incompatible_with_host(dep_name) {
-                    continue;
-                }
+                // Cargo never drops a dependency by its name: platform exclusion comes only from
+                // `[target.'cfg(...)']` tables, which the manifest checks below and the feature
+                // resolver evaluate. chrono's unconditional dev-dependency `windows-bindgen` builds
+                // on every host, and a name list once hid it from the plan.
                 if is_ws {
                     if let Some((_, ws_toml)) = workspace_manifests.get(&pkg.name) {
                         let has_manifest_deps = !ws_toml.dependencies.is_empty()

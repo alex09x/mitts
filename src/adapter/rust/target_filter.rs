@@ -8,8 +8,6 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-pub use super::target_incompatible::is_target_incompatible_with_host;
-
 /// Checks whether a target configuration spec (e.g. `'cfg(windows)'` or `cfg(target_env = "musl")`)
 /// or target triple is incompatible with the current compilation host.
 pub fn is_target_cfg_incompatible_with_host(target_spec: &str) -> bool {

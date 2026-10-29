@@ -10,9 +10,7 @@
 
 use mitts::adapter::rust::lockfile::{CargoLock, CargoLockPackage};
 use mitts::adapter::rust::manifest::{CargoToml, TomlWorkspace};
-use mitts::adapter::rust::package_selection::{
-    is_target_incompatible_with_host, parse_dep_spec, select_transitive_packages,
-};
+use mitts::adapter::rust::package_selection::{parse_dep_spec, select_transitive_packages};
 use mitts::adapter::rust::source_lookup::find_crate_source_dir;
 use mitts::adapter::rust::types::RustBuildOptions;
 use std::collections::HashMap;
@@ -97,13 +95,6 @@ fn test_m8_package_selection_default_members_and_incompatible() {
     assert_eq!(n2, "simple_dep");
     assert_eq!(v2, None);
     assert_eq!(s2, None);
-
-    // Test platform incompatibilities
-    assert!(is_target_incompatible_with_host("orbclient"));
-    assert!(is_target_incompatible_with_host("web-sys"));
-    assert!(is_target_incompatible_with_host("js-sys"));
-    assert!(is_target_incompatible_with_host("wasm-bindgen-futures"));
-    assert!(is_target_incompatible_with_host("ndk"));
 }
 
 #[test]
