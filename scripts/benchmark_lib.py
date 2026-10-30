@@ -306,6 +306,9 @@ def evaluate_t5_invariants(
             if len(c_set) != 1 or 0 in c_set:
                 counts_match = False
     defect_caught = all(r["smoke_wt12_defect_caught"] for t in SOUND_TOOLS for r in arm_series[t])
+    # When Cargo itself never saw the injected defect, the injection landed in a target this
+    # host does not compile (a crate-level cfg); that is a harness miss, not a tool defect.
+    defect_seen_by_cargo = all(r["smoke_wt12_defect_caught"] for r in arm_series["cargo_bare"])
     clean_ok = all(r["smoke_wt01_clean_ok"] for t in SOUND_TOOLS for r in arm_series[t])
     c_wt1 = [r["wt01_wall_s"] for r in arm_series["cargo_bare"] if r["build_failures"] == 0]
     c_spread = spread_pct(c_wt1)
@@ -322,6 +325,7 @@ def evaluate_t5_invariants(
         "all_sound_builds_exit_zero": builds_ok,
         "test_binaries_count_matches_all_sound_arms": counts_match,
         "defect_wt12_caught_all_sound_arms": defect_caught,
+        "defect_injection_effective": defect_seen_by_cargo,
         "clean_wt01_smoke_ok_all_sound_arms": clean_ok,
         "all_t5_sound_and_parity_ok": bool(builds_ok and counts_match and defect_caught and clean_ok),
         "total_wall_spread_pct_by_arm": total_spread_by_arm,

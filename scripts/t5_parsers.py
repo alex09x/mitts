@@ -23,6 +23,26 @@ from pathlib import Path
 DEFECT_TEST_NAME = "__intentional_test_failure"
 
 
+def has_crate_level_cfg(src: Path) -> bool:
+    """A root file starting with `#![cfg(...)]` compiles to nothing on hosts the cfg excludes:
+    curve25519-dalek-derive's tests are x86-only, so a defect injected there on an arm64 Mac
+    never ran and no tool could catch it. Such a file is no place to inject anything."""
+    try:
+        with open(src, encoding="utf-8", errors="replace") as fh:
+            for _ in range(60):
+                line = fh.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if stripped.startswith("#![cfg("):
+                    return True
+                if stripped and not stripped.startswith(("#!", "//", "/*", "*")):
+                    break
+    except OSError:
+        pass
+    return False
+
+
 def select_workspace_targets(ws_dir: Path, env: dict[str, str] | None = None) -> dict:
     """
     Uses `cargo metadata --offline --no-deps --format-version 1` to deterministically
@@ -56,7 +76,7 @@ def select_workspace_targets(ws_dir: Path, env: dict[str, str] | None = None) ->
                     if "test" in kinds:
                         unharnessed_tests += 1
                     continue
-                if not src_p.is_file():
+                if not src_p.is_file() or has_crate_level_cfg(src_p):
                     continue
                 if "lib" in kinds or "rlib" in kinds or "bin" in kinds:
                     lib_or_bin_candidates.append(src_p)
@@ -70,7 +90,7 @@ def select_workspace_targets(ws_dir: Path, env: dict[str, str] | None = None) ->
         for root, dirs, files in os.walk(ws_dir):
             dirs[:] = sorted(d for d in dirs if d not in skip_dirs and not d.startswith("."))
             for fname in ("lib.rs", "main.rs"):
-                if fname in files:
+                if fname in files and not has_crate_level_cfg(Path(root) / fname):
                     lib_or_bin_candidates.append(Path(root) / fname)
 
     if not test_candidates:
