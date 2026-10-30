@@ -182,9 +182,13 @@ pub fn extract_check_cfg_from_lints(lints_val: &toml::Value) -> Vec<String> {
 
 /// Extracts rustc CLI lint flags (`-A`, `-W`, `-D`, `-F`) from Cargo `[lints]` configuration.
 pub fn extract_lint_flags_from_lints(lints_val: &toml::Value) -> Vec<String> {
-    let mut flags = Vec::new();
+    // Cargo passes the flags in ascending `priority` (then name): a group such as
+    // `clippy::restriction = { level = "warn", priority = -2 }` goes first and the lints a
+    // manifest allows at priority 0 win over it. Emitted in table order, the group came
+    // last and re-enabled everything hyper allows: 3 889 clippy warnings against Cargo's 3.
+    let mut ordered: Vec<(i64, String, String)> = Vec::new();
     let Some(tbl) = lints_val.as_table() else {
-        return flags;
+        return Vec::new();
     };
     for (tool_name, tool_val) in tbl {
         // `[lints.cargo]` configures Cargo's own (unstable) lints; rustc has no `cargo`
@@ -196,6 +200,11 @@ pub fn extract_lint_flags_from_lints(lints_val: &toml::Value) -> Vec<String> {
             continue;
         };
         for (lint_name, lint_val) in tool_tbl {
+            let priority = lint_val
+                .as_table()
+                .and_then(|t| t.get("priority"))
+                .and_then(|v| v.as_integer())
+                .unwrap_or(0);
             let level = if let Some(s) = lint_val.as_str() {
                 Some(s)
             } else if let Some(l_tbl) = lint_val.as_table() {
@@ -217,9 +226,10 @@ pub fn extract_lint_flags_from_lints(lints_val: &toml::Value) -> Vec<String> {
                 } else {
                     format!("{}::{}", tool_name, clean_name)
                 };
-                flags.push(format!("{}{}", f, full_name));
+                ordered.push((priority, full_name.clone(), format!("{}{}", f, full_name)));
             }
         }
     }
-    flags
+    ordered.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    ordered.into_iter().map(|(_, _, flag)| flag).collect()
 }
