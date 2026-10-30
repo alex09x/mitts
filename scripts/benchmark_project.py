@@ -142,7 +142,14 @@ def benchmark_single_project(
 
     ctx = setup_environments(proj_work, proj_cache, mitts_bin, sccache_bin, shared_cargo_home=shared_cargo_home)
     src_dir = proj_work / "repo"
-    extra_args = ["--exclude", "tests-build"] if proj_name == "tokio" else []
+    # Per-project arguments, passed to every Cargo and Mitts command alike: the way each
+    # project's own CI builds its tests. tokio's tests-build crate is nightly-only, rayon's
+    # demo binary uses #![feature], hyper's tests need its `full` feature set.
+    extra_args = {
+        "tokio": ["--exclude", "tests-build"],
+        "rayon": ["--exclude", "rayon-demo"],
+        "hyper": ["--features", "full"],
+    }.get(proj_name, [])
 
     res: dict = {
         "project": proj_name, "status": "OK", "status_flags": [],
