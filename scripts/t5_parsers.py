@@ -78,6 +78,11 @@ def select_workspace_targets(ws_dir: Path, env: dict[str, str] | None = None) ->
                     continue
                 if not src_p.is_file() or has_crate_level_cfg(src_p):
                     continue
+                # A target behind `required-features` (reqwest's tests/blocking.rs needs
+                # `blocking`) is not built with the features the arms use, so a defect
+                # injected there is invisible to every tool.
+                if tgt.get("required-features"):
+                    continue
                 if "lib" in kinds or "rlib" in kinds or "bin" in kinds:
                     lib_or_bin_candidates.append(src_p)
                 if "test" in kinds and harness:
