@@ -67,11 +67,16 @@ def validate_swarm_commits(src_dir: Path, commits_desc: list[str], swarm_commits
         return verdict[commit]
 
     substitutions: dict[str, str] = {}
-    for c in list(dict.fromkeys(swarm_commits)):
+    distinct = list(dict.fromkeys(swarm_commits))
+    for c in distinct:
         if checks(c):
             continue
-        start = commits_desc.index(c) + 1 if c in commits_desc else len(commits_desc)
-        replacement = next((cand for cand in commits_desc[start:] if checks(cand)), None)
+        idx = commits_desc.index(c) if c in commits_desc else len(commits_desc)
+        # Older commits first (they keep the swarm's spread of history), then newer ones not
+        # already in the swarm: futures' requirement reaches back past every known commit.
+        taken = set(distinct) | set(substitutions.values())
+        candidates = commits_desc[idx + 1:] + [x for x in reversed(commits_desc[:idx]) if x not in taken]
+        replacement = next((cand for cand in candidates if checks(cand)), None)
         if replacement is not None:
             substitutions[c] = replacement
             print(f"  [prep] swarm commit {c[:12]} does not build its tests under Cargo; using {replacement[:12]} instead", flush=True)
