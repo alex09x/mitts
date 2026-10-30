@@ -122,20 +122,27 @@ def verify_anomaly_present(stderr_text: str, ws_root: Path, anomaly_info: dict |
 
 
 def verify_diagnostics_match(cargo_stderr: str, mitts_stderr: str, ws_root: Path) -> tuple[bool, str]:
-    """Verifies that Cargo and Mitts emit an identical multiset of diagnostics."""
+    """Verifies that Cargo and Mitts emit the same set of distinct diagnostics.
+
+    A crate compiled twice in one build (pest: once for the host as a proc-macro
+    dependency, once for the target) yields the same warning twice; Cargo prints it once
+    with "(2 duplicates)", Mitts prints each compilation's copy. The distinct set is what
+    both tools tell the user about the code; repeats are reported, not compared."""
     cargo_c = extract_diagnostics_counter(cargo_stderr, ws_root)
     mitts_c = extract_diagnostics_counter(mitts_stderr, ws_root)
+    cargo_set, mitts_set = set(cargo_c), set(mitts_c)
+    cargo_dups = sum(cargo_c.values()) - len(cargo_set)
+    mitts_dups = sum(mitts_c.values()) - len(mitts_set)
 
-    if cargo_c == mitts_c:
-        total = sum(cargo_c.values())
-        return True, f"100% matched {total} diagnostics exactly"
+    if cargo_set == mitts_set:
+        extra = f" (repeats: Cargo {cargo_dups}, Mitts {mitts_dups})" if cargo_dups or mitts_dups else ""
+        return True, f"100% matched {len(cargo_set)} distinct diagnostics exactly{extra}"
 
-    diff_cargo = cargo_c - mitts_c
-    diff_mitts = mitts_c - cargo_c
     msg = (
-        f"Diagnostics mismatch: Cargo has {sum(diff_cargo.values())} extra, "
-        f"Mitts has {sum(diff_mitts.values())} extra "
-        f"(Cargo total: {sum(cargo_c.values())}, Mitts total: {sum(mitts_c.values())})"
+        f"Diagnostics mismatch: Cargo has {len(cargo_set - mitts_set)} extra, "
+        f"Mitts has {len(mitts_set - cargo_set)} extra "
+        f"(distinct: Cargo {len(cargo_set)}, Mitts {len(mitts_set)}; "
+        f"repeats: Cargo {cargo_dups}, Mitts {mitts_dups})"
     )
     return False, msg
 
