@@ -49,6 +49,39 @@ RESUME_KEEP_PREFIXES = ("OK", "NOISY", "INVALID_", "SKIPPED_", "EXCLUDED_")
 SWARM_KEYS = ("runs", "wall_s", "device_mb_written", "df_used_delta_mb", "disk_mb", "sccache_stats", "loadavg_after", "pressure")
 
 
+def validate_swarm_commits(src_dir: Path, commits_desc: list[str], swarm_commits: list[str], ctx: dict, extra_args: list[str], res: dict) -> list[str]:
+    """Replaces a swarm commit whose tests Cargo itself cannot build with the next older commit
+    that can. futures at HEAD~14 carries a `compile_error!` unless every feature is on: all
+    four arms failed those worktrees alike and the project read INVALID_T5 while saying nothing
+    about the tools. Preparation only, outside every timed window; `cargo check --tests` is
+    enough to trip a compile_error! and may use the network for an untracked lockfile."""
+    verdict: dict[str, bool] = {}
+
+    def checks(commit: str) -> bool:
+        if commit not in verdict:
+            git_checkout_clean(src_dir, commit)
+            chmod_rmtree(src_dir / "target")
+            r = run_timed(["cargo", "check", "--workspace", "--tests"] + extra_args, cwd=src_dir, env=ctx["envs"]["cargo_bare"])
+            chmod_rmtree(src_dir / "target")
+            verdict[commit] = r["exit_code"] == 0
+        return verdict[commit]
+
+    substitutions: dict[str, str] = {}
+    for c in list(dict.fromkeys(swarm_commits)):
+        if checks(c):
+            continue
+        start = commits_desc.index(c) + 1 if c in commits_desc else len(commits_desc)
+        replacement = next((cand for cand in commits_desc[start:] if checks(cand)), None)
+        if replacement is not None:
+            substitutions[c] = replacement
+            print(f"  [prep] swarm commit {c[:12]} does not build its tests under Cargo; using {replacement[:12]} instead", flush=True)
+        else:
+            print(f"  [prep] swarm commit {c[:12]} does not build its tests under Cargo and no older commit does either", flush=True)
+    if substitutions:
+        res["swarm_commit_substitutions"] = {k[:12]: v[:12] for k, v in substitutions.items()}
+    return [substitutions.get(c, c) for c in swarm_commits]
+
+
 def cargo_run_if_fails(subcmd: str, cwd: Path, ctx: dict, extra_args: list[str]) -> dict | None:
     """Runs Cargo's `subcmd` on the same tree Mitts failed on; the run when Cargo fails too, else None."""
     r_c = run_timed(tool_cmd("cargo_bare", subcmd, ctx, extra_args), cwd=cwd, env=ctx["envs"]["cargo_bare"])
@@ -132,6 +165,8 @@ def benchmark_single_project(
         c4 = [pick(0), pick(1), pick(5), pick(14)]
         swarm_commits = [pick(0)] * 4 + [pick(1)] * 3 + [pick(5)] * 3 + [pick(14)] * 2 if num_worktrees == 12 else [c4[min(i * 4 // max(num_worktrees, 1), 3)] for i in range(num_worktrees)]
 
+        if "t4" in stages or "t5" in stages:
+            swarm_commits = validate_swarm_commits(src_dir, commits_desc, swarm_commits, ctx, extra_args, res)
         git_checkout_clean(src_dir, head_commit)
         try:
             res["project_rustc_version"] = subprocess.check_output(["rustc", "-vV"], cwd=src_dir, env=ctx["envs"]["cargo_bare"], text=True).strip().splitlines()[0]
