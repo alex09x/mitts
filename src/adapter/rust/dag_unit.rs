@@ -293,17 +293,16 @@ pub(crate) fn execute_unit(
         }
     }
     if !output.stderr.is_empty() {
-        ctx.compiler_messages
-            .lock()
-            .unwrap()
-            .push(output.stderr.clone());
+        // Shown once per build like Cargo; the cache entry keeps the full text.
+        let shown = super::diagnostic_dedupe::dedupe(&output.stderr);
+        ctx.compiler_messages.lock().unwrap().push(shown.clone());
         if let Some(ref cb) = ctx.opt.progress {
             if output.success {
-                cb.0(BuildProgressEvent::CompilerMessage(output.stderr.clone()));
+                cb.0(BuildProgressEvent::CompilerMessage(shown));
             } else {
                 cb.0(BuildProgressEvent::CompilerMessage(format!(
                     "Command: {}\n{}",
-                    output.command_line, output.stderr
+                    output.command_line, shown
                 )));
             }
         }

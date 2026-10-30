@@ -68,6 +68,7 @@ pub mod single_flight;
 pub mod source_lookup;
 pub mod sparse_index;
 pub mod target_filter;
+pub mod diagnostic_dedupe;
 pub mod toolchain_probes;
 pub mod test_selection;
 pub mod types;
