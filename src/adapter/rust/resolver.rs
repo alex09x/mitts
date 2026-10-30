@@ -17,8 +17,12 @@ use anyhow::{bail, Context, Result};
 use semver::{Version, VersionReq};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+/// A package's dependency entries before qualification: name and, for a path package,
+/// its version.
+type DepSpecs = Vec<(String, Option<String>)>;
 
 #[derive(Debug, Clone)]
 pub struct ManifestDirectDep {
@@ -136,7 +140,10 @@ impl NativeResolver {
 
         let mut path_deps = Vec::new();
         let mut remote_deps = Vec::new();
-        let mut member_deps: HashMap<String, Vec<String>> = HashMap::new();
+        // Keyed by "name version": two path packages may share a name (rand_core 0.3 is a
+        // shim over rand_core 0.4). A dependency entry carries the path package's version
+        // so an ambiguous name can be qualified like Cargo writes it.
+        let mut member_deps: HashMap<String, DepSpecs> = HashMap::new();
         let config = RegistryConfig::load(manifest_dir)?;
         *self.config.lock().unwrap() = config.clone();
         self.sources.lock().unwrap().clear();
@@ -152,7 +159,10 @@ impl NativeResolver {
         let mut git_out = super::git_resolve::GitResolution::default();
 
         if let Ok(toml) = CargoToml::from_file(manifest_path) {
-            let mut manifests = vec![(manifest_dir.to_path_buf(), toml.clone())];
+            // (dir, manifest, is_member): path packages outside the workspace are walked
+            // too, as Cargo does, but only their regular and build dependencies count.
+            let mut manifests: Vec<(PathBuf, CargoToml, bool)> =
+                vec![(manifest_dir.to_path_buf(), toml.clone(), true)];
             if toml.workspace.is_some() {
                 if let Ok(members) = toml.discover_workspace_members(manifest_dir) {
                     for (m_name, m_dir) in members {
@@ -164,34 +174,38 @@ impl NativeResolver {
                                 .unwrap_or_else(|| "0.1.0".to_string());
                             path_deps.push((m_name, ver));
                             if m_dir != manifest_dir {
-                                manifests.push((m_dir, m_toml));
+                                manifests.push((m_dir, m_toml, true));
                             }
                         }
                     }
                 }
             }
             let local_names: HashSet<String> = path_deps.iter().map(|(n, _)| n.clone()).collect();
-            for (m_dir, m_toml) in &manifests {
-                let mut m_dep_list = Vec::new();
+            let mut seen_path_dirs: HashSet<PathBuf> = HashSet::new();
+            let mut i = 0;
+            while i < manifests.len() {
+                let (m_dir, m_toml, is_member) = manifests[i].clone();
+                i += 1;
+                let mut m_dep_list: DepSpecs = Vec::new();
                 // Like `cargo generate-lockfile`: a member's regular, build and dev
                 // dependencies, for every target, all enter the lockfile.
-                let dep_tables = [
-                    &m_toml.dependencies,
-                    &m_toml.build_dependencies,
-                    &m_toml.dev_dependencies,
-                ]
-                .into_iter()
-                .chain(m_toml.target.values().flat_map(|spec| {
-                    [
-                        &spec.dependencies,
-                        &spec.build_dependencies,
-                        &spec.dev_dependencies,
-                    ]
-                }));
-                for (dep_name, dep_val) in dep_tables.flatten() {
+                let mut dep_tables: Vec<&HashMap<String, TomlDependency>> =
+                    vec![&m_toml.dependencies, &m_toml.build_dependencies];
+                if is_member {
+                    dep_tables.push(&m_toml.dev_dependencies);
+                }
+                for spec in m_toml.target.values() {
+                    dep_tables.push(&spec.dependencies);
+                    dep_tables.push(&spec.build_dependencies);
+                    if is_member {
+                        dep_tables.push(&spec.dev_dependencies);
+                    }
+                }
+                for (dep_name, dep_val) in dep_tables.into_iter().flatten() {
                     match dep_val {
                         TomlDependency::Detailed(d) if d.path.is_some() => {
-                            let dep_m = m_dir.join(d.path.as_ref().unwrap()).join("Cargo.toml");
+                            let dep_dir = m_dir.join(d.path.as_ref().unwrap());
+                            let dep_m = dep_dir.join("Cargo.toml");
                             if let Ok(dt) = CargoToml::from_file(&dep_m) {
                                 let p_ref = dt.package.as_ref();
                                 let name = p_ref
@@ -200,9 +214,15 @@ impl NativeResolver {
                                 let ver = p_ref
                                     .and_then(|p| p.version.clone())
                                     .unwrap_or_else(|| "0.1.0".to_string());
-                                m_dep_list.push(name.clone());
+                                m_dep_list.push((name.clone(), Some(ver.clone())));
                                 if !local_names.contains(&name) {
-                                    path_deps.push((name, ver));
+                                    path_deps.push((name.clone(), ver));
+                                    let canon = dep_dir
+                                        .canonicalize()
+                                        .unwrap_or_else(|_| dep_dir.clone());
+                                    if seen_path_dirs.insert(canon) {
+                                        manifests.push((dep_dir, dt, false));
+                                    }
                                 }
                             }
                         }
@@ -211,17 +231,17 @@ impl NativeResolver {
                         // A member's optional dependencies stay in: it resolves with every feature on.
                         TomlDependency::Detailed(d) if d.git.is_some() => {
                             let name = git_resolver.resolve(dep_name, d, offline, &mut git_out)?;
-                            m_dep_list.push(name);
+                            m_dep_list.push((name, None));
                         }
                         TomlDependency::Simple(req) => {
-                            m_dep_list.push(dep_name.clone());
+                            m_dep_list.push((dep_name.clone(), None));
                             if !local_names.contains(dep_name) {
                                 remote_deps.push(ManifestDirectDep::crates_io(dep_name, req));
                             }
                         }
                         TomlDependency::Detailed(d) => {
                             let pkg = d.package_name.as_ref().unwrap_or(dep_name).clone();
-                            m_dep_list.push(pkg.clone());
+                            m_dep_list.push((pkg.clone(), None));
                             if !local_names.contains(&pkg) {
                                 remote_deps.push(ManifestDirectDep {
                                     name: pkg,
@@ -251,7 +271,8 @@ impl NativeResolver {
                 if let Some(p) = &m_toml.package {
                     m_dep_list.sort();
                     m_dep_list.dedup();
-                    member_deps.insert(p.name.clone(), m_dep_list);
+                    let ver = p.version.clone().unwrap_or_else(|| "0.1.0".to_string());
+                    member_deps.insert(format!("{} {}", p.name, ver), m_dep_list);
                 }
             }
         } else {
@@ -264,35 +285,66 @@ impl NativeResolver {
         lock.packages.append(&mut git_out.packages);
         path_deps.sort();
         path_deps.dedup();
+        // Dependency lists are attached once every package is known: a name shared by
+        // several packages is written as "name version", as Cargo does.
+        let mut pending_specs: Vec<(usize, DepSpecs)> = Vec::new();
         for (p_name, p_ver) in &path_deps {
+            let specs = member_deps
+                .remove(&format!("{p_name} {p_ver}"))
+                .unwrap_or_default();
+            pending_specs.push((lock.packages.len(), specs));
             lock.packages.push(CargoLockPackage {
                 name: p_name.clone(),
                 version: p_ver.clone(),
                 source: None,
                 checksum: None,
-                dependencies: member_deps.remove(p_name).unwrap_or_default(),
+                dependencies: Vec::new(),
             });
         }
         if let Some((root_name, root_version)) = extract_root_package(&manifest_content) {
             if !path_deps.iter().any(|(n, _)| n == &root_name) {
-                let mut root_dep_names: Vec<String> = match member_deps.remove(&root_name) {
-                    Some(listed) => listed,
-                    None => direct_remote_names
-                        .iter()
-                        .cloned()
-                        .chain(path_deps.iter().map(|(n, _)| n.clone()))
-                        .collect(),
-                };
-                root_dep_names.sort();
-                root_dep_names.dedup();
+                let root_specs: DepSpecs =
+                    match member_deps.remove(&format!("{root_name} {root_version}")) {
+                        Some(listed) => listed,
+                        None => direct_remote_names
+                            .iter()
+                            .map(|n| (n.clone(), None))
+                            .chain(path_deps.iter().map(|(n, v)| (n.clone(), Some(v.clone()))))
+                            .collect(),
+                    };
+                pending_specs.push((lock.packages.len(), root_specs));
                 lock.packages.push(CargoLockPackage {
                     name: root_name,
                     version: root_version,
                     source: None,
                     checksum: None,
-                    dependencies: root_dep_names,
+                    dependencies: Vec::new(),
                 });
             }
+        }
+        let mut name_counts: HashMap<&str, usize> = HashMap::new();
+        for pkg in &lock.packages {
+            *name_counts.entry(pkg.name.as_str()).or_default() += 1;
+        }
+        let qualified: Vec<(usize, Vec<String>)> = pending_specs
+            .into_iter()
+            .map(|(idx, specs)| {
+                let mut list: Vec<String> = specs
+                    .into_iter()
+                    .map(|(name, ver)| match ver {
+                        Some(v) if name_counts.get(name.as_str()).copied().unwrap_or(0) > 1 => {
+                            format!("{name} {v}")
+                        }
+                        _ => name,
+                    })
+                    .collect();
+                list.sort();
+                list.dedup();
+                (idx, list)
+            })
+            .collect();
+        for (idx, list) in qualified {
+            lock.packages[idx].dependencies = list;
         }
         lock.packages.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(lock)

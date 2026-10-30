@@ -171,7 +171,7 @@ pub(crate) type ResolvedPackageManifest<'a> = (
 pub(crate) fn resolve_selected_package_manifests<'a>(
     selected_packages: &[(&'a super::lockfile::CargoLockPackage, bool)],
     workspace_manifests: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
-    path_dependencies: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
+    path_dependencies: &std::collections::HashMap<String, Vec<(PathBuf, super::manifest::CargoToml)>>,
     project_dir: &Path,
     cache_dir: Option<&Path>,
     lockfile_version: u32,
@@ -194,11 +194,13 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
         if pkg.source.is_some() {
             return None;
         }
-        path_dependencies.get(&pkg.name).filter(|(_, toml)| {
-            toml.package
-                .as_ref()
-                .and_then(|p| p.version.as_deref())
-                .is_none_or(|v| v == pkg.version)
+        path_dependencies.get(&pkg.name).and_then(|entries| {
+            entries.iter().find(|(_, toml)| {
+                toml.package
+                    .as_ref()
+                    .and_then(|p| p.version.as_deref())
+                    .is_none_or(|v| v == pkg.version)
+            })
         })
     };
 

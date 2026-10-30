@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 /// emitting separate target and host units for dual-compiled crates (Resolver 2).
 pub fn build_planned_units(
     resolved_packages: &[(&CargoLockPackage, bool, PathBuf, CargoToml)],
-    path_dependencies: &HashMap<String, (PathBuf, CargoToml)>,
+    path_dependencies: &HashMap<String, Vec<(PathBuf, CargoToml)>>,
     package_features: &ResolvedFeatures,
     opt: &RustBuildOptions,
     is_primary_pkg: impl Fn(&str) -> bool,
@@ -31,12 +31,14 @@ pub fn build_planned_units(
     for (pkg, is_workspace, pkg_dir, pkg_toml) in resolved_packages {
         let is_local = *is_workspace
             || (pkg.source.is_none()
-                && path_dependencies.get(&pkg.name).is_some_and(|(_, toml)| {
-                    toml.package
-                        .as_ref()
-                        .and_then(|p| p.version.as_deref())
-                        .unwrap_or("0.0.0")
-                        == pkg.version
+                && path_dependencies.get(&pkg.name).is_some_and(|entries| {
+                    entries.iter().any(|(_, toml)| {
+                        toml.package
+                            .as_ref()
+                            .and_then(|p| p.version.as_deref())
+                            .unwrap_or("0.0.0")
+                            == pkg.version
+                    })
                 }));
         // A dependency that shares a member's name (an older published version pulled in
         // by a dev-dependency) is neither primary nor the `-p` target.

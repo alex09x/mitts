@@ -65,14 +65,23 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         workspace_manifests.insert(name.clone(), (member_dir.clone(), toml));
     }
 
-    let mut path_dependencies: HashMap<String, (PathBuf, CargoToml)> = HashMap::new();
+    // Path packages are followed transitively, as Cargo does, and two path packages may
+    // share a name (rand_core 0.3 is a shim over rand_core 0.4), so a name maps to every
+    // package found under it.
+    let mut path_dependencies: HashMap<String, Vec<(PathBuf, CargoToml)>> = HashMap::new();
+    let mut seen_dirs: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     let mut scan_deps = |base_dir: &Path,
-                         deps: &HashMap<String, super::manifest::TomlDependency>|
+                         deps: &HashMap<String, super::manifest::TomlDependency>,
+                         pending: &mut Vec<(PathBuf, CargoToml)>|
      -> Result<()> {
         for (dep_name, dep_val) in deps {
             if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
                 if let Some(ref rel_p) = d.path {
                     let dep_dir = base_dir.join(rel_p);
+                    let canon = dep_dir.canonicalize().unwrap_or_else(|_| dep_dir.clone());
+                    if !seen_dirs.insert(canon) {
+                        continue;
+                    }
                     let dep_manifest = dep_dir.join("Cargo.toml");
                     let dep_toml = CargoToml::from_file(&dep_manifest)
                         .with_context(|| format!("failed to read `{}`", dep_manifest.display()))?;
@@ -81,15 +90,20 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
                         .as_ref()
                         .map(|p| p.name.clone())
                         .unwrap_or_else(|| dep_name.clone());
-                    path_dependencies.insert(name, (dep_dir, dep_toml));
+                    path_dependencies
+                        .entry(name)
+                        .or_default()
+                        .push((dep_dir.clone(), dep_toml.clone()));
+                    pending.push((dep_dir, dep_toml));
                 }
             }
         }
         Ok(())
     };
 
+    let mut pending: Vec<(PathBuf, CargoToml)> = Vec::new();
     if let Some(ref ws) = root_toml.workspace {
-        scan_deps(project_dir, &ws.dependencies)?;
+        scan_deps(project_dir, &ws.dependencies, &mut pending)?;
     }
     let tomls_to_scan: Vec<(&Path, &CargoToml)> = std::iter::once((project_dir, &root_toml))
         .chain(workspace_manifests.values().map(|(p, t)| (p.as_path(), t)))
@@ -98,26 +112,39 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     // other path package, so the planner must know where it lives even for a build
     // that never compiles it.
     for (base, toml) in tomls_to_scan {
-        scan_deps(base, &toml.dependencies)?;
-        scan_deps(base, &toml.build_dependencies)?;
-        scan_deps(base, &toml.dev_dependencies)?;
+        scan_deps(base, &toml.dependencies, &mut pending)?;
+        scan_deps(base, &toml.build_dependencies, &mut pending)?;
+        scan_deps(base, &toml.dev_dependencies, &mut pending)?;
         for t in toml.target.values() {
-            scan_deps(base, &t.dependencies)?;
-            scan_deps(base, &t.build_dependencies)?;
-            scan_deps(base, &t.dev_dependencies)?;
+            scan_deps(base, &t.dependencies, &mut pending)?;
+            scan_deps(base, &t.build_dependencies, &mut pending)?;
+            scan_deps(base, &t.dev_dependencies, &mut pending)?;
         }
     }
 
     // `[patch.*] foo = { path = "…" }` packages are path packages too.
     for table in root_toml.patch.values() {
-        scan_deps(project_dir, table)?;
+        scan_deps(project_dir, table, &mut pending)?;
+    }
+    // A path package's own path dependencies (its dev-dependencies are never built for a
+    // package outside the workspace).
+    while let Some((dir, toml)) = pending.pop() {
+        scan_deps(&dir, &toml.dependencies, &mut pending)?;
+        scan_deps(&dir, &toml.build_dependencies, &mut pending)?;
+        for t in toml.target.values() {
+            scan_deps(&dir, &t.dependencies, &mut pending)?;
+            scan_deps(&dir, &t.build_dependencies, &mut pending)?;
+        }
     }
 
     if root_toml.workspace.is_some() {
         let canon_proj = project_dir
             .canonicalize()
             .unwrap_or_else(|_| project_dir.to_path_buf());
-        for (name, (path, toml)) in &path_dependencies {
+        for (name, path, toml) in path_dependencies
+            .iter()
+            .flat_map(|(n, v)| v.iter().map(move |(p, t)| (n, p, t)))
+        {
             let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
             if canon_path.starts_with(&canon_proj) {
                 workspace_manifests
@@ -138,9 +165,20 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     };
 
     // Ensure all path dependencies and workspace packages exist in the lockfile
-    let mut sorted_path_deps: Vec<_> = path_dependencies.iter().collect();
-    sorted_path_deps.sort_by_key(|(name, _)| *name);
-    for (name, (_path, dep_toml)) in sorted_path_deps {
+    let mut sorted_path_deps: Vec<_> = path_dependencies
+        .iter()
+        .flat_map(|(n, v)| v.iter().map(move |(p, t)| (n, p, t)))
+        .collect();
+    sorted_path_deps.sort_by_key(|(name, _, toml)| {
+        (
+            name.to_string(),
+            toml.package
+                .as_ref()
+                .and_then(|p| p.version.clone())
+                .unwrap_or_default(),
+        )
+    });
+    for (name, _path, dep_toml) in sorted_path_deps {
         let ver = dep_toml
             .package
             .as_ref()

@@ -113,7 +113,12 @@ pub fn resolve_extern_crates_with_target(
             // the package name, never through a dependency alias: a renamed dependency on
             // an older version of the same package (`foo_old = { package = "foo", … }`)
             // must not capture it.
-            let is_own_lib = dep_pkg == unit.package_id;
+            // A unit planned without a package id (test fixtures) falls back to name and
+            // version; a same-named package of another version is still not its own.
+            let is_own_lib = dep_pkg == unit.package_id
+                || (unit.package_id.is_empty()
+                    && pkg_name_only == unit.package_name
+                    && dep_version.is_none_or(|v| v == unit.version));
 
             if is_own_lib {
                 // handled below without alias matching
@@ -213,7 +218,11 @@ pub fn resolve_extern_crates_with_target(
 
             let mut add_extern = |name: &str, path: &PathBuf| {
                 let clean = name.replace('-', "_");
-                if is_self_lib && clean == unit.package_name.replace('-', "_") {
+                // A library never links itself, but a shim does link a different version of
+                // a package with its own name: rand_core 0.3 does `extern crate rand_core
+                // as core4;` for rand_core 0.4. Only the unit's own package (same id) is
+                // skipped; a same-named other package keeps its --extern.
+                if is_self_lib && is_own_lib && clean == unit.package_name.replace('-', "_") {
                     return;
                 }
                 if !extern_crates
