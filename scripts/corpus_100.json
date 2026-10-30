@@ -31,11 +31,6 @@
       "url": "https://github.com/google/argh.git"
     },
     {
-      "name": "askama",
-      "slug": "rinja-rs/askama",
-      "url": "https://github.com/rinja-rs/askama.git"
-    },
-    {
       "name": "axum",
       "slug": "tokio-rs/axum",
       "url": "https://github.com/tokio-rs/axum.git"
@@ -221,6 +216,11 @@
       "url": "https://github.com/dtolnay/itoa.git"
     },
     {
+      "name": "log",
+      "slug": "rust-lang/log",
+      "url": "https://github.com/rust-lang/log.git"
+    },
+    {
       "name": "lsd",
       "slug": "lsd-rs/lsd",
       "url": "https://github.com/lsd-rs/lsd.git"
@@ -239,6 +239,11 @@
       "name": "miette",
       "slug": "zkat/miette",
       "url": "https://github.com/zkat/miette.git"
+    },
+    {
+      "name": "minijinja",
+      "slug": "mitsuhiko/minijinja",
+      "url": "https://github.com/mitsuhiko/minijinja.git"
     },
     {
       "name": "mio",
@@ -299,11 +304,6 @@
       "name": "procs",
       "slug": "dalance/procs",
       "url": "https://github.com/dalance/procs.git"
-    },
-    {
-      "name": "prost",
-      "slug": "tokio-rs/prost",
-      "url": "https://github.com/tokio-rs/prost.git"
     },
     {
       "name": "pulldown-cmark",
@@ -391,9 +391,9 @@
       "url": "https://github.com/smol-rs/smol.git"
     },
     {
-      "name": "syn",
-      "slug": "dtolnay/syn",
-      "url": "https://github.com/dtolnay/syn.git"
+      "name": "strum",
+      "slug": "Peternator7/strum",
+      "url": "https://github.com/Peternator7/strum.git"
     },
     {
       "name": "syntect",
