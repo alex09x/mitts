@@ -56,14 +56,19 @@ def validate_swarm_commits(src_dir: Path, commits_desc: list[str], swarm_commits
     about the tools. Preparation only, outside every timed window; `cargo check --tests` is
     enough to trip a compile_error! and may use the network for an untracked lockfile."""
     verdict: dict[str, bool] = {}
+    failures: dict[str, str] = {}
 
     def checks(commit: str) -> bool:
         if commit not in verdict:
             git_checkout_clean(src_dir, commit)
             chmod_rmtree(src_dir / "target")
-            r = run_timed(["cargo", "check", "--workspace", "--tests"] + extra_args, cwd=src_dir, env=ctx["envs"]["cargo_bare"])
+            # The dependencies are fetched only after this, so the check must be allowed on the
+            # network: under the arms' offline environment every fresh project "failed".
+            r = run_timed(["cargo", "check", "--workspace", "--tests"] + extra_args, cwd=src_dir, env=ctx["fetch_env"])
             chmod_rmtree(src_dir / "target")
             verdict[commit] = r["exit_code"] == 0
+            if r["exit_code"] != 0:
+                failures[commit[:12]] = r["stderr_tail"][-1500:]
         return verdict[commit]
 
     substitutions: dict[str, str] = {}
@@ -84,6 +89,8 @@ def validate_swarm_commits(src_dir: Path, commits_desc: list[str], swarm_commits
             print(f"  [prep] swarm commit {c[:12]} does not build its tests under Cargo and no older commit does either", flush=True)
     if substitutions:
         res["swarm_commit_substitutions"] = {k[:12]: v[:12] for k, v in substitutions.items()}
+    if failures:
+        res["swarm_commit_check_failures"] = failures
     return [substitutions.get(c, c) for c in swarm_commits]
 
 
