@@ -117,38 +117,41 @@ pub(crate) fn run_build_script_if_needed<'a>(
         } else {
             None
         };
+        // A result published while we waited (another worktree of the swarm ran the
+        // script) is used like a first-try hit: the clippy pass over build.rs below still
+        // runs, so the lint shows up whichever process ran the script.
         if let Some(d) = rechecked {
-            register_directives_in_ctx(unit, &d, ctx);
-            return Ok((Some(d), None, None));
+            (d, None, None)
+        } else {
+            let job_reservation = super::dag_unit::acquire_unit_job_token(ctx)?;
+            let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
+            let d = match execute_build_script_with_key(
+                unit,
+                &staging_dir,
+                ctx.opt.release,
+                &unit.features,
+                Some(&artifacts_dir),
+                &extern_crates,
+                Some(&build_dep_env),
+                build_key_opt.as_deref(),
+            ) {
+                Ok(d) => d,
+                Err(err) => {
+                    let _ = fs::remove_dir_all(&staging_dir);
+                    let pkg_dir = unit
+                        .manifest_path
+                        .parent()
+                        .unwrap_or(std::path::Path::new("."));
+                    bail!(
+                        "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
+                        unit.unit_id(),
+                        pkg_dir.display(),
+                        err
+                    );
+                }
+            };
+            (d, Some(staging_dir), Some(job_reservation))
         }
-        let job_reservation = super::dag_unit::acquire_unit_job_token(ctx)?;
-        let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
-        let d = match execute_build_script_with_key(
-            unit,
-            &staging_dir,
-            ctx.opt.release,
-            &unit.features,
-            Some(&artifacts_dir),
-            &extern_crates,
-            Some(&build_dep_env),
-            build_key_opt.as_deref(),
-        ) {
-            Ok(d) => d,
-            Err(err) => {
-                let _ = fs::remove_dir_all(&staging_dir);
-                let pkg_dir = unit
-                    .manifest_path
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."));
-                bail!(
-                    "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
-                    unit.unit_id(),
-                    pkg_dir.display(),
-                    err
-                );
-            }
-        };
-        (d, Some(staging_dir), Some(job_reservation))
     };
 
     if ctx.opt.mode == super::types::BuildMode::Clippy && unit.is_primary {
