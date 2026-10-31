@@ -300,12 +300,20 @@ def benchmark_single_project(
                                 wt12_root = wts[-1][1]
 
                         wt12_tail = "\n".join(runs[-1]["output"].strip().splitlines()[-30:]) if runs and runs[-1]["output"] else ""
+                        # Every failed worktree keeps its output tail, as the T5 swarm does: a
+                        # failure in the check/clippy swarms used to be diagnosable only by
+                        # reproducing it elsewhere.
+                        failed_tails_m = {
+                            f"wt-{i + 1:02d}": "\n".join((r.get("output") or "").strip().splitlines()[-30:])
+                            for i, r in enumerate(runs) if r["exit_code"] != 0
+                        }
                         chmod_rmtree(wt_root)
                         failures_m = sum(1 for r in runs if r["exit_code"] != 0)
                         print(f"  [t4/{mode}] run {run_idx}/{repeats} {arm}: swarm {wall_m} s, failures={failures_m}, waited {waited_s} s (cpu busy {busy_before}, load {load_before})", flush=True)
                         mode_series[arm].append({
                             "iteration": run_idx, "total_wall_s": wall_m, "failures": failures_m,
                             "wt12_exit_code": runs[-1]["exit_code"] if runs else None, "wt12_stderr_tail": wt12_tail,
+                            "failed_wt_stderr_tail": failed_tails_m,
                             "disk_mb": d_mb, "df_used_delta_mb": df_delta, "device_mb_written": dev_mb, "device_mb_read": m_sw["device_mb_read"],
                             "sccache_stats": scc_st, "resources": m_sw["resources"],
                             "loadavg_before": load_before, "loadavg_after": load_after, "cpu_busy_before": busy_before,
