@@ -114,8 +114,16 @@ impl<'a> FeatureGraphIndex<'a> {
             candidates_by_norm,
             ctx_dep_specs,
             cfg_incompat_cache: HashMap::new(),
+            // `[patch]` lives in the project's root manifest (the workspace root for a
+            // member), never in the current directory: `--manifest-path` from elsewhere
+            // used to read `<cwd>/Cargo.toml` and poison the manifest snapshot.
             patched: crate::adapter::rust::manifest::CargoToml::from_file(
-                &start_dir.join("Cargo.toml"),
+                &crate::adapter::rust::compiler_resolve::find_workspace_root(
+                    &opt.manifest_path
+                        .clone()
+                        .unwrap_or_else(|| start_dir.join("Cargo.toml")),
+                )
+                .join("Cargo.toml"),
             )
             .map(|t| {
                 t.patch
