@@ -43,11 +43,15 @@ def has_crate_level_cfg(src: Path) -> bool:
     return False
 
 
-def select_workspace_targets(ws_dir: Path, env: dict[str, str] | None = None) -> dict:
+def select_workspace_targets(
+    ws_dir: Path, env: dict[str, str] | None = None, exclude: frozenset[str] | set[str] = frozenset()
+) -> dict:
     """
     Uses `cargo metadata --offline --no-deps --format-version 1` to deterministically
     pick compiled workspace member source files (avoiding filesystem-order `os.walk`
-    or non-root files like `tests/common/mod.rs` or `tests/ui/*.rs`).
+    or non-root files like `tests/common/mod.rs` or `tests/ui/*.rs`). Packages named in
+    `exclude` (the project's `--exclude` arguments, tokio's nightly-only `tests-build`)
+    are never injection roots: nobody compiles them, so a defect there is caught by no tool.
     """
     ws_dir = Path(ws_dir).resolve()
     lib_or_bin_candidates: list[Path] = []
@@ -67,6 +71,8 @@ def select_workspace_targets(ws_dir: Path, env: dict[str, str] | None = None) ->
         pkgs = sorted(meta.get("packages", []), key=lambda p: (0 if Path(p["manifest_path"]).parent == ws_dir else 1, p["name"]))
         for pkg in pkgs:
             if members and pkg.get("id") not in members:
+                continue
+            if pkg.get("name") in exclude:
                 continue
             for tgt in sorted(pkg.get("targets", []), key=lambda t: t.get("name", "")):
                 kinds = set(tgt.get("kind", []))
@@ -110,10 +116,12 @@ def select_workspace_targets(ws_dir: Path, env: dict[str, str] | None = None) ->
     }
 
 
-def inject_test_defect(wt_dir: Path, env: dict[str, str] | None = None) -> str:
+def inject_test_defect(
+    wt_dir: Path, env: dict[str, str] | None = None, exclude: frozenset[str] | set[str] = frozenset()
+) -> str:
     """Appends one always-failing #[test] to a verified compiled test target root."""
     wt_dir = Path(wt_dir).resolve()
-    info = select_workspace_targets(wt_dir, env=env)
+    info = select_workspace_targets(wt_dir, env=env, exclude=exclude)
     target = info["test_src"]
     if not target or not target.is_file():
         raise RuntimeError(f"Could not locate a valid test target source file in {wt_dir}")

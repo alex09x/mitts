@@ -248,14 +248,19 @@ def prepare_swarm_worktrees(
     return wts
 
 
-def inject_anomaly(wt_dir: Path, mode: str = "check", env: dict[str, str] | None = None) -> dict:
+def inject_anomaly(
+    wt_dir: Path,
+    mode: str = "check",
+    env: dict[str, str] | None = None,
+    exclude: frozenset[str] | set[str] = frozenset(),
+) -> dict:
     """
     Injects intentional diagnostics in WT-12 (`unused_variables` in check,
     plus `clippy::len_zero` in clippy) using deterministic `cargo metadata`
     workspace target discovery.
     """
     wt_dir = Path(wt_dir).resolve()
-    info = select_workspace_targets(wt_dir, env=env)
+    info = select_workspace_targets(wt_dir, env=env, exclude=exclude)
     target = info["lib_or_bin_src"]
     if not target or not target.is_file():
         raise RuntimeError(f"Could not locate a valid lib/bin target source file in {wt_dir}")

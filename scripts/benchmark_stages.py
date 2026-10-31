@@ -310,7 +310,8 @@ def run_stages_t0_t1_t2_t3(
         cold_by_arm: dict[str, list[dict]] = {a: [] for a in s1_arms}
         last_scc_by_arm: dict[str, dict | None] = {a: None for a in s1_arms}
         s1_cold, s2_noop, s2_fast_lock, l3_mutation = {}, {}, {}, {}
-        tgt_info = select_workspace_targets(src_dir, env=ctx["envs"]["cargo_bare"])
+        excluded = frozenset(a for i, a in enumerate(extra_args) if i > 0 and extra_args[i - 1] == "--exclude")
+        tgt_info = select_workspace_targets(src_dir, env=ctx["envs"]["cargo_bare"], exclude=excluded)
         rs_file = tgt_info["lib_or_bin_src"]
 
         for rep_idx in range(repeats):

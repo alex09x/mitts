@@ -36,6 +36,24 @@ class InjectionTargetTests(unittest.TestCase):
             self.assertEqual(info["test_src"], (ws / "tests/b_plain.rs").resolve())
             self.assertEqual(info["lib_or_bin_src"], (ws / "src/lib.rs").resolve())
 
+    def test_an_excluded_package_is_not_an_injection_root(self):
+        """tokio runs with `--exclude tests-build`; an injection into that package's sources
+        is compiled by no tool, so the harness invalidated the run against itself."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            for sub in ("a-nightly/src", "a-nightly/tests", "b-main/src", "b-main/tests"):
+                (ws / sub).mkdir(parents=True)
+            (ws / "Cargo.toml").write_text('[workspace]\nmembers = ["a-nightly", "b-main"]\nresolver = "2"\n')
+            for name in ("a-nightly", "b-main"):
+                (ws / name / "Cargo.toml").write_text(
+                    f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n'
+                )
+                (ws / name / "src/lib.rs").write_text("pub fn f() {}\n")
+                (ws / name / "tests/t.rs").write_text("#[test]\nfn t() {}\n")
+            info = select_workspace_targets(ws, exclude={"a-nightly"})
+            self.assertEqual(info["lib_or_bin_src"], (ws / "b-main/src/lib.rs").resolve())
+            self.assertEqual(info["test_src"], (ws / "b-main/tests/t.rs").resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

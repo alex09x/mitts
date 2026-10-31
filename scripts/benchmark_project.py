@@ -162,6 +162,8 @@ def benchmark_single_project(
         "rayon": ["--exclude", "rayon-demo"],
         "hyper": ["--features", "full"],
     }.get(proj_name, [])
+    # Excluded packages are never injection roots: nobody builds them.
+    excluded = frozenset(a for i, a in enumerate(extra_args) if i > 0 and extra_args[i - 1] == "--exclude")
 
     res: dict = {
         "project": proj_name, "status": "OK", "status_flags": [],
@@ -274,7 +276,7 @@ def benchmark_single_project(
                         stop_sccache(sccache_bin, ctx["sccache_dir"])
                         load_before, _, waited_s, busy_before = wait_for_quiet_rig(timeout_s=300.0, max_load=max_load)
                         wts = prepare_swarm_worktrees(src_dir, wt_root, swarm_commits, commit_locks=commit_locks)
-                        anomaly_meta = inject_anomaly(wts[-1][1], mode=mode, env=ctx["envs"]["cargo_bare"])
+                        anomaly_meta = inject_anomaly(wts[-1][1], mode=mode, env=ctx["envs"]["cargo_bare"], exclude=excluded)
                         if arm == "mitts_cas":
                             restore_dir(snap_cas, ctx["mitts_cas"], keep_sources=True)
                         elif arm == "cargo_sccache":
@@ -370,7 +372,7 @@ def benchmark_single_project(
                 ):
                     return res
                 raise
-            unharnessed_cnt = select_workspace_targets(src_dir, env=ctx["envs"]["cargo_bare"])["unharnessed_test_targets"]
+            unharnessed_cnt = select_workspace_targets(src_dir, env=ctx["envs"]["cargo_bare"], exclude=excluded)["unharnessed_test_targets"]
 
             arm_series: dict = {t: [] for t in TOOLS}
             for run_idx in range(1, repeats + 1):
@@ -379,7 +381,7 @@ def benchmark_single_project(
                     stop_sccache(sccache_bin, ctx["sccache_dir"])
                     load_before, _, waited_s, busy_before = wait_for_quiet_rig(timeout_s=300.0, max_load=max_load)
                     wts = prepare_swarm_worktrees(src_dir, wt_root, swarm_commits, commit_locks=commit_locks)
-                    injected_rel = inject_test_defect(wts[-1][1], env=ctx["envs"]["cargo_bare"])
+                    injected_rel = inject_test_defect(wts[-1][1], env=ctx["envs"]["cargo_bare"], exclude=excluded)
                     if arm == "mitts_cas":
                         restore_dir(snap_cas, ctx["mitts_cas"], keep_sources=True)
                     elif arm == "cargo_sccache":
