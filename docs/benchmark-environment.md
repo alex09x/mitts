@@ -26,6 +26,11 @@ consecutive first-parent commits for the history replay, a 12-worktree swarm ove
 measured steady background is recorded with each file). The aarch64 host runs other work
 alongside the series; its background note names it.
 
+Each machine measures its own clone of every project; the clone's HEAD is recorded per project
+in the results file (`commits_selected.head`), and clones made on different days can sit at
+different upstream commits. Numbers are therefore read per machine, never as a cross-machine
+comparison of one commit.
+
 A project pinned to an older toolchain through `rust-toolchain` builds with that toolchain in
 every arm (the file records the version per project in `project_rustc_version`); three corpus
 projects do (Rust 1.70, 1.88 and 1.90).
