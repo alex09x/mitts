@@ -79,13 +79,20 @@ pub fn resolve_candidate_by_spec<'a, T, F>(
 where
     F: Fn(&'a T) -> (&'a str, Option<&'a str>),
 {
+    // A lock dependency spec names a git source without its pinned commit
+    // (`git+https://…/libc?branch=libc-0.2`) while the package entry carries it
+    // (`…?branch=libc-0.2#<sha>`): Cargo writes the spec "without precise". Sources
+    // compare with that fragment dropped on both sides (mio patches libc this way).
     let matches: Vec<usize> = candidates
         .iter()
         .enumerate()
         .filter_map(|(idx, cand)| {
             let (ver, src) = get_ver_src(cand);
-            (req_ver.is_none_or(|v| ver == v) && req_src.is_none_or(|s| src == Some(s)))
-                .then_some(idx)
+            (req_ver.is_none_or(|v| ver == v)
+                && req_src.is_none_or(|s| {
+                    src.map(source_without_precise) == Some(source_without_precise(s))
+                }))
+            .then_some(idx)
         })
         .collect();
     match matches.len() {
@@ -123,7 +130,10 @@ where
                     let same_src: Vec<usize> = matches
                         .iter()
                         .copied()
-                        .filter(|&i| get_ver_src(&candidates[i]).1 == Some(ps))
+                        .filter(|&i| {
+                            get_ver_src(&candidates[i]).1.map(source_without_precise)
+                                == Some(source_without_precise(ps))
+                        })
                         .collect();
                     if same_src.len() == 1 {
                         return Ok(Some(same_src[0]));
@@ -137,6 +147,12 @@ where
             ))
         }
     }
+}
+
+/// A lock source without its `#<commit>` fragment: the form Cargo writes in a dependency
+/// spec, while the package entry keeps the pinned commit.
+pub fn source_without_precise(source: &str) -> &str {
+    source.split('#').next().unwrap_or(source)
 }
 
 pub fn semver_or_prefix_matches(req_str: &str, ver_str: &str) -> bool {
@@ -394,4 +410,47 @@ pub fn is_declared_dependency_cached(
         cfg_cache,
         |_, _, _, _| true,
     )
+}
+
+#[cfg(test)]
+mod candidate_tests {
+    use super::resolve_candidate_by_spec;
+
+    /// mio patches libc to a git branch: the lock lists a registry libc and a git libc, and
+    /// the dependency spec names the git one without the pinned commit.
+    #[test]
+    fn a_git_spec_without_the_pinned_commit_matches_the_pinned_package() {
+        let cands: Vec<(&str, Option<&str>)> = vec![
+            (
+                "0.2.190",
+                Some("registry+https://github.com/rust-lang/crates.io-index"),
+            ),
+            (
+                "0.2.191",
+                Some("git+https://github.com/rust-lang/libc?branch=libc-0.2#0123456789abcdef"),
+            ),
+        ];
+        let got = resolve_candidate_by_spec(
+            &cands,
+            |c| (c.0, c.1),
+            Some("0.2.191"),
+            Some("git+https://github.com/rust-lang/libc?branch=libc-0.2"),
+            None,
+            true,
+            "libc 0.2.191 (git+https://github.com/rust-lang/libc?branch=libc-0.2)",
+        )
+        .expect("the git libc resolves");
+        assert_eq!(got, Some(1));
+        let registry = resolve_candidate_by_spec(
+            &cands,
+            |c| (c.0, c.1),
+            Some("0.2.190"),
+            Some("registry+https://github.com/rust-lang/crates.io-index"),
+            None,
+            true,
+            "libc 0.2.190",
+        )
+        .expect("the registry libc still resolves");
+        assert_eq!(registry, Some(0));
+    }
 }
