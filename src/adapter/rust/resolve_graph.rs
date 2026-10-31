@@ -370,14 +370,54 @@ impl NativeResolver {
             }
         }
 
+        // Cargo writes "name version" for a dependency whose name several packages of the
+        // lock share (tonic: strum 0.27 and 0.28); a bare name would be ambiguous when the
+        // lock is read back. The dependent's own requirement picks the version.
+        let mut versions_by_name: HashMap<String, Vec<String>> = HashMap::new();
+        for n in &nodes {
+            versions_by_name
+                .entry(n.name.clone())
+                .or_default()
+                .push(n.version.clone());
+        }
+        for p in &extra {
+            versions_by_name
+                .entry(p.name.clone())
+                .or_default()
+                .push(p.version.clone());
+        }
+        let qualify = |n: &Node, dep: &str| -> String {
+            if dep.contains(' ') {
+                return dep.to_string();
+            }
+            let Some(versions) = versions_by_name.get(dep).filter(|v| v.len() > 1) else {
+                return dep.to_string();
+            };
+            let req = n
+                .deps
+                .iter()
+                .find(|d| d.package.as_deref().unwrap_or(&d.name) == dep)
+                .and_then(|d| semver::VersionReq::parse(&d.req).ok());
+            let Some(req) = req else {
+                return dep.to_string();
+            };
+            let chosen = versions
+                .iter()
+                .filter_map(|v| semver::Version::parse(v).ok().filter(|pv| req.matches(pv)))
+                .max();
+            match chosen {
+                Some(v) => format!("{dep} {v}"),
+                None => dep.to_string(),
+            }
+        };
         let mut packages: Vec<CargoLockPackage> = nodes
-            .into_iter()
+            .iter()
             .map(|n| CargoLockPackage {
-                name: n.name,
-                version: n.version,
-                source: n.source,
-                checksum: (!n.checksum.is_empty()).then_some(n.checksum),
-                dependencies: n.dependencies.into_iter().collect(),
+                name: n.name.clone(),
+                version: n.version.clone(),
+                source: n.source.clone(),
+                checksum: (!n.checksum.is_empty()).then_some(n.checksum.clone()),
+                dependencies: n.dependencies.iter().map(|d| qualify(n, d)).collect(),
             })
             .collect();
         for p in extra {
