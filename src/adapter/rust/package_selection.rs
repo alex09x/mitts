@@ -307,6 +307,34 @@ pub fn has_build_dep(toml: &CargoToml, name: &str) -> bool {
             .any(|t| t.build_dependencies.contains_key(name))
 }
 
+pub fn has_runtime_dep(toml: &CargoToml, name: &str) -> bool {
+    toml.dependencies.contains_key(name)
+        || toml
+            .target
+            .values()
+            .any(|t| t.dependencies.contains_key(name))
+}
+
+/// The sides an optional dependency of `toml` is activated on when a feature turns it on:
+/// `(target, host)`. A proc-macro, or anything reached from a host context, is host only.
+/// Otherwise the dependency is a target dependency unless it is declared only under
+/// `[build-dependencies]`, and it is a host dependency whenever it is declared there too:
+/// minijinja-cli lists `argument-completions` in both tables, and the binary must link the
+/// target instance while the build script links the host one.
+pub fn optional_dep_sides(
+    toml: &CargoToml,
+    name: &str,
+    is_host_ctx: bool,
+    is_pm: bool,
+) -> (bool, bool) {
+    if is_host_ctx || is_pm {
+        return (false, true);
+    }
+    let build = has_build_dep(toml, name);
+    let runtime = has_runtime_dep(toml, name) || !build;
+    (runtime, build)
+}
+
 pub fn is_any_optional_dep(toml: &CargoToml, name: &str) -> bool {
     let norm = name.replace('-', "_");
     let check = |map: &HashMap<String, TomlDependency>| {

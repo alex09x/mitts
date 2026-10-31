@@ -13,7 +13,8 @@ use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
 use crate::adapter::rust::manifest_models::DependencyAliases;
 pub use crate::adapter::rust::package_selection::{
     format_package_id, has_build_dep, is_any_optional_dep, is_implicit_feature, is_optional_dep,
-    normalize_unit_id_without_source, parse_dep_spec, parse_package_id_source,
+    normalize_unit_id_without_source, optional_dep_sides, parse_dep_spec,
+    parse_package_id_source,
 };
 use crate::adapter::rust::types::{RustAdapterError, RustBuildOptions};
 use std::collections::{HashMap, HashSet};
