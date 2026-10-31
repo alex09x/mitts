@@ -29,14 +29,29 @@ MITTS_BANNER_RE = re.compile(r"^\[mitts::.*\]")
 
 
 def _rel_file(raw_file_str: str, ws_root: Path) -> str:
+    """Workspace files become workspace-relative. A file a build script generated (tokei
+    `include!`s `$OUT_DIR/language_type.rs`) lives under Cargo's `target/…/out/` or under
+    Mitts' cache (printed with its `/mitts/out/<crate>/` remap), two locations for one
+    generated file: both key as `OUT_DIR/<name>` so parity compares the diagnostic, not
+    where each tool keeps its build-script output."""
     try:
         raw_path = Path(raw_file_str)
+        if raw_file_str.startswith("/mitts/out/"):
+            tail = raw_file_str[len("/mitts/out/"):].split("/", 1)
+            return "OUT_DIR/" + (tail[1] if len(tail) > 1 else tail[0])
+        rel = raw_file_str
         if raw_path.is_absolute():
             resolved_ws = ws_root.resolve()
             resolved_p = raw_path.resolve()
             if str(resolved_p).startswith(str(resolved_ws) + "/"):
-                return str(resolved_p.relative_to(resolved_ws))
-        return raw_file_str
+                rel = str(resolved_p.relative_to(resolved_ws))
+        parts = rel.split("/")
+        outs = [i for i, p in enumerate(parts[:-1]) if p == "out"]
+        if outs:
+            idx = outs[-1]
+            if "build" in parts[:idx] or raw_path.is_absolute():
+                return "OUT_DIR/" + "/".join(parts[idx + 1:])
+        return rel
     except Exception:
         return raw_file_str
 
