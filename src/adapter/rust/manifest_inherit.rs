@@ -13,6 +13,34 @@ use super::manifest_models::TomlDependency;
 use std::collections::HashMap;
 use std::path::Path;
 
+/// The `[package]` keys a manifest marks `{ workspace = true }` (`edition.workspace = true`
+/// or `edition = { workspace = true }`), the only ones Cargo fills from
+/// `[workspace.package]`. The typed manifest has already folded that marker into `None`,
+/// so the raw TOML is consulted; `rust_version` is reported as `rust-version`.
+fn inherited_package_fields(path: &Path) -> std::collections::HashSet<String> {
+    let mut opted = std::collections::HashSet::new();
+    let Ok(text) = super::manifest_snapshot::read_text(path) else {
+        return opted;
+    };
+    let Ok(raw) = text.parse::<toml::Value>() else {
+        return opted;
+    };
+    let Some(pkg) = raw.get("package").and_then(|p| p.as_table()) else {
+        return opted;
+    };
+    for (key, value) in pkg {
+        let inherits = value
+            .as_table()
+            .and_then(|t| t.get("workspace"))
+            .and_then(|w| w.as_bool())
+            .unwrap_or(false);
+        if inherits {
+            opted.insert(key.replace('_', "-"));
+        }
+    }
+    opted
+}
+
 /// Resolves inherited fields (version, edition, and dependencies) from workspace root.
 pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path) {
     let mut parent = path.parent().and_then(|p| p.parent());
@@ -53,17 +81,22 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
 
     if let Some(ref mut pkg) = manifest.package {
         if let Some(ref ws_pkg) = ws.package {
-            if pkg.edition.is_none() {
+            // Cargo inherits a `[workspace.package]` field only where the member wrote
+            // `field.workspace = true`; a member that leaves `rust-version` out has none,
+            // whatever the workspace declares. winnow's fuzz package did, Mitts gave it the
+            // workspace's 1.65.0, and clippy's `incompatible_msrv` fired under Mitts alone.
+            let opted = inherited_package_fields(path);
+            if pkg.edition.is_none() && opted.contains("edition") {
                 if let Some(toml::Value::String(ref ed)) = ws_pkg.get("edition") {
                     pkg.edition = Some(ed.clone());
                 }
             }
-            if pkg.version.is_none() {
+            if pkg.version.is_none() && opted.contains("version") {
                 if let Some(toml::Value::String(ref v)) = ws_pkg.get("version") {
                     pkg.version = Some(v.clone());
                 }
             }
-            if pkg.rust_version.is_none() {
+            if pkg.rust_version.is_none() && opted.contains("rust-version") {
                 if let Some(toml::Value::String(ref rv)) = ws_pkg
                     .get("rust-version")
                     .or_else(|| ws_pkg.get("rust_version"))
