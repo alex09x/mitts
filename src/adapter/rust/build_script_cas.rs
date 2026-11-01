@@ -177,6 +177,7 @@ pub fn save_build_script_cas(
                 if reflink_or_copy_dir_recursive(out_dir, &tmp_out).is_err() {
                     ok = false;
                 } else {
+                    rewrite_out_dir_in_text_files(&tmp_out, &out_str, &cas_out_str);
                     make_tree_readonly_recursive(&tmp_out);
                 }
             }
@@ -205,6 +206,58 @@ pub fn save_build_script_cas(
     if cas_out.is_dir() {
         directives.out_dir = Some(cas_out.clone());
         remap_out_dir(directives, &out_str, &cas_out_str);
+    }
+}
+
+/// Rewrites the staging `OUT_DIR` path inside the text files of a saved output tree. A
+/// build script that writes the absolute `OUT_DIR` into its generated sources (grpc-xds:
+/// `#[path = "<OUT_DIR>/generated/cel/mod.rs"] pub mod cel;`) works under Cargo because
+/// Cargo's `OUT_DIR` is permanent; Mitts ran the script in a staging directory that is
+/// gone by the next build, so every restore would hand rustc files pointing nowhere. The
+/// directives get the same remap (`remap_out_dir`); binary files are left alone.
+fn rewrite_out_dir_in_text_files(dir: &Path, from: &str, to: &str) {
+    if from.is_empty() || from == to {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if ft.is_dir() {
+            rewrite_out_dir_in_text_files(&path, from, to);
+            continue;
+        }
+        if !ft.is_file() {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&path) else {
+            continue;
+        };
+        if !bytes.windows(from.len()).any(|w| w == from.as_bytes()) {
+            continue;
+        }
+        let Ok(text) = std::str::from_utf8(&bytes) else {
+            continue;
+        };
+        let rewritten = text.replace(from, to);
+        // A fresh inode: the copy may share one with the staging file (hard link), and
+        // the staging tree is what the running compile may still read.
+        let name = entry.file_name();
+        let tmp = dir.join(format!(".{}.mitts-rewrite", name.to_string_lossy()));
+        if fs::write(&tmp, rewritten).is_err() {
+            let _ = fs::remove_file(&tmp);
+            continue;
+        }
+        if let Ok(meta) = fs::metadata(&path) {
+            let _ = fs::set_permissions(&tmp, meta.permissions());
+        }
+        if fs::rename(&tmp, &path).is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
     }
 }
 

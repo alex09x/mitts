@@ -90,7 +90,8 @@ fn registry() -> String {
     let mut routes = HashMap::new();
     routes.insert(
         format!("/index/{}", index_path("shared")),
-        (entry("shared", "0.1.0", "", &s1_sum) + &entry("shared", "0.2.0", "", &s2_sum)).into_bytes(),
+        (entry("shared", "0.1.0", "", &s1_sum) + &entry("shared", "0.2.0", "", &s2_sum))
+            .into_bytes(),
     );
     routes.insert(
         format!("/index/{}", index_path("one")),
@@ -190,9 +191,17 @@ fn a_lockless_resolution_with_two_versions_of_a_crate_writes_qualified_dependenc
     let (ok, text) = run(&["build"]);
     assert!(ok, "build with two versions of `shared`:\n{text}");
     let lock = fs::read_to_string(app.join("Cargo.lock")).unwrap();
-    assert!(lock.contains("\"shared 0.1.0\""), "one depends on shared 0.1.0:\n{lock}");
-    assert!(lock.contains("\"shared 0.2.0\""), "two depends on shared 0.2.0:\n{lock}");
-    let out = Command::new(app.join("target/mitts/debug/app")).output().unwrap();
+    assert!(
+        lock.contains("\"shared 0.1.0\""),
+        "one depends on shared 0.1.0:\n{lock}"
+    );
+    assert!(
+        lock.contains("\"shared 0.2.0\""),
+        "two depends on shared 0.2.0:\n{lock}"
+    );
+    let out = Command::new(app.join("target/mitts/debug/app"))
+        .output()
+        .unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "21");
     // A second run reads the written lock: the ambiguity must not come back.
     let (ok, text) = run(&["check"]);
