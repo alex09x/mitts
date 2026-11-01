@@ -36,6 +36,25 @@ class InjectionTargetTests(unittest.TestCase):
             self.assertEqual(info["test_src"], (ws / "tests/b_plain.rs").resolve())
             self.assertEqual(info["lib_or_bin_src"], (ws / "src/lib.rs").resolve())
 
+    def test_a_test_target_with_its_own_harness_is_not_an_injection_root(self):
+        """data-url's `[[test]] name = "wpt" harness = false` imports `tester as test`, so
+        the appended `#[test]` could not resolve under any tool (url: INVALID_T5), and a
+        custom harness would not run it anyway. `cargo metadata` omits the flag."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            (ws / "src").mkdir()
+            (ws / "tests").mkdir()
+            (ws / "Cargo.toml").write_text(
+                '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                '[[test]]\nname = "a_wpt"\nharness = false\n'
+            )
+            (ws / "src/lib.rs").write_text("pub fn f() {}\n")
+            (ws / "tests/a_wpt.rs").write_text("fn main() {}\n")
+            (ws / "tests/b_plain.rs").write_text("#[test]\nfn plain() {}\n")
+            info = select_workspace_targets(ws)
+            self.assertEqual(info["test_src"], (ws / "tests/b_plain.rs").resolve())
+            self.assertEqual(info["unharnessed_test_targets"], 1)
+
     def test_an_excluded_package_is_not_an_injection_root(self):
         """tokio runs with `--exclude tests-build`; an injection into that package's sources
         is compiled by no tool, so the harness invalidated the run against itself."""

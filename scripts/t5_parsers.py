@@ -43,6 +43,56 @@ def has_crate_level_cfg(src: Path) -> bool:
     return False
 
 
+def unharnessed_target_names(manifest_path: Path) -> set[str]:
+    """Names of the `[[test]]` and `[[bench]]` targets a manifest declares with
+    `harness = false`: a custom harness ignores an appended `#[test]`, and may not even
+    let it resolve. `cargo metadata` leaves the flag out, so the manifest is read."""
+    try:
+        text = manifest_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return set()
+    try:
+        import tomllib
+
+        manifest = tomllib.loads(text)
+    except Exception:
+        manifest = _target_tables_without_tomllib(text)
+    names: set[str] = set()
+    for section in ("test", "bench"):
+        for tgt in manifest.get(section, []) or []:
+            if isinstance(tgt, dict) and tgt.get("harness", True) is False and tgt.get("name"):
+                names.add(str(tgt["name"]))
+    return names
+
+
+def _target_tables_without_tomllib(text: str) -> dict:
+    """`[[test]]` / `[[bench]]` tables with their `name` and `harness` keys, for a python
+    without `tomllib` (3.10): one `key = value` per line, which is how manifests write them."""
+    tables: dict[str, list[dict]] = {"test": [], "bench": []}
+    current: dict | None = None
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("[["):
+            section = line.strip("[]").strip()
+            current = {} if section in tables else None
+            if current is not None:
+                tables[section].append(current)
+            continue
+        if line.startswith("["):
+            current = None
+            continue
+        if current is None or "=" not in line:
+            continue
+        key, value = (s.strip() for s in line.split("=", 1))
+        if key == "name":
+            current["name"] = value.strip("\"'")
+        elif key == "harness":
+            current["harness"] = value.lower() != "false"
+    return tables
+
+
 def select_workspace_targets(
     ws_dir: Path, env: dict[str, str] | None = None, exclude: frozenset[str] | set[str] = frozenset()
 ) -> dict:
@@ -74,10 +124,14 @@ def select_workspace_targets(
                 continue
             if pkg.get("name") in exclude:
                 continue
+            # `cargo metadata` does not report `harness`; the manifest does. data-url's
+            # `[[test]] name = "wpt" harness = false` imports `tester as test`, so the
+            # appended `#[test]` failed to resolve under every tool (url: INVALID_T5).
+            unharnessed_names = unharnessed_target_names(Path(pkg.get("manifest_path", "")))
             for tgt in sorted(pkg.get("targets", []), key=lambda t: t.get("name", "")):
                 kinds = set(tgt.get("kind", []))
                 src_p = Path(tgt.get("src_path", ""))
-                harness = tgt.get("harness", True)
+                harness = tgt.get("harness", True) and tgt.get("name") not in unharnessed_names
                 if ("test" in kinds or "bench" in kinds) and not harness:
                     if "test" in kinds:
                         unharnessed_tests += 1
