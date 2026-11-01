@@ -241,9 +241,9 @@
       "url": "https://github.com/zkat/miette.git"
     },
     {
-      "name": "minijinja",
-      "slug": "mitsuhiko/minijinja",
-      "url": "https://github.com/mitsuhiko/minijinja.git"
+      "name": "textwrap",
+      "slug": "mgeisler/textwrap",
+      "url": "https://github.com/mgeisler/textwrap.git"
     },
     {
       "name": "mio",
