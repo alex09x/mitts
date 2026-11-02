@@ -306,9 +306,9 @@
       "url": "https://github.com/dalance/procs.git"
     },
     {
-      "name": "pulldown-cmark",
-      "slug": "pulldown-cmark/pulldown-cmark",
-      "url": "https://github.com/pulldown-cmark/pulldown-cmark.git"
+      "name": "similar",
+      "slug": "mitsuhiko/similar",
+      "url": "https://github.com/mitsuhiko/similar.git"
     },
     {
       "name": "quote",
