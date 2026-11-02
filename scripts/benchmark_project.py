@@ -537,6 +537,17 @@ def main() -> None:
         "parameters": {"commits": args.commits, "worktrees": args.worktrees, "repeats": args.repeats, "max_disk_gb": args.max_disk_gb, "max_load": args.max_load, "max_busy": args.max_busy, "stages": sorted(stages), "excluded": sorted(excluded), "online_fetch": args.online_fetch},
         "projects": {},
     }
+    # One harness per results file. Four retry passes once ran at once on the rig, each
+    # rewriting the same file and deleting the others' worktrees: 11 projects vanished from
+    # the results and 14 more came out ERROR or INVALID from the collisions alone.
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fh = open(f"{out_path}.lock", "w")
+    try:
+        import fcntl
+        fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit(f"Refusing to start: another harness is already writing {out_path}")
+    globals()["_RESULTS_LOCK"] = lock_fh
     if out_path.exists():
         existing = json.loads(out_path.read_text(encoding="utf-8"))
         old_prov = existing.get("provenance", {})

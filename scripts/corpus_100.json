@@ -441,9 +441,9 @@
       "url": "https://github.com/toml-rs/toml.git"
     },
     {
-      "name": "tonic",
-      "slug": "hyperium/tonic",
-      "url": "https://github.com/hyperium/tonic.git"
+      "name": "insta",
+      "slug": "mitsuhiko/insta",
+      "url": "https://github.com/mitsuhiko/insta.git"
     },
     {
       "name": "tower",
