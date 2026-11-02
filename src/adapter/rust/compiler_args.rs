@@ -217,19 +217,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
                 lints_val,
             ));
         }
-        let mut all_features: Vec<String> = toml.features.keys().cloned().collect();
-        for (dep_name, dep_val) in toml
-            .dependencies
-            .iter()
-            .chain(toml.target.values().flat_map(|t| t.dependencies.iter()))
-        {
-            if matches!(dep_val, super::manifest::TomlDependency::Detailed(d) if d.optional == Some(true))
-            {
-                all_features.push(dep_name.clone());
-            }
-        }
-        all_features.sort();
-        all_features.dedup();
+        let all_features = toml.feature_check_cfg_values();
         let quoted: Vec<String> = all_features.iter().map(|f| format!("\"{f}\"")).collect();
         if check_cfg {
             cmd.args([

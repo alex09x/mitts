@@ -172,25 +172,7 @@ pub fn doctest_for_lib(
             check_cfgs.push(cc);
         }
     }
-    let mut all_features: Vec<String> = toml.features.keys().cloned().collect();
-    for (dep_name, dep_val) in &toml.dependencies {
-        if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
-            if d.optional == Some(true) {
-                all_features.push(dep_name.clone());
-            }
-        }
-    }
-    for target_spec in toml.target.values() {
-        for (dep_name, dep_val) in &target_spec.dependencies {
-            if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
-                if d.optional == Some(true) {
-                    all_features.push(dep_name.clone());
-                }
-            }
-        }
-    }
-    all_features.sort();
-    all_features.dedup();
+    let all_features = toml.feature_check_cfg_values();
     let quoted: Vec<String> = all_features.iter().map(|f| format!("\"{}\"", f)).collect();
     check_cfgs.push(format!("cfg(feature, values({}))", quoted.join(", ")));
 

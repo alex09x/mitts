@@ -146,22 +146,7 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
     if check_cfg {
         compile_cmd.args(["--check-cfg", "cfg(docsrs,test)"]);
     }
-    let mut all_features: Vec<String> = args.pkg_toml.features.keys().cloned().collect();
-    let mut add_deps = |deps: &HashMap<String, crate::adapter::rust::manifest::TomlDependency>| {
-        for (name, dep) in deps {
-            if matches!(dep, crate::adapter::rust::manifest::TomlDependency::Detailed(d) if d.optional == Some(true))
-            {
-                all_features.push(name.clone());
-            }
-        }
-    };
-    add_deps(&args.pkg_toml.dependencies);
-    args.pkg_toml
-        .target
-        .values()
-        .for_each(|t| add_deps(&t.dependencies));
-    all_features.sort();
-    all_features.dedup();
+    let all_features = args.pkg_toml.feature_check_cfg_values();
     let q: Vec<String> = all_features.iter().map(|f| format!("\"{f}\"")).collect();
     if check_cfg {
         compile_cmd.args([

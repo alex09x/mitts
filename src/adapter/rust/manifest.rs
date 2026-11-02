@@ -82,6 +82,38 @@ impl CargoToml {
         "1"
     }
 
+    /// The values Cargo declares for `--check-cfg cfg(feature, values(...))`: every
+    /// `[features]` key plus the implicit feature of each optional dependency that no
+    /// feature names as `dep:<name>`, in the normal and the build-dependency tables and
+    /// their target-specific forms. tonic's examples package gates on an optional
+    /// build-dependency (`#[cfg(feature = "protoc-gen-rust-grpc")]` in build.rs); leaving
+    /// the build tables out gave an `unexpected cfg` warning Cargo does not give.
+    pub fn feature_check_cfg_values(&self) -> Vec<String> {
+        let explicit: std::collections::HashSet<&str> = self
+            .features
+            .values()
+            .flatten()
+            .filter_map(|v| v.strip_prefix("dep:"))
+            .collect();
+        let mut values: Vec<String> = self.features.keys().cloned().collect();
+        let tables = [&self.dependencies, &self.build_dependencies]
+            .into_iter()
+            .chain(
+                self.target
+                    .values()
+                    .flat_map(|t| [&t.dependencies, &t.build_dependencies]),
+            );
+        for (name, dep) in tables.flatten() {
+            let optional = matches!(dep, TomlDependency::Detailed(d) if d.optional == Some(true));
+            if optional && !explicit.contains(name.as_str()) {
+                values.push(name.clone());
+            }
+        }
+        values.sort();
+        values.dedup();
+        values
+    }
+
     /// Checks if this package defines or defaults to a build script.
     pub fn has_build_script(&self, pkg_dir: &Path) -> bool {
         if let Some(ref pkg) = self.package {
