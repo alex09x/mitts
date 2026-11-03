@@ -1,0 +1,85 @@
+name: Release binaries
+
+on:
+  push:
+    branches: [fix/release-binary-installer]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable release tag to package
+        required: true
+        default: v0.3.18
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag=${INPUT_TAG:-v0.3.18}
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag=$GITHUB_REF_NAME; fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          commit=$(git rev-parse "$tag^{commit}")
+          printf 'tag=%s\ncommit=%s\n' "$tag" "$commit" >> "$GITHUB_OUTPUT"
+  package:
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          path: release-source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          targets: ${{ matrix.target }}
+      - name: Package exact-tag binary and prove path hygiene
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: bash scripts/release/package.sh release-source "$RELEASE_TAG" "$RELEASE_TARGET" dist
+      - name: Installer regressions
+        run: python3 scripts/release/test_installer.py
+      - name: Install the packaged native binary into an isolated prefix
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: python3 scripts/release/test_installer.py --archive "dist/mitts-$RELEASE_TAG-$RELEASE_TARGET.tar.gz" "$RELEASE_TAG"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+  # Publication is a separate reviewed operation. Never create/move tags or
+  # overwrite existing release assets from an ordinary branch push.
