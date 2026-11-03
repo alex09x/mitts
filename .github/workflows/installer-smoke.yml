@@ -1,0 +1,57 @@
+name: Public installer smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify and execute the public installer
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          temporary=$(mktemp -d)
+          trap 'rm -rf "$temporary"' EXIT
+          curl --fail --location --silent --show-error --proto '=https' \
+            -D "$temporary/headers" https://mittsbuild.com/install.sh -o "$temporary/install.sh"
+          grep -Ei '^content-type: text/plain' "$temporary/headers"
+          cmp site/install.sh "$temporary/install.sh"
+          sh -n "$temporary/install.sh"
+          # No version override: this exercises latest stable resolution.
+          MITTS_INSTALL_ROOT="$temporary/prefix" sh "$temporary/install.sh"
+          version=$("$temporary/prefix/bin/mitts" --version)
+          "$temporary/prefix/bin/mitts" --help > /dev/null
+          tag=v$(printf '%s\n' "$version" | awk '{print $2}')
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          asset=mitts-$tag-$RELEASE_TARGET.tar.gz
+          curl --fail --location --silent --show-error --proto '=https' \
+            "https://github.com/alex09x/mitts/releases/download/$tag/$asset" -o "$temporary/$asset"
+          tar -xzf "$temporary/$asset" -C "$temporary" mitts BUILD.txt
+          cmp "$temporary/mitts" "$temporary/prefix/bin/mitts"
+          cat "$temporary/BUILD.txt"
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$temporary/install.sh" "$temporary/prefix/bin/mitts"
+          else
+            shasum -a 256 "$temporary/install.sh" "$temporary/prefix/bin/mitts"
+          fi
+          printf 'PUBLIC INSTALL OK: %s / %s\n' "$version" "$RELEASE_TARGET"
