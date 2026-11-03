@@ -388,6 +388,7 @@ fn test_broken_path_dependency_in_cargo_toml_reports_missing_path() {
 
     let err = RustAdapter::explain_plan(&RustBuildOptions {
         manifest_path: Some(proj.join("Cargo.toml")),
+        cache_dir: Some(temp.path().join("mitts-cache")),
         ..Default::default()
     })
     .expect_err("broken path dependency must fail closed");

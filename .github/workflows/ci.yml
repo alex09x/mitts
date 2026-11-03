@@ -1,0 +1,102 @@
+# Mitts Build — native tests and cache-isolation gates.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  automation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+      - name: Workflow and installer regressions
+        run: python -m unittest discover -s scripts/release -p 'test_*.py' -v
+      - name: Validate GitHub Actions syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      RUST_TEST_THREADS: '1'
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          workspaces: 'source -> target'
+          cache-on-failure: true
+      - name: Native Bash 3.2 isolation-runner regressions
+        if: runner.os == 'macOS'
+        run: python3 -m unittest discover -s scripts/release -p test_ci_scripts.py -v
+      - name: Formatting
+        working-directory: source
+        run: python3 "$GITHUB_WORKSPACE/scripts/release/check_format.py" --source .
+      - name: Clippy
+        working-directory: source
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Existing full suite in an isolated store
+        working-directory: source
+        run: |
+          ulimit -n 4096
+          bash scripts/run_tests_isolated.sh --locked --no-fail-fast
+      - name: Prove isolation for every existing test target
+        working-directory: source
+        run: |
+          set -euo pipefail
+          ulimit -n 4096
+          # Use the portable runner even when validating an older release tag.
+          # Untracked tools leave the exact source's tracked tree unchanged.
+          mkdir -p .ci-tools
+          cp "$GITHUB_WORKSPACE/scripts/probe_store_isolation.sh" .ci-tools/probe.sh
+          /bin/bash .ci-tools/probe.sh
+  gate:
+    if: always()
+    needs: [automation, native]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require every check
+        env:
+          AUTOMATION: ${{ needs.automation.result }}
+          NATIVE: ${{ needs.native.result }}
+        run: test "$AUTOMATION" = success && test "$NATIVE" = success

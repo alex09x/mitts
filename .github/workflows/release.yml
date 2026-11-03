@@ -1,0 +1,163 @@
+# Mitts Build — gated native release delivery.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version already committed through a reviewed PR (for example 0.4.0)
+        type: string
+        required: true
+      mode:
+        description: Verify does not create a tag or release; draft keeps assets private
+        type: choice
+        options: [verify, draft, publish]
+        default: verify
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mitts-release
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - id: plan
+        env:
+          VERSION: ${{ inputs.version }}
+          MODE: ${{ inputs.mode }}
+        run: python scripts/release/plan.py "$VERSION" "$MODE"
+  prior-ci:
+    needs: source
+    runs-on: ubuntu-22.04
+    timeout-minutes: 95
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reused: ${{ steps.proof.outputs.reused }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - id: proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/reuse_ci.py "$SOURCE_SHA"
+  validate:
+    if: needs.prior-ci.outputs.reused != 'true'
+    needs: [source, prior-ci]
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.source.outputs.sha }}
+  validation-gate:
+    if: always()
+    needs: [source, prior-ci, validate]
+    runs-on: ubuntu-22.04
+    steps:
+      - env:
+          SOURCE: ${{ needs.source.result }}
+          PROOF: ${{ needs.prior-ci.result }}
+          REUSED: ${{ needs.prior-ci.outputs.reused }}
+          VALIDATED: ${{ needs.validate.result }}
+        run: test "$SOURCE" = success && test "$PROOF" = success && { test "$REUSED" = true || test "$VALIDATED" = success; }
+  draft:
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' && needs.binaries.result == 'success' }}
+    needs: [source, validation-gate, binaries]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Create or resume a source-locked draft after all tests pass
+        if: inputs.mode != 'verify'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/github_release.py draft "$TAG" "$SOURCE_SHA"
+      - name: Verification has no release mutations
+        if: inputs.mode == 'verify'
+        run: echo 'No remote tag, draft, upload or publication in verify mode.'
+  binaries:
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' }}
+    needs: [source, validation-gate]
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag: ${{ needs.source.outputs.tag }}
+      source-sha: ${{ needs.source.outputs.sha }}
+      verify-only: true
+  assets:
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.binaries.result == 'success' && needs.draft.result == 'success' }}
+    needs: [source, binaries, draft]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Require all four archives and assemble checksums
+        env:
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/assets.py dist "$TAG" "$SOURCE_SHA"
+      - name: Attach verified assets without overwriting
+        if: inputs.mode != 'verify'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/github_release.py upload "$TAG" "$SOURCE_SHA" --folder dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-checksums
+          path: dist/SHA256SUMS
+      - name: Publish only the complete verified draft
+        if: inputs.mode == 'publish'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/github_release.py publish "$TAG" "$SOURCE_SHA" --folder dist
+  public-install:
+    if: ${{ !cancelled() && inputs.mode == 'publish' && needs.source.result == 'success' && needs.assets.result == 'success' }}
+    needs: [source, assets]
+    uses: ./.github/workflows/installer-smoke.yml
+    with:
+      expected-tag: ${{ needs.source.outputs.tag }}

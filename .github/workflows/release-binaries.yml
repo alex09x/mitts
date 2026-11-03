@@ -1,3 +1,9 @@
+# Mitts Build — exact-source native release archives.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
 name: Release binaries
 
 on:
@@ -9,6 +15,17 @@ on:
         description: Existing stable release tag to package
         required: true
         default: v0.3.18
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      source-sha:
+        type: string
+        required: true
+      verify-only:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,12 +44,23 @@ jobs:
       - id: resolve
         env:
           INPUT_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          VERIFY_ONLY: ${{ inputs.verify-only }}
         run: |
           set -euo pipefail
           tag=${INPUT_TAG:-v0.3.18}
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag=$GITHUB_REF_NAME; fi
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          commit=$(git rev-parse "$tag^{commit}")
+          if [[ "$VERIFY_ONLY" == true ]]; then
+            [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            commit=$(git rev-parse "$SOURCE_SHA^{commit}")
+          elif git show-ref --verify --quiet "refs/tags/$tag"; then
+            commit=$(git rev-parse "$tag^{commit}")
+            [[ -z "$SOURCE_SHA" || "$SOURCE_SHA" == "$commit" ]]
+          else
+            echo 'A published tag is required outside candidate verification.' >&2
+            exit 1
+          fi
           printf 'tag=%s\ncommit=%s\n' "$tag" "$commit" >> "$GITHUB_OUTPUT"
   package:
     needs: source
@@ -63,6 +91,13 @@ jobs:
         with:
           toolchain: 1.98.0
           targets: ${{ matrix.target }}
+      - name: Point only the disposable runner tag at the tested candidate; never push it
+        if: inputs.verify-only
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        working-directory: release-source
+        run: |
+          git tag --force "$RELEASE_TAG" HEAD
       - name: Package exact-tag binary and prove path hygiene
         env:
           RELEASE_TAG: ${{ needs.source.outputs.tag }}
