@@ -66,21 +66,45 @@ jobs:
         with:
           workspaces: 'source -> target'
           cache-on-failure: true
+      - name: Install latest stable Mitts
+        env:
+          MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
+        run: |
+          sh site/install.sh
+          binary="$MITTS_INSTALL_ROOT/bin/mitts"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\nMITTS_CI_CACHE_DIR=%s\n' "$binary" "$RUNNER_TEMP/mitts-ci-cache" >> "$GITHUB_ENV"
       - name: Native Bash 3.2 isolation-runner regressions
         if: runner.os == 'macOS'
         run: python3 -m unittest discover -s scripts/release -p test_ci_scripts.py -v
       - name: Formatting
         working-directory: source
-        run: python3 "$GITHUB_WORKSPACE/scripts/release/check_format.py" --source .
+        run: python3 "$GITHUB_WORKSPACE/scripts/release/check_format.py" --source . --mitts "$MITTS_CI_BIN"
       - name: Clippy
         working-directory: source
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Existing full suite in an isolated store
+        run: '"$MITTS_CI_BIN" clippy --workspace --all-targets --cache-dir "$MITTS_CI_CACHE_DIR" -- -D warnings'
+      - name: Full native suite with LLVM coverage in an isolated store
         working-directory: source
+        env:
+          MITTS_TEST_COMMAND: coverage
         run: |
           ulimit -n 4096
-          bash scripts/run_tests_isolated.sh --locked --no-fail-fast
-      - name: Prove isolation for every existing test target
+          mkdir -p .ci-tools
+          cp "$GITHUB_WORKSPACE/scripts/run_tests_isolated.sh" .ci-tools/run-tests.sh
+          bash .ci-tools/run-tests.sh --no-fail-fast --lcov --output-dir "$GITHUB_WORKSPACE/coverage"
+      - name: Documentation tests through Mitts
+        working-directory: source
+        run: bash .ci-tools/run-tests.sh --doc
+      - name: Coverage summary
+        if: always()
+        run: python3 scripts/release/coverage_summary.py coverage/lcov.info source "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage/
+          if-no-files-found: error
+      - name: Prove isolation for every existing test target with independent Cargo runner
         working-directory: source
         run: |
           set -euo pipefail
@@ -90,6 +114,10 @@ jobs:
           mkdir -p .ci-tools
           cp "$GITHUB_WORKSPACE/scripts/probe_store_isolation.sh" .ci-tools/probe.sh
           /bin/bash .ci-tools/probe.sh
+      - name: Source manifests and lockfile remain unchanged
+        if: always()
+        working-directory: source
+        run: git diff --exit-code -- Cargo.toml Cargo.lock
   gate:
     if: always()
     needs: [automation, native]

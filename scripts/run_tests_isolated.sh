@@ -20,11 +20,11 @@
 # scripts/probe_store_isolation.sh finds the offending target when one does.
 #
 # Usage:
-#   scripts/run_tests_isolated.sh [cargo test arguments...]
+#   scripts/run_tests_isolated.sh [mitts test arguments...]
+#   MITTS_TEST_DRIVER=cargo scripts/run_tests_isolated.sh [cargo arguments...]
 #   CARGO_TEST_CMD=llvm-cov scripts/run_tests_isolated.sh --summary-only
 #
-# CARGO_TEST_CMD selects the cargo subcommand (default: test); arguments are
-# passed through after `--workspace`.
+# Mitts is the default driver. Cargo remains an explicit reference/coverage path.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -34,6 +34,18 @@ sandbox=$(mktemp -d "${TMPDIR:-/tmp}/mitts-test-home.XXXXXX")
 marker=$sandbox/.started
 trap 'rm -rf "$sandbox"' EXIT
 touch "$marker"
+cd "$repo"
+driver=${MITTS_TEST_DRIVER:-mitts}
+if [ "${CARGO_TEST_CMD:-test}" != test ]; then driver=cargo; fi
+lock_before=""
+case "$driver" in
+  mitts)
+    lock_before=$(python3 -c 'import hashlib; print(hashlib.sha256(open("Cargo.lock","rb").read()).hexdigest())')
+    command=("${MITTS_CI_BIN:-mitts}" "${MITTS_TEST_COMMAND:-test}" --workspace --cache-dir "${MITTS_CI_CACHE_DIR:-$repo/target/mitts-ci-cache}")
+    ;;
+  cargo) command=(cargo "${CARGO_TEST_CMD:-test}" --workspace) ;;
+  *) echo 'MITTS_TEST_DRIVER must be mitts or cargo' >&2; exit 2 ;;
+esac
 
 drop=()
 while IFS='=' read -r name _; do
@@ -47,7 +59,14 @@ env ${drop[@]+"${drop[@]}"} \
   XDG_CACHE_HOME="$sandbox/xdg" \
   CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
   RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
-  cargo "${CARGO_TEST_CMD:-test}" --workspace "$@" || status=$?
+  "${command[@]}" "$@" || status=$?
+if [ "$driver" = mitts ]; then
+  lock_after=$(python3 -c 'import hashlib; print(hashlib.sha256(open("Cargo.lock","rb").read()).hexdigest())')
+  if [ "$lock_before" != "$lock_after" ]; then
+    echo 'run_tests_isolated: FAIL: Mitts changed Cargo.lock' >&2
+    status=1
+  fi
+fi
 
 # Entries of the sandbox store tell which stores the suite still reaches by
 # default; they are informational, the sandbox is discarded on exit.

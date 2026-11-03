@@ -15,7 +15,7 @@ from pathlib import Path
 
 from apple_keychain import expected_team, run
 
-MAC_TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
+MAC_TARGETS = ("aarch64-apple-darwin",)
 
 
 def signature(binary, team):

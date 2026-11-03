@@ -180,8 +180,6 @@ jobs:
         include:
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -252,7 +250,7 @@ jobs:
           artifact-ids: ${{ needs.apple-sign.outputs.artifact-id }}
           merge-multiple: true
           path: dist
-      - name: Require all four archives and assemble checksums
+      - name: Require all supported archives and assemble checksums
         env:
           MODE: ${{ inputs.mode }}
           TAG: ${{ needs.source.outputs.tag }}

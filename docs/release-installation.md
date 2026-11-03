@@ -6,19 +6,19 @@ Mitts installs a ready binary from the latest stable GitHub Release:
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
-The installer supports macOS (Apple Silicon and Intel, macOS 11+) and Linux
+The installer supports macOS (Apple Silicon, macOS 11+) and Linux
 (ARM64 and x86-64, glibc 2.35+). It needs curl, tar and either shasum or
 sha256sum. Rust and a native linker are needed when building Rust projects;
 Cargo is not used to install the ready binary. Windows and musl Linux are not
 provided as binary targets. Source installation remains available through Cargo.
 
-The release pipeline also checks these source-install routes on all four native
+The release pipeline also checks these source-install routes on all three native
 platforms, using a fresh prefix and an isolated Mitts cache:
 
 ```sh
-cargo install mitts --version 0.3.19 --locked
-cargo install --git https://github.com/alex09x/mitts --tag v0.3.19 mitts --locked
-git clone --branch v0.3.19 https://github.com/alex09x/mitts
+cargo install mitts --version 0.3.20 --locked
+cargo install --git https://github.com/alex09x/mitts --tag v0.3.20 mitts --locked
+git clone --branch v0.3.20 https://github.com/alex09x/mitts
 cargo install --path mitts --locked
 ```
 
@@ -52,15 +52,15 @@ claim of independent publisher authentication.
 1. Use an isolated worktree. Resolve the existing release tag to its commit;
    never move a published tag. Package from that exact source, not current main.
 2. Run the Release binaries workflow for the tag. It builds native Linux and
-   macOS binaries on both architectures, remaps build paths, checks the actual
+   macOS Apple Silicon binaries, remaps build paths, checks the actual
    binary version/commit and scans for checkout/home paths. Each archive has
    mitts, both licenses and BUILD.txt with compiler/source/platform provenance.
-3. For a NEW version, create a draft Release; keep it a draft until all four
+3. For a NEW version, create a draft Release; keep it a draft until all three
    native archives, their checksums and SHA256SUMS are attached and verified.
    Publish only then. Drafts do not become latest; never publish an empty Release
    and add binaries later as a routine process. The existing 0.3.18 empty Release
    is repaired in place without moving its tag.
-   Inspect all four job logs and archive checksums. Download the CI artifacts,
+   Inspect all three job logs and archive checksums. Download the CI artifacts,
    assemble SHA256SUMS, and smoke-test the real archives on their native runners.
    Upload only missing assets to the existing Release. Do not use --clobber.
 4. Release assets are immutable. Future versions get new filenames/tags. Record
@@ -73,7 +73,7 @@ claim of independent publisher authentication.
    exact reviewed SHA256 and valid shell syntax. HTTP 200 alone is insufficient:
    unknown routes can return the homepage with status 200.
 7. Run the Public installer smoke workflow after deployment. It executes the
-   downloaded public script into an isolated prefix on all four native targets;
+   downloaded public script into an isolated prefix on all three native targets;
    checks version/commit, help and installed bytes against the released archive.
    Confirm
    homepage HTML is unchanged during an installer-only deployment. Record these
