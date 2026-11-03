@@ -23,7 +23,7 @@ def signature(binary, team):
         f'anchor apple generic and certificate leaf[subject.OU] = "{team}" '
         "and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
     )
-    run(["codesign", "--verify", "--strict", "-R", requirement, binary])
+    run(["codesign", "--verify", "--strict", "-R", "=" + requirement, binary])
     detail = run(["codesign", "--display", "--verbose=4", binary]).stderr
     if "Signature=adhoc" in detail or f"TeamIdentifier={team}" not in detail:
         raise ValueError("Developer ID team/signature mismatch")
@@ -42,11 +42,18 @@ def signature(binary, team):
 
 
 def receipt_matches(receipt, submission, zip_sha, target, cdhash):
+    """The signer binds Apple's receipt to independently hashed submitted ZIP bytes."""
+    if receipt.get("sha256", "").lower() != zip_sha:
+        raise ValueError("Apple receipt does not describe the submitted ZIP bytes")
+    accepted_ticket(receipt, submission, target, cdhash)
+
+
+def accepted_ticket(receipt, submission, target, cdhash):
+    """Check ticket identity; native verification additionally queries Apple online."""
     arch = "arm64" if target.startswith("aarch64") else "x86_64"
     if (
         receipt.get("status") != "Accepted"
         or receipt.get("jobId") != submission
-        or receipt.get("sha256", "").lower() != zip_sha
         or receipt.get("issues") not in (None, [])
     ):
         raise ValueError("Apple did not accept this exact submission")
@@ -112,9 +119,10 @@ def verify_archive(archive, target, tag, sha):
         ):
             raise ValueError("Signed binary bytes differ from proof")
         receipt = json.loads(fields["Notarization-Receipt"])
-        receipt_matches(
-            receipt, fields["Notarization-ID"], receipt["sha256"], target, actual
-        )
+        # The submitted ZIP is not this final tar archive. Its independent byte
+        # digest was checked by the signer; here bind the actual signed Mach-O
+        # to the receipt and require Apple's live notarization assessment below.
+        accepted_ticket(receipt, fields["Notarization-ID"], target, actual)
         if fields.get("Notarization-Status") != "Accepted":
             raise ValueError("Missing accepted notarization")
         for attempt in range(6):

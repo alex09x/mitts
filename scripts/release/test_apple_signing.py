@@ -94,6 +94,23 @@ class ApplePolicyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     apple_verify.signature(Path("fixture"), TEAM)
 
+    def test_developer_id_requirement_is_literal_not_a_filename(self):
+        detail = (
+            f"TeamIdentifier={TEAM}\nCodeDirectory flags=0x10000(runtime)\n"
+            f"Timestamp=fixture\nCDHash={CDHASH}\n"
+        )
+        with patch.object(
+            apple_verify, "run", return_value=SimpleNamespace(stderr=detail)
+        ) as run:
+            self.assertEqual(apple_verify.signature(Path("fixture"), TEAM), CDHASH)
+        requirement = run.call_args_list[0].args[0]
+        self.assertEqual(requirement[:4], ["codesign", "--verify", "--strict", "-R"])
+        self.assertEqual(
+            requirement[4],
+            f'=anchor apple generic and certificate leaf[subject.OU] = "{TEAM}" '
+            "and certificate leaf[field.1.2.840.113635.100.6.1.13] exists",
+        )
+
     def test_receipt_matches_actual_code_and_both_architectures(self):
         for target in apple_verify.MAC_TARGETS:
             apple_verify.receipt_matches(receipt(), JOB, ZIP_SHA, target, CDHASH)
