@@ -59,6 +59,19 @@ def require_newer(tag):
             raise ValueError("A release must be newer than the current stable release")
 
 
+def find_release(tag):
+    # The authenticated listing explicitly includes drafts, unlike assumptions
+    # about a published-release lookup. Never create duplicate drafts on retry.
+    for page in range(1, 101):
+        releases = api(f"releases?per_page=100&page={page}")
+        for candidate in releases:
+            if candidate["tag_name"] == tag:
+                return candidate
+        if len(releases) < 100:
+            return None
+    raise ValueError("Release history exceeds the bounded lookup")
+
+
 def draft(tag, sha):
     require_newer(tag)
     existing = tag_commit(tag)
@@ -71,7 +84,7 @@ def draft(tag, sha):
         )
         api("git/refs", {"ref": "refs/tags/" + tag, "sha": obj["sha"]})
     marker = f"<!-- mitts-release-source:{sha} -->"
-    release = api("releases/tags/" + tag, optional=True)
+    release = find_release(tag)
     if release:
         if not release["draft"] or marker not in (release.get("body") or ""):
             raise ValueError(
@@ -99,7 +112,9 @@ def draft(tag, sha):
 def release_for(tag, sha):
     if tag_commit(tag) != sha:
         raise ValueError("Remote release tag does not match tested source")
-    release = api("releases/tags/" + tag)
+    release = find_release(tag)
+    if release is None:
+        raise ValueError("Missing release draft")
     if f"<!-- mitts-release-source:{sha} -->" not in (release.get("body") or ""):
         raise ValueError("Release is not owned by this workflow/source")
     return release

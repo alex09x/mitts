@@ -27,12 +27,19 @@ class GitHubReleaseTests(unittest.TestCase):
 
     @patch.object(release, "api")
     def test_new_release_starts_as_source_locked_draft(self, api):
-        api.side_effect = [None, None, {"sha": "d" * 40}, {}, None, {}]
+        api.side_effect = [None, None, {"sha": "d" * 40}, {}, [], {}]
         release.draft(TAG, SHA)
         payload = api.call_args_list[-1].args[1]
         self.assertTrue(payload["draft"])
         self.assertIn(SHA, payload["body"])
         self.assertEqual(payload["target_commitish"], SHA)
+
+    @patch.object(release, "api")
+    def test_authenticated_listing_finds_existing_draft(self, api):
+        draft = {"tag_name": TAG, "draft": True}
+        api.return_value = [{"tag_name": "v0.3.18", "draft": False}, draft]
+        self.assertEqual(release.find_release(TAG), draft)
+        api.assert_called_once_with("releases?per_page=100&page=1")
 
     def test_conflicting_existing_asset_is_rejected(self):
         with self.assertRaises(ValueError):
