@@ -53,6 +53,17 @@ version=$("$binary" --version)
 for needle in "$source_root" "$HOME" "$(cd "$HOME" && pwd -P)"; do
     if grep -aFq "$needle" "$binary"; then
         echo 'Private build path found in release binary' >&2
+        python3 - "$binary" "$needle" <<'PY'
+import pathlib
+import sys
+
+data = pathlib.Path(sys.argv[1]).read_bytes()
+needle = sys.argv[2].encode()
+offset = data.find(needle)
+end = data.find(b"\0", offset)
+suffix = data[offset + len(needle):min(end if end >= 0 else len(data), offset + len(needle) + 200)]
+print(f"Path hygiene diagnostic: occurrences={data.count(needle)}, offset={offset}, suffix={suffix!r}", file=sys.stderr)
+PY
         exit 1
     fi
 done
