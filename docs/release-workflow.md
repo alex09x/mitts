@@ -15,6 +15,19 @@ mandatory too. Rust1.98.0 includes clippy, rustfmt and llvm-tools-preview. Netwo
 access is required for existing registry fixtures. The stable aggregate check
 is `gate`; every native job must succeed. No benchmark is part of CI.
 
+Release reuses an already successful push-to-main CI only when both its source
+and workflow-controller commit match exactly. If that CI is running, Release
+waits instead of starting duplicate native tests. Failed/cancelled CI blocks
+release. Without a matching proof, the reusable CI runs for the exact source;
+an explicit fan-in gate requires one valid success path before packaging.
+
+The isolation probe keeps Cargo's compilation HOME stable and gives each actual
+test executable its own fresh HOME/XDG through a native Cargo runner. It still
+runs every target and rejects every default-store writer. This avoids rebuilding
+tests solely because the per-target HOME changed. A tiny real-Cargo fixture
+checks compile-once behavior, distinct runtime homes and preserved Cargo runtime
+environment on Linux and macOS; the probe needs Python3 as well as Cargo/Bash.
+
 The first CI adoption found historical rustfmt differences in the already
 published0.3.18 source. `formatting-baseline.json` freezes only those exact file
 hashes, checked against immutable commit8a6ae03. Unchanged legacy files may retain

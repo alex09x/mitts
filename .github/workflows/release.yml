@@ -1,3 +1,9 @@
+# Mitts Build — gated native release delivery.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
 name: Release
 
 on:
@@ -39,13 +45,47 @@ jobs:
           VERSION: ${{ inputs.version }}
           MODE: ${{ inputs.mode }}
         run: python scripts/release/plan.py "$VERSION" "$MODE"
-  validate:
+  prior-ci:
     needs: source
+    runs-on: ubuntu-22.04
+    timeout-minutes: 95
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reused: ${{ steps.proof.outputs.reused }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - id: proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/reuse_ci.py "$SOURCE_SHA"
+  validate:
+    if: needs.prior-ci.outputs.reused != 'true'
+    needs: [source, prior-ci]
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ needs.source.outputs.sha }}
+  validation-gate:
+    if: always()
+    needs: [source, prior-ci, validate]
+    runs-on: ubuntu-22.04
+    steps:
+      - env:
+          SOURCE: ${{ needs.source.result }}
+          PROOF: ${{ needs.prior-ci.result }}
+          REUSED: ${{ needs.prior-ci.outputs.reused }}
+          VALIDATED: ${{ needs.validate.result }}
+        run: test "$SOURCE" = success && test "$PROOF" = success && { test "$REUSED" = true || test "$VALIDATED" = success; }
   draft:
-    needs: [source, validate, binaries]
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' && needs.binaries.result == 'success' }}
+    needs: [source, validation-gate, binaries]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -67,13 +107,15 @@ jobs:
         if: inputs.mode == 'verify'
         run: echo 'No remote tag, draft, upload or publication in verify mode.'
   binaries:
-    needs: [source, validate]
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' }}
+    needs: [source, validation-gate]
     uses: ./.github/workflows/release-binaries.yml
     with:
       tag: ${{ needs.source.outputs.tag }}
       source-sha: ${{ needs.source.outputs.sha }}
       verify-only: true
   assets:
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.binaries.result == 'success' && needs.draft.result == 'success' }}
     needs: [source, binaries, draft]
     runs-on: ubuntu-22.04
     permissions:
@@ -114,7 +156,7 @@ jobs:
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
         run: python scripts/release/github_release.py publish "$TAG" "$SOURCE_SHA" --folder dist
   public-install:
-    if: inputs.mode == 'publish'
+    if: ${{ !cancelled() && inputs.mode == 'publish' && needs.source.result == 'success' && needs.assets.result == 'success' }}
     needs: [source, assets]
     uses: ./.github/workflows/installer-smoke.yml
     with:
