@@ -143,6 +143,18 @@ def credentials():
                     keychain,
                 ]
             )
+            # codesign's private-key lookup also consults the user search list.
+            # Keep the runner's original entries and restore them in finally.
+            run(["security", "list-keychains", "-d", "user", "-s", keychain, *original])
+            searchable = shlex.split(
+                run(["security", "list-keychains", "-d", "user"]).stdout
+            )
+            if str(keychain) not in searchable or any(
+                path not in searchable for path in original
+            ):
+                raise ValueError(
+                    "Temporary signing Keychain is missing from the user search list"
+                )
             identities = run(
                 ["security", "find-identity", "-v", "-p", "codesigning", keychain]
             ).stdout
