@@ -23,9 +23,11 @@ MITTS_VERSION=v0.3.18 MITTS_INSTALL_ROOT=/tmp/mitts-smoke sh /tmp/mitts-install.
 /tmp/mitts-smoke/bin/mitts --version
 ```
 
-Installation resolves the stable tag once, downloads the matching target
+Installation resolves the stable tag once through GitHub's latest-release
+redirect (without the unauthenticated API rate limit), downloads the matching target
 archive and SHA256SUMS from that same tag, verifies the archive checksum,
-extracts only mitts and checks its version before replacing the destination
+extracts only mitts and checks its version from the staged destination file
+before replacing the destination
 atomically. A failed download, checksum or version check preserves the old
 installation. Checksums detect corrupt/mismatched downloads; they are not a
 claim of independent publisher authentication.
@@ -38,7 +40,12 @@ claim of independent publisher authentication.
    macOS binaries on both architectures, remaps build paths, checks the actual
    binary version/commit and scans for checkout/home paths. Each archive has
    mitts, both licenses and BUILD.txt with compiler/source/platform provenance.
-3. Inspect all four job logs and archive checksums. Download the CI artifacts,
+3. For a NEW version, create a draft Release; keep it a draft until all four
+   native archives, their checksums and SHA256SUMS are attached and verified.
+   Publish only then. Drafts do not become latest; never publish an empty Release
+   and add binaries later as a routine process. The existing 0.3.18 empty Release
+   is repaired in place without moving its tag.
+   Inspect all four job logs and archive checksums. Download the CI artifacts,
    assemble SHA256SUMS, and smoke-test the real archives on their native runners.
    Upload only missing assets to the existing Release. Do not use --clobber.
 4. Release assets are immutable. Future versions get new filenames/tags. Record

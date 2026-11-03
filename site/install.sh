@@ -8,7 +8,7 @@
 set -eu
 
 fail() { printf 'mitts installer: %s\n' "$*" >&2; exit 1; }
-for command in curl tar awk sed grep mktemp; do
+for command in curl tar awk grep mktemp; do
     command -v "$command" >/dev/null 2>&1 || fail "Required command is missing: $command"
 done
 case "$(uname -s)" in
@@ -31,9 +31,13 @@ trap 'exit 1' HUP INT TERM
 
 version=${MITTS_VERSION:-}
 if [ -z "$version" ]; then
-    download https://api.github.com/repos/alex09x/mitts/releases/latest "$temporary/release.json" ||
+    latest=$(curl --head --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+        "$repository/releases/latest" -o /dev/null --write-out '%{url_effective}') ||
         fail 'Cannot resolve the latest stable release. Retry, or set MITTS_VERSION=vX.Y.Z.'
-    version=$(sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' "$temporary/release.json")
+    case "$latest" in
+        "$repository/releases/tag/"*) version=${latest##*/} ;;
+        *) fail 'Latest release did not resolve to a GitHub release tag.' ;;
+    esac
 fi
 case "$version" in v*) ;; *) version=v$version ;; esac
 printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || fail 'Release must have a stable vX.Y.Z tag.'
@@ -54,12 +58,6 @@ fi
 [ "$actual" = "$expected" ] || fail 'Archive checksum mismatch; existing installation was preserved.'
 tar -xzf "$temporary/$asset" -C "$temporary" mitts || fail 'Archive does not contain mitts.'
 [ -f "$temporary/mitts" ] && [ ! -L "$temporary/mitts" ] || fail 'Release executable is not a regular file.'
-chmod 755 "$temporary/mitts"
-installed_version=$("$temporary/mitts" --version) || fail 'Binary cannot run on this system (Linux requires glibc >= 2.35).'
-case "$installed_version" in
-    "mitts ${version#v}"|"mitts ${version#v} ("*")") ;;
-    *) fail "Unexpected binary version: $installed_version" ;;
-esac
 root=${MITTS_INSTALL_ROOT:-${CARGO_INSTALL_ROOT:-${CARGO_HOME:-${HOME:?HOME must be set}/.cargo}}}
 destination=$root/bin
 mkdir -p "$destination" || fail "Cannot create $destination"
@@ -67,6 +65,12 @@ mkdir -p "$destination" || fail "Cannot create $destination"
 pending=$(mktemp "$destination/.mitts-install.XXXXXX") || fail 'Cannot stage the installation.'
 cp "$temporary/mitts" "$pending"
 chmod 755 "$pending"
+installed_version=$("$pending" --version) ||
+    fail 'Cannot execute release binary at destination; check mount permissions and OS/libc requirements (Linux glibc >= 2.35).'
+case "$installed_version" in
+    "mitts ${version#v}"|"mitts ${version#v} ("*")") ;;
+    *) fail "Unexpected binary version: $installed_version" ;;
+esac
 mv -f "$pending" "$destination/mitts"
 pending=
 printf '%s installed at %s/mitts\n' "$installed_version" "$destination"

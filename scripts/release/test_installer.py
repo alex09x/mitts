@@ -48,13 +48,15 @@ class InstallerTests(unittest.TestCase):
             "import os, pathlib, shutil, sys\n"
             "args=sys.argv[1:]; out=args[args.index('-o')+1]\n"
             "url=args[args.index('-o')-1]\n"
-            "name='release.json' if url.endswith('/latest') else url.rsplit('/',1)[-1]\n"
+            "if url.endswith('/latest'):\n"
+            " print((pathlib.Path(os.environ['FIXTURE_DIR'])/'latest.txt').read_text(),end=''); sys.exit(0)\n"
+            "name=url.rsplit('/',1)[-1]\n"
             "src=pathlib.Path(os.environ['FIXTURE_DIR'])/name\n"
             "if not src.is_file(): sys.exit(22)\n"
             "shutil.copyfile(src,out)\n",
         )
         self.platform("Linux", "x86_64")
-        (self.fixtures / "release.json").write_text('  "tag_name": "v0.3.18",\n')
+        (self.fixtures / "latest.txt").write_text(f"https://github.com/alex09x/mitts/releases/tag/{TAG}")
 
     def command(self, name, body):
         path = self.bin / name
@@ -67,10 +69,13 @@ class InstallerTests(unittest.TestCase):
             f'#!/bin/sh\ncase "$1" in -s) echo {system};; -m) echo {architecture};; esac\n',
         )
 
-    def archive(self, target="x86_64-unknown-linux-gnu", version="0.3.18"):
+    def archive(self, target="x86_64-unknown-linux-gnu", version="0.3.18", check_location=False):
         name = f"mitts-{TAG}-{target}.tar.gz"
         path = self.fixtures / name
-        data = f'#!/bin/sh\nprintf "mitts {version} (fixture)\\n"\n'.encode()
+        script = '#!/bin/sh\n'
+        if check_location:
+            script += 'case "$0" in "$MITTS_INSTALL_ROOT/bin/.mitts-install."*) ;; *) exit 77;; esac\n'
+        data = (script + f'printf "mitts {version} (fixture)\\n"\n').encode()
         with tarfile.open(path, "w:gz") as archive:
             info = tarfile.TarInfo("mitts")
             info.size = len(data)
@@ -114,7 +119,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_explicit_version_skips_latest(self):
         self.archive()
-        (self.fixtures / "release.json").unlink()
+        (self.fixtures / "latest.txt").unlink()
         self.env["MITTS_VERSION"] = "0.3.18"
         self.run_installer()
 
@@ -145,6 +150,10 @@ class InstallerTests(unittest.TestCase):
         self.run_installer(False)
         self.assertFalse((self.prefix / "bin/mitts").exists())
 
+    def test_version_check_runs_at_destination_not_tmp(self):
+        self.archive(check_location=True)
+        self.run_installer()
+
     def test_missing_asset(self):
         self.run_installer(False)
 
@@ -160,7 +169,7 @@ class InstallerTests(unittest.TestCase):
         self.run_installer(False)
 
     def test_html_latest_response(self):
-        (self.fixtures / "release.json").write_text("<!doctype html>")
+        (self.fixtures / "latest.txt").write_text("<!doctype html>")
         self.run_installer(False)
 
     def test_invalid_tag(self):
