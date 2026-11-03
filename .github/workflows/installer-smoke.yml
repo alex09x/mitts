@@ -2,6 +2,11 @@ name: Public installer smoke
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      expected-tag:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -28,6 +33,7 @@ jobs:
       - name: Verify and execute the public installer
         env:
           RELEASE_TARGET: ${{ matrix.target }}
+          EXPECTED_TAG: ${{ inputs.expected-tag }}
         run: |
           set -euo pipefail
           temporary=$(mktemp -d)
@@ -43,6 +49,7 @@ jobs:
           "$temporary/prefix/bin/mitts" --help > /dev/null
           tag=v$(printf '%s\n' "$version" | awk '{print $2}')
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ -z "$EXPECTED_TAG" || "$tag" == "$EXPECTED_TAG" ]]
           asset=mitts-$tag-$RELEASE_TARGET.tar.gz
           curl --fail --location --silent --show-error --proto '=https' \
             "https://github.com/alex09x/mitts/releases/download/$tag/$asset" -o "$temporary/$asset"

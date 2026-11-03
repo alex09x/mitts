@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version already committed through a reviewed PR (for example 0.4.0)
+        type: string
+        required: true
+      mode:
+        description: Verify does not create a tag or release; draft keeps assets private
+        type: choice
+        options: [verify, draft, publish]
+        default: verify
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mitts-release
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - id: plan
+        env:
+          VERSION: ${{ inputs.version }}
+          MODE: ${{ inputs.mode }}
+        run: python scripts/release/plan.py "$VERSION" "$MODE"
+  validate:
+    needs: source
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.source.outputs.sha }}
+  draft:
+    needs: [source, validate]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Create or resume a source-locked draft after all tests pass
+        if: inputs.mode != 'verify'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/github_release.py draft "$TAG" "$SOURCE_SHA"
+      - name: Verification has no release mutations
+        if: inputs.mode == 'verify'
+        run: echo 'No remote tag, draft, upload or publication in verify mode.'
+  binaries:
+    needs: [source, draft]
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag: ${{ needs.source.outputs.tag }}
+      source-sha: ${{ needs.source.outputs.sha }}
+      verify-only: ${{ inputs.mode == 'verify' }}
+  assets:
+    needs: [source, binaries]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Require all four archives and assemble checksums
+        env:
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/assets.py dist "$TAG" "$SOURCE_SHA"
+      - name: Attach verified assets without overwriting
+        if: inputs.mode != 'verify'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/github_release.py upload "$TAG" "$SOURCE_SHA" --folder dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-checksums
+          path: dist/SHA256SUMS
+      - name: Publish only the complete verified draft
+        if: inputs.mode == 'publish'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/github_release.py publish "$TAG" "$SOURCE_SHA" --folder dist
+  public-install:
+    if: inputs.mode == 'publish'
+    needs: [source, assets]
+    uses: ./.github/workflows/installer-smoke.yml
+    with:
+      expected-tag: ${{ needs.source.outputs.tag }}

@@ -31,7 +31,7 @@ done < <(env)
 run_target() { # label, cargo test target args...
   local label=$1; shift
   local sandbox; sandbox=$(mktemp -d "${TMPDIR:-/tmp}/mitts-probe.XXXXXX")
-  env "${drop[@]}" HOME="$sandbox" XDG_CACHE_HOME="$sandbox/xdg" \
+  env ${drop[@]+"${drop[@]}"} HOME="$sandbox" XDG_CACHE_HOME="$sandbox/xdg" \
     CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
     cargo test --workspace "$@" > "$sandbox/out.log" 2>&1
   local rc=$?
