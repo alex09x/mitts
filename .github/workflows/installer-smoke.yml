@@ -13,6 +13,12 @@ on:
       expected-tag:
         type: string
         default: ''
+      expected-sha:
+        type: string
+        default: ''
+      require-notarized:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,6 +46,9 @@ jobs:
         env:
           RELEASE_TARGET: ${{ matrix.target }}
           EXPECTED_TAG: ${{ inputs.expected-tag }}
+          EXPECTED_SHA: ${{ inputs.expected-sha }}
+          REQUIRE_NOTARIZED: ${{ inputs.require-notarized }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           temporary=$(mktemp -d)
@@ -56,11 +65,17 @@ jobs:
           tag=v$(printf '%s\n' "$version" | awk '{print $2}')
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ -z "$EXPECTED_TAG" || "$tag" == "$EXPECTED_TAG" ]]
+          [[ -z "$EXPECTED_SHA" || "$version" == "mitts ${tag#v} ($EXPECTED_SHA)" ]]
           asset=mitts-$tag-$RELEASE_TARGET.tar.gz
           curl --fail --location --silent --show-error --proto '=https' \
             "https://github.com/alex09x/mitts/releases/download/$tag/$asset" -o "$temporary/$asset"
           tar -xzf "$temporary/$asset" -C "$temporary" mitts BUILD.txt
           cmp "$temporary/mitts" "$temporary/prefix/bin/mitts"
+          if [[ "$RUNNER_OS" == macOS && "$REQUIRE_NOTARIZED" == true ]]; then
+            [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+            codesign --verify --strict -R "=anchor apple generic and certificate leaf[subject.OU] = \"$APPLE_TEAM_ID\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists" "$temporary/prefix/bin/mitts"
+            codesign --verify --strict -R=notarized --check-notarization "$temporary/prefix/bin/mitts"
+          fi
           cat "$temporary/BUILD.txt"
           if command -v sha256sum >/dev/null; then
             sha256sum "$temporary/install.sh" "$temporary/prefix/bin/mitts"

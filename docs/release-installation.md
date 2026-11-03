@@ -12,6 +12,21 @@ sha256sum. Rust and a native linker are needed when building Rust projects;
 Cargo is not used to install the ready binary. Windows and musl Linux are not
 provided as binary targets. Source installation remains available through Cargo.
 
+The release pipeline also checks these source-install routes on all four native
+platforms, using a fresh prefix and an isolated Mitts cache:
+
+```sh
+cargo install mitts --version 0.3.19 --locked
+cargo install --git https://github.com/alex09x/mitts --tag v0.3.19 mitts --locked
+git clone --branch v0.3.19 https://github.com/alex09x/mitts
+cargo install --path mitts --locked
+```
+
+These routes compile from source and require Rust/a native linker. Their binaries
+are source-built; Developer ID signing and notarization apply to the prebuilt Mac
+archives. No Homebrew formula or cargo-binstall channel is configured by this
+release. Do not advertise those as verified installation methods.
+
 The default destination is `$HOME/.cargo/bin/mitts`. `MITTS_INSTALL_ROOT`
 overrides the installation prefix; otherwise `CARGO_INSTALL_ROOT` and
 `CARGO_HOME` are respected. The installer does not read Cargo's install.root
