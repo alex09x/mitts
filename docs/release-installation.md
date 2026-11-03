@@ -50,8 +50,10 @@ claim of independent publisher authentication.
    and success. Fetch the PUBLIC installer. Require a shell shebang, text MIME,
    exact reviewed SHA256 and valid shell syntax. HTTP 200 alone is insufficient:
    unknown routes can return the homepage with status 200.
-7. Execute the downloaded public script into an isolated prefix on Linux and
-   macOS; check version/commit, help and the installed binary hash. Confirm
+7. Run the Public installer smoke workflow after deployment. It executes the
+   downloaded public script into an isolated prefix on all four native targets;
+   checks version/commit, help and installed bytes against the released archive.
+   Confirm
    homepage HTML is unchanged during an installer-only deployment. Record these
    receipts in the Mitts KYB release runbook before closing the incident.
 
