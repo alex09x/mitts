@@ -84,8 +84,8 @@ jobs:
           VALIDATED: ${{ needs.validate.result }}
         run: test "$SOURCE" = success && test "$PROOF" = success && { test "$REUSED" = true || test "$VALIDATED" = success; }
   draft:
-    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' && needs.binaries.result == 'success' }}
-    needs: [source, validation-gate, binaries]
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' && needs.binaries.result == 'success' && needs.apple-gate.result == 'success' }}
+    needs: [source, validation-gate, binaries, apple-gate]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -114,12 +114,16 @@ jobs:
       tag: ${{ needs.source.outputs.tag }}
       source-sha: ${{ needs.source.outputs.sha }}
       verify-only: true
-  assets:
-    if: ${{ !cancelled() && needs.source.result == 'success' && needs.binaries.result == 'success' && needs.draft.result == 'success' }}
-    needs: [source, binaries, draft]
-    runs-on: ubuntu-22.04
+  apple-sign:
+    if: ${{ !cancelled() && inputs.mode != 'verify' && github.repository == 'alex09x/mitts' && github.ref == 'refs/heads/main' && needs.source.result == 'success' && needs.binaries.result == 'success' }}
+    needs: [source, binaries]
+    runs-on: macos-14
+    timeout-minutes: 60
+    environment: release-signing
+    outputs:
+      artifact-id: ${{ steps.signed.outputs.artifact-id }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -131,12 +135,127 @@ jobs:
         with:
           pattern: release-*
           merge-multiple: true
+          path: raw
+      - name: Sign and notarize only release artifacts, never execute them with keys
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_P8: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/apple_sign.py raw signed-macos notary-evidence "$TAG" "$SOURCE_SHA"
+      - name: Remove private credentials even after a failed signing step
+        if: always()
+        run: python scripts/release/apple_keychain.py cleanup
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: signed
+        with:
+          name: notarized-macos
+          path: signed-macos/*
+          if-no-files-found: error
+          overwrite: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: apple-notary-evidence
+          path: notary-evidence/*.json
+          if-no-files-found: error
+          overwrite: true
+  apple-verify:
+    if: ${{ !cancelled() && inputs.mode != 'verify' && needs.apple-sign.result == 'success' }}
+    needs: [source, apple-sign]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.apple-sign.outputs.artifact-id }}
+          merge-multiple: true
+          path: signed-macos
+      - name: Verify actual Developer ID and notarization without signing secrets
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          TARGET: ${{ matrix.target }}
+        run: python scripts/release/apple_verify.py "signed-macos/mitts-$TAG-$TARGET.tar.gz" "$TARGET" "$TAG" "$SOURCE_SHA"
+  apple-gate:
+    if: always()
+    needs: [source, binaries, apple-sign, apple-verify]
+    runs-on: ubuntu-22.04
+    steps:
+      - env:
+          MODE: ${{ inputs.mode }}
+          SOURCE: ${{ needs.source.result }}
+          BINARIES: ${{ needs.binaries.result }}
+          SIGNED: ${{ needs.apple-sign.result }}
+          VERIFIED: ${{ needs.apple-verify.result }}
+        run: test "$SOURCE" = success && test "$BINARIES" = success && { test "$MODE" = verify || { test "$SIGNED" = success && test "$VERIFIED" = success; }; }
+  assets:
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.binaries.result == 'success' && needs.draft.result == 'success' && needs.apple-gate.result == 'success' }}
+    needs: [source, binaries, draft, apple-gate, apple-sign]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: inputs.mode == 'verify'
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: inputs.mode != 'verify'
+        with:
+          pattern: release-*-unknown-linux-gnu
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: inputs.mode != 'verify'
+        with:
+          artifact-ids: ${{ needs.apple-sign.outputs.artifact-id }}
+          merge-multiple: true
           path: dist
       - name: Require all four archives and assemble checksums
         env:
+          MODE: ${{ inputs.mode }}
           TAG: ${{ needs.source.outputs.tag }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
-        run: python scripts/release/assets.py dist "$TAG" "$SOURCE_SHA"
+        run: |
+          if [[ "$MODE" == verify ]]; then
+            python scripts/release/assets.py dist "$TAG" "$SOURCE_SHA"
+          else
+            python scripts/release/assets.py dist "$TAG" "$SOURCE_SHA" --require-notarized
+          fi
       - name: Attach verified assets without overwriting
         if: inputs.mode != 'verify'
         env:

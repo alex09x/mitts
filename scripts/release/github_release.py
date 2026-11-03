@@ -11,7 +11,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from assets import validate
+from assets import validate_notarized as validate
 from plan import stable_tag
 
 REPO = "alex09x/mitts"
