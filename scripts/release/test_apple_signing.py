@@ -45,6 +45,61 @@ def receipt():
 
 
 class ApplePolicyTests(unittest.TestCase):
+    def test_temporary_keychain_is_searchable_during_signing_and_originals_restored(
+        self,
+    ):
+        import base64
+
+        identity = "A" * 40
+        original = ["/fixture/login.keychain-db", "/fixture/System.keychain"]
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                search = list(original)
+                values = {
+                    name: "fixture-private" for name in apple_keychain.SECRET_NAMES
+                }
+                values.update(
+                    {
+                        "RUNNER_TEMP": directory,
+                        "APPLE_TEAM_ID": TEAM,
+                        "APPLE_SIGNING_IDENTITY": identity,
+                        "APPLE_CERTIFICATE_P12_BASE64": base64.b64encode(
+                            b"fixture"
+                        ).decode(),
+                    }
+                )
+
+                def run(args, **kwargs):
+                    nonlocal search
+                    if args[:4] == ["security", "list-keychains", "-d", "user"]:
+                        if len(args) > 4:
+                            self.assertEqual(args[4], "-s")
+                            search = [str(path) for path in args[5:]]
+                        return SimpleNamespace(
+                            stdout="\n".join(json.dumps(path) for path in search)
+                        )
+                    if "find-identity" in args:
+                        return SimpleNamespace(
+                            stdout=f'1) {identity} "Developer ID Application: Fixture ({TEAM})"'
+                        )
+                    return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+                with (
+                    patch.object(apple_keychain, "hosted_main"),
+                    patch.object(apple_keychain, "run", side_effect=run),
+                    patch.dict(os.environ, values),
+                ):
+                    try:
+                        with apple_keychain.credentials() as auth:
+                            self.assertEqual(search, [str(auth["keychain"]), *original])
+                            if fail:
+                                raise RuntimeError("fixture signing failure")
+                    except RuntimeError as error:
+                        self.assertTrue(fail)
+                        self.assertEqual(str(error), "fixture signing failure")
+                self.assertEqual(search, original)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_private_keys_are_restricted_to_canonical_hosted_main(self):
         env = {
             "GITHUB_ACTIONS": "true",
