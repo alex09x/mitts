@@ -45,7 +45,7 @@ jobs:
     with:
       ref: ${{ needs.source.outputs.sha }}
   draft:
-    needs: [source, validate]
+    needs: [source, validate, binaries]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -67,14 +67,14 @@ jobs:
         if: inputs.mode == 'verify'
         run: echo 'No remote tag, draft, upload or publication in verify mode.'
   binaries:
-    needs: [source, draft]
+    needs: [source, validate]
     uses: ./.github/workflows/release-binaries.yml
     with:
       tag: ${{ needs.source.outputs.tag }}
       source-sha: ${{ needs.source.outputs.sha }}
-      verify-only: ${{ inputs.mode == 'verify' }}
+      verify-only: true
   assets:
-    needs: [source, binaries]
+    needs: [source, binaries, draft]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

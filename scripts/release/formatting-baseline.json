@@ -1,0 +1,29 @@
+{
+  "source_sha": "8a6ae03cde84d7fdaede0b43fb1ba9e12f221a9d",
+  "files": {
+    "build.rs": "9a4fd869046d0cbbf81f2988dc44507a9ea428a9074fb6f6d7a1e1f2342b78e8",
+    "src/adapter/rust/compiler_resolve.rs": "993376a5968c09f1814d6e21f2d68b17018ceff181c86e46c7611d0d6a8c8096",
+    "src/adapter/rust/dag_unit_externs.rs": "6e79d06b4df48aaf0f4a14f2cb7893f03f3ed6a28e256ec77ce711e1ed850705",
+    "src/adapter/rust/diagnostic_dedupe.rs": "21a0a984ca7338872841ac942ae6c4e09fda3c4608c51a4cea5e8c0ea554657b",
+    "src/adapter/rust/doctest.rs": "2ad674d7033629e110775db24f849fdc90a966cdd09625532dda73fa6eb190a6",
+    "src/adapter/rust/features.rs": "8d554fd74d84ddede0aef1c7dd5976d8a1e159e56c06e1b1e8b4e8c0e5e9cda8",
+    "src/adapter/rust/features_helpers.rs": "a3200df2a8816e69ecad23f5f11f1a0cbb23db1f8a9ccb444f3ab58248439cf8",
+    "src/adapter/rust/mod.rs": "d40e93d0b0b3875a4b4016fe01f381e7e976db6be09ce8859050d7aff08ab7d5",
+    "src/adapter/rust/planner_units.rs": "3bb4526a40a980ba86acfca30a42832afb1ba452b0cfaecaf6ae2c17d5e0783d",
+    "src/adapter/rust/profile.rs": "86e0e7fc172e598c2a118b66ed4016f9da601828615c664f92489b4e64389936",
+    "src/adapter/rust/resolver.rs": "ccb643e9982cea5b957c39a2d1dbb006a311050ab603087d966ef753c9daae84",
+    "src/adapter/rust/source_lookup.rs": "4cde5ccfa3676adbe5140c20ce1d2b957df33bc0560f93b6142985fc03402601",
+    "tests/build_script_externs_test.rs": "fdab9627dceee876d0e1422ca3ddb0b1de9c36d56ae53d6cbec36513df69a341",
+    "tests/dependency_link_search_test.rs": "c71a57f8a2e0dceb6852c7cbcefcb0387afb7f1ed75df4b6b439029824bdb00c",
+    "tests/duplicate_diagnostics_test.rs": "3cceac39e57beecbd461d8560738dec0f8f8dd88cbed2561feb80da20cedad95",
+    "tests/example_test_target_test.rs": "734ac2e5d63c15072000544cd35ece60d430523f7e4fe801c59dc3d39180d8e4",
+    "tests/explicit_directory_test_target_test.rs": "e379f32c9339ae5515bf1aac0a7030c39fc09836a9a970a85f203c1ce9e719d4",
+    "tests/m8_resolver_extended_tests.rs": "54de3d25c80e6a54a37fef5709032a978b76fb99e839b4f07135a847091d3a77",
+    "tests/platform_named_dependency_test.rs": "6150971993e863ec5f1fbf31a54f14c01667ee323592d4835f8f0a675f73bf29",
+    "tests/profile_test_and_bench_inherit_test.rs": "790034b691f97b7f5f68ecd341fc38d93f88a1eb1cb85d0c7f6cd42dae62d59a",
+    "tests/resolver1_host_optional_dep_test.rs": "8ebbe764ecd32f53fb4cb3cd90b141a2cea7c9f89128c6784ff8566062b6708c",
+    "tests/same_name_dependency_not_primary_test.rs": "db5f7cbd56b5310f783468a1e5599d9a4b97aa986e105a91fe182e4ceae8248c",
+    "tests/same_name_dependency_shim_test.rs": "d19824a3b9ea2a55e75beaf7c0d7a35d8013ff87bce700c910b5ca477d6a0a2e",
+    "tests/workspace_native_lib_member_test.rs": "0a5105610ed9cc63211a930cd774aa84e127afb3dce4b0127c42098f7bb5e901"
+  }
+}

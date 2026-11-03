@@ -47,6 +47,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           path: source
+          fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
@@ -60,7 +61,7 @@ jobs:
         run: python3 -m unittest discover -s scripts/release -p test_ci_scripts.py -v
       - name: Formatting
         working-directory: source
-        run: cargo fmt --all -- --check
+        run: python3 "$GITHUB_WORKSPACE/scripts/release/check_format.py" --source .
       - name: Clippy
         working-directory: source
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

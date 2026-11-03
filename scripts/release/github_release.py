@@ -73,23 +73,27 @@ def find_release(tag):
 
 
 def draft(tag, sha):
-    require_newer(tag)
     existing = tag_commit(tag)
     if existing and existing != sha:
         raise ValueError("Published tags are immutable: source commit differs")
+    marker = f"<!-- mitts-release-source:{sha} -->"
+    release = find_release(tag)
+    if release:
+        if existing != sha or marker not in (release.get("body") or ""):
+            raise ValueError("Will not adopt an existing unowned release")
+        if not release["draft"]:
+            print(
+                "Existing source-owned publication; assets must still match before retry succeeds"
+            )
+            return
+    require_newer(tag)
     if existing is None:
         obj = api(
             "git/tags",
             {"tag": tag, "message": "Mitts " + tag, "object": sha, "type": "commit"},
         )
         api("git/refs", {"ref": "refs/tags/" + tag, "sha": obj["sha"]})
-    marker = f"<!-- mitts-release-source:{sha} -->"
-    release = find_release(tag)
     if release:
-        if not release["draft"] or marker not in (release.get("body") or ""):
-            raise ValueError(
-                "Will not adopt or modify an existing public/unowned release"
-            )
         return
     body = (
         f"Mitts {tag}\n\nSource commit: `{sha}`.\n\n"
@@ -140,7 +144,9 @@ def upload(tag, sha, folder):
     manifest = validate(folder, tag, sha)
     release = release_for(tag, sha)
     if not release["draft"]:
-        raise ValueError("Cannot upload to a published release")
+        verify_remote(release, manifest, complete=True)
+        print("Published assets already match; no upload attempted")
+        return
     remote = verify_remote(release, manifest, complete=False)
     for name in manifest:
         if name not in remote:

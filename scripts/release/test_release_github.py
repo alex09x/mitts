@@ -20,14 +20,14 @@ ASSET = {"name": "archive", "digest": "sha256:" + "b" * 64, "size": 123}
 class GitHubReleaseTests(unittest.TestCase):
     @patch.object(release, "api")
     def test_retagging_is_never_attempted(self, api):
-        api.side_effect = [None, {"object": {"type": "commit", "sha": "c" * 40}}]
+        api.side_effect = [{"object": {"type": "commit", "sha": "c" * 40}}]
         with self.assertRaises(ValueError):
             release.draft(TAG, SHA)
         self.assertTrue(all(len(call.args) == 1 for call in api.call_args_list))
 
     @patch.object(release, "api")
     def test_new_release_starts_as_source_locked_draft(self, api):
-        api.side_effect = [None, None, {"sha": "d" * 40}, {}, [], {}]
+        api.side_effect = [None, [], None, {"sha": "d" * 40}, {}, {}]
         release.draft(TAG, SHA)
         payload = api.call_args_list[-1].args[1]
         self.assertTrue(payload["draft"])
@@ -78,6 +78,25 @@ class GitHubReleaseTests(unittest.TestCase):
         for tag in ["v0.3.18", "v0.4.0"]:
             with self.subTest(tag=tag), self.assertRaises(ValueError):
                 release.require_newer(tag)
+
+    @patch.object(release.subprocess, "run")
+    @patch.object(release, "require_newer")
+    @patch.object(release, "validate", return_value=MANIFEST)
+    @patch.object(release, "tag_commit", return_value=SHA)
+    def test_full_failed_job_retry_after_publication_is_noop(
+        self, commit, validate, newer, run
+    ):
+        published = {
+            "draft": False,
+            "assets": [ASSET],
+            "body": f"<!-- mitts-release-source:{SHA} -->",
+        }
+        with patch.object(release, "find_release", return_value=published):
+            release.draft(TAG, SHA)
+            release.upload(TAG, SHA, Path("unused"))
+            release.publish(TAG, SHA, Path("unused"))
+        newer.assert_not_called()
+        run.assert_not_called()
 
     @patch.dict(
         os.environ,

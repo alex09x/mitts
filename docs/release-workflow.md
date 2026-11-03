@@ -15,6 +15,14 @@ mandatory too. Rust1.98.0 includes clippy, rustfmt and llvm-tools-preview. Netwo
 access is required for existing registry fixtures. The stable aggregate check
 is `gate`; every native job must succeed. No benchmark is part of CI.
 
+The first CI adoption found historical rustfmt differences in the already
+published0.3.18 source. `formatting-baseline.json` freezes only those exact file
+hashes, checked against immutable commit8a6ae03. Unchanged legacy files may retain
+that formatting; changed/new files must conform completely. Parse/tool errors
+cannot be waived. The workflow never reformats a released tag or silently adds
+new exceptions. This is a formatting-debt ratchet, not a claim that every legacy
+file already conforms. Clippy and test failures remain unconditional failures.
+
 ## Release button
 
 Open **Actions → Release → Run workflow**, select **main**, enter a stable
@@ -25,8 +33,9 @@ version matching Cargo.toml and Cargo.lock, then choose:
   or publication. An existing version resolves to its immutable tag commit;
   a future untagged version must already be committed on main. A temporary local
   tag inside the build runner permits the packaging check without pushing it.
-- **draft**: after tests pass, create an annotated immutable tag and a source-locked
-  draft Release. Attach and verify Linux/macOS archives for ARM64/x86-64 and the
+- **draft**: after tests and all four native build/install checks pass, create an
+  annotated immutable tag and a source-locked draft Release. Attach and verify
+  Linux/macOS archives for ARM64/x86-64 and the
   complete SHA256SUMS. Keep the Release a draft, excluded from latest.
 - **publish**: perform the same checks and preparation, verify every remote asset,
   then publish the complete draft as latest. Run the actual public installer on
@@ -51,6 +60,10 @@ so successful native artifacts are reused. Upload retries skip byte-identical
 assets and reject conflicting hashes; there is no `--clobber`. Never move a tag,
 replace published assets or silently adopt a manually created/unowned draft.
 A published version cannot become the source of a new release with the same tag.
+If publication succeeded but its readback failed, a failed-job retry verifies
+the already-published source and every asset, makes no mutations and proceeds
+to public installation checks. Native packaging runs before any permanent tag;
+the tag inside each build runner is local-only until every target passes.
 
 Read the workflow run and all native/public-install results before reporting
 completion. The workflow creates no provenance attestation; BUILD.txt and
