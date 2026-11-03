@@ -23,7 +23,9 @@ commit=$(git rev-parse HEAD)
 [[ -z $(git status --porcelain --untracked-files=no) ]]
 package_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 [[ "$tag" == "v$package_version" ]]
-export RUSTFLAGS="--remap-path-prefix=$source_root=. --remap-path-prefix=$HOME=/rust-home"
+# Native dependency assembly may retain absolute paths in DWARF despite Rust
+# remapping. Distribution binaries omit debug info while keeping normal symbols.
+export RUSTFLAGS="--remap-path-prefix=$source_root=. --remap-path-prefix=$HOME=/rust-home -C strip=debuginfo"
 export CARGO_INCREMENTAL=0
 export MACOSX_DEPLOYMENT_TARGET=11.0
 builder=${MITTS_CI_BIN:-mitts}

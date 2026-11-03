@@ -63,6 +63,9 @@ class SelfhostPackagingTests(unittest.TestCase):
                 if sys.argv[1:] == ["--version"]:
                     print("mitts 0.3.19 (bootstrap)"); sys.exit(0)
                 assert sys.argv[1] == "build" and "--native" in sys.argv and "--release" in sys.argv
+                flags=os.environ["RUSTFLAGS"].split()
+                assert "strip=debuginfo" in flags and flags[flags.index("strip=debuginfo")-1] == "-C"
+                assert any(flag.startswith("--remap-path-prefix=") for flag in flags)
                 target=pathlib.Path(sys.argv[sys.argv.index("--target-dir")+1])/"release"
                 target.mkdir(parents=True)
                 payload=("#!/bin/sh\\nprintf 'mitts 0.3.20 ("+os.environ["FIXTURE_SHA"]+")\\\\n'\\n").encode()
