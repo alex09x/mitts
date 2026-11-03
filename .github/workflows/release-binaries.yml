@@ -14,7 +14,7 @@ on:
       tag:
         description: Existing stable release tag to package
         required: true
-        default: v0.3.18
+        default: v0.3.20
   workflow_call:
     inputs:
       tag:
@@ -48,7 +48,7 @@ jobs:
           VERIFY_ONLY: ${{ inputs.verify-only }}
         run: |
           set -euo pipefail
-          tag=${INPUT_TAG:-v0.3.18}
+          tag=${INPUT_TAG:-v0.3.20}
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag=$GITHUB_REF_NAME; fi
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           if [[ "$VERIFY_ONLY" == true ]]; then
@@ -74,8 +74,6 @@ jobs:
             target: aarch64-unknown-linux-gnu
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -91,6 +89,14 @@ jobs:
         with:
           toolchain: 1.98.0
           targets: ${{ matrix.target }}
+      - name: Install latest stable Mitts builder
+        env:
+          MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
+        run: |
+          sh site/install.sh
+          binary="$MITTS_INSTALL_ROOT/bin/mitts"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\nMITTS_CI_CACHE_DIR=%s\n' "$binary" "$RUNNER_TEMP/mitts-release-cache" >> "$GITHUB_ENV"
       - name: Point only the disposable runner tag at the tested candidate; never push it
         if: inputs.verify-only
         env:

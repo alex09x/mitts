@@ -7,6 +7,19 @@ bumps it silently, deploys the website or publishes a crate to crates.io.
 
 ## Checks
 
+Every native runner installs the latest stable Mitts with the existing binary
+installer. No bootstrap version is pinned. Its actual version is logged and
+recorded in release BUILD.txt. Root builds, formatting, Clippy and the main tests
+use Mitts. Cargo remains for registry packaging/publication, Cargo installation
+acceptance and the independent Cargo-runner isolation/parity audit.
+
+The main unit/integration test run is `mitts coverage --lcov`; it supplies both
+the test result and coverage data without a second full test run. GitHub Summary
+shows measured first-party line coverage and each OS uploads LCOV plus JSON.
+Dependency/test-harness files are excluded from this summary. Documentation tests
+run separately because the current coverage command does not support them.
+No arbitrary coverage percentage threshold is imposed before measuring a baseline.
+
 `CI` runs on PRs and `main`, and is reused by `Release` for its exact source
 commit. It checks automation/installer controls, workflow syntax, Rust formatting,
 Clippy and the existing full suite on Linux x86-64 and macOS ARM64. Tests run
@@ -46,7 +59,7 @@ file already conforms. Clippy and test failures remain unconditional failures.
 Open **Actions → Release → Run workflow**, select **main**, enter a stable
 version matching Cargo.toml and Cargo.lock, then choose:
 
-- **verify** (default): test the exact source and build/install all four native
+- **verify** (default): test the exact source and build/install all three native
   archives, and compile/verify the actual registry package. Write CI artifacts
   and checksums only. No remote tag, draft, upload
   or publication. Apple signing and notarization jobs are skipped and no Apple
@@ -56,16 +69,16 @@ version matching Cargo.toml and Cargo.lock, then choose:
   local tag inside the disposable build checkout permits packaging without
   pushing or changing the real tag. Draft/publish resolve an existing tag to its
   immutable source; a new version must already be committed on main.
-- **draft**: after tests, all four native build/install checks and the Apple
+- **draft**: after tests, all three native build/install checks and the Apple
   signing/notarization gates below pass, create an
   annotated immutable tag and a source-locked draft Release. Attach and verify
   Linux/macOS archives for ARM64/x86-64 and the
   complete SHA256SUMS. Keep the Release a draft, excluded from latest.
 - **publish**: perform the same checks and preparation, verify every remote asset,
   then publish the complete draft as latest. Run the actual public installer on
-  all four native targets and require its selected version/source to match this
+  all three native targets and require its selected version/source to match this
   release. Publish the verified package to crates.io, then install the registry
-  version and Git tag on all four targets and compile a fixture with each CLI.
+  version and Git tag on all three targets and compile a fixture with each CLI.
 
 Example verification of the existing release (no new release):
 
@@ -86,9 +99,11 @@ releases from this repository's protected main branch. The raw native compilatio
 jobs have no Apple credentials. Their ad-hoc Mac signatures are only intermediate
 CI output and cannot pass the official release upload/publish validator.
 
-The isolated signing job uses the protected **release-signing** Environment:
-restrict deployments to the main branch, require owner review and disallow
-administrator bypass. Set repository variable `APPLE_TEAM_ID` to the expected
+The isolated signing job uses the **release-signing** Environment, restricted
+to the main branch. There is no separate reviewer approval: after the owner
+starts Release in publish mode, all successful stages continue automatically.
+Protected main and mandatory tests still control the source that can release.
+Set repository variable `APPLE_TEAM_ID` to the expected
 Developer ID team. Configure these six Environment Secrets through managed
 credential injection; never put their values in Git, logs or command arguments
 used to provision GitHub:
@@ -102,13 +117,13 @@ used to provision GitHub:
 
 The signer imports the identity into a temporary Keychain, requires the expected
 Developer ID team, enables hardened runtime and requests a secure timestamp.
-Only the two signed Mac executables enter the submitted ZIP. The private
+Only the signed Apple Silicon executable enters the submitted ZIP. The private
 credential directory is separate, and cleanup runs before artifacts are uploaded.
 The signer never executes the compiled release inputs while holding credentials.
 Missing keys or a non-Accepted Apple result fail the release; there is no ad-hoc
-fallback. Both architectures must match Apple's accepted ticket/CDHash.
+fallback. The binary must match Apple's accepted ticket/CDHash.
 
-Separate ARM64 and Intel jobs receive no signing secrets. They verify the actual
+A separate ARM64 job receives no signing secrets. It verifies the actual
 Developer ID signature/team, hardened runtime, timestamp and online notarization
 ticket, then execute the signed CLI and a small isolated compilation. Only these
 verified bytes enter the final archives and SHA256SUMS. BUILD.txt carries the
@@ -147,9 +162,10 @@ source distribution before any permanent tag or publication. It checks the
 package version and embedded `.cargo_vcs_info.json` against the selected source
 SHA, then records the exact archive checksum in a CI artifact.
 
-After GitHub publication and all four public binary installs succeed, only
+After GitHub publication and all three public binary installs succeed, only
 **publish** mode enters the protected **crates-io** Environment. That Environment
-allows main only, requires owner review and disallows administrator bypass.
+allows main only and does not require a second manual approval. Repository
+write access is required to start the release; currently only the owner has it.
 On crates.io, the trusted publisher is `alex09x/mitts`, workflow `release.yml`,
 Environment `crates-io`. The pinned official `rust-lang/crates-io-auth-action`
 exchanges GitHub OIDC for a short-lived upload token and revokes it after the job.
@@ -170,6 +186,18 @@ The registry installation exercises unpinned `cargo install mitts --locked` so
 the default latest stable selection must resolve to this release too.
 Source-built binaries are not claimed to have upstream Developer ID signatures;
 Apple signing applies to the directly downloaded prebuilt Mac binaries.
+
+Since0.3.20 the supported native targets are Linux ARM64/x86-64 and macOS
+Apple Silicon. Mac Intel is absent from compilation, notarization and installation
+matrices. Its last prebuilt release remains0.3.19; existing assets stay immutable.
+
+## Release notes
+
+The release body combines the version's human summary with GitHub's built-in
+generated notes. Categories are defined in `.github/release.yml`; the output
+includes merged PRs, contributors, commit links and the complete comparison.
+Notes are generated before a permanent tag is created. A retry does not replace
+an existing source-owned release description or change its artifacts.
 
 The website is a separate deployment. Respect any owner preview hold. Workflow
 configuration changes can ship independently without publishing held site

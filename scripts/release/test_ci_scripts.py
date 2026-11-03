@@ -105,6 +105,7 @@ class IsolationRunnerTests(unittest.TestCase):
             XDG_CACHE_HOME=str(self.root / "real-xdg"),
             TMPDIR=str(self.tmp_dir),
             FAKE_LOG=str(self.log_file),
+            MITTS_TEST_DRIVER="cargo",
         )
 
     def run_script(self, name, *targets):
@@ -290,6 +291,7 @@ class RealCargoProbeIsolationTests(unittest.TestCase):
             MITTS_PROBE_SANDBOX=str(self.root / "inherited-probe-sandbox"),
             FIXTURE_BUILD_COUNTER=str(self.counter_file),
             FIXTURE_RECORDS_DIR=str(self.records_dir),
+            MITTS_TEST_DRIVER="cargo",
         )
 
     def read_record(self, target):

@@ -36,9 +36,17 @@ def historical_differences(source, baseline, output, read_blob):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--mitts", type=Path, help="Use the verified self-built Mitts formatter driver"
+    )
     args = parser.parse_args()
+    command = (
+        [str(args.mitts), "fmt", "--all", "--check", "--", "--color", "never"]
+        if args.mitts
+        else ["cargo", "fmt", "--all", "--", "--check", "--color", "never"]
+    )
     result = subprocess.run(
-        ["cargo", "fmt", "--all", "--", "--check", "--color", "never"],
+        command,
         cwd=args.source,
         text=True,
         capture_output=True,

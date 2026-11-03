@@ -166,7 +166,7 @@ class ApplePolicyTests(unittest.TestCase):
             "and certificate leaf[field.1.2.840.113635.100.6.1.13] exists",
         )
 
-    def test_receipt_matches_actual_code_and_both_architectures(self):
+    def test_receipt_matches_actual_code_and_supported_architectures(self):
         for target in apple_verify.MAC_TARGETS:
             apple_verify.receipt_matches(receipt(), JOB, ZIP_SHA, target, CDHASH)
 

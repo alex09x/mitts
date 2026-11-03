@@ -113,7 +113,6 @@ class InstallerTests(unittest.TestCase):
             ("Linux", "x86_64", "x86_64-unknown-linux-gnu"),
             ("Linux", "aarch64", "aarch64-unknown-linux-gnu"),
             ("Darwin", "arm64", "aarch64-apple-darwin"),
-            ("Darwin", "x86_64", "x86_64-apple-darwin"),
         ]:
             with self.subTest(target=target):
                 self.platform(system, architecture)
@@ -185,6 +184,15 @@ class InstallerTests(unittest.TestCase):
     def test_unsupported_platform(self):
         self.platform("Windows_NT", "x86_64")
         self.run_installer(False)
+
+    def test_intel_macos_is_rejected_without_replacing_existing_installation(self):
+        self.platform("Darwin", "x86_64")
+        old = self.prefix / "bin/mitts"
+        old.parent.mkdir(parents=True)
+        old.write_text("existing binary")
+        result = self.run_installer(False)
+        self.assertIn("support ended with v0.3.19", result.stderr)
+        self.assertEqual(old.read_text(), "existing binary")
 
     def test_unsupported_architecture(self):
         self.platform("Linux", "riscv64")

@@ -28,11 +28,31 @@ class GitHubReleaseTests(unittest.TestCase):
     @patch.object(release, "api")
     def test_new_release_starts_as_source_locked_draft(self, api):
         api.side_effect = [None, [], None, {"sha": "d" * 40}, {}, {}]
-        release.draft(TAG, SHA)
+        with patch.object(
+            release, "build_release_body", return_value=f"Notes for {SHA}"
+        ) as notes:
+            release.draft(TAG, SHA)
+        notes.assert_called_once_with(TAG, SHA, api)
         payload = api.call_args_list[-1].args[1]
         self.assertTrue(payload["draft"])
         self.assertIn(SHA, payload["body"])
         self.assertEqual(payload["target_commitish"], SHA)
+
+    def test_notes_failure_does_not_create_any_tag_or_release(self):
+        with (
+            patch.object(release, "tag_commit", return_value=None),
+            patch.object(release, "find_release", return_value=None),
+            patch.object(release, "require_newer"),
+            patch.object(
+                release,
+                "build_release_body",
+                side_effect=RuntimeError("notes unavailable"),
+            ),
+            patch.object(release, "api") as api,
+        ):
+            with self.assertRaises(RuntimeError):
+                release.draft(TAG, SHA)
+            api.assert_not_called()
 
     @patch.object(release, "api")
     def test_authenticated_listing_finds_existing_draft(self, api):

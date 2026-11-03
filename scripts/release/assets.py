@@ -17,12 +17,10 @@ from plan import stable_tag
 TARGETS = (
     "aarch64-apple-darwin",
     "aarch64-unknown-linux-gnu",
-    "x86_64-apple-darwin",
     "x86_64-unknown-linux-gnu",
 )
 DARWIN_ARCHES = {
     "aarch64-apple-darwin": "arm64",
-    "x86_64-apple-darwin": "x86_64",
 }
 SIGNING_MARKERS = (
     "Signing-Team",

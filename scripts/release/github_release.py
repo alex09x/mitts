@@ -13,6 +13,7 @@ from pathlib import Path
 
 from assets import validate_notarized as validate
 from plan import stable_tag
+from release_notes import build_release_body
 
 REPO = "alex09x/mitts"
 
@@ -87,19 +88,16 @@ def draft(tag, sha):
             )
             return
     require_newer(tag)
+    if release:
+        return
+    # Generate complete notes before any permanent tag is created.
+    body = build_release_body(tag, sha, api)
     if existing is None:
         obj = api(
             "git/tags",
             {"tag": tag, "message": "Mitts " + tag, "object": sha, "type": "commit"},
         )
         api("git/refs", {"ref": "refs/tags/" + tag, "sha": obj["sha"]})
-    if release:
-        return
-    body = (
-        f"Mitts {tag}\n\nSource commit: `{sha}`.\n\n"
-        "Native archives for Linux/macOS, ARM64/x86-64 include BUILD.txt and both licenses. "
-        "Verify downloads using SHA256SUMS.\n\n" + marker
-    )
     api(
         "releases",
         {

@@ -128,7 +128,7 @@ def sign_release(source, output, evidence, tag, sha):
             + "\n"
         )
     print(
-        "Both Mac architectures signed and notarized Accepted; final archives/checksums produced"
+        "Supported Mac binary signed and notarized Accepted; final archives/checksums produced"
     )
 
 

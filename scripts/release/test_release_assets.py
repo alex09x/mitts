@@ -69,10 +69,10 @@ class ReleaseAssetTests(unittest.TestCase):
         (self.folder / (name + ".sha256")).write_text(f"{digest(archive)}  {name}\n")
         return archive
 
-    def test_complete_set_has_nine_verified_assets(self):
+    def test_complete_supported_set_has_seven_verified_assets(self):
         manifest = validate(self.folder, TAG, SHA)
-        self.assertEqual(len(manifest), 9)
-        self.assertEqual(len((self.folder / "SHA256SUMS").read_text().splitlines()), 4)
+        self.assertEqual(len(manifest), 7)
+        self.assertEqual(len((self.folder / "SHA256SUMS").read_text().splitlines()), 3)
 
     def test_missing_native_target_prevents_publication(self):
         self.archive(TARGETS[0]).unlink()
@@ -226,12 +226,12 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
         self.assertFalse((self.folder / "SHA256SUMS").exists())
         raw = self.run_cli()
         self.assertEqual(raw.returncode, 0, raw.stderr)
-        self.assertEqual(len(json.loads(raw.stdout)), 9)
+        self.assertEqual(len(json.loads(raw.stdout)), 7)
 
     def test_complete_notarized_set_passes_validators_cli_and_cdhash_variants(self):
         with patch.dict(os.environ, {"APPLE_TEAM_ID": TEAM}):
             manifest = validate_notarized(self.folder, "0.4.0", SHA)
-            self.assertEqual(len(manifest), 9)
+            self.assertEqual(len(manifest), 7)
             self.assertEqual(validate(self.folder, TAG, SHA), manifest)
             with io.StringIO() as buf, patch("sys.stdout", buf):
                 main(["--require-notarized", str(self.folder), TAG, SHA])
@@ -265,7 +265,7 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
             )
             self.write_archive(target, extra_lines=lines)
         with patch.dict(os.environ, {"APPLE_TEAM_ID": TEAM}):
-            self.assertEqual(len(validate_notarized(self.folder, TAG, SHA)), 9)
+            self.assertEqual(len(validate_notarized(self.folder, TAG, SHA)), 7)
 
     def test_missing_or_invalid_team_env_and_team_mismatch_are_rejected(self):
         with patch.dict(os.environ, {}, clear=False):

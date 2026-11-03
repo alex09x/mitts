@@ -1,0 +1,18 @@
+# Mitts Build — categories for GitHub's native generated release notes.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+changelog:
+  categories:
+    - title: Fixes
+      labels: [bug]
+    - title: Build, CI and releases
+      labels: [infra, release]
+    - title: Features
+      labels: [enhancement]
+    - title: Documentation
+      labels: [documentation]
+    - title: Other changes
+      labels: ['*']

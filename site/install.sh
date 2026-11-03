@@ -22,6 +22,9 @@ case "$(uname -m)" in
     *) fail 'Supported architectures: x86_64 and ARM64.' ;;
 esac
 target=$architecture-$system
+if [ "$target" = x86_64-apple-darwin ]; then
+    fail 'macOS Intel prebuilt support ended with v0.3.19. Use its archived release assets; current macOS builds require Apple Silicon.'
+fi
 repository=https://github.com/alex09x/mitts
 download() { curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" -o "$2"; }
 temporary=$(mktemp -d) || fail 'Could not create a temporary directory.'
