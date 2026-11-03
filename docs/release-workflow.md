@@ -48,13 +48,15 @@ version matching Cargo.toml and Cargo.lock, then choose:
 
 - **verify** (default): test the exact source and build/install all four native
   archives. Write CI artifacts and checksums only. No remote tag, draft, upload
-  or publication. It verifies the current main candidate, even if that version
+  or publication. Apple signing and notarization jobs are skipped and no Apple
+  secrets are loaded. It verifies the current main candidate, even if that version
   already has a released tag. The archive's BUILD.txt records the candidate SHA;
   CI artifacts are not replacements for published release files. A temporary
   local tag inside the disposable build checkout permits packaging without
   pushing or changing the real tag. Draft/publish resolve an existing tag to its
   immutable source; a new version must already be committed on main.
-- **draft**: after tests and all four native build/install checks pass, create an
+- **draft**: after tests, all four native build/install checks and the Apple
+  signing/notarization gates below pass, create an
   annotated immutable tag and a source-locked draft Release. Attach and verify
   Linux/macOS archives for ARM64/x86-64 and the
   complete SHA256SUMS. Keep the Release a draft, excluded from latest.
@@ -72,6 +74,51 @@ For a future release, use the version actually reviewed and merged into main.
 Selecting `publish` is the operator's publication action. No release runs on an
 ordinary PR/main push. GitHub's generated GITHUB_TOKEN supplies release access;
 no personal token or workstation secret is copied into the repository.
+
+## Apple release signing
+
+An ordinary main push or PR runs CI only. Developer ID signing and Apple
+notarization run exclusively in manually selected **draft** or **publish**
+releases from this repository's protected main branch. The raw native compilation
+jobs have no Apple credentials. Their ad-hoc Mac signatures are only intermediate
+CI output and cannot pass the official release upload/publish validator.
+
+The isolated signing job uses the protected **release-signing** Environment:
+restrict deployments to the main branch, require owner review and disallow
+administrator bypass. Set repository variable `APPLE_TEAM_ID` to the expected
+Developer ID team. Configure these six Environment Secrets through managed
+credential injection; never put their values in Git, logs or command arguments
+used to provision GitHub:
+
+- `APPLE_CERTIFICATE_P12_BASE64`: only the selected Developer ID Application
+  identity, exported as an encrypted PKCS#12 (certificate plus private key).
+- `APPLE_CERTIFICATE_PASSWORD`: its encryption password.
+- `APPLE_SIGNING_IDENTITY`: the exact certificate SHA-1 fingerprint.
+- `APPLE_NOTARY_KEY_P8`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`:
+  the managed App Store Connect API credential authorized for notarization.
+
+The signer imports the identity into a temporary Keychain, requires the expected
+Developer ID team, enables hardened runtime and requests a secure timestamp.
+Only the two signed Mac executables enter the submitted ZIP. The private
+credential directory is separate, and cleanup runs before artifacts are uploaded.
+The signer never executes the compiled release inputs while holding credentials.
+Missing keys or a non-Accepted Apple result fail the release; there is no ad-hoc
+fallback. Both architectures must match Apple's accepted ticket/CDHash.
+
+Separate ARM64 and Intel jobs receive no signing secrets. They verify the actual
+Developer ID signature/team, hardened runtime, timestamp and online notarization
+ticket, then execute the signed CLI and a small isolated compilation. Only these
+verified bytes enter the final archives and SHA256SUMS. BUILD.txt carries the
+binary digest, team, CDHash and accepted notary receipt; receipt metadata alone
+does not replace the native cryptographic/Apple checks. A bare CLI/ZIP cannot
+carry a stapled offline ticket; this pipeline uses Apple's online assessment.
+
+**Apple release credentials check** is a separate manual diagnostic. It imports
+the identity and performs read-only Apple authentication, then deletes its
+temporary Keychain. It does not sign binaries, submit notarization, create tags
+or publish releases. It can validate credential setup without releasing a new
+version. Previously published archives remain immutable and are not retroactively
+notarized by adding this workflow.
 
 ## Failure and retry rules
 
