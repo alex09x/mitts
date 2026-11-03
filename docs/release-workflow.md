@@ -27,6 +27,11 @@ runs every target and rejects every default-store writer. This avoids rebuilding
 tests solely because the per-target HOME changed. A tiny real-Cargo fixture
 checks compile-once behavior, distinct runtime homes and preserved Cargo runtime
 environment on Linux and macOS; the probe needs Python3 as well as Cargo/Bash.
+Mitts' own build metadata also watches the provenance inputs that actually
+exist in Git checkouts or packaged sources. Git status is read-only, and current
+branch/worktree metadata is tracked. Focused Cargo fixtures prove unchanged
+builds stay fresh and changed Git/VCS identities invalidate the embedded SHA;
+unknown provenance retains the conservative rebuild behavior.
 
 The first CI adoption found historical rustfmt differences in the already
 published0.3.18 source. `formatting-baseline.json` freezes only those exact file

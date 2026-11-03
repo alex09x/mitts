@@ -143,12 +143,14 @@ run_target() { # label, cargo test target args...
 
 writers=0
 failures=0
+prebuild_targets=()
+for probe_target in "$@"; do prebuild_targets+=("--test" "$probe_target"); done
 env ${drop[@]+"${drop[@]}"} \
   HOME="$controller_home" \
   XDG_CACHE_HOME="$controller_xdg" \
   CARGO_HOME="$cargo_home" \
   RUSTUP_HOME="$rustup_home" \
-  cargo --config "$config" test --workspace --no-run > "$controller/build.log" 2>&1 || {
+  cargo --config "$config" test --workspace ${prebuild_targets[@]+"${prebuild_targets[@]}"} --no-run > "$controller/build.log" 2>&1 || {
   echo "build failed"
   tail -20 "$controller/build.log"
   exit 2
