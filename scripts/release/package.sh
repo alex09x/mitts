@@ -38,12 +38,12 @@ lock_digest() {
 lock_before=$(lock_digest)
 "$builder" --version
 "$builder" build --release --native --bin mitts --manifest-path "$source_root/Cargo.toml" \
-    --cache-dir "$cache" --target-dir "$source_root/target/mitts-release"
+    --cache-dir "$cache" --target-dir "$source_root/target"
 [[ "$(lock_digest)" == "$lock_before" ]]
 # Mitts outputs may share immutable CAS inodes. Sign only an owned private copy.
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-cp target/mitts-release/release/mitts "$stage/mitts"
+cp target/release/mitts "$stage/mitts"
 chmod u+w "$stage/mitts"
 binary="$stage/mitts"
 if [[ "$target" == *apple-darwin ]]; then

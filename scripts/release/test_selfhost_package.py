@@ -116,7 +116,7 @@ class SelfhostPackagingTests(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            built = source / "target/mitts-release/release/mitts"
+            built = source / "target/release/mitts"
             self.assertEqual(obj.stat().st_ino, built.stat().st_ino)
             self.assertNotIn(b"signed private copy", obj.read_bytes())
             with tarfile.open(
