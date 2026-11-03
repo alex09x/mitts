@@ -1,0 +1,62 @@
+# Mitts Build — verify the exact source package before publication.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+name: Registry package verification
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      source-sha:
+        type: string
+        required: true
+    outputs:
+      artifact-id:
+        value: ${{ jobs.package.outputs.artifact-id }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    outputs:
+      artifact-id: ${{ steps.package.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source-sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+      - name: Compile and verify the actual registry package without publishing credentials
+        env:
+          TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          cargo package --locked --manifest-path source/Cargo.toml
+          mkdir verified-crate
+          cp "source/target/package/mitts-${TAG#v}.crate" verified-crate/
+          python scripts/release/registry.py prepare verified-crate "$TAG" "$SOURCE_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: package
+        with:
+          name: verified-registry-package
+          path: verified-crate/*
+          if-no-files-found: error
+          overwrite: true

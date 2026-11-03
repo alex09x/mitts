@@ -84,8 +84,8 @@ jobs:
           VALIDATED: ${{ needs.validate.result }}
         run: test "$SOURCE" = success && test "$PROOF" = success && { test "$REUSED" = true || test "$VALIDATED" = success; }
   draft:
-    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' && needs.binaries.result == 'success' && needs.apple-gate.result == 'success' }}
-    needs: [source, validation-gate, binaries, apple-gate]
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' && needs.binaries.result == 'success' && needs.apple-gate.result == 'success' && needs.crate-package.result == 'success' }}
+    needs: [source, validation-gate, binaries, apple-gate, crate-package]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -114,6 +114,13 @@ jobs:
       tag: ${{ needs.source.outputs.tag }}
       source-sha: ${{ needs.source.outputs.sha }}
       verify-only: true
+  crate-package:
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.validation-gate.result == 'success' }}
+    needs: [source, validation-gate]
+    uses: ./.github/workflows/crate-package.yml
+    with:
+      tag: ${{ needs.source.outputs.tag }}
+      source-sha: ${{ needs.source.outputs.sha }}
   apple-sign:
     if: ${{ !cancelled() && inputs.mode != 'verify' && github.repository == 'alex09x/mitts' && github.ref == 'refs/heads/main' && needs.source.result == 'success' && needs.binaries.result == 'success' }}
     needs: [source, binaries]
@@ -280,3 +287,56 @@ jobs:
     uses: ./.github/workflows/installer-smoke.yml
     with:
       expected-tag: ${{ needs.source.outputs.tag }}
+      expected-sha: ${{ needs.source.outputs.sha }}
+      require-notarized: true
+  registry-publish:
+    if: ${{ !cancelled() && inputs.mode == 'publish' && github.repository == 'alex09x/mitts' && github.ref == 'refs/heads/main' && needs.public-install.result == 'success' && needs.crate-package.result == 'success' }}
+    needs: [source, public-install, crate-package]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.crate-package.outputs.artifact-id }}
+          merge-multiple: true
+          path: verified-crate
+      - name: Require the clean exact source before obtaining publishing credentials
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git -C source status --porcelain --untracked-files=all)"
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
+        id: auth
+      - name: Publish only the exact verified package and verify public registry bytes
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: python scripts/release/registry.py publish verified-crate "$TAG" "$SOURCE_SHA" --manifest-path source/Cargo.toml
+  source-install:
+    if: ${{ !cancelled() && inputs.mode == 'publish' && needs.registry-publish.result == 'success' }}
+    needs: [source, registry-publish]
+    uses: ./.github/workflows/distribution-smoke.yml
+    with:
+      tag: ${{ needs.source.outputs.tag }}
+      source-sha: ${{ needs.source.outputs.sha }}

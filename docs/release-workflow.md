@@ -47,7 +47,8 @@ Open **Actions → Release → Run workflow**, select **main**, enter a stable
 version matching Cargo.toml and Cargo.lock, then choose:
 
 - **verify** (default): test the exact source and build/install all four native
-  archives. Write CI artifacts and checksums only. No remote tag, draft, upload
+  archives, and compile/verify the actual registry package. Write CI artifacts
+  and checksums only. No remote tag, draft, upload
   or publication. Apple signing and notarization jobs are skipped and no Apple
   secrets are loaded. It verifies the current main candidate, even if that version
   already has a released tag. The archive's BUILD.txt records the candidate SHA;
@@ -62,7 +63,9 @@ version matching Cargo.toml and Cargo.lock, then choose:
   complete SHA256SUMS. Keep the Release a draft, excluded from latest.
 - **publish**: perform the same checks and preparation, verify every remote asset,
   then publish the complete draft as latest. Run the actual public installer on
-  all four native targets and require its selected version to match this release.
+  all four native targets and require its selected version/source to match this
+  release. Publish the verified package to crates.io, then install the registry
+  version and Git tag on all four targets and compile a fixture with each CLI.
 
 Example verification of the existing release (no new release):
 
@@ -135,10 +138,38 @@ the tag inside each build runner is local-only until every target passes.
 
 Read the workflow run and all native/public-install results before reporting
 completion. The workflow creates no provenance attestation; BUILD.txt and
-checksums record the tested source/compiler and download integrity. Publishing
-to crates.io remains a separate credentialed operation from the exact tag;
-GITHUB_TOKEN is not a crates.io credential. A later registry automation stage
-requires its own managed authentication setup and readback.
+checksums record the tested source/compiler and download integrity.
+
+## Registry publication and installation
+
+The unprivileged package job runs `cargo package --locked`, compiling the actual
+source distribution before any permanent tag or publication. It checks the
+package version and embedded `.cargo_vcs_info.json` against the selected source
+SHA, then records the exact archive checksum in a CI artifact.
+
+After GitHub publication and all four public binary installs succeed, only
+**publish** mode enters the protected **crates-io** Environment. That Environment
+allows main only, requires owner review and disallows administrator bypass.
+On crates.io, the trusted publisher is `alex09x/mitts`, workflow `release.yml`,
+Environment `crates-io`. The pinned official `rust-lang/crates-io-auth-action`
+exchanges GitHub OIDC for a short-lived upload token and revokes it after the job.
+No long-lived Cargo token is stored in GitHub. `GITHUB_TOKEN` alone cannot publish
+a crate. PR/main CI, verify and draft do not request a registry publishing token.
+
+The uploader uses the exact source with `--locked --no-verify`, reusing the prior
+package compilation. Public sparse-index and downloaded crate checks must match
+the prepared checksum and source SHA. A retry of the same already published
+package is read-only; conflicting bytes fail without replacement or yanking.
+GitHub and crates.io cannot be published atomically: if registry publication
+fails after GitHub succeeds, report that partial outcome and rerun failed jobs.
+
+Registry, Git-tag and clone/path installations run in fresh prefixes on Linux/macOS,
+ARM64/x86-64. Each installed CLI must report the exact version and source SHA,
+execute help and compile a tiny project using its own isolated Mitts cache.
+The registry installation exercises unpinned `cargo install mitts --locked` so
+the default latest stable selection must resolve to this release too.
+Source-built binaries are not claimed to have upstream Developer ID signatures;
+Apple signing applies to the directly downloaded prebuilt Mac binaries.
 
 The website is a separate deployment. Respect any owner preview hold. Workflow
 configuration changes can ship independently without publishing held site
