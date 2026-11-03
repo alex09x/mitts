@@ -2,7 +2,6 @@ name: Release binaries
 
 on:
   push:
-    branches: [fix/release-binary-installer]
     tags: ['v*']
   workflow_dispatch:
     inputs:
