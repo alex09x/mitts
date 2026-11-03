@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Mitts Build — isolated binary installer regressions and native archive smoke.
 # Copyright (c) 2026 Alexander Panasenko
 # Contact: alex@prod.codes
@@ -8,13 +7,13 @@
 import hashlib
 import io
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "site/install.sh"
@@ -56,7 +55,9 @@ class InstallerTests(unittest.TestCase):
             "shutil.copyfile(src,out)\n",
         )
         self.platform("Linux", "x86_64")
-        (self.fixtures / "latest.txt").write_text(f"https://github.com/alex09x/mitts/releases/tag/{TAG}")
+        (self.fixtures / "latest.txt").write_text(
+            f"https://github.com/alex09x/mitts/releases/tag/{TAG}"
+        )
 
     def command(self, name, body):
         path = self.bin / name
@@ -69,10 +70,12 @@ class InstallerTests(unittest.TestCase):
             f'#!/bin/sh\ncase "$1" in -s) echo {system};; -m) echo {architecture};; esac\n',
         )
 
-    def archive(self, target="x86_64-unknown-linux-gnu", version="0.3.18", check_location=False):
+    def archive(
+        self, target="x86_64-unknown-linux-gnu", version="0.3.18", check_location=False
+    ):
         name = f"mitts-{TAG}-{target}.tar.gz"
         path = self.fixtures / name
-        script = '#!/bin/sh\n'
+        script = "#!/bin/sh\n"
         if check_location:
             script += 'case "$0" in "$MITTS_INSTALL_ROOT/bin/.mitts-install."*) ;; *) exit 77;; esac\n'
         data = (script + f'printf "mitts {version} (fixture)\\n"\n').encode()
@@ -95,6 +98,7 @@ class InstallerTests(unittest.TestCase):
             text=True,
             capture_output=True,
             timeout=30,
+            check=False,
         )
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -138,7 +142,9 @@ class InstallerTests(unittest.TestCase):
 
     def test_bad_checksum_preserves_old_binary(self):
         self.archive()
-        (self.fixtures / "SHA256SUMS").write_text(f"{'0' * 64}  mitts-{TAG}-x86_64-unknown-linux-gnu.tar.gz\n")
+        (self.fixtures / "SHA256SUMS").write_text(
+            f"{'0' * 64}  mitts-{TAG}-x86_64-unknown-linux-gnu.tar.gz\n"
+        )
         old = self.prefix / "bin/mitts"
         old.parent.mkdir(parents=True)
         old.write_text("existing binary")
@@ -205,8 +211,12 @@ def native_smoke(archive, tag):
         installed = case.prefix / "bin/mitts"
         with tarfile.open(archive) as content:
             original = content.extractfile("mitts").read()
-        assert installed.read_bytes() == original, "Installed binary differs from archive"
-        subprocess.run([str(installed), "--help"], check=True, stdout=subprocess.DEVNULL)
+        assert installed.read_bytes() == original, (
+            "Installed binary differs from archive"
+        )
+        subprocess.run(
+            [str(installed), "--help"], check=True, stdout=subprocess.DEVNULL
+        )
         print(f"Native archive install passed: {archive.name}")
     finally:
         case.doCleanups()
