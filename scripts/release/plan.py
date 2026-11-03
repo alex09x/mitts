@@ -36,7 +36,8 @@ def plan(value, mode):
         ).returncode
         == 0
     )
-    sha = git("rev-parse", tag + "^{commit}" if exists else "HEAD")
+    source = tag + "^{commit}" if exists and mode != "verify" else "HEAD"
+    sha = git("rev-parse", source)
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("Source must be a full commit SHA")
     subprocess.run(

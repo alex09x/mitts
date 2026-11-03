@@ -55,6 +55,13 @@ class ReleasePlanTests(unittest.TestCase):
         self.git("tag", "v0.3.18")
         self.write_version("0.4.0")
         self.commit()
+        with patch.dict(os.environ, {"GITHUB_REF": "refs/heads/main"}):
+            self.assertEqual(plan("0.3.18", "draft")["sha"], sha)
+
+    def test_verify_checks_current_candidate_even_if_version_is_already_tagged(self):
+        self.git("tag", "v0.3.18")
+        Path("candidate.txt").write_text("unreleased candidate")
+        sha = self.commit()
         self.assertEqual(plan("0.3.18", "verify")["sha"], sha)
 
     def test_future_verify_does_not_create_any_tag(self):
@@ -90,8 +97,9 @@ class ReleasePlanTests(unittest.TestCase):
             "orphan",
         )
         self.git("tag", "v0.4.0")
-        with self.assertRaises(subprocess.CalledProcessError):
-            plan("0.4.0", "verify")
+        with patch.dict(os.environ, {"GITHUB_REF": "refs/heads/main"}):
+            with self.assertRaises(subprocess.CalledProcessError):
+                plan("0.4.0", "draft")
 
     def test_unsafe_or_prerelease_tags_are_rejected(self):
         for tag in ["../../main", "1.2.3;false", "v1.2.3-rc1", "v01.2.3", ""]:

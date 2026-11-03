@@ -70,6 +70,8 @@ fn append_darwin_oso_prefix(inv: &RustcInvocation<'_>, cmd: &mut Command) {
     let Some(root) = root else {
         return;
     };
+    // ld records physical paths (notably /private/var instead of /var).
+    let root = root.canonicalize().unwrap_or(root);
     let prefix = format!("{}/", root.to_string_lossy().trim_end_matches('/'));
     cmd.args(["-C", &format!("link-arg=-Wl,-oso_prefix,{prefix}")]);
 }

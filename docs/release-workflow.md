@@ -30,9 +30,12 @@ version matching Cargo.toml and Cargo.lock, then choose:
 
 - **verify** (default): test the exact source and build/install all four native
   archives. Write CI artifacts and checksums only. No remote tag, draft, upload
-  or publication. An existing version resolves to its immutable tag commit;
-  a future untagged version must already be committed on main. A temporary local
-  tag inside the build runner permits the packaging check without pushing it.
+  or publication. It verifies the current main candidate, even if that version
+  already has a released tag. The archive's BUILD.txt records the candidate SHA;
+  CI artifacts are not replacements for published release files. A temporary
+  local tag inside the disposable build checkout permits packaging without
+  pushing or changing the real tag. Draft/publish resolve an existing tag to its
+  immutable source; a new version must already be committed on main.
 - **draft**: after tests and all four native build/install checks pass, create an
   annotated immutable tag and a source-locked draft Release. Attach and verify
   Linux/macOS archives for ARM64/x86-64 and the
