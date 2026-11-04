@@ -58,9 +58,56 @@ mod tests {
     use super::upload_to;
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct LoopbackProxyEnv {
+        _lock: MutexGuard<'static, ()>,
+        no_proxy: Option<std::ffi::OsString>,
+        lower_no_proxy: Option<std::ffi::OsString>,
+    }
+
+    impl LoopbackProxyEnv {
+        fn new() -> Self {
+            let lock = ENV_LOCK.lock().unwrap();
+            let no_proxy = std::env::var_os("NO_PROXY");
+            let lower_no_proxy = std::env::var_os("no_proxy");
+            for key in ["NO_PROXY", "no_proxy"] {
+                let old = std::env::var(key).unwrap_or_default();
+                let value = if old.is_empty() {
+                    "127.0.0.1,localhost".to_string()
+                } else {
+                    format!("{old},127.0.0.1,localhost")
+                };
+                std::env::set_var(key, value);
+            }
+            Self {
+                _lock: lock,
+                no_proxy,
+                lower_no_proxy,
+            }
+        }
+    }
+
+    impl Drop for LoopbackProxyEnv {
+        fn drop(&mut self) {
+            if let Some(value) = self.no_proxy.take() {
+                std::env::set_var("NO_PROXY", value);
+            } else {
+                std::env::remove_var("NO_PROXY");
+            }
+            if let Some(value) = self.lower_no_proxy.take() {
+                std::env::set_var("no_proxy", value);
+            } else {
+                std::env::remove_var("no_proxy");
+            }
+        }
+    }
 
     #[test]
     fn upload_sends_expected_protocol_and_authorization() {
+        let _proxy_env = LoopbackProxyEnv::new();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
@@ -113,6 +160,7 @@ mod tests {
 
     #[test]
     fn registry_error_in_success_response_is_rejected_without_echoing_details() {
+        let _proxy_env = LoopbackProxyEnv::new();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
@@ -136,13 +184,17 @@ mod tests {
         )
         .unwrap_err();
         server.join().unwrap();
-        assert!(error.to_string().contains("registry rejected"));
+        assert!(
+            error.to_string().contains("registry rejected"),
+            "unexpected sanitized registry error: {error:#}"
+        );
         assert!(!error.to_string().contains("private registry detail"));
         assert!(!error.to_string().contains("test-token"));
     }
 
     #[test]
     fn upload_does_not_follow_redirect_with_token() {
+        let _proxy_env = LoopbackProxyEnv::new();
         let target = TcpListener::bind("127.0.0.1:0").unwrap();
         target.set_nonblocking(true).unwrap();
         let target_address = target.local_addr().unwrap();
