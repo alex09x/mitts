@@ -224,16 +224,6 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                             true,
                         );
                     }
-                    let clean = unit.target_name.replace('-', "_");
-                    let alt_path = dest_bin.parent().unwrap_or(&dest_bin).join(&clean);
-                    if alt_path != dest_bin {
-                        let _ = crate::core::link_intra_workspace(
-                            &dest_bin,
-                            &alt_path,
-                            &[ctx.target_dir],
-                            true,
-                        );
-                    }
                     break;
                 }
             }
