@@ -67,10 +67,6 @@ jobs:
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy, llvm-tools-preview
-      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
-        with:
-          workspaces: 'source -> target'
-          cache-on-failure: true
       - name: Install latest stable Mitts
         env:
           MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
