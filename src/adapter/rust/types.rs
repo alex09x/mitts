@@ -170,6 +170,8 @@ pub struct RustBuildOptions {
     pub test_targets: Vec<String>,
     pub all_tests: bool,
     pub all_benches: bool,
+    /// Benchmark targets selected by name (`mitts bench --bench NAME`).
+    pub bench_targets: Vec<String>,
     pub all_examples: bool,
     pub bin_targets: Vec<String>,
     pub all_bins: bool,
@@ -184,6 +186,11 @@ impl RustBuildOptions {
             .iter()
             .chain(self.packages.iter())
             .map(String::as_str)
+    }
+
+    /// Whether benchmark targets are part of the selection: all of them or some by name.
+    pub fn selects_benches(&self) -> bool {
+        self.all_benches || !self.bench_targets.is_empty()
     }
 }
 
