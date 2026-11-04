@@ -54,15 +54,15 @@ my-path-dep = { path = "subpath_dep" }
         .iter()
         .any(|p| p.name == "root-res-pkg" && p.version == "1.0.0"));
 
-    // Unparseable TOML fallback path
+    // Unparseable TOML must not produce a partial lockfile.
     let unparseable = temp_dir.path().join("Broken.toml");
     fs::write(
         &unparseable,
         "[package]\nname = \"broken\"\nversion = \"0.1.0\"\n[dependencies\ninvalid_syntax\n",
     )
     .unwrap();
-    let broken_lock = resolver.resolve_manifest(&unparseable, true).unwrap();
-    assert_eq!(broken_lock.version, 3);
+    let error = resolver.resolve_manifest(&unparseable, true).unwrap_err();
+    assert!(error.to_string().contains("Failed to parse manifest"));
 }
 
 #[test]
