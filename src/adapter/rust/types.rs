@@ -41,7 +41,10 @@ pub enum RustAdapterError {
     #[error("Metadata or compiler query failed: {0}")]
     #[diagnostic(
         code(mitts::rust::metadata_failed),
-        help("Ensure the Rust toolchain is properly installed and reachable.")
+        help(
+            "Ensure the Rust toolchain is installed and reachable. If the message names a dependency, \
+             check that Cargo.toml and Cargo.lock agree."
+        )
     )]
     MetadataFailed(String),
 }
