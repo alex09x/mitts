@@ -115,6 +115,18 @@ impl<'a> RustcInvocation<'a> {
                 }
             }
 
+            if self.unit.kind.split(',').any(|kind| kind.trim() == "rlib") {
+                if let Ok(entries) = fs::read_dir(self.out_dir) {
+                    if let Some(rlib) = entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .find(|path| path.extension().is_some_and(|ext| ext == "rlib"))
+                    {
+                        primary_output = Some(rlib);
+                    }
+                }
+            }
+
             // In check / clippy mode where no rlib is emitted, primary_output falls back to metadata
             if primary_output.is_none()
                 && (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy)

@@ -61,18 +61,8 @@ impl CompilationDag {
         let linking_ids: Vec<String> = nodes
             .iter()
             .filter(|(_, node)| {
-                matches!(
-                    node.unit.kind.as_str(),
-                    "bin"
-                        | "test"
-                        | "custom-test"
-                        | "example"
-                        | "bench"
-                        | "cdylib"
-                        | "dylib"
-                        | "staticlib"
-                        | "proc-macro"
-                ) || super::pipelining::package_has_build_script(&node.unit.manifest_path)
+                super::pipelining::is_linking_kind(&node.unit.kind)
+                    || super::pipelining::package_has_build_script(&node.unit.manifest_path)
             })
             .map(|(id, _)| id.clone())
             .collect();

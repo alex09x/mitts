@@ -34,8 +34,12 @@ pub fn resolve_extern_crates_for_build_script(
 ) -> Vec<(String, PathBuf)> {
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
     let mut build_dep_names: HashSet<String> = HashSet::new();
-    let build_dep_tables = std::iter::once(&pkg_toml.build_dependencies)
-        .chain(pkg_toml.target.values().map(|spec| &spec.build_dependencies));
+    let build_dep_tables = std::iter::once(&pkg_toml.build_dependencies).chain(
+        pkg_toml
+            .target
+            .values()
+            .map(|spec| &spec.build_dependencies),
+    );
     for (dep_name, dep) in build_dep_tables.flatten() {
         build_dep_names.insert(dep_name.replace('-', "_"));
         if let TomlDependency::Detailed(d) = dep {
@@ -180,18 +184,8 @@ pub fn resolve_extern_crates_with_target(
                 }
             }
 
-            let is_linking_kind =
-                matches!(
-                    unit.kind.as_str(),
-                    "bin"
-                        | "test"
-                        | "custom-test"
-                        | "proc-macro"
-                        | "dylib"
-                        | "cdylib"
-                        | "example"
-                        | "bench"
-                ) || super::pipelining::package_has_build_script(&unit.manifest_path);
+            let is_linking_kind = super::pipelining::is_linking_kind(&unit.kind)
+                || super::pipelining::package_has_build_script(&unit.manifest_path);
             let chosen_artifact = if !is_linking_kind {
                 let rmeta = artifact_path.with_extension("rmeta");
                 if rmeta.is_file() {
