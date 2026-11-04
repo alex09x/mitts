@@ -296,6 +296,12 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     } else {
         inv.out_dir.to_path_buf()
     };
+    let immutable_package = super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace);
+    let cwd = if immutable_package {
+        cwd
+    } else {
+        super::compiler_remap::coverage_working_dir(inv).unwrap_or(cwd)
+    };
     cmd.current_dir(&cwd);
     cmd.envs(super::unit_env::compute_unit_rustc_env_with_target(
         inv.unit,

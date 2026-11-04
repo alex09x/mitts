@@ -124,6 +124,8 @@ fn coverage_exclusions(args: &CoverageArgs, ws_root: &Path) -> String {
     let mut patterns = vec![
         r"/.cargo/".to_string(),
         r"/rustc/".to_string(),
+        // Standard library sources of a rustup toolchain, for example on macOS.
+        r"/rustlib/src/".to_string(),
         r"/target/".to_string(),
         r"\.mitts/".to_string(),
     ];
@@ -188,6 +190,13 @@ pub fn merge_and_report_coverage(
         .clone()
         .unwrap_or_else(|| profdata_dir.join("report"));
 
+    // A single-file report (--output-path, or LCOV's lcov.info) is captured and written to a file
+    // instead of reaching stdout.
+    let report_file: Option<PathBuf> = match (&args.output_path, args.lcov) {
+        (Some(path), _) => Some(path.clone()),
+        (None, true) => Some(out_dir.join("lcov.info")),
+        (None, false) => None,
+    };
     if args.html {
         let _ = fs::create_dir_all(&out_dir);
         cov_cmd.arg("show");
@@ -196,20 +205,21 @@ pub fn merge_and_report_coverage(
         cov_cmd.arg("--format=html");
         cov_cmd.arg("--show-line-counts-or-regions");
     } else if args.lcov {
-        let lcov_path = out_dir.join("lcov.info");
-        if let Some(parent) = lcov_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
         cov_cmd.arg("export");
         cov_cmd.arg(format!("--instr-profile={}", pid_profdata.display()));
         cov_cmd.arg("--format=lcov");
     } else if args.json {
         cov_cmd.arg("export");
         cov_cmd.arg(format!("--instr-profile={}", pid_profdata.display()));
+        if args.summary_only {
+            cov_cmd.arg("--summary-only");
+        }
     } else {
         cov_cmd.arg("report");
         cov_cmd.arg(format!("--instr-profile={}", pid_profdata.display()));
-        cov_cmd.arg("--use-color");
+        if report_file.is_none() {
+            cov_cmd.arg("--use-color");
+        }
     }
 
     cov_cmd.arg(&objects[0]);
@@ -219,16 +229,23 @@ pub fn merge_and_report_coverage(
     let exclusions = coverage_exclusions(args, ws_root);
     cov_cmd.arg(&exclusions);
 
-    let cov_status = if args.lcov {
-        let lcov_path = out_dir.join("lcov.info");
+    let cov_status = if let Some(path) = &report_file {
         match cov_cmd.output() {
             Ok(out) => {
                 if out.status.success() {
-                    if let Err(err) = fs::write(&lcov_path, &out.stdout) {
+                    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    if let Err(err) = fs::write(path, &out.stdout) {
                         let _ = fs::remove_file(&pid_profdata);
-                        eprintln!("mitts coverage error: cannot write LCOV report: {err}");
+                        eprintln!(
+                            "mitts coverage error: cannot write report to {}: {err}",
+                            path.display()
+                        );
                         return 1;
                     }
+                } else {
+                    eprint!("{}", String::from_utf8_lossy(&out.stderr));
                 }
                 out.status
             }
@@ -301,6 +318,13 @@ pub fn merge_and_report_coverage(
 
     let _ = fs::remove_file(&pid_profdata);
     let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
+    if let (Some(path), Some(_)) = (&report_file, &args.output_path) {
+        Ui::stage_item(
+            true,
+            &Ui::badge_cached(),
+            &format!("Report saved to {}", path.display()),
+        );
+    }
     if args.html {
         Ui::stage_item(
             true,

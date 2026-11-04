@@ -56,6 +56,10 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub output_dir: Option<PathBuf>,
 
+    /// Write a JSON, LCOV or text report to this file instead of stdout (or lcov.info)
+    #[arg(long, value_name = "FILE")]
+    pub output_path: Option<PathBuf>,
+
     /// Automatically open the generated HTML report
     #[arg(long)]
     pub open: bool,
