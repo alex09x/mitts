@@ -154,7 +154,7 @@ fn test_doctests_link_exact_dev_deps_features_and_ignore_decoys() {
     );
 
     // 2. A newer same-named decoy next to real artifacts must not be linked.
-    let deps = ws.join("target/mitts/debug/deps");
+    let deps = ws.join("target/debug/deps");
     fs::create_dir_all(&deps).unwrap();
     fs::write(deps.join("libdoc_helper-ffffffffffffffff.rlib"), b"decoy").unwrap();
     fs::write(deps.join("libdoc_demo-ffffffffffffffff.rlib"), b"decoy").unwrap();

@@ -128,24 +128,22 @@ impl RustAdapter {
         }
     }
 
-    /// Resolves the dedicated isolated Mitts target directory for the workspace (target/mitts).
+    /// Resolves the Rust target root, using Cargo's standard target directory by default.
     pub fn resolve_target_dir(manifest_path: &Path, opt: &RustBuildOptions) -> Result<PathBuf> {
         let target_dir = if let Some(ref td) = opt.target_dir {
             td.clone()
-        } else if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
-            PathBuf::from(cargo_td).join("mitts")
+        } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR") {
+            PathBuf::from(cargo_td)
         } else {
             let project_dir = manifest_path
                 .parent()
                 .context("Manifest path has no parent directory")?;
-            project_dir.join("target").join("mitts")
+            project_dir.join("target")
         };
 
         // Ensure target directory has CACHEDIR.TAG and .gitignore so IDEs/tools treat it as build cache
         if opt.target_dir.is_none() {
-            if let Some(parent) = target_dir.parent() {
-                let _ = Self::ensure_target_dir_tags(parent);
-            }
+            let _ = Self::ensure_target_dir_tags(&target_dir);
         }
 
         Ok(target_dir)

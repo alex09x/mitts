@@ -81,7 +81,7 @@ fn a_linked_binary_names_no_checkout_path_and_is_shared_across_checkouts() {
     write_project(first.path());
     mitts_build(first.path(), cache.path());
 
-    let bin = first.path().join("target/mitts/debug/osoapp");
+    let bin = first.path().join("target/debug/osoapp");
     let run = Command::new(&bin).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
 
@@ -100,7 +100,7 @@ fn a_linked_binary_names_no_checkout_path_and_is_shared_across_checkouts() {
     // relative to the workspace: this is the entry that used to be absolute.
     assert!(
         oso.iter()
-            .any(|l| l.contains(" OSO target/mitts/debug/deps/libsemver")),
+            .any(|l| l.contains(" OSO target/debug/deps/libsemver")),
         "the transitive semver rlib is recorded relative to the workspace:\n{}",
         oso.join("\n")
     );
@@ -125,7 +125,7 @@ fn a_linked_binary_names_no_checkout_path_and_is_shared_across_checkouts() {
         text.contains("100% cache hit"),
         "the second checkout restores the binary instead of linking it:\n{text}"
     );
-    let run = Command::new(second.path().join("target/mitts/debug/osoapp"))
+    let run = Command::new(second.path().join("target/debug/osoapp"))
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");

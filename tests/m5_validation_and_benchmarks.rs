@@ -57,14 +57,10 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
         result.stderr
     );
 
-    let mitts_bin = project_dir
-        .join("target")
-        .join("mitts")
-        .join("debug")
-        .join("hello-rust");
+    let mitts_bin = project_dir.join("target").join("debug").join("hello-rust");
     assert!(
         mitts_bin.is_file(),
-        "Mitts binary must exist in target/mitts/debug"
+        "Mitts binary must exist in target/debug"
     );
 
     // 3. Verify both binaries execute and produce expected output
@@ -76,12 +72,9 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
     assert_eq!(mitts_out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&mitts_out.stdout).contains("Hello from Mitts fixture: 42"));
 
-    // 4. Verify cargo target directory was NOT corrupted or modified by mitts
+    // 4. Verify the standard target directory still contains a working binary
     assert!(cargo_bin.is_file());
-    assert_eq!(
-        plan.target_directory,
-        project_dir.join("target").join("mitts")
-    );
+    assert_eq!(plan.target_directory, project_dir.join("target"));
 }
 
 #[test]

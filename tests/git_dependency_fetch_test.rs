@@ -163,7 +163,7 @@ fn a_git_dependency_is_cloned_by_mitts_without_any_cargo_checkout() {
         !cargo_home.join("git").exists(),
         "Mitts never writes into CARGO_HOME"
     );
-    let bin = app.join("target/mitts/debug/app");
+    let bin = app.join("target/debug/app");
     let run = Command::new(&bin).output().expect("run app");
     assert_eq!(
         String::from_utf8_lossy(&run.stdout).trim(),
@@ -250,9 +250,7 @@ fn without_a_lockfile_git_dependencies_are_pinned_and_written_to_cargo_lock() {
         1,
         "one checkout for one commit"
     );
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(
         String::from_utf8_lossy(&run.stdout).trim(),
         "hi from git 42"

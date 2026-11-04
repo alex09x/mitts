@@ -93,7 +93,11 @@ edition = "2021"
     assert_eq!(resolved, cargo_toml);
 
     let target_dir = RustAdapter::resolve_target_dir(&cargo_toml, &opt_valid).unwrap();
-    assert_eq!(target_dir, root.join("target").join("mitts"));
+    assert_eq!(target_dir, root.join("target"));
+    assert!(target_dir.join("CACHEDIR.TAG").is_file());
+    assert!(target_dir.join(".gitignore").is_file());
+    assert!(!root.join("CACHEDIR.TAG").exists());
+    assert!(!root.join(".gitignore").exists());
 }
 
 #[test]

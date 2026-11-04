@@ -199,9 +199,7 @@ fn a_lockless_resolution_with_two_versions_of_a_crate_writes_qualified_dependenc
         lock.contains("\"shared 0.2.0\""),
         "two depends on shared 0.2.0:\n{lock}"
     );
-    let out = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let out = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "21");
     // A second run reads the written lock: the ambiguity must not come back.
     let (ok, text) = run(&["check"]);

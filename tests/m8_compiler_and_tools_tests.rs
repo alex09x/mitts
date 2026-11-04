@@ -47,9 +47,119 @@ fn test_m8_rust_adapter_resolve_manifest_and_target_dir() {
     let res_target = RustAdapter::resolve_target_dir(&manifest_file, &opt_target).unwrap();
     assert_eq!(res_target, custom_target);
 
-    // 4. Resolve target dir default (.mitts/target)
+    // 4. Resolve target dir default (target)
     let res_default = RustAdapter::resolve_target_dir(&manifest_file, &opt).unwrap();
-    assert_eq!(res_default, temp_dir.path().join("target").join("mitts"));
+    assert_eq!(res_default, temp_dir.path().join("target"));
+}
+
+#[test]
+fn test_target_root_and_test_env_agree() {
+    use mitts::adapter::rust::unit_env::{apply_test_binary_env, compute_unit_rustc_env_with_target};
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let Ok(case) = std::env::var("MITTS_TARGET_LAYOUT_PROBE") else {
+        for case in ["default", "env-relative", "env-absolute", "explicit"] {
+            let cwd = tempfile::tempdir().unwrap();
+            let mut cmd = Command::new(std::env::current_exe().unwrap());
+            cmd.args([
+                "--exact",
+                "test_target_root_and_test_env_agree",
+                "--nocapture",
+            ])
+            .current_dir(cwd.path())
+            .env("MITTS_TARGET_LAYOUT_PROBE", case)
+            .env_remove("CARGO_TARGET_DIR");
+            match case {
+                "env-relative" => {
+                    cmd.env("CARGO_TARGET_DIR", "env-parent/out");
+                }
+                "env-absolute" | "explicit" => {
+                    cmd.env("CARGO_TARGET_DIR", cwd.path().join("env-parent/out"));
+                }
+                _ => {}
+            }
+            let out = cmd.output().unwrap();
+            assert!(
+                out.status.success(),
+                "{case}: {}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let member = root.join("member");
+    fs::create_dir_all(member.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"member\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        member.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(member.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let explicit = (case == "explicit").then(|| PathBuf::from("custom/target/mitts"));
+    let opt = RustBuildOptions {
+        target_dir: explicit.clone(),
+        ..Default::default()
+    };
+    let target = RustAdapter::resolve_target_dir(&root.join("Cargo.toml"), &opt).unwrap();
+    let expected = explicit
+        .clone()
+        .or_else(|| std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from))
+        .unwrap_or_else(|| root.join("target"));
+    assert_eq!(target, expected);
+    if explicit.is_none() {
+        assert!(target.join("CACHEDIR.TAG").is_file());
+        assert!(target.join(".gitignore").is_file());
+        assert!(!target.parent().unwrap().join("CACHEDIR.TAG").exists());
+        assert!(!target.parent().unwrap().join(".gitignore").exists());
+    }
+
+    let unit = PlannedCompilationUnit {
+        package_name: "app".into(),
+        version: "0.1.0".into(),
+        kind: "test".into(),
+        manifest_path: member.join("Cargo.toml"),
+        workspace_root: Some(root.to_path_buf()),
+        ..Default::default()
+    };
+    for release in [false, true] {
+        for target_override in [explicit.as_deref(), Some(target.as_path())] {
+            let compile_env =
+                compute_unit_rustc_env_with_target(&unit, None, None, target_override, release);
+            let mut cmd = Command::new("unused");
+            apply_test_binary_env(&mut cmd, &unit, &member, target_override, release);
+            let runtime_env: std::collections::HashMap<_, _> = cmd
+                .get_envs()
+                .map(|(key, value)| {
+                    (
+                        key.to_string_lossy().to_string(),
+                        value.unwrap().to_string_lossy().to_string(),
+                    )
+                })
+                .collect();
+            for key in ["CARGO_BIN_EXE_app", "CARGO_TARGET_TMPDIR"] {
+                assert_eq!(compile_env[key], runtime_env[key]);
+            }
+            let profile = if release { "release" } else { "debug" };
+            assert_eq!(
+                PathBuf::from(&compile_env["CARGO_BIN_EXE_app"]),
+                target.join(profile).join("app")
+            );
+            assert_eq!(
+                PathBuf::from(&compile_env["CARGO_TARGET_TMPDIR"]),
+                target.join("tmp")
+            );
+        }
+    }
 }
 
 #[test]

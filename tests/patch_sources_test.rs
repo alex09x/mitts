@@ -102,9 +102,7 @@ fn a_path_patch_replaces_the_registry_package_with_and_without_a_lockfile() {
             && !lock.contains("semverish\"\nversion = \"1.2.0\"\nsource"),
         "the patched package has no source, like a path package:\n{lock}"
     );
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "patched");
 
     // The lockfile written is reused as is.
@@ -166,8 +164,6 @@ fn a_git_patch_is_pinned_to_its_commit_and_used_for_the_build() {
         lock.contains(&format!("source = \"git+{url}#{sha}\"")),
         "{lock}"
     );
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "from git");
 }

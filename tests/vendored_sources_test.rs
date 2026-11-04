@@ -129,9 +129,7 @@ fn vendored_crates_io_packages_build_without_network_with_and_without_a_lockfile
             && lock.contains(&format!("checksum = \"{PKG_SUM}\"")),
         "the lockfile looks exactly as with crates.io:\n{lock}"
     );
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
 
     // With the lockfile, a fresh cache still needs no network.
@@ -198,8 +196,6 @@ fn a_vendored_git_package_needs_no_git_access() {
     .unwrap();
     let (ok, text) = mitts(&["build"], &app, &temp.path().join("cache"), &cargo_home);
     assert!(ok, "vendored git package, git disabled:\n{text}");
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "7");
 }

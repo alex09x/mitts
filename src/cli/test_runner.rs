@@ -218,7 +218,8 @@ pub fn execute_test_binaries_with_plan(
         target_directory: args
             .target_dir
             .clone()
-            .unwrap_or_else(|| root_dir.join("target").join("mitts")),
+            .or_else(|| std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from))
+            .unwrap_or_else(|| root_dir.join("target")),
         ..Default::default()
     };
     let effective_plan = plan.unwrap_or(&default_plan);

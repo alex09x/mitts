@@ -326,7 +326,7 @@ fn test_nb1_nb2_check_metadata_only_and_build_upgrade_plus_all_targets() {
                 .any(|a| a.description.contains("integ"))
     );
 
-    let deps_dir = proj.join("target/mitts/debug/deps");
+    let deps_dir = proj.join("target/debug/deps");
     assert!(
         deps_dir.join("libnb_proj.rmeta").exists() && !deps_dir.join("libnb_proj.rlib").exists()
     );

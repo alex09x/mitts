@@ -43,7 +43,7 @@ fn build_clone(cache: &Path, files: &[(&str, &str)]) -> (bool, String) {
     };
     let (_, res) = RustAdapter::build_native(&opt).expect("build failed");
     assert_eq!(res.exit_code, 0);
-    let bin = clone.path().join("target/mitts/debug/scope_app");
+    let bin = clone.path().join("target/debug/scope_app");
     let out = Command::new(&bin).output().expect("run binary");
     (res.cached, String::from_utf8_lossy(&out.stdout).to_string())
 }
