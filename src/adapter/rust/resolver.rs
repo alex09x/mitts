@@ -277,7 +277,7 @@ impl NativeResolver {
                 }
             }
         } else {
-            remote_deps = extract_dependencies_with_reqs(&manifest_content);
+            bail!("Failed to parse manifest at {:?}", manifest_path);
         }
 
         let direct_remote_names: Vec<String> = remote_deps.iter().map(|d| d.name.clone()).collect();
