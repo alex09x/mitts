@@ -381,6 +381,8 @@ fn package_rejects_build_script_that_changes_source() {
     let output = Command::new(env!("CARGO_BIN_EXE_mitts"))
         .current_dir(&root)
         .arg("package")
+        .arg("--cache-dir")
+        .arg(temp.path().join("cache"))
         .arg("--target-dir")
         .arg(temp.path().join("target"))
         .env("TMPDIR", &scratch)
