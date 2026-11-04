@@ -28,6 +28,11 @@ class MittsDriverTests(unittest.TestCase):
                 sys.exit(97)
             if any(os.environ.get(k) != "" for k in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER")):
                 sys.exit(95)
+            if os.environ.get("CARGO") != sys.argv[0]:
+                sys.exit(94)
+            if os.environ.get("FAKE_MODE") == "cargo_probe":
+                import subprocess
+                sys.exit(subprocess.run(["cargo", "--version"]).returncode)
             home = pathlib.Path(os.environ["HOME"])
             if not home.is_dir() or pathlib.Path(os.environ["XDG_CACHE_HOME"]).exists():
                 sys.exit(96)
@@ -53,6 +58,12 @@ class MittsDriverTests(unittest.TestCase):
         self.assertEqual(
             [event["proc"] for event in self.fixture.read_events()], ["mitts"]
         )
+
+    def test_cargo_cli_in_path_is_blocked(self):
+        self.fixture.env["FAKE_MODE"] = "cargo_probe"
+        result = self.fixture.run_script("run_tests_isolated.sh")
+        self.assertEqual(result.returncode, 126, result.stdout + result.stderr)
+        self.assertIn("Cargo CLI is forbidden", result.stderr)
 
     def test_coverage_uses_the_same_native_driver_and_isolation(self):
         self.fixture.env["MITTS_TEST_COMMAND"] = "coverage"

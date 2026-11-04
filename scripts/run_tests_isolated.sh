@@ -34,6 +34,13 @@ marker=$sandbox/.started
 trap 'rm -rf "$sandbox"' EXIT
 touch "$marker"
 cd "$repo"
+mkdir -p "$sandbox/guard"
+cat > "$sandbox/guard/cargo" <<'EOF'
+#!/bin/sh
+echo 'Cargo CLI is forbidden in Mitts test workflows' >&2
+exit 126
+EOF
+chmod 755 "$sandbox/guard/cargo"
 if [ "${MITTS_TEST_DRIVER:-mitts}" != mitts ]; then
   echo 'run_tests_isolated: only the Mitts test driver is supported' >&2
   exit 2
@@ -53,6 +60,7 @@ env ${drop[@]+"${drop[@]}"} \
   XDG_CACHE_HOME="$sandbox/xdg" \
   CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
   RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+  PATH="$sandbox/guard:$PATH" CARGO="${MITTS_CI_BIN:-mitts}" \
   RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
   CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \
   "${command[@]}" "$@" || status=$?

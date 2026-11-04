@@ -41,12 +41,20 @@ controller_home="$controller/home"
 controller_xdg="$controller/xdg"
 controller_cache="$controller/cache"
 mkdir -p "$controller_home" "$controller_xdg" "$controller_cache" || exit 2
+mkdir -p "$controller/guard"
+cat > "$controller/guard/cargo" <<'EOF'
+#!/bin/sh
+echo 'Cargo CLI is forbidden in Mitts test workflows' >&2
+exit 126
+EOF
+chmod 755 "$controller/guard/cargo"
 
 if ! env ${drop[@]+"${drop[@]}"} \
   HOME="$controller_home" \
   XDG_CACHE_HOME="$controller_xdg" \
   CARGO_HOME="$cargo_home" \
   RUSTUP_HOME="$rustup_home" \
+  PATH="$controller/guard:$PATH" CARGO="$mitts_bin" \
   RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
   CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \
   "$mitts_bin" metadata --format-version 1 --manifest-path "$repo/Cargo.toml" \
@@ -108,6 +116,7 @@ run_target() {
     XDG_CACHE_HOME="$sandbox/xdg" \
     CARGO_HOME="$cargo_home" \
     RUSTUP_HOME="$rustup_home" \
+    PATH="$controller/guard:$PATH" CARGO="$mitts_bin" \
     RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
     CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \
     RUST_TEST_THREADS=1 \

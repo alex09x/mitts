@@ -67,6 +67,9 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
                 sys.exit(0)
             if mode != "test":
                 sys.exit(3)
+            if os.environ.get("FAKE_MODE") == "cargo_probe":
+                import subprocess
+                sys.exit(subprocess.run(["cargo", "--version"]).returncode)
             if os.environ.get("FAKE_MODE") == "writer" and target == "alpha":
                 store = pathlib.Path(os.environ["XDG_CACHE_HOME"]) / "mitts"
                 store.mkdir(parents=True, exist_ok=True)
@@ -136,6 +139,12 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("metadata omitted integration test targets", result.stderr)
         self.assertFalse(any(event["command"] == "test" for event in self.read_events()))
+
+    def test_probe_rejects_cargo_cli_invocation(self):
+        self.env["FAKE_MODE"] = "cargo_probe"
+        result = self.run_script("probe_store_isolation.sh", "alpha")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Cargo CLI is forbidden", result.stdout)
 
     def test_isolated_runner_uses_mitts_and_preserves_test_failure_status(self):
         self.env["FAKE_MODE"] = "fail"
