@@ -92,13 +92,10 @@ version = "0.5.0"
     let b_pkg = inline_deps_lock.get_package("dep-b").unwrap();
     assert_eq!(b_pkg.dependencies, vec!["dep-a", "unix-dep"]);
 
-    // 4. resolve_or_sync offline failure when lock missing or incompatible
+    // 4. Offline resolution fails without cached package metadata, without writing a lock.
     let res = CargoLock::resolve_or_sync_with_mode(&manifest, true, false, None);
     assert!(res.is_err());
-    assert!(res
-        .unwrap_err()
-        .to_string()
-        .contains("Cargo.lock is missing or incompatible and --offline was specified"));
+    assert!(!lock_path.exists());
 
     // 5. resolve_or_sync succeeds when valid compatible lockfile already exists
     let valid_lock = r#"version = 3
@@ -136,10 +133,21 @@ version = "0.5.0"
         CargoLock::resolve_or_sync_with_mode(&manifest, false, true, None).unwrap_err();
     assert!(locked_missing.to_string().contains("--locked"));
 
-    // Frozen mode has both constraints and must reject the same missing lockfile.
+    // Frozen mode combines offline resolution with the locked prohibition on creating a lock.
     let frozen_missing =
         CargoLock::resolve_or_sync_with_mode(&manifest, true, true, None).unwrap_err();
-    assert!(frozen_missing.to_string().contains("--locked/--offline"));
+    assert!(frozen_missing.to_string().contains("--frozen"));
+
+    let offline_only = temp.path().join("offline-only");
+    fs::create_dir_all(&offline_only).unwrap();
+    let empty_manifest = offline_only.join("Cargo.toml");
+    fs::write(
+        &empty_manifest,
+        "[package]\nname = \"offline-only\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    CargoLock::resolve_or_sync_with_mode(&empty_manifest, true, false, None).unwrap();
+    assert!(offline_only.join("Cargo.lock").exists());
 }
 
 #[test]

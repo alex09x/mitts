@@ -270,13 +270,8 @@ impl CargoLock {
             }
         }
 
-        if locked || offline {
-            let mode = match (locked, offline) {
-                (true, true) => "--locked/--offline",
-                (true, false) => "--locked",
-                (false, true) => "--offline",
-                (false, false) => unreachable!(),
-            };
+        if locked {
+            let mode = if offline { "--frozen" } else { "--locked" };
             bail!("Cargo.lock is missing or incompatible and {mode} was specified");
         }
 
