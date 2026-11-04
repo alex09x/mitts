@@ -8,6 +8,24 @@
   Do not install tools, change global configuration, or start builds/benchmarks.
 - Preserve unrelated changes. Keep work inside the registered Mitts repository.
 
+## Mitts-only tool policy
+
+- Use the latest stable `mitts` for every Rust build, check, test, Clippy,
+  formatting, coverage, metadata, fetch, source-package build, and installer
+  acceptance task in this repository and its CI/release workflows.
+- Do not invoke the Cargo CLI (`cargo build/test/check/clippy/fmt/fetch/metadata/
+  package/publish/install`) or Mitts' Cargo fallback. Do not use Cargo as a
+  baseline or as a workaround. `Cargo.toml` and `Cargo.lock` remain the project
+  inputs; `CARGO_*` environment names emitted for build-script compatibility do
+  not authorize launching Cargo.
+- crates.io publication uses the Mitts release package artifact and the registry
+  HTTP API; source-install acceptance builds the registry/Git/checkout source
+  with Mitts. Do not reintroduce Cargo-based packaging or installation checks.
+- If Mitts lacks a needed operation or its behavior is unclear, stop that check,
+  preserve its exact acceptance contract, and file a reproducible issue in
+  `alex09x/mitts`. Do not fall back to Cargo or edit project manifests/configs to
+  work around the gap.
+
 ## Design invariants
 
 - Keep build/cache orchestration language-neutral and language semantics in adapters.
@@ -33,10 +51,8 @@
   or `MITTS_CACHE_DIR` on a temp dir); a test that needs the fast build lock on an
   isolated cache sets `fast_lock: Some(true)`. Run the full suite through
   `scripts/run_tests_isolated.sh` (throwaway `HOME`/`XDG_CACHE_HOME`, inherited
-  `MITTS_*` dropped; fails if the real `~/.cache/mitts` changed) and prove the
-  isolation with `scripts/probe_store_isolation.sh`, which runs every test target
-  alone and fails on any that still reaches the default store.
-  `CARGO_TEST_CMD=llvm-cov scripts/run_tests_isolated.sh --summary-only` gives coverage.
+  `MITTS_*` dropped; fails if the real `~/.cache/mitts` changed). The runner,
+  per-target store probe, coverage, and every nested compile must all use Mitts.
 - State acceptance before implementation; cover correctness and cache invalidation.
   Distinguish cold builds, warm reuse, and changed-input builds in any approved study.
 - Never claim speedups, disk savings, compatibility, or passing tests without evidence.

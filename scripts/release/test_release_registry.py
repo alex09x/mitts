@@ -120,7 +120,7 @@ class RegistryReleaseTests(unittest.TestCase):
             patch.dict(os.environ, ENV),
             patch.object(registry, "fetch_index_version", return_value=self.entry),
             patch.object(registry, "http_get", return_value=self.raw),
-            patch.object(registry, "_run_cargo_publish") as upload,
+            patch.object(registry, "_upload_crate") as upload,
         ):
             registry.publish(self.folder, TAG, SHA, self.manifest)
             upload.assert_not_called()
@@ -131,7 +131,7 @@ class RegistryReleaseTests(unittest.TestCase):
                 "fetch_index_version",
                 return_value={**self.entry, "cksum": "0" * 64},
             ),
-            patch.object(registry, "_run_cargo_publish") as upload,
+            patch.object(registry, "_upload_crate") as upload,
         ):
             with self.assertRaises(ValueError):
                 registry.publish(self.folder, TAG, SHA, self.manifest)
@@ -145,14 +145,14 @@ class RegistryReleaseTests(unittest.TestCase):
             ),
             patch.object(registry, "http_get", return_value=self.raw),
             patch.object(registry, "_require_clean_source") as source,
-            patch.object(registry, "_run_cargo_publish") as upload,
+            patch.object(registry, "_upload_crate") as upload,
         ):
             self.assertEqual(
                 registry.publish(self.folder, TAG, SHA, self.manifest, interval=0),
                 self.receipt,
             )
             source.assert_called_once_with(self.manifest, SHA)
-            upload.assert_called_once()
+            upload.assert_called_once_with(self.manifest, self.folder / self.receipt["filename"], TOKEN)
 
     def test_wrong_checkout_stops_before_upload_and_git_does_not_receive_token(self):
         for output in [("b" * 40, ""), (SHA, " M Cargo.toml")]:
@@ -161,7 +161,7 @@ class RegistryReleaseTests(unittest.TestCase):
                 patch.dict(os.environ, ENV),
                 patch.object(registry, "fetch_index_version", return_value=None),
                 patch.object(registry.subprocess, "run", side_effect=results) as run,
-                patch.object(registry, "_run_cargo_publish") as upload,
+                patch.object(registry, "_upload_crate") as upload,
             ):
                 with self.assertRaises(ValueError):
                     registry.publish(self.folder, TAG, SHA, self.manifest)
@@ -176,7 +176,7 @@ class RegistryReleaseTests(unittest.TestCase):
         ]:
             with (
                 patch.dict(os.environ, {**ENV, **extra}),
-                patch.object(registry, "_run_cargo_publish") as upload,
+            patch.object(registry, "_upload_crate") as upload,
             ):
                 with self.assertRaises(ValueError):
                     registry.publish(self.folder, TAG, SHA, self.manifest)
@@ -189,13 +189,22 @@ class RegistryReleaseTests(unittest.TestCase):
             patch.object(registry, "_require_clean_source"),
             patch.object(
                 registry,
-                "_run_cargo_publish",
+                "_upload_crate",
                 side_effect=RuntimeError("failed " + TOKEN),
             ),
         ):
             with self.assertRaises(RuntimeError) as failure:
                 registry.publish(self.folder, TAG, SHA, self.manifest)
             self.assertNotIn(TOKEN, str(failure.exception))
+
+    def test_upload_uses_mitts_without_building_with_registry_token(self):
+        with patch.object(registry.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            registry._upload_crate(self.manifest, self.folder / "prepared.crate", TOKEN)
+        args, options = run.call_args
+        self.assertIn("--no-verify", args[0])
+        self.assertIn("--archive", args[0])
+        self.assertNotIn(TOKEN, args[0])
+        self.assertEqual(options["env"]["CARGO_REGISTRY_TOKEN"], TOKEN)
 
     def test_absence_is_distinguished_from_malformed_or_denied_index(self):
         record = json.dumps(self.entry).encode() + b"\n"

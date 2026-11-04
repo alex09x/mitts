@@ -21,18 +21,20 @@ fn fixture_manifest() -> PathBuf {
 }
 
 #[test]
-fn test_m7_cargo_check_and_mitts_check_equivalence() {
+fn test_m7_cli_and_adapter_check() {
     let manifest = fixture_manifest();
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
 
-    // 1. Run standard cargo check
-    let cargo_status = Command::new("cargo")
+    // 1. Run the Mitts CLI check.
+    let cargo_status = Command::new(env!("CARGO_BIN_EXE_mitts"))
         .arg("check")
+        .arg("--cache-dir")
+        .arg(temp_cache.path())
         .arg("--manifest-path")
         .arg(&manifest)
         .status()
-        .expect("cargo check");
-    assert!(cargo_status.success(), "Standard cargo check must succeed");
+        .expect("mitts check");
+    assert!(cargo_status.success(), "Mitts CLI check must succeed");
 
     // 2. Run mitts check in BuildMode::Check
     let opt = RustBuildOptions {
@@ -55,7 +57,7 @@ fn test_m7_cargo_check_and_mitts_check_equivalence() {
 }
 
 #[test]
-fn test_m7_cargo_clippy_execution() {
+fn test_m7_mitts_clippy_execution() {
     let manifest = fixture_manifest();
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
 

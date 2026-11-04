@@ -236,7 +236,7 @@ def get_rig_info() -> dict:
     except Exception:
         pass
     try:
-        clippy_v = subprocess.check_output(["cargo", "clippy", "-V"], text=True).strip()
+        clippy_v = subprocess.check_output(["clippy-driver", "-V"], text=True).strip()
     except Exception:
         pass
     try:

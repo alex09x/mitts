@@ -18,8 +18,11 @@ pub struct CoverageArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Package to measure coverage for
-    #[arg(short, long)]
+    #[arg(skip)]
     pub package: Option<String>,
+    /// Packages to measure (repeat for multiple packages)
+    #[arg(short = 'p', long = "package", action = clap::ArgAction::Append)]
+    pub packages: Vec<String>,
 
     /// Build and run tests in release mode
     #[arg(short, long)]
@@ -56,6 +59,10 @@ pub struct CoverageArgs {
     /// Minimum line coverage percentage (fails if below threshold)
     #[arg(long)]
     pub fail_under_lines: Option<f64>,
+
+    /// Exclude matching source filenames from reports and the coverage threshold
+    #[arg(long)]
+    pub ignore_filename_regex: Option<String>,
 
     /// Filter tests by name or substring
     #[arg(value_name = "TESTNAME")]

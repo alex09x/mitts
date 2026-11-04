@@ -48,7 +48,11 @@ fn write_project(dir: &Path) {
         "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(dir.join("helper/src/lib.rs"), "pub fn seven() -> u64 { 7 }\n").unwrap();
+    fs::write(
+        dir.join("helper/src/lib.rs"),
+        "pub fn seven() -> u64 { 7 }\n",
+    )
+    .unwrap();
     let lib = "#[cfg(feature = \"extra\")]\npub fn val() -> u64 { helper::seven() }\n\
                #[cfg(not(feature = \"extra\"))]\npub fn val() -> u64 { 1 }\n";
     fs::write(dir.join("src/lib.rs"), lib).unwrap();
@@ -66,13 +70,17 @@ fn an_older_copy_of_the_member_keeps_its_own_features() {
     let cache = TempDir::new().unwrap();
     let dir = TempDir::new().unwrap();
     write_project(dir.path());
-    // The lockfile Cargo writes names the duplicate as `foo 0.1.0`, as in a checked-in lock.
-    let lock = Command::new("cargo")
-        .args(["generate-lockfile", "--offline"])
+    let lock = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["fetch", "--offline", "--cache-dir"])
+        .arg(cache.path())
         .current_dir(dir.path())
         .output()
-        .expect("run cargo generate-lockfile");
-    assert!(lock.status.success(), "{}", String::from_utf8_lossy(&lock.stderr));
+        .expect("run mitts fetch");
+    assert!(
+        lock.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lock.stderr)
+    );
 
     let out = Command::new(env!("CARGO_BIN_EXE_mitts"))
         .args(["test", "--manifest-path"])

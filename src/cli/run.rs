@@ -206,6 +206,10 @@ fn resolve_run_target(
 }
 
 pub fn handle_run(args: &RunArgs) -> i32 {
+    if args.build_args.packages.len() + usize::from(args.build_args.package.is_some()) > 1 {
+        eprintln!("error: mitts run accepts only one package");
+        return 1;
+    }
     if !args.build_args.config.is_empty() {
         eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
         return 1;

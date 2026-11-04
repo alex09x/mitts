@@ -82,7 +82,10 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         args.out_dir,
     );
     let (extra_inputs, can_publish_cache) = match extra_inputs_res {
-        Ok(extra) => (extra, !action_key.contains(":unhashable:")),
+        Ok(extra) => (
+            extra,
+            ctx.is_cache_enabled && !action_key.contains(":unhashable:"),
+        ),
         Err(err) => {
             eprintln!(
                 "[mitts::warn] Unit '{}' tracked input hashing failed: {}. Discarding cache publication (fail-closed).",

@@ -101,6 +101,41 @@ fn collect_object_binaries(
     objects
 }
 
+fn coverage_exclusions(args: &CoverageArgs, ws_root: &Path) -> String {
+    let cache = crate::core::cache_root::resolve(args.cache_dir.as_deref());
+    let cache = if cache.is_absolute() {
+        cache
+    } else {
+        ws_root.join(cache)
+    };
+    let cache = fs::canonicalize(&cache).unwrap_or(cache);
+    let escape = |path: &Path| {
+        path.to_string_lossy()
+            .chars()
+            .flat_map(|c| {
+                if ".+*?()|[]{}^$\\".contains(c) {
+                    vec!['\\', c]
+                } else {
+                    vec![c]
+                }
+            })
+            .collect::<String>()
+    };
+    let mut patterns = vec![
+        r"/.cargo/".to_string(),
+        r"/rustc/".to_string(),
+        r"/target/".to_string(),
+        r"\.mitts/".to_string(),
+    ];
+    for dir in ["sources", "git"] {
+        patterns.push(format!("{}/", escape(&cache.join(dir))));
+    }
+    if let Some(pattern) = &args.ignore_filename_regex {
+        patterns.push(format!("({pattern})"));
+    }
+    format!("--ignore-filename-regex=({})", patterns.join("|"))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn merge_and_report_coverage(
     args: &CoverageArgs,
@@ -181,14 +216,19 @@ pub fn merge_and_report_coverage(
     for extra_bin in &objects[1..] {
         cov_cmd.arg(format!("--object={}", extra_bin.display()));
     }
-    cov_cmd.arg(r"--ignore-filename-regex=(/.cargo/|/rustc/|/target/|\.mitts/)");
+    let exclusions = coverage_exclusions(args, ws_root);
+    cov_cmd.arg(&exclusions);
 
     let cov_status = if args.lcov {
         let lcov_path = out_dir.join("lcov.info");
         match cov_cmd.output() {
             Ok(out) => {
                 if out.status.success() {
-                    let _ = fs::write(&lcov_path, &out.stdout);
+                    if let Err(err) = fs::write(&lcov_path, &out.stdout) {
+                        let _ = fs::remove_file(&pid_profdata);
+                        eprintln!("mitts coverage error: cannot write LCOV report: {err}");
+                        return 1;
+                    }
                 }
                 out.status
             }
@@ -210,6 +250,12 @@ pub fn merge_and_report_coverage(
         }
     };
 
+    if !cov_status.success() {
+        let _ = fs::remove_file(&pid_profdata);
+        eprintln!("mitts coverage error: llvm-cov report failed");
+        return cov_status.code().unwrap_or(1);
+    }
+
     if let Some(threshold) = args.fail_under_lines {
         let mut check_cmd = Command::new(llvm_cov);
         check_cmd.current_dir(ws_root);
@@ -219,32 +265,37 @@ pub fn merge_and_report_coverage(
         for extra_bin in &objects[1..] {
             check_cmd.arg(format!("--object={}", extra_bin.display()));
         }
-        check_cmd.arg(r"--ignore-filename-regex=(/.cargo/|/rustc/|/target/|\.mitts/)");
-        if let Ok(check_out) = check_cmd.output() {
-            if check_out.status.success() {
-                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&check_out.stdout) {
-                    let pct = v
-                        .get("data")
-                        .and_then(|d| d.get(0))
-                        .and_then(|d0| d0.get("totals"))
-                        .and_then(|tot| tot.get("lines"))
-                        .and_then(|lines| lines.get("percent"))
-                        .and_then(|p| p.as_f64())
-                        .unwrap_or(0.0);
-                    if pct < threshold {
-                        let _ = fs::remove_file(&pid_profdata);
-                        eprintln!(
-                            "mitts coverage error: line coverage {:.2}% is below threshold {:.2}%",
-                            pct, threshold
-                        );
-                        return 1;
-                    }
-                    println!(
-                        "mitts coverage: line coverage {:.2}% meets threshold {:.2}%",
-                        pct, threshold
-                    );
-                }
+        check_cmd.arg(&exclusions);
+        let percent = check_cmd
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
+            .and_then(|v| {
+                v.get("data")
+                    .and_then(|d| d.get(0))
+                    .and_then(|d0| d0.get("totals"))
+                    .and_then(|tot| tot.get("lines"))
+                    .and_then(|lines| lines.get("percent"))
+                    .and_then(|p| p.as_f64())
+            });
+        if let Some(pct) = percent {
+            if pct < threshold {
+                let _ = fs::remove_file(&pid_profdata);
+                eprintln!(
+                    "mitts coverage error: line coverage {:.2}% is below threshold {:.2}%",
+                    pct, threshold
+                );
+                return 1;
             }
+            println!(
+                "mitts coverage: line coverage {:.2}% meets threshold {:.2}%",
+                pct, threshold
+            );
+        } else {
+            let _ = fs::remove_file(&pid_profdata);
+            eprintln!("mitts coverage error: unable to calculate line coverage threshold");
+            return 1;
         }
     }
 
@@ -263,5 +314,5 @@ pub fn merge_and_report_coverage(
     }
     Ui::finish("coverage", &dur, "Coverage report completed");
 
-    cov_status.code().unwrap_or(0)
+    0
 }

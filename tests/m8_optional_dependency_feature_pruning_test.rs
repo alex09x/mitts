@@ -15,7 +15,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 #[test]
-fn test_m8_inactive_optional_dependency_pruned_and_feature_parity_with_cargo() {
+fn test_m8_inactive_optional_dependency_and_feature_pruning() {
     let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
@@ -82,14 +82,13 @@ extra_feat = []
     .unwrap();
     fs::write(common_dir.join("src/lib.rs"), "pub fn common_run() {}\n").unwrap();
 
-    // Generate Cargo.lock
-    let lock_status = Command::new("cargo")
-        .args(["generate-lockfile"])
+    let lock_status = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["fetch", "--offline", "--cache-dir"])
+        .arg(isolated_cache.path())
         .current_dir(root)
-        .status();
-    if let Ok(st) = lock_status {
-        assert!(st.success(), "cargo generate-lockfile failed");
-    }
+        .status()
+        .expect("mitts fetch");
+    assert!(lock_status.success(), "mitts fetch failed");
 
     // --- Scenario 1: Without 'net' feature ---
     // Inactive optional dependency `dep_optional` must NOT be in the plan.
@@ -132,20 +131,18 @@ extra_feat = []
         common_unit_without_net.features
     );
 
-    // Verify against Cargo's ground truth via message-format=json
-    let cargo_check_without = Command::new("cargo")
-        .args(["check", "--message-format=json"])
+    // Exercise the selected graph as well as inspecting its planned units.
+    let check_without = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["check", "--locked", "--cache-dir"])
+        .arg(isolated_cache.path())
         .current_dir(&app_dir)
-        .output();
-    if let Ok(c_out) = cargo_check_without {
-        if c_out.status.success() {
-            let stderr_str = String::from_utf8_lossy(&c_out.stderr);
-            assert!(
-                !stderr_str.contains("dep_optional"),
-                "Cargo must not compile dep_optional without net feature"
-            );
-        }
-    }
+        .output()
+        .expect("mitts check");
+    assert!(
+        check_without.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check_without.stderr)
+    );
 
     // --- Scenario 2: With 'net' feature enabled ---
     // Optional dependency `dep_optional` IS activated.
@@ -237,13 +234,13 @@ feat_from_target = []
     .unwrap();
     fs::write(sub_dir.join("src/lib.rs"), "pub fn sub_run() {}\n").unwrap();
 
-    let lock_status = Command::new("cargo")
-        .args(["generate-lockfile"])
+    let lock_status = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["fetch", "--offline", "--cache-dir"])
+        .arg(isolated_cache.path())
         .current_dir(root)
-        .status();
-    if let Ok(st) = lock_status {
-        assert!(st.success(), "cargo generate-lockfile failed");
-    }
+        .status()
+        .expect("mitts fetch");
+    assert!(lock_status.success(), "mitts fetch failed");
 
     // 1. Without 'net': sub_dep must NOT be in plan
     let opt_without = RustBuildOptions {

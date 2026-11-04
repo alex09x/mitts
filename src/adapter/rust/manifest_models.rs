@@ -251,6 +251,8 @@ pub enum TestRole {
     /// An example declared with `test = true`, carrying the example name; `cargo test
     /// --tests` compiles it as a test executable (clap's `pacman`).
     Example(String),
+    /// A benchmark target from [[bench]] or benches/.
+    Bench,
 }
 
 /// A discovered compile target within a package.

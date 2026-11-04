@@ -24,8 +24,11 @@ pub struct CheckArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Package to check
-    #[arg(short, long)]
+    #[arg(skip)]
     pub package: Option<String>,
+    /// Packages to check (repeat for multiple packages)
+    #[arg(short = 'p', long = "package", action = clap::ArgAction::Append)]
+    pub packages: Vec<String>,
 
     /// Check artifacts in release mode
     #[arg(short, long)]
@@ -137,7 +140,16 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
 
     let mut opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
-        package: args.package.clone(),
+        package: args
+            .package
+            .clone()
+            .or_else(|| args.packages.first().cloned()),
+        packages: args
+            .packages
+            .iter()
+            .skip(usize::from(args.package.is_none()))
+            .cloned()
+            .collect(),
         release: args.release,
         target_dir: args.target_dir.clone(),
         features: args.features.clone(),
@@ -163,6 +175,8 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         all_bins: args.bins || args.all_targets,
         test_targets: args.test.clone(),
         all_tests: args.tests || args.all_targets,
+        all_benches: args.all_targets,
+        all_examples: args.all_targets,
         ..Default::default()
     };
 

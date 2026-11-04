@@ -13,7 +13,6 @@ use crate::adapter::rust::types::PlannedCompilationUnit;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub struct BuildScriptCompileArgs<'a> {
     pub unit: &'a PlannedCompilationUnit,
@@ -34,7 +33,14 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
     let (major, minor, patch, pre) =
         crate::adapter::rust::compiler_resolve::parse_version_parts(&args.unit.version);
 
-    let mut compile_cmd = Command::new(crate::adapter::rust::compiler::resolve_rustc());
+    let compiler = crate::adapter::rust::compiler::resolve_rustc();
+    let base_dir = args.unit.workspace_root.as_deref().unwrap_or(args.pkg_dir);
+    let config_dir = crate::adapter::rust::cargo_config::resolve_config_start_dir(base_dir);
+    let mut compile_cmd = crate::adapter::rust::compiler_wrappers::compiler_command(
+        &compiler,
+        &config_dir,
+        args.unit.is_workspace,
+    )?;
     compile_cmd.current_dir(args.pkg_dir);
     if let Ok(tc) = std::env::var("RUSTUP_TOOLCHAIN") {
         compile_cmd.env("RUSTUP_TOOLCHAIN", tc);

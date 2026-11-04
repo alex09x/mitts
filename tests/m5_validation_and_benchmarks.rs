@@ -23,25 +23,24 @@ fn fixture_manifest() -> PathBuf {
 }
 
 #[test]
-fn test_m5_coexistence_side_by_side_with_cargo() {
+fn test_m5_cli_and_adapter_share_target() {
     let manifest = fixture_manifest();
     let project_dir = manifest.parent().unwrap();
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
 
-    // 1. Run standard `cargo build` in the fixture directory
-    let cargo_status = Command::new("cargo")
+    // 1. Build the fixture through the Mitts CLI.
+    let cargo_status = Command::new(env!("CARGO_BIN_EXE_mitts"))
         .arg("build")
+        .arg("--cache-dir")
+        .arg(temp_cache.path())
         .arg("--manifest-path")
         .arg(&manifest)
         .status()
-        .expect("invoke cargo build");
-    assert!(cargo_status.success(), "Standard cargo build must succeed");
+        .expect("invoke mitts build");
+    assert!(cargo_status.success(), "Mitts CLI build must succeed");
 
     let cargo_bin = project_dir.join("target").join("debug").join("hello-rust");
-    assert!(
-        cargo_bin.is_file(),
-        "Cargo binary must exist in target/debug"
-    );
+    assert!(cargo_bin.is_file(), "CLI binary must exist in target/debug");
 
     // 2. Run `mitts build` side-by-side on the exact same project
     let opt = RustBuildOptions {
@@ -64,7 +63,7 @@ fn test_m5_coexistence_side_by_side_with_cargo() {
     );
 
     // 3. Verify both binaries execute and produce expected output
-    let cargo_out = Command::new(&cargo_bin).output().expect("run cargo bin");
+    let cargo_out = Command::new(&cargo_bin).output().expect("run CLI binary");
     assert_eq!(cargo_out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&cargo_out.stdout).contains("Hello from Mitts fixture: 42"));
 

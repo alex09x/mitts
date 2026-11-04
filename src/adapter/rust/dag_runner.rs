@@ -93,9 +93,7 @@ pub fn run_native_dag_build(
         });
     }
 
-    let max_concurrency = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(8);
+    let max_concurrency = crate::core::jobs::limit()?;
 
     let total_units = dag.len();
     let initial_leaves = dag.leaf_ids().to_vec();

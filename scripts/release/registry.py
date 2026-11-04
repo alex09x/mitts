@@ -238,41 +238,16 @@ def _require_clean_source(manifest, sha):
         )
 
 
-def _run_cargo_publish(manifest, token, secrets):
-    cmd = [
-        "cargo",
-        "publish",
-        "--locked",
-        "--no-verify",
-        "--manifest-path",
-        str(manifest),
-    ]
-    if any(secret in arg for arg in cmd for secret in secrets):
-        raise ValueError("Refusing secret value in cargo publish arguments")
+def _upload_crate(manifest, archive, token):
+    executable = os.environ.get("MITTS_PUBLISH_BIN", "mitts")
+    command = [executable, "publish", "--no-verify", "--manifest-path", str(manifest), "--archive", str(archive)]
     try:
-        result = subprocess.run(
-            cmd,
-            env={**os.environ, "CARGO_REGISTRY_TOKEN": token},
-            capture_output=True,
-            text=True,
-            timeout=PUBLISH_TIMEOUT,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(
-            "cargo publish timed out; subprocess output suppressed"
-        ) from None
-    except OSError as error:
-        raise RuntimeError(
-            _redact(f"cargo publish failed to start: {error}", secrets)
-        ) from None
+        result = subprocess.run(command, env={**os.environ, "CARGO_REGISTRY_TOKEN": token},
+                                capture_output=True, timeout=PUBLISH_TIMEOUT, check=False)
+    except (subprocess.TimeoutExpired, OSError):
+        raise RuntimeError("Mitts registry upload failed; output suppressed") from None
     if result.returncode != 0:
-        out = _redact(
-            (result.stderr or "") + "\n" + (result.stdout or ""), secrets
-        ).strip()
-        raise RuntimeError(
-            f"cargo publish failed ({result.returncode}): {out[-6000:]}"
-        ) from None
+        raise RuntimeError("Mitts registry upload failed; output suppressed")
 
 
 def publish(
@@ -322,7 +297,8 @@ def publish(
             print(f"{PACKAGE} {version} ({sha}) already published identically; no-op")
             return local_receipt
         _require_clean_source(manifest, sha)
-        _run_cargo_publish(manifest, token, secrets)
+        archive = Path(folder) / local_receipt["filename"]
+        _upload_crate(manifest, archive, token)
         for attempt in range(1, attempts + 1):
             published = fetch_index_version(version)
             if published is not None and _verify_remote(

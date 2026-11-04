@@ -19,7 +19,7 @@ const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS
 #[command(version = MITTS_VERSION)]
 #[command(
     about = "Rust-first build and package tooling with a shared artifact cache",
-    after_help = "Diagnostic Environment Variables:\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
+    after_help = "Environment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -29,21 +29,33 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Compile the local package and its dependencies into the isolated Mitts target
+    #[command(
+        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+    )]
     Build(BuildArgs),
 
     /// Run native rustc queries for the selected package target
     Rustc(BuildArgs),
 
     /// Check a package to catch errors without producing binary artifacts
+    #[command(
+        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+    )]
     Check(CheckArgs),
 
     /// Run Clippy lints over local packages in the workspace
+    #[command(
+        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+    )]
     Clippy(ClippyArgs),
 
     /// Format Rust source files in the workspace using rustfmt
     Fmt(FmtArgs),
 
     /// Execute unit and integration tests of a package
+    #[command(
+        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+    )]
     Test(TestArgs),
 
     /// Generate code coverage using LLVM source-based coverage tools
@@ -66,6 +78,18 @@ pub enum Commands {
 
     /// Fetch dependencies into the global source store
     Fetch(FetchArgs),
+
+    /// Create a source package archive
+    #[command(
+        after_help = "Git packages currently require a clean repository with the package at its root. Include/exclude patterns are supported; include can select ignored files. Nested workspace packages and symlinked directories are not yet supported.\n\nExamples:\n  mitts package --locked\n  mitts package --offline --cache-dir /path/to/cache\n  mitts package --no-verify"
+    )]
+    Package(PackageArgs),
+
+    /// Publish a source package to crates.io
+    #[command(
+        after_help = "Publishes to crates.io using CARGO_REGISTRY_TOKEN. The default operation creates and verifies a package; --archive accepts a previously prepared archive.\n\nExamples:\n  mitts publish --dry-run\n  mitts publish --locked\n  mitts publish --archive target/package/name-version.crate"
+    )]
+    Publish(PublishArgs),
 
     /// Prune old or unreferenced CAS objects according to storage quotas
     Gc(GcArgs),
@@ -104,8 +128,12 @@ pub struct BuildArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Package to build
-    #[arg(short, long)]
+    #[arg(skip)]
     pub package: Option<String>,
+
+    /// Packages to build (repeat for multiple packages)
+    #[arg(short = 'p', long = "package", action = clap::ArgAction::Append)]
+    pub packages: Vec<String>,
 
     /// Build artifacts in release mode, with optimizations
     #[arg(short, long)]
@@ -221,8 +249,11 @@ pub struct ExplainArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Package to explain
-    #[arg(short, long)]
+    #[arg(skip)]
     pub package: Option<String>,
+    /// Packages to explain (repeat for multiple packages)
+    #[arg(short = 'p', long = "package", action = clap::ArgAction::Append)]
+    pub packages: Vec<String>,
 
     /// Check release mode profile
     #[arg(short, long)]
@@ -348,11 +379,20 @@ pub mod diagnostic;
 pub mod fmt;
 pub mod handlers;
 pub mod metadata;
+mod package;
+mod package_archive;
+mod package_directory;
+mod package_lock;
+mod package_patterns;
+mod registry_metadata;
+mod registry_protocol;
+mod registry_upload;
 pub mod run;
 pub mod rustc;
 pub mod terminal;
 pub mod test;
 pub mod test_doctest;
+mod test_progress;
 pub mod test_runner;
 pub mod ui;
 
@@ -364,6 +404,7 @@ pub use diagnostic::render_compiler_diagnostics;
 pub use fmt::{handle_fmt, FmtArgs};
 pub use handlers::{handle_clean, handle_explain, handle_fetch, handle_gc};
 pub use metadata::handle_metadata;
+pub use package::{handle_package, handle_publish, PackageArgs, PublishArgs};
 pub use run::handle_run;
 pub use rustc::handle_rustc;
 pub use terminal::TerminalGuard;

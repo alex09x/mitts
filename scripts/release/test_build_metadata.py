@@ -47,12 +47,6 @@ class BuildMetadataTests(unittest.TestCase):
             "BUILD_METADATA_COUNTER": str(self.counter),
             "CARGO_TARGET_DIR": str(self.root / "target"),
         }
-        subprocess.run(
-            ["cargo", "generate-lockfile", "--quiet"],
-            cwd=self.project,
-            env=self.env,
-            check=True,
-        )
 
     def git(self, *args):
         return subprocess.check_output(
@@ -72,7 +66,9 @@ class BuildMetadataTests(unittest.TestCase):
 
     def cargo(self, expected):
         result = subprocess.run(
-            ["cargo", "test", "--quiet", "--lib"],
+            [os.environ.get("MITTS_CI_BIN", "mitts"), "test", "--lib", "--locked",
+             "--target-dir", str(self.root / "target"),
+             "--cache-dir", str(self.root / "mitts-cache")],
             cwd=self.project,
             env={**self.env, "EXPECTED_SOURCE_SHA": expected},
             text=True,

@@ -40,11 +40,7 @@ def main():
         "--mitts", type=Path, help="Use the verified self-built Mitts formatter driver"
     )
     args = parser.parse_args()
-    command = (
-        [str(args.mitts), "fmt", "--all", "--check", "--", "--color", "never"]
-        if args.mitts
-        else ["cargo", "fmt", "--all", "--", "--check", "--color", "never"]
-    )
+    command = [str(args.mitts or "mitts"), "fmt", "--all", "--check", "--", "--color", "never"]
     result = subprocess.run(
         command,
         cwd=args.source,

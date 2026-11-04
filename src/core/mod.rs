@@ -21,6 +21,7 @@ pub mod cas;
 pub mod file_scanner;
 pub mod gc;
 pub mod hash;
+pub mod jobs;
 pub mod jobserver;
 pub mod lock;
 pub mod metrics;

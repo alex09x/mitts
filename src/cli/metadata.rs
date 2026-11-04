@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use crate::adapter::rust::manifest::{CargoToml, DiscoveredTarget, TomlDependency};
+use crate::adapter::rust::manifest::{CargoToml, DiscoveredTarget, TestRole, TomlDependency};
 use crate::adapter::rust::{RustAdapter, RustBuildOptions};
 use crate::cli::MetadataArgs;
 use anyhow::{Context, Result};
@@ -242,6 +242,13 @@ fn package_json(entry: &PackageEntry) -> Result<Value> {
         .parent()
         .context("package manifest has no parent directory")?;
     let mut targets = entry.manifest.discover_targets(package_dir);
+    targets.extend(
+        entry
+            .manifest
+            .discover_test_targets(package_dir)
+            .into_iter()
+            .filter(|target| target.test_role == Some(TestRole::Integration)),
+    );
     let mut seen = BTreeSet::new();
     targets.retain(|target| {
         seen.insert((
@@ -295,6 +302,7 @@ fn target_json(target: &DiscoveredTarget) -> Value {
         "doc": target.kind == "lib" || target.kind == "proc-macro",
         "doctest": target.kind == "lib" || target.kind == "proc-macro",
         "test": target.kind != "example",
+        "harness": target.harness,
         "required-features": target.required_features,
     })
 }

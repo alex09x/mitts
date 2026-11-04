@@ -18,7 +18,16 @@ mod clean_target;
 pub fn handle_explain(args: &ExplainArgs) -> i32 {
     let opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
-        package: args.package.clone(),
+        package: args
+            .package
+            .clone()
+            .or_else(|| args.packages.first().cloned()),
+        packages: args
+            .packages
+            .iter()
+            .skip(usize::from(args.package.is_none()))
+            .cloned()
+            .collect(),
         release: args.release,
         features: args.features.clone(),
         no_default_features: args.no_default_features,

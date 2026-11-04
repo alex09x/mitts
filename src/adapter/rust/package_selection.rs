@@ -50,20 +50,23 @@ pub fn select_transitive_packages<'a>(
         };
 
     let mut root_pkgs: Vec<&'a CargoLockPackage> = Vec::new();
-    if let Some(ref target_pkg) = opt.package {
-        if let Some(pkgs) = packages_by_name.get(target_pkg) {
-            if let Some((_, ws_toml)) = workspace_manifests.get(target_pkg) {
-                let ws_ver = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
-                if let Some(m) = find_ws_pkg(pkgs, ws_ver) {
-                    root_pkgs.push(m);
+    let selected_roots: Vec<&str> = opt.selected_package_names().collect();
+    if !selected_roots.is_empty() {
+        for target_pkg in selected_roots {
+            if let Some(pkgs) = packages_by_name.get(target_pkg) {
+                if let Some((_, ws_toml)) = workspace_manifests.get(target_pkg) {
+                    let ws_ver = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
+                    if let Some(m) = find_ws_pkg(pkgs, ws_ver) {
+                        root_pkgs.push(m);
+                    } else {
+                        root_pkgs.extend(pkgs);
+                    }
                 } else {
                     root_pkgs.extend(pkgs);
                 }
             } else {
-                root_pkgs.extend(pkgs);
+                bail!("Package '{target_pkg}' not found in workspace lockfile");
             }
-        } else {
-            bail!("Package '{target_pkg}' not found in workspace lockfile");
         }
     } else if opt
         .extra_args
@@ -151,6 +154,9 @@ pub fn select_transitive_packages<'a>(
     let mut to_visit: Vec<&'a CargoLockPackage> = root_pkgs;
     let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test
         || opt.all_tests
+        || opt.all_benches
+        || opt.all_examples
+        || !opt.example_targets.is_empty()
         || !opt.test_targets.is_empty();
     let explicit_target = crate::adapter::rust::key_flags::resolve_explicit_target(opt);
     let start_dir = opt

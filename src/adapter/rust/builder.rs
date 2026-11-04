@@ -39,9 +39,13 @@ pub fn compute_options_hash(
     example_targets.sort();
     let mut features = opt.features.clone();
     features.sort();
+    let mut packages: Vec<_> = opt.selected_package_names().collect();
+    packages.sort_unstable();
+    packages.dedup();
 
     let payload = format!(
-        "compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkg={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
+        "jobs={}|compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkgs={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|all_benches={}|all_examples={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
+        crate::core::jobs::limit().unwrap_or(0),
         super::compiler_remap::KEY_FLAG,
         manifest_path.display(),
         target_dir.display(),
@@ -53,7 +57,7 @@ pub fn compute_options_hash(
         opt.no_cache,
         opt.native,
         opt.cargo,
-        opt.package,
+        packages,
         exclude,
         bin_targets,
         opt.all_bins,
@@ -62,6 +66,8 @@ pub fn compute_options_hash(
         opt.doc_only,
         test_targets,
         opt.all_tests,
+        opt.all_benches,
+        opt.all_examples,
         features,
         opt.all_features,
         opt.no_default_features,
@@ -73,19 +79,32 @@ pub fn compute_options_hash(
 
 /// Executes the build purely natively with parallel rustc DAG compilation and CAS caching.
 pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
+    crate::core::jobs::limit()?;
     super::diagnostic_dedupe::reset();
     super::toolchain_probes::set_cache_root(&crate::core::cache_root::resolve(
         opt.cache_dir.as_deref(),
     ));
     let _manifest_scope = super::manifest_snapshot::ManifestSnapshot::default().enter();
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
+    let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
+    let config_dir = super::cargo_config::resolve_config_start_dir_with_opt(
+        project_dir,
+        opt.start_dir.as_deref(),
+    );
+    let has_wrapper =
+        !crate::adapter::rust::compiler_wrappers::compiler_wrappers(&config_dir, true)?.is_empty();
+    let mut uncached_opt = opt.clone();
+    if has_wrapper {
+        uncached_opt.no_cache = true;
+        uncached_opt.fast_lock = Some(false);
+    }
+    let opt = &uncached_opt;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let _ = std::fs::create_dir_all(&target_dir);
     let _ = std::fs::write(target_dir.join(".mitts-target"), "mitts-target-v1\n");
     let clean_lock_path = target_dir.join(".mitts-clean.lock");
     let _clean_guard = crate::core::lock::FileLock::acquire_shared(&clean_lock_path).ok();
     let _gc_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
-    let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let log_path = target_dir.join("build.log");
     let mut logger = BuildLogger::new(Some(log_path));
 

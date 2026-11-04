@@ -6,16 +6,10 @@
 # Author: https://prod.codes/about/
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Corpus smoke pass: does Mitts build what Cargo builds?
+"""Run Mitts check, clippy and test compilation across the selected corpus.
 
-For every corpus project (or a shard of it) the script clones HEAD, locks and fetches the
-dependencies once, then runs the same three commands the benchmark harness runs — a
-workspace `check`, a workspace `clippy` and a workspace `test --tests --no-run` — under Cargo
-and under Mitts, each from an empty Mitts cache, and records both exit codes with the tail
-of each stderr. A project where the two tools disagree is a defect to look at before a
-benchmark series is started: Mitts failing where Cargo succeeds is a Mitts bug, Mitts
-succeeding where Cargo fails is a missing diagnostic. No timing is recorded; this is not a
-benchmark and may run on any build node.
+Each project is cloned into the work directory and fetched into its own Mitts cache.
+The report records Mitts command results without asserting parity with another tool.
 
     corpus_smoke.py --mitts-bin target/release/mitts --work /tmp/smoke --out smoke.json
     corpus_smoke.py ... --shard 2/3            # the second third of the corpus
@@ -33,12 +27,9 @@ import time
 from pathlib import Path
 
 COMMANDS = {
-    "check": (["cargo", "check", "--workspace", "--offline"], ["check", "--workspace"]),
-    "clippy": (["cargo", "clippy", "--workspace", "--offline"], ["clippy", "--workspace"]),
-    "test_no_run": (
-        ["cargo", "test", "--workspace", "--tests", "--no-run", "--offline"],
-        ["test", "--workspace", "--tests", "--no-run"],
-    ),
+    "check": ["check", "--workspace"],
+    "clippy": ["clippy", "--workspace"],
+    "test_no_run": ["test", "--workspace", "--tests", "--no-run"],
 }
 
 
@@ -64,27 +55,6 @@ def run(cmd: list[str], cwd: Path, env: dict, timeout: int = 1800) -> dict:
     return {"exit_code": code, "wall_s": round(time.perf_counter() - t0, 1), "tail": "\n".join(out.strip().splitlines()[-40:])}
 
 
-def count_cargo_test_binaries(proj: Path, env: dict) -> int | None:
-    """Number of test executables Cargo's `test --tests --no-run` produces (warm, from its JSON messages)."""
-    r = subprocess.run(
-        ["cargo", "test", "--workspace", "--tests", "--no-run", "--offline", "--message-format=json"],
-        cwd=proj, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace",
-    )
-    if r.returncode != 0:
-        return None
-    n = 0
-    for line in r.stdout.splitlines():
-        try:
-            m = json.loads(line)
-        except ValueError:
-            continue
-        # Only test harnesses count: a bin Cargo builds so integration tests can run it
-        # (bat's `bat`, clap's `stdio-fixture`) is an executable without the test profile.
-        if m.get("reason") == "compiler-artifact" and m.get("executable") and m.get("profile", {}).get("test"):
-            n += 1
-    return n
-
-
 def count_mitts_test_binaries(tail: str) -> int | None:
     """Mitts prints `(N test binaries ready)` at the end of a successful `test --no-run`."""
     m = re.search(r"(\d+) test binar(?:y|ies) ready", tail)
@@ -103,40 +73,25 @@ def smoke_project(name: str, url: str, work: Path, mitts_bin: Path, env: dict) -
     res["commit"] = subprocess.run(["git", "rev-parse", "HEAD"], cwd=proj, stdout=subprocess.PIPE, text=True).stdout.strip()
     if (proj / ".gitmodules").exists():
         subprocess.run(["git", "submodule", "update", "--init", "--recursive", "--force"], cwd=proj, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if not (proj / "Cargo.lock").exists():
-        lk = subprocess.run(["cargo", "generate-lockfile"], cwd=proj, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if lk.returncode != 0:
-            res["status"] = "LOCK_FAILED"
-            res["error"] = lk.stdout[-2000:]
-            return res
-    fetch = subprocess.run(["cargo", "fetch"], cwd=proj, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    cache = work / f"{name}.mitts-cache"
+    fetch = subprocess.run([str(mitts_bin), "fetch", "--cache-dir", str(cache)], cwd=proj, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if fetch.returncode != 0:
         res["status"] = "FETCH_FAILED"
         res["error"] = fetch.stdout[-2000:]
         return res
-    cache = work / f"{name}.mitts-cache"
-    for key, (cargo_cmd, mitts_args) in COMMANDS.items():
+    for key, mitts_args in COMMANDS.items():
         rmtree_force(proj / "target")
-        rc = run(cargo_cmd, proj, env)
-        rmtree_force(proj / "target")
-        rmtree_force(cache)
         rm = run([str(mitts_bin), *mitts_args, "--cache-dir", str(cache)], proj, env)
-        verdict = "agree" if (rc["exit_code"] == 0) == (rm["exit_code"] == 0) else ("MITTS_FAILS" if rc["exit_code"] == 0 else "MITTS_PASSES_CARGO_FAILS")
-        rec = {"cargo": rc, "mitts": rm, "verdict": verdict}
-        if key == "test_no_run" and verdict == "agree" and rc["exit_code"] == 0:
-            # Exit codes agree; the executables must too. clap's examples with `test = true`
-            # gave Cargo 24 test binaries and Mitts 22 while both exited 0.
-            rec["cargo_test_binaries"] = count_cargo_test_binaries(proj, env)
+        verdict = "pass" if rm["exit_code"] == 0 else "fail"
+        rec = {"mitts": rm, "verdict": verdict}
+        if key == "test_no_run" and verdict == "pass":
             rec["mitts_test_binaries"] = count_mitts_test_binaries(rm["tail"])
-            if rec["cargo_test_binaries"] is not None and rec["mitts_test_binaries"] is not None and rec["cargo_test_binaries"] != rec["mitts_test_binaries"]:
-                rec["verdict"] = verdict = "TEST_BINARY_COUNT_MISMATCH"
         res["commands"][key] = rec
-        bins = f", test binaries cargo {rec.get('cargo_test_binaries')} / mitts {rec.get('mitts_test_binaries')}" if "cargo_test_binaries" in rec else ""
-        print(f"  [{name}] {key}: cargo exit {rc['exit_code']} ({rc['wall_s']} s), mitts exit {rm['exit_code']} ({rm['wall_s']} s){bins} -> {verdict}", flush=True)
+        print(f"  [{name}] {key}: mitts exit {rm['exit_code']} ({rm['wall_s']} s) -> {verdict}", flush=True)
     rmtree_force(cache)
     rmtree_force(proj / "target")
-    bad = [k for k, v in res["commands"].items() if v["verdict"] != "agree"]
-    res["status"] = "OK" if not bad else "MISMATCH:" + ",".join(bad)
+    bad = [k for k, v in res["commands"].items() if v["verdict"] != "pass"]
+    res["status"] = "OK" if not bad else "MITTS_FAILS:" + ",".join(bad)
     return res
 
 
@@ -163,9 +118,12 @@ def main() -> int:
     mitts_bin = Path(args.mitts_bin).resolve()
     version = subprocess.run([str(mitts_bin), "--version"], stdout=subprocess.PIPE, text=True).stdout.strip()
     out_path = Path(args.out)
-    report = {"mitts_version": version, "host": os.uname().nodename, "projects": {}}
+    report = {"schema": "mitts-only-v1", "mitts_version": version, "host": os.uname().nodename, "projects": {}}
     if out_path.exists():
-        report["projects"] = json.loads(out_path.read_text()).get("projects", {})
+        prior = json.loads(out_path.read_text())
+        if prior.get("schema") != report["schema"] or prior.get("mitts_version") != version:
+            raise SystemExit("Existing report uses a different schema or Mitts version; choose another --out path")
+        report["projects"] = prior.get("projects", {})
     print(f"=== smoke {version} on {report['host']}: {len(projects)} projects", flush=True)
     for idx, p in enumerate(projects, 1):
         if p["name"] in report["projects"] and report["projects"][p["name"]].get("status") not in (None, "CLONE_FAILED", "FETCH_FAILED"):

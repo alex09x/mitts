@@ -122,10 +122,10 @@ pub fn discover_test_binaries(
         if opt.exclude.iter().any(|ex| ex == &pkg_name) {
             continue;
         }
-        if let Some(ref target_pkg) = opt.package {
-            if &pkg_name != target_pkg {
-                continue;
-            }
+        if opt.selected_package_names().next().is_some()
+            && !opt.selected_package_names().any(|name| name == pkg_name)
+        {
+            continue;
         }
         let member_manifest = pkg_dir.join("Cargo.toml");
         let toml = crate::adapter::rust::manifest::CargoToml::from_file(&member_manifest)
@@ -136,6 +136,9 @@ pub fn discover_test_binaries(
                 )
             })?;
         let mut test_targets = toml.discover_test_targets(&pkg_dir);
+        if opt.all_benches {
+            test_targets.extend(toml.discover_bench_targets(&pkg_dir));
+        }
         crate::adapter::rust::test_selection::select_test_targets(&mut test_targets, opt);
         manifest_test_target_count += test_targets.len();
     }
@@ -281,9 +284,7 @@ pub fn execute_test_binaries_with_plan(
             cmd.arg("--ignored");
         }
         for extra in &args.test_args {
-            if extra != "--nocapture" && extra != "--exact" && extra != "--ignored" {
-                cmd.arg(extra);
-            }
+            cmd.arg(extra);
         }
 
         println!("     Running {}", bin_path.display());

@@ -29,7 +29,7 @@
 
 ---
 
-Mitts plans a Cargo workspace itself and invokes `rustc` directly. Every
+Mitts plans the workspace itself and invokes `rustc` directly. Every
 compile action gets a key derived from all of its inputs. The output is stored
 once in a machine-wide immutable store and restored into every workspace that
 needs it, across projects, worktrees and branches.
@@ -70,9 +70,10 @@ store safely.
 - **Complete keys.** Toolchain, target, profile, flags, features, source
   contents, dependency keys and tracked environment. Unknown inputs mean a
   rebuild.
-- **Cargo stays the contract.** No new manifest, no second lockfile. The same
-  project still builds with `cargo build` in CI, and Cargo and rust-analyzer
-  keep working next to Mitts.
+- **Cargo manifests stay the contract.** No new manifest, no second lockfile.
+  This repository's build, test, lint, coverage and release-source workflows run
+  through Mitts; they do not invoke the Cargo CLI. External Cargo interoperability
+  remains available to consumers.
 - **Linking units and build scripts are cached.** Binaries, tests, proc macros
   and build-script executions are keyed and stored, not only `rlib`s.
 - **Concurrent builds cooperate.** Per-key locks: two terminals or worktrees
@@ -98,18 +99,21 @@ store safely.
 
 ## Quick start
 
-Install Mitts from crates.io with a recent stable Rust:
+Install the latest signed native release:
 
 ```sh
-cargo install mitts --locked
+curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
-Or build from source:
+To build the source checkout, first install the latest released Mitts, then use
+Mitts to build the checkout:
 
 ```sh
 git clone https://github.com/alex09x/mitts
 cd mitts
-cargo install --path . --locked
+mitts build --release
+MITTS_JOBS=2 mitts build     # limit concurrent native build units
+install -m755 target/release/mitts "$HOME/.cargo/bin/mitts"
 ```
 
 Then run it inside any Cargo workspace:
@@ -120,12 +124,21 @@ mitts build --release
 mitts run                    # build and run a binary
 mitts test                   # unit, integration and doc tests
 mitts test --tests -p foo    # Cargo-style target selection
+mitts test --all-targets --no-run  # compile tests, examples and benchmarks
+mitts llvm-cov --ignore-filename-regex 'tests/' --fail-under-lines 80
 mitts check | clippy | fmt | coverage
 mitts explain                # the plan, units and why each is cached or not
 mitts fetch                  # prefetch dependencies into the source store
+mitts package                # create and verify a source archive
+mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
 mitts clean                  # remove this workspace's Mitts artifacts
 ```
+
+For Git projects, packaging currently requires a clean repository with the package at its root.
+Manifest `include` patterns can select ignored files; nested workspace packages
+and symlinked directories are not yet supported. `mitts publish` targets crates.io and reads
+the token from `CARGO_REGISTRY_TOKEN`.
 
 Mitts writes build outputs to Cargo's usual `target/debug/` and `target/release/`
 directories. `CARGO_TARGET_DIR` and `--target-dir` select a different output root.
@@ -257,9 +270,14 @@ input, it does not reuse the result.
 | Features | the unit's resolved feature set (resolver 1 or 2, as Cargo would) |
 | Sources | content hashes of the package files and every file rustc reports reading (`include_str!`, `include_bytes!`, modules) |
 | Dependencies | the action keys of all dependency units |
-| Environment | `CARGO_*`, `RUST_*`, wrappers, and every variable read through `env!` / `option_env!`, with `<unset>` recorded explicitly |
+| Environment | Relevant `CARGO_*` and `RUST_*` settings, and variables read through `env!` / `option_env!`, with `<unset>` recorded explicitly |
 | Cargo configuration | the `.cargo/config(.toml)` files Cargo would read |
 | Build scripts | their directives, `OUT_DIR`, and the content of `rerun-if-changed` paths and values of `rerun-if-env-changed` variables |
+
+Configured `rustc-wrapper` and `rustc-workspace-wrapper` programs are invoked for
+compilation. Because an arbitrary wrapper can depend on untracked inputs, Mitts
+disables action-cache and build-script-cache reuse while either wrapper is active.
+This can make those builds slower.
 
 Some proc macros read files from your package while they expand: `sqlx` checks
 queries against `.sqlx/`, `askama` compiles `templates/`, `rust-embed` and
@@ -369,15 +387,16 @@ Milestones and evidence: [ROADMAP.md](ROADMAP.md).
 ## FAQ
 
 **Does Mitts replace Cargo?**
-It replaces Cargo's build executor. Manifests, lockfiles and the registry stay
-Cargo's. You can switch back to `cargo build` at any time.
+Mitts reads the existing Cargo manifests and lockfiles and provides the Rust
+build/test workflow for this project. Its own CI and release workflows use Mitts
+without invoking Cargo. Cargo remains available to external users who need it.
 
 **Can I use it in CI?**
 Yes. This repository's CI installs the latest stable Mitts, then uses it for
 native builds, tests, coverage, formatting and Clippy. The shared artifact store
 is local to each runner; a cross-machine remote cache is not available yet.
 
-**Will it fight with rust-analyzer or `cargo build`?**
+**Will it fight with rust-analyzer or existing Cargo outputs?**
 Mitts uses the same default output paths as Cargo. Its shared artifact store stays
 separate, and `mitts clean` removes only indexed Mitts outputs that still match
 their recorded content; it preserves unrelated or replaced Cargo files.

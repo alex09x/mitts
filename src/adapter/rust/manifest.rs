@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+#[path = "manifest_benches.rs"]
+mod benches;
 #[path = "manifest_examples.rs"]
 mod examples;
 

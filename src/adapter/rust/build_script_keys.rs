@@ -31,6 +31,7 @@ pub fn compute_build_script_key(
 ) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(b"build_script_v8:");
+    hasher.update(format!(":jobs={}:", crate::core::jobs::limit()?).as_bytes());
     hasher.update(unit.package_id.as_bytes());
     hasher.update(b":");
     hasher.update(unit.package_name.as_bytes());

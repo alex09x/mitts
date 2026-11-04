@@ -51,7 +51,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         resolve_rustc()
     };
 
-    let mut cmd = Command::new(&compiler_bin);
+    let base_dir = inv
+        .unit
+        .workspace_root
+        .as_deref()
+        .unwrap_or_else(|| inv.unit.manifest_path.parent().unwrap_or(Path::new(".")));
+    let config_dir = super::cargo_config::resolve_config_start_dir(base_dir);
+    let mut cmd = crate::adapter::rust::compiler_wrappers::compiler_command(
+        &compiler_bin,
+        &config_dir,
+        inv.unit.is_workspace,
+    )?;
     cmd.args(["--crate-name", &clean_crate]);
 
     let actual_src = if inv.unit.src_path.is_file() {

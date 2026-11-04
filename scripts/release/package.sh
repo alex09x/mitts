@@ -48,6 +48,8 @@ chmod u+w "$stage/mitts"
 binary="$stage/mitts"
 if [[ "$target" == *apple-darwin ]]; then
     codesign --force --sign - "$binary"
+else
+    bash "$source_root/scripts/release/check-glibc.sh" "$binary"
 fi
 version=$("$binary" --version)
 [[ "$version" == "mitts $package_version ($commit)" ]]

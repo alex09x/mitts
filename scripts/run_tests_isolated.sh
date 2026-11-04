@@ -21,10 +21,9 @@
 #
 # Usage:
 #   scripts/run_tests_isolated.sh [mitts test arguments...]
-#   MITTS_TEST_DRIVER=cargo scripts/run_tests_isolated.sh [cargo arguments...]
-#   CARGO_TEST_CMD=llvm-cov scripts/run_tests_isolated.sh --summary-only
+#   MITTS_TEST_COMMAND=coverage scripts/run_tests_isolated.sh --summary-only
 #
-# Mitts is the default driver. Cargo remains an explicit reference/coverage path.
+# Mitts is the only supported Rust test driver in this repository.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -35,17 +34,19 @@ marker=$sandbox/.started
 trap 'rm -rf "$sandbox"' EXIT
 touch "$marker"
 cd "$repo"
-driver=${MITTS_TEST_DRIVER:-mitts}
-if [ "${CARGO_TEST_CMD:-test}" != test ]; then driver=cargo; fi
-lock_before=""
-case "$driver" in
-  mitts)
-    lock_before=$(python3 -c 'import hashlib; print(hashlib.sha256(open("Cargo.lock","rb").read()).hexdigest())')
-    command=("${MITTS_CI_BIN:-mitts}" "${MITTS_TEST_COMMAND:-test}" --workspace --cache-dir "${MITTS_CI_CACHE_DIR:-$repo/target/mitts-ci-cache}")
-    ;;
-  cargo) command=(cargo "${CARGO_TEST_CMD:-test}" --workspace) ;;
-  *) echo 'MITTS_TEST_DRIVER must be mitts or cargo' >&2; exit 2 ;;
-esac
+mkdir -p "$sandbox/guard"
+cat > "$sandbox/guard/cargo" <<'EOF'
+#!/bin/sh
+echo 'Cargo CLI is forbidden in Mitts test workflows' >&2
+exit 126
+EOF
+chmod 755 "$sandbox/guard/cargo"
+if [ "${MITTS_TEST_DRIVER:-mitts}" != mitts ]; then
+  echo 'run_tests_isolated: only the Mitts test driver is supported' >&2
+  exit 2
+fi
+lock_before=$(python3 -c 'import hashlib; print(hashlib.sha256(open("Cargo.lock","rb").read()).hexdigest())')
+command=("${MITTS_CI_BIN:-mitts}" "${MITTS_TEST_COMMAND:-test}" --workspace --cache-dir "${MITTS_CI_CACHE_DIR:-$repo/target/mitts-ci-cache}")
 
 drop=()
 while IFS='=' read -r name _; do
@@ -59,13 +60,14 @@ env ${drop[@]+"${drop[@]}"} \
   XDG_CACHE_HOME="$sandbox/xdg" \
   CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
   RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+  PATH="$sandbox/guard:$PATH" CARGO="${MITTS_CI_BIN:-mitts}" \
+  RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
+  CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \
   "${command[@]}" "$@" || status=$?
-if [ "$driver" = mitts ]; then
-  lock_after=$(python3 -c 'import hashlib; print(hashlib.sha256(open("Cargo.lock","rb").read()).hexdigest())')
-  if [ "$lock_before" != "$lock_after" ]; then
-    echo 'run_tests_isolated: FAIL: Mitts changed Cargo.lock' >&2
-    status=1
-  fi
+lock_after=$(python3 -c 'import hashlib; print(hashlib.sha256(open("Cargo.lock","rb").read()).hexdigest())')
+if [ "$lock_before" != "$lock_after" ]; then
+  echo 'run_tests_isolated: FAIL: Mitts changed Cargo.lock' >&2
+  status=1
 fi
 
 # Entries of the sandbox store tell which stores the suite still reaches by

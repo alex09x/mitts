@@ -137,6 +137,7 @@ pub fn execute_build_script(
         extern_crates,
         extra_env,
         None,
+        true,
     )
 }
 
@@ -151,6 +152,7 @@ pub(crate) fn execute_build_script_with_key(
     extern_crates: &[(String, PathBuf)],
     extra_env: Option<&HashMap<String, String>>,
     precomputed_build_key: Option<&str>,
+    cache_enabled: bool,
 ) -> Result<BuildScriptDirectives> {
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
@@ -164,32 +166,36 @@ pub(crate) fn execute_build_script_with_key(
     let clean_crate = unit.package_name.replace('-', "_");
     let profile_name = if release { "release" } else { "debug" };
 
-    let build_key = match precomputed_build_key {
-        Some(k) => k.to_string(),
-        None => {
-            let (restored, key_opt) = try_restore_build_script_with_key(
-                unit,
-                release,
-                features,
-                target_triple,
-                cas_artifacts_dir,
-                extern_crates,
-                extra_env,
-            )?;
-            if let Some(directives) = restored {
-                return Ok(directives);
-            }
-            match key_opt {
-                Some(k) => k,
-                None => compute_build_script_key(
+    let build_key = if !cache_enabled {
+        "uncached".to_string()
+    } else {
+        match precomputed_build_key {
+            Some(k) => k.to_string(),
+            None => {
+                let (restored, key_opt) = try_restore_build_script_with_key(
                     unit,
-                    &build_rs,
                     release,
                     features,
-                    &target,
-                    extra_env,
+                    target_triple,
+                    cas_artifacts_dir,
                     extern_crates,
-                )?,
+                    extra_env,
+                )?;
+                if let Some(directives) = restored {
+                    return Ok(directives);
+                }
+                match key_opt {
+                    Some(k) => k,
+                    None => compute_build_script_key(
+                        unit,
+                        &build_rs,
+                        release,
+                        features,
+                        &target,
+                        extra_env,
+                        extern_crates,
+                    )?,
+                }
             }
         }
     };
@@ -282,14 +288,16 @@ pub(crate) fn execute_build_script_with_key(
     }
 
     // Publish to CAS metadata and output directory atomically in a single execution entry
-    super::build_script_cas::save_build_script_cas(
-        cas_artifacts_dir,
-        &build_key,
-        &mut directives,
-        profile_name,
-        &clean_crate,
-        &out_dir,
-    );
+    if cache_enabled {
+        super::build_script_cas::save_build_script_cas(
+            cas_artifacts_dir,
+            &build_key,
+            &mut directives,
+            profile_name,
+            &clean_crate,
+            &out_dir,
+        );
+    }
 
     Ok(directives)
 }

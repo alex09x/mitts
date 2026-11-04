@@ -13,8 +13,7 @@ use crate::adapter::rust::manifest::{CargoToml, TomlDependency};
 use crate::adapter::rust::manifest_models::DependencyAliases;
 pub use crate::adapter::rust::package_selection::{
     format_package_id, has_build_dep, is_any_optional_dep, is_implicit_feature, is_optional_dep,
-    normalize_unit_id_without_source, optional_dep_sides, parse_dep_spec,
-    parse_package_id_source,
+    normalize_unit_id_without_source, optional_dep_sides, parse_dep_spec, parse_package_id_source,
 };
 use crate::adapter::rust::types::{RustAdapterError, RustBuildOptions};
 use std::collections::{HashMap, HashSet};
@@ -300,10 +299,11 @@ impl<'a> FeatureGraphIndex<'a> {
         Ok(res)
     }
 
-    pub fn collect_manifest_dependencies<'t>(
+    pub fn collect_manifest_dependencies_with_dev<'t>(
         &mut self,
         toml: &'t CargoToml,
         name: &str,
+        include_dev: bool,
     ) -> Result<Vec<&'t TomlDependency>, RustAdapterError> {
         let norm = name.replace('-', "_");
         let mut result = Vec::new();
@@ -314,9 +314,15 @@ impl<'a> FeatureGraphIndex<'a> {
         };
         add(&toml.dependencies);
         add(&toml.build_dependencies);
+        if include_dev {
+            add(&toml.dev_dependencies);
+        }
         for (spec, t) in &toml.target {
             if !self.is_target_incompat(spec, false)? {
                 add(&t.dependencies);
+                if include_dev {
+                    add(&t.dev_dependencies);
+                }
             }
             if !self.is_target_incompat(spec, true)? {
                 add(&t.build_dependencies);

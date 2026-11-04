@@ -108,9 +108,15 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.source.outputs.tag }}
           RELEASE_TARGET: ${{ matrix.target }}
-        run: bash scripts/release/package.sh release-source "$RELEASE_TAG" "$RELEASE_TARGET" dist
+        run: |
+          if [[ "$RELEASE_TARGET" == *-unknown-linux-gnu ]]; then
+            bash scripts/release/package-linux-portable.sh release-source "$RELEASE_TAG" "$RELEASE_TARGET" dist
+          else
+            bash scripts/release/package.sh release-source "$RELEASE_TAG" "$RELEASE_TARGET" dist
+          fi
       - name: Installer regressions
         run: python3 scripts/release/test_installer.py
+      # Linux also installs in AL2023 inside package-linux-portable.sh; this verifies the host.
       - name: Install the packaged native binary into an isolated prefix
         env:
           RELEASE_TAG: ${{ needs.source.outputs.tag }}

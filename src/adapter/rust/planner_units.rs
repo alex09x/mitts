@@ -42,7 +42,8 @@ pub fn build_planned_units(
                 }));
         // A dependency that shares a member's name (an older published version pulled in
         // by a dev-dependency) is neither primary nor the `-p` target.
-        let is_target_pkg = *is_workspace && opt.package.as_deref() == Some(&pkg.name);
+        let is_target_pkg =
+            *is_workspace && opt.selected_package_names().any(|name| name == pkg.name);
         let is_primary = *is_workspace && is_primary_pkg(&pkg.name);
         let mut targets = pkg_toml.discover_targets(pkg_dir);
         if (is_primary || is_target_pkg) && !opt.crate_types.is_empty() {
@@ -52,7 +53,9 @@ pub fn build_planned_units(
                 }
             }
         }
-        if opt.example_targets.is_empty() {
+        if opt.all_examples {
+            targets.retain(|target| target.kind != "example" || is_primary || is_target_pkg);
+        } else if opt.example_targets.is_empty() {
             targets.retain(|target| target.kind != "example");
         } else {
             targets.retain(|target| {
@@ -63,9 +66,13 @@ pub fn build_planned_units(
         }
         let has_tests = opt.mode == crate::adapter::BuildMode::Test
             || opt.all_tests
+            || opt.all_benches
             || !opt.test_targets.is_empty();
         if has_tests && (is_primary || is_target_pkg) {
             let mut test_targets = pkg_toml.discover_test_targets(pkg_dir);
+            if opt.all_benches {
+                test_targets.extend(pkg_toml.discover_bench_targets(pkg_dir));
+            }
             if opt.doc_only {
                 test_targets.retain(|t| {
                     t.test_role.as_ref().map_or_else(
@@ -249,7 +256,6 @@ pub fn build_planned_units(
 
     units
 }
-
 fn target_features_satisfied(
     target: &DiscoveredTarget,
     features: &[String],
@@ -360,79 +366,4 @@ pub fn is_library_kind(kind: &str) -> bool {
         || kind
             .split(',')
             .all(|k| matches!(k.trim(), "lib" | "rlib" | "dylib" | "cdylib" | "staticlib"))
-}
-
-pub fn prune_plan_root_units(
-    units: &mut Vec<PlannedCompilationUnit>,
-    opt: &RustBuildOptions,
-    has_all_ws: bool,
-) {
-    let mut root_unit_ids = Vec::new();
-    let selecting_examples = !opt.example_targets.is_empty();
-    let has_test_sel = opt.all_tests || !opt.test_targets.is_empty();
-    let is_test_mode = opt.mode == crate::adapter::rust::types::BuildMode::Test;
-    let only_tests_sel = !is_test_mode
-        && has_test_sel
-        && !opt.lib_only
-        && !opt.all_bins
-        && opt.bin_targets.is_empty();
-    for u in units.iter() {
-        let is_root_pkg = u.is_primary;
-        if is_test_mode || has_test_sel {
-            if opt.doc_only {
-                if is_root_pkg && matches!(u.kind.as_str(), "test" | "custom-test" | "test-deps") {
-                    root_unit_ids.extend(u.dependencies.clone());
-                }
-            } else if u.kind == "test-deps" {
-                if !opt.lib_only {
-                    root_unit_ids.extend(u.dependencies.clone());
-                }
-            } else if u.kind == "test" || u.kind == "custom-test" {
-                root_unit_ids.push(u.unit_id());
-            }
-        }
-        let bin_matches = !opt.doc_only
-            && !only_tests_sel
-            && if opt.bin_targets.is_empty() {
-                !selecting_examples && (is_test_mode || (opt.all_bins || !opt.lib_only))
-            } else {
-                opt.bin_targets.iter().any(|b| {
-                    b == &u.target_name || b.replace('-', "_") == u.target_name.replace('-', "_")
-                })
-            };
-        let lib_matches = selecting_examples
-            || (!only_tests_sel
-                && (is_test_mode || opt.lib_only || (opt.bin_targets.is_empty() && !opt.all_bins)));
-        let example_matches = selecting_examples
-            && u.kind == "example"
-            && opt
-                .example_targets
-                .iter()
-                .any(|name| name == &u.target_name);
-        let kind_matches = ((is_library_kind(&u.kind) || u.kind == "proc-macro") && lib_matches)
-            || (u.kind == "bin" && bin_matches)
-            || example_matches;
-        let is_primary_or_ws = (is_root_pkg && kind_matches)
-            || (has_all_ws
-                && u.is_workspace
-                && kind_matches
-                && !opt.exclude.iter().any(|ex| ex == &u.package_name));
-        if is_primary_or_ws {
-            root_unit_ids.push(u.unit_id());
-        }
-    }
-    if root_unit_ids.is_empty() {
-        root_unit_ids.extend(
-            units
-                .iter()
-                .filter(|u| u.is_workspace && !opt.exclude.iter().any(|ex| ex == &u.package_name))
-                .map(|u| u.unit_id()),
-        );
-    }
-    if opt.doc_only {
-        units.retain(|u| u.kind != "test" && u.kind != "custom-test" && u.kind != "test-deps");
-    } else {
-        units.retain(|u| u.kind != "test-deps");
-    }
-    super::planner_deps::prune_unreachable_units(units, &root_unit_ids);
 }

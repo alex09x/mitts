@@ -162,7 +162,7 @@ fn test_m8_resolver_reuse_resolved_and_detailed_manifest_deps() {
     assert_eq!(lock.packages[0].name, "shared-dep");
     assert_eq!(lock.packages[0].version, "1.1.0");
 
-    // 2. resolve_manifest with invalid TOML falling back to regex extractor
+    // 2. Invalid TOML must fail rather than invent a partial package graph.
     let invalid_toml = r#"
 [package]
 name = "malformed"
@@ -175,7 +175,6 @@ this is invalid toml syntax {{{
     let manifest_file = temp.path().join("Cargo.toml");
     fs::write(&manifest_file, invalid_toml).unwrap();
 
-    let lock2 = resolver.resolve_manifest(&manifest_file, true).unwrap();
-    assert!(lock2.packages.iter().any(|p| p.name == "shared-dep"));
-    assert!(lock2.packages.iter().any(|p| p.name == "malformed"));
+    let error = resolver.resolve_manifest(&manifest_file, true).unwrap_err();
+    assert!(error.to_string().contains("Failed to parse manifest"));
 }
