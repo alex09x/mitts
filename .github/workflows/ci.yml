@@ -19,6 +19,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request supersedes the older run. Pushes to main and reused
+# release runs get a unique group, so they are never cancelled or queued behind each other.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   automation:
     runs-on: ubuntu-22.04
@@ -112,7 +118,60 @@ jobs:
           name: coverage-${{ matrix.os }}
           path: coverage/
           if-no-files-found: error
-      - name: Prove isolation for every existing test target with Mitts runner
+      - name: Source manifests and lockfile remain unchanged
+        if: always()
+        working-directory: source
+        run: git diff --exit-code -- Cargo.toml Cargo.lock
+  # The per-target isolation probe builds and runs every test target alone, which used to be
+  # a 45 minute serial tail of the native job on Linux. Shards run in parallel with the full
+  # suite; together they still cover every target exactly once per operating system.
+  probe:
+    name: probe (${{ matrix.os }} ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, shard: '1/4' }
+          - { os: ubuntu-22.04, shard: '2/4' }
+          - { os: ubuntu-22.04, shard: '3/4' }
+          - { os: ubuntu-22.04, shard: '4/4' }
+          - { os: macos-14, shard: '1/2' }
+          - { os: macos-14, shard: '2/2' }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      RUST_TEST_THREADS: '1'
+      MITTS_PROBE_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy, llvm-tools-preview
+      - name: Install latest stable Mitts
+        env:
+          MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
+        run: |
+          sh site/install.sh
+          binary="$MITTS_INSTALL_ROOT/bin/mitts"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\nMITTS_CI_CACHE_DIR=%s\n' "$binary" "$RUNNER_TEMP/mitts-ci-cache" >> "$GITHUB_ENV"
+      - name: Build and use the exact-source Mitts driver
+        working-directory: source
+        run: |
+          "$MITTS_CI_BIN" build --locked --bin mitts --cache-dir "$MITTS_CI_CACHE_DIR" --target-dir "$RUNNER_TEMP/mitts-candidate"
+          binary="$RUNNER_TEMP/mitts-candidate/debug/mitts"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\n' "$binary" >> "$GITHUB_ENV"
+      - name: Prove isolation for this shard of test targets with Mitts runner
         working-directory: source
         run: |
           set -euo pipefail
@@ -128,11 +187,12 @@ jobs:
         run: git diff --exit-code -- Cargo.toml Cargo.lock
   gate:
     if: always()
-    needs: [automation, native]
+    needs: [automation, native, probe]
     runs-on: ubuntu-22.04
     steps:
       - name: Require every check
         env:
           AUTOMATION: ${{ needs.automation.result }}
           NATIVE: ${{ needs.native.result }}
-        run: test "$AUTOMATION" = success && test "$NATIVE" = success
+          PROBE: ${{ needs.probe.result }}
+        run: test "$AUTOMATION" = success && test "$NATIVE" = success && test "$PROBE" = success

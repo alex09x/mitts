@@ -32,6 +32,16 @@ libc = "0.2"
 [dev-dependencies]
 tempfile = "3.17"
 
+# Every tests/*.rs target links the whole library into its own executable. With full debug
+# info that was 228 executables of about 90 MB each (20 GB of output, written once to target/
+# and again to the cache), which dominated CI wall time. Source is always at hand, so the dev
+# profile favors build speed and size over debuggability. Cold build of all test targets on a
+# 4-CPU host: 72 s and 20.4 GB with debug info, 37.6 s and 4.3 GB without. Panic messages and
+# locations are unaffected. Raise `debug` / drop `strip` locally when a debugger is needed.
+[profile.dev]
+debug = false
+strip = "symbols"
+
 [workspace]
 members = ["."]
 exclude = ["fixtures/hello-rust"]

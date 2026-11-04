@@ -129,6 +129,49 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
         self.assertTrue(all(not event["leaked"] for event in events))
         self.assertEqual(list(self.tmp_dir.iterdir()), [])
 
+    def probe_targets(self, shard):
+        self.log_file.unlink(missing_ok=True)
+        if shard is None:
+            self.env.pop("MITTS_PROBE_SHARD", None)
+        else:
+            self.env["MITTS_PROBE_SHARD"] = shard
+        result = self.run_script("probe_store_isolation.sh", "delta", "alpha", "gamma", "beta", "epsilon")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tests = [event["target"] for event in self.read_events() if event["command"] == "test"]
+        return tests, result
+
+    def test_probe_shards_partition_sorted_targets_and_run_unit_tests_once(self):
+        first, first_result = self.probe_targets("1/2")
+        second, _ = self.probe_targets("2/2")
+        # Sorted: alpha beta delta epsilon gamma, dealt round-robin.
+        self.assertEqual(first, ["unit", "alpha", "delta", "gamma"])
+        self.assertEqual(second, ["beta", "epsilon"])
+        self.assertIn("shard 1/2 runs 3 integration target(s)", first_result.stdout)
+        whole, _ = self.probe_targets(None)
+        self.assertEqual(sorted(first + second), sorted(whole))
+
+    def test_probe_single_shard_matches_unsharded_run(self):
+        whole, _ = self.probe_targets(None)
+        single, _ = self.probe_targets("1/1")
+        self.assertEqual(single, whole)
+
+    def test_probe_more_shards_than_targets_leaves_empty_shards_green(self):
+        seen = []
+        for index in range(1, 8):
+            tests, _ = self.probe_targets(f"{index}/7")
+            seen.extend(tests)
+        self.assertEqual(sorted(seen), sorted(["unit", "alpha", "beta", "delta", "epsilon", "gamma"]))
+
+    def test_probe_rejects_malformed_shard_selectors(self):
+        for bad in ("3", "0/2", "3/2", "1/0", "a/2", "1/2/3", "/2", "1/", "-1/2"):
+            with self.subTest(bad=bad):
+                self.log_file.unlink(missing_ok=True)
+                self.env["MITTS_PROBE_SHARD"] = bad
+                result = self.run_script("probe_store_isolation.sh", "alpha", "beta")
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("MITTS_PROBE_SHARD", result.stderr)
+                self.assertFalse(any(event["command"] == "test" for event in self.read_events()))
+
     def test_probe_rejects_a_target_writing_the_default_store(self):
         self.env["FAKE_MODE"] = "writer"
         result = self.run_script("probe_store_isolation.sh", "alpha", "beta")
