@@ -31,8 +31,11 @@ fn run_mitts_test(ws: &Path, home: &Path) -> (Output, String) {
         .arg("test")
         .current_dir(ws)
         .env("HOME", home)
+        .arg("--cache-dir")
+        .arg(home.join("cache"))
         .env_remove("MITTS_CACHE_DIR")
         .env_remove("XDG_CACHE_HOME")
+        .env_remove("CARGO_TARGET_DIR")
         .output()
         .expect("run mitts test");
     let text = format!(
@@ -86,10 +89,15 @@ path = "tests/integration.rs"
 fn test_bin_execution() {
     let bin_path = env!("CARGO_BIN_EXE_my-cli");
     assert!(
-        bin_path.contains("target/mitts/debug/my-cli") || bin_path.contains("target/mitts/release/my-cli"),
-        "CARGO_BIN_EXE_my-cli must point to target/mitts, got: {}",
+        bin_path.contains("target/debug/my-cli") || bin_path.contains("target/release/my-cli"),
+        "CARGO_BIN_EXE_my-cli must point to the standard target layout, got: {}",
         bin_path
     );
+    assert_eq!(std::env::var("CARGO_BIN_EXE_my-cli").unwrap(), bin_path);
+    let tmp_dir = env!("CARGO_TARGET_TMPDIR");
+    assert_eq!(std::env::var("CARGO_TARGET_TMPDIR").unwrap(), tmp_dir);
+    assert!(std::path::Path::new(tmp_dir).ends_with("target/tmp"));
+    std::fs::write(std::path::Path::new(tmp_dir).join("probe"), "ok").unwrap();
     let out = Command::new(bin_path).output().expect("execute binary");
     assert!(out.status.success());
     let text = String::from_utf8_lossy(&out.stdout);
@@ -107,16 +115,11 @@ fn test_bin_execution() {
         log
     );
 
-    let mitts_cli = ws.join("target/mitts/debug/my-cli");
-    assert!(
-        mitts_cli.exists(),
-        "Expected binary at target/mitts/debug/my-cli"
-    );
+    let mitts_cli = ws.join("target/debug/my-cli");
+    assert!(mitts_cli.exists(), "Expected binary at target/debug/my-cli");
 
-    let cargo_target_debug = ws.join("target/debug");
     assert!(
-        !cargo_target_debug.exists() || !cargo_target_debug.join("my-cli").exists(),
-        "Mitts must NOT create or link binaries in target/debug! Found: {:?}",
-        cargo_target_debug.join("my-cli")
+        !ws.join("target/mitts/debug/my-cli").exists(),
+        "Mitts must not duplicate the standard executable under target/mitts"
     );
 }

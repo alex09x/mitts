@@ -8,6 +8,14 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+mod aliases;
+mod inputs;
+mod keys;
+
+pub(crate) use aliases::publish_library_alias;
+pub use inputs::record_extra_inputs_in_ctx;
+pub(crate) use keys::artifact_disambiguator;
+
 use super::compiler::RustcOutput;
 use super::dag_cache::ExecutionContext;
 use super::types::PlannedCompilationUnit;
@@ -131,11 +139,6 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     });
                 }
 
-                let alt_path = dest.parent().unwrap_or(dest).join(&clean_crate);
-                if alt_path != *dest {
-                    let _ =
-                        crate::core::link_intra_workspace(dest, &alt_path, &[ctx.target_dir], true);
-                }
                 action_outputs.push(dest.to_path_buf());
             }
         }
@@ -194,15 +197,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     let rel_key = format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
                     ti.lock().unwrap().record(rel_key, hash.clone(), &dep_copy);
                 }
-                let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                if unhashed != dep_copy {
-                    let _ = crate::core::link_intra_workspace(
-                        &dep_copy,
-                        &unhashed,
-                        &[ctx.target_dir],
-                        false,
-                    );
-                }
+                publish_library_alias(ctx, &dep_copy, &clean_crate, ext, &hash);
             }
         }
 
@@ -246,15 +241,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                         .unwrap()
                         .record(rel_key, meta_hash.clone(), &dep_copy);
                 }
-                let unhashed = deps_dir.join(format!("lib{}.rmeta", clean_crate));
-                if unhashed != dep_copy {
-                    let _ = crate::core::link_intra_workspace(
-                        &dep_copy,
-                        &unhashed,
-                        &[ctx.target_dir],
-                        false,
-                    );
-                }
+                publish_library_alias(ctx, &dep_copy, &clean_crate, "rmeta", &meta_hash);
             }
         }
     }
@@ -346,63 +333,6 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     }
 
     Ok(action_outputs)
-}
-
-/// Records dep-info extra inputs (`include_str!`, `#[path]`, `env-dep:`) into the ExecutionContext for FastBuildLock.
-pub fn record_extra_inputs_in_ctx(
-    ctx: &ExecutionContext,
-    ws_root: Option<&Path>,
-    extra_inputs: &[(String, String)],
-) {
-    for (path_str, hash) in extra_inputs {
-        if let Some(var_name) = path_str.strip_prefix("env:") {
-            if var_name == "OUT_DIR"
-                || var_name == "CARGO_MANIFEST_DIR"
-                || var_name == "CARGO_CRATE_NAME"
-                || var_name == "CARGO_BIN_NAME"
-                || var_name.starts_with("CARGO_PKG_")
-            {
-                continue;
-            }
-            if let Some(env_map) = ctx.tracked_env_vars {
-                env_map
-                    .lock()
-                    .unwrap()
-                    .insert(var_name.to_string(), std::env::var(var_name).ok());
-            }
-        } else if !path_str.starts_with("out:") {
-            let file_path = if let Some(rel) = path_str.strip_prefix("ws:") {
-                if let Some(root) = ws_root {
-                    root.join(rel)
-                } else {
-                    PathBuf::from(rel)
-                }
-            } else {
-                PathBuf::from(path_str)
-            };
-            if let Some(files_map) = ctx.tracked_extra_files {
-                files_map.lock().unwrap().insert(file_path, hash.clone());
-            }
-        }
-    }
-}
-
-/// Disambiguator for a unit's file names in the shared `{cas}/artifacts` directory.
-///
-/// Names follow the result key, not the coarse action key: units with one coarse key
-/// can read different modules, and a shared name must never be rebound to other bytes
-/// while a concurrent build reads it. A tainted key names a single compilation, so its
-/// nonce is replaced with the staging dir that both the rmeta and rlib publish share.
-pub(crate) fn artifact_disambiguator(result_key: &str, staging_dir: Option<&Path>) -> String {
-    let key = match (result_key.split_once(":unhashable:"), staging_dir) {
-        (Some((base, _)), Some(dir)) => format!("{base}:unhashable:{}", dir.display()),
-        _ => result_key.to_string(),
-    };
-    if key.bytes().all(|b| b.is_ascii_hexdigit()) {
-        key
-    } else {
-        Sha256::digest(key.as_bytes())
-    }
 }
 
 /// Appends a unique non-reusable `:unhashable:<nonce>` suffix to taint a key and its dependents.

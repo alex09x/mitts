@@ -14,7 +14,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // Version the normalized semantics, never the machine-specific alias spellings.
-pub(crate) const KEY_FLAG: &str = "REMAP_ALIASES=canonical-v2";
+// The Cargo-compatible layout changes Darwin's relative N_OSO dependency paths;
+// do not reuse linked artifacts that still name the previous target/mitts tree.
+pub(crate) const KEY_FLAG: &str = "REMAP_ALIASES=canonical-v3-cargo-layout";
 
 /// rustc and the Darwin linker can canonicalize paths independently of the
 /// manifest spelling (notably /var -> /private/var). Cover both spellings so

@@ -115,7 +115,7 @@ cargo install --path . --locked
 Then run it inside any Cargo workspace:
 
 ```sh
-mitts build                  # compile into target/mitts/
+mitts build                  # compile into target/debug/
 mitts build --release
 mitts run                    # build and run a binary
 mitts test                   # unit, integration and doc tests
@@ -127,7 +127,9 @@ mitts gc                     # prune the shared store within quotas
 mitts clean                  # remove this workspace's Mitts artifacts
 ```
 
-Mitts writes only to `target/mitts/` in the workspace and to its shared cache
+Mitts writes build outputs to Cargo's usual `target/debug/` and `target/release/`
+directories. `CARGO_TARGET_DIR` and `--target-dir` select a different output root.
+Its shared cache is separate
 (`--cache-dir`, else `$MITTS_CACHE_DIR`, else `$XDG_CACHE_HOME/mitts`, else
 `~/.cache/mitts`). The artifact store, action cache, locks, jobserver, source
 store, git mirrors and index cache all live under that one root.
@@ -371,12 +373,16 @@ It replaces Cargo's build executor. Manifests, lockfiles and the registry stay
 Cargo's. You can switch back to `cargo build` at any time.
 
 **Can I use it in CI?**
-You can, but the store is local to the machine today. CI benefits once the
-remote cache lands. Until then, keep CI on Cargo.
+Yes. This repository's CI installs the latest stable Mitts, then uses it for
+native builds, tests, coverage, formatting and Clippy. The shared artifact store
+is local to each runner; a cross-machine remote cache is not available yet.
 
 **Will it fight with rust-analyzer or `cargo build`?**
-No. Mitts never writes into `target/debug` or `target/release`; everything goes
-to `target/mitts/`.
+Mitts uses the same default output paths as Cargo. Its shared artifact store stays
+separate, and `mitts clean` removes only indexed Mitts outputs that still match
+their recorded content; it preserves unrelated or replaced Cargo files.
+If Cargo holds a profile's build-directory lock, cleanup is skipped until that
+build finishes.
 
 **Where is the cache and how do I clear it?**
 `--cache-dir`, else `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` or

@@ -81,7 +81,7 @@ fn config_env_reaches_rustc_build_scripts_and_run_with_force_and_relative_semant
     // preset, so the config value applies.
     let (ok, text) = mitts(&["build"], &app, &cache, &[("FORCED", "from-env")]);
     assert!(ok, "build with [env]:\n{text}");
-    let run = Command::new(app.join("target/mitts/debug/app"))
+    let run = Command::new(app.join("target/debug/app"))
         .env_remove("GREETING")
         .output()
         .unwrap();
@@ -95,9 +95,7 @@ fn config_env_reaches_rustc_build_scripts_and_run_with_force_and_relative_semant
     let cache2 = temp.path().join("cache2");
     let (ok, text) = mitts(&["build"], &app, &cache2, &[("GREETING", "preset")]);
     assert!(ok, "{text}");
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert!(
         String::from_utf8_lossy(&run.stdout).starts_with("preset from-config"),
         "{}",
@@ -115,9 +113,7 @@ fn config_env_reaches_rustc_build_scripts_and_run_with_force_and_relative_semant
     write_project(&app, "changed");
     let (ok, text) = mitts(&["build"], &app, &cache, &[]);
     assert!(ok, "{text}");
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert!(
         String::from_utf8_lossy(&run.stdout).starts_with("changed from-config"),
         "a changed [env] value is picked up: {}",

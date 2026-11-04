@@ -77,10 +77,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let _ = std::fs::create_dir_all(&target_dir);
     let _ = std::fs::write(target_dir.join(".mitts-target"), "mitts-target-v1\n");
-    let clean_lock_path = target_dir
-        .parent()
-        .unwrap_or(&target_dir)
-        .join(".mitts-clean.lock");
+    let clean_lock_path = target_dir.join(".mitts-clean.lock");
     let _clean_guard = crate::core::lock::FileLock::acquire_shared(&clean_lock_path).ok();
     let _gc_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));

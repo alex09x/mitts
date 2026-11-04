@@ -90,12 +90,12 @@ fn test_m8_transitive_dependent_dynamic_keys_across_clones() {
     let (_, res_a) = RustAdapter::build_native(&opt_a).expect("Clone A build failed");
     assert_eq!(res_a.exit_code, 0);
 
-    let bin_a = clone_a.path().join("target/mitts/debug/bin_b");
+    let bin_a = clone_a.path().join("target/debug/bin_b");
     assert!(bin_a.is_file(), "Binary in Clone A must exist");
     let out_a = Command::new(&bin_a).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_a.stdout), "TRANSITIVE:V1");
 
-    // 2. Clone B with asset "V2" (fresh clone, empty target/mitts)
+    // 2. Clone B with asset "V2" (fresh clone, empty target)
     let clone_b = TempDir::new().unwrap();
     create_workspace_with_transitive_dep(clone_b.path(), "V2");
 
@@ -108,7 +108,7 @@ fn test_m8_transitive_dependent_dynamic_keys_across_clones() {
     let (_, res_b) = RustAdapter::build_native(&opt_b).expect("Clone B build failed");
     assert_eq!(res_b.exit_code, 0);
 
-    let bin_b = clone_b.path().join("target/mitts/debug/bin_b");
+    let bin_b = clone_b.path().join("target/debug/bin_b");
     assert!(bin_b.is_file(), "Binary in Clone B must exist");
     let out_b = Command::new(&bin_b).output().unwrap();
     // CRITICAL (P0): bin_b MUST print V2! It must NOT hit stale cache of bin_b from Clone A!
@@ -118,7 +118,7 @@ fn test_m8_transitive_dependent_dynamic_keys_across_clones() {
         "bin_b in Clone B must print V2, verifying dependent received new resolved key of lib_a"
     );
 
-    // 3. Clone C with asset "V1" (fresh clone, empty target/mitts) -> 100% cache hit on both units
+    // 3. Clone C with asset "V1" (fresh clone, empty target) -> 100% cache hit on both units
     let clone_c = TempDir::new().unwrap();
     create_workspace_with_transitive_dep(clone_c.path(), "V1");
 
@@ -131,7 +131,7 @@ fn test_m8_transitive_dependent_dynamic_keys_across_clones() {
     let (_, res_c) = RustAdapter::build_native(&opt_c).expect("Clone C build failed");
     assert_eq!(res_c.exit_code, 0);
 
-    let bin_c = clone_c.path().join("target/mitts/debug/bin_b");
+    let bin_c = clone_c.path().join("target/debug/bin_b");
     assert!(bin_c.is_file(), "Binary in Clone C must exist");
     let out_c = Command::new(&bin_c).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_c.stdout), "TRANSITIVE:V1");
@@ -173,12 +173,12 @@ edition = "2021"
     let (_, res1) = RustAdapter::build_native(&opt1).expect("Build 1 failed");
     assert_eq!(res1.exit_code, 0);
 
-    let bin1 = root.path().join("target/mitts/debug/env_app");
+    let bin1 = root.path().join("target/debug/env_app");
     let out1 = Command::new(&bin1).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out1.stdout), "VAL:ALPHA");
 
-    // 2. Remove target/mitts, change env var to "BETA", build again -> must recompile and print BETA
-    let _ = fs::remove_dir_all(root.path().join("target/mitts"));
+    // 2. Remove target, change env var to "BETA", build again -> must recompile and print BETA
+    let _ = fs::remove_dir_all(root.path().join("target"));
     std::env::set_var("TEST_ENV_TRACKED_VAR", "BETA");
     let opt2 = RustBuildOptions {
         manifest_path: Some(root.path().join("Cargo.toml")),
@@ -188,7 +188,7 @@ edition = "2021"
     let (_, res2) = RustAdapter::build_native(&opt2).expect("Build 2 failed");
     assert_eq!(res2.exit_code, 0);
 
-    let bin2 = root.path().join("target/mitts/debug/env_app");
+    let bin2 = root.path().join("target/debug/env_app");
     let out2 = Command::new(&bin2).output().unwrap();
     assert_eq!(
         String::from_utf8_lossy(&out2.stdout),
@@ -196,8 +196,8 @@ edition = "2021"
         "Must print BETA after env var changed, verified by # env-dep in manifest"
     );
 
-    // 3. Remove target/mitts, switch back to "ALPHA" -> cache hit on ALPHA manifest entry!
-    let _ = fs::remove_dir_all(root.path().join("target/mitts"));
+    // 3. Remove target, switch back to "ALPHA" -> cache hit on ALPHA manifest entry!
+    let _ = fs::remove_dir_all(root.path().join("target"));
     std::env::set_var("TEST_ENV_TRACKED_VAR", "ALPHA");
     let opt3 = RustBuildOptions {
         manifest_path: Some(root.path().join("Cargo.toml")),
@@ -207,7 +207,7 @@ edition = "2021"
     let (_, res3) = RustAdapter::build_native(&opt3).expect("Build 3 failed");
     assert_eq!(res3.exit_code, 0);
 
-    let bin3 = root.path().join("target/mitts/debug/env_app");
+    let bin3 = root.path().join("target/debug/env_app");
     let out3 = Command::new(&bin3).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out3.stdout), "VAL:ALPHA");
 }

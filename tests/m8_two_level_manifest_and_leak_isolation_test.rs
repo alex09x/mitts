@@ -68,7 +68,7 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     // 1. Build in Clone A (v1)
     let (_plan_a, res_a) = RustAdapter::build(&opt_a).expect("Clone A build failed");
     assert!(res_a.success, "Build failed with stderr: {}", res_a.stderr);
-    let bin_a = clone_a.path().join("target/mitts/debug/app");
+    let bin_a = clone_a.path().join("target/debug/app");
     assert!(bin_a.is_file());
     let out_a = Command::new(&bin_a).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_a.stdout), "ASSET:v1");
@@ -84,7 +84,7 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     };
     let (plan_b, res_b) = RustAdapter::build(&opt_b).expect("Clone B build failed");
     assert!(res_b.success, "Build failed with stderr: {}", res_b.stderr);
-    let bin_b = clone_b.path().join("target/mitts/debug/app");
+    let bin_b = clone_b.path().join("target/debug/app");
     assert!(bin_b.is_file());
     let out_b = Command::new(&bin_b).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_b.stdout), "ASSET:v2");
@@ -110,7 +110,7 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     };
     let (plan_c, res_c) = RustAdapter::build(&opt_c).expect("Clone C build failed");
     assert!(res_c.success);
-    let bin_c = clone_c.path().join("target/mitts/debug/app");
+    let bin_c = clone_c.path().join("target/debug/app");
     assert!(bin_c.is_file());
     let out_c = Command::new(&bin_c).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_c.stdout), "ASSET:v1");
@@ -131,7 +131,7 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
 
     let (_plan_b3, res_b3) = RustAdapter::build(&opt_b).expect("Clone B3 build failed");
     assert!(res_b3.success);
-    let bin_b3 = clone_b.path().join("target/mitts/debug/app");
+    let bin_b3 = clone_b.path().join("target/debug/app");
     assert!(bin_b3.is_file());
     let out_b3 = Command::new(&bin_b3).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_b3.stdout), "ASSET:v3");
@@ -218,7 +218,7 @@ fn test_m8_ws_leak_isolation_across_clones_and_hit_in_same_clone() {
     // 1. Initial build in Clone 1
     let (_plan1, res1) = RustAdapter::build(&opt1).expect("Clone 1 build failed");
     assert!(res1.success, "Build 1 failed with stderr: {}", res1.stderr);
-    let bin1 = clone1.path().join("target/mitts/debug/leak_app");
+    let bin1 = clone1.path().join("target/debug/leak_app");
     assert!(bin1.is_file());
     let out1 = Command::new(&bin1).output().unwrap();
     let str1 = String::from_utf8_lossy(&out1.stdout);
@@ -250,7 +250,7 @@ fn test_m8_ws_leak_isolation_across_clones_and_hit_in_same_clone() {
     };
     let (_plan2, res2) = RustAdapter::build(&opt2).expect("Clone 2 build failed");
     assert!(res2.success, "Build 2 failed with stderr: {}", res2.stderr);
-    let bin2 = clone2.path().join("target/mitts/debug/leak_app");
+    let bin2 = clone2.path().join("target/debug/leak_app");
     assert!(bin2.is_file());
     let out2 = Command::new(&bin2).output().unwrap();
     let str2 = String::from_utf8_lossy(&out2.stdout);

@@ -92,9 +92,7 @@ fn generated_code_naming_the_absolute_out_dir_compiles_from_the_restored_build_s
     fs::write(&main, src).unwrap();
     let (ok, text) = mitts_build(&app, &cache);
     assert!(ok, "rebuild from the restored OUT_DIR:\n{text}");
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
 
     // A second checkout sharing the store restores the same output.

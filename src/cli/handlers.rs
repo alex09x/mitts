@@ -13,6 +13,8 @@ use crate::cli::{CleanArgs, ExplainArgs, FetchArgs, GcArgs, Ui};
 use crate::core::build_lock::FastBuildLock;
 use crate::core::{ActionCache, CacheGc, ContentAddressedStore, GcOptions, SourceStore};
 
+mod clean_target;
+
 pub fn handle_explain(args: &ExplainArgs) -> i32 {
     let opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
@@ -238,7 +240,7 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         }
     };
     let project_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
-    let mitts_dir = match RustAdapter::resolve_target_dir(&manifest_path, &opt) {
+    let mitts_dir = match RustAdapter::resolve_target_dir_without_tags(&manifest_path, &opt) {
         Ok(d) => d,
         Err(err) => {
             Ui::report_error(&err);
@@ -271,11 +273,7 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         return 1;
     }
     if mitts_dir.exists() {
-        let has_marker = mitts_dir.join(".mitts-target").is_file()
-            || (args.target_dir.is_none()
-                && (mitts_dir.join("build.log").is_file()
-                    || mitts_dir.join("build-dev.lock").is_file()
-                    || mitts_dir.join("build-release.lock").is_file()));
+        let has_marker = clean_target::has_owned_state(&mitts_dir);
         if !has_marker {
             eprintln!(
                 "mitts error: refusing to clean unowned directory without Mitts marker (.mitts-target): {}",
@@ -287,11 +285,28 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     let legacy_mitts_dir = project_dir.join(".mitts");
 
     Ui::header("clean");
-    let clean_lock_path = mitts_dir
-        .parent()
-        .unwrap_or(&mitts_dir)
-        .join(".mitts-clean.lock");
-    let _clean_guard = crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path).ok();
+    let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
+    let _clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
+        Ok(guard) => guard,
+        Err(err) => {
+            Ui::report_error(&err);
+            return 1;
+        }
+    };
+
+    if mitts_dir.exists() {
+        match clean_target::remove_owned_artifacts(&mitts_dir, args.release) {
+            Ok(count) => Ui::stage_item(
+                true,
+                &Ui::badge_cached(),
+                &format!("Removed {count} owned target artifacts"),
+            ),
+            Err(err) => {
+                Ui::report_error(&err);
+                return 1;
+            }
+        }
+    }
 
     let profiles: &[&str] = if args.release {
         &["release", "check-release", "clippy-release", "test-release"]
@@ -307,7 +322,7 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
             "test-release",
         ]
     };
-    if args.release && mitts_dir.exists() {
+    if mitts_dir.exists() {
         let _ = std::fs::write(mitts_dir.join(".mitts-target"), "mitts-target-v1\n");
     }
     for profile in profiles {
@@ -323,41 +338,12 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     let _ = std::fs::remove_file(mitts_dir.join("build.log"));
     let _ = std::fs::remove_file(legacy_mitts_dir.join("build.log"));
 
-    if args.release {
-        let rel_dir = mitts_dir.join("release");
-        if rel_dir.exists() {
-            let _ = std::fs::remove_dir_all(&rel_dir);
-            Ui::stage_item(true, &badge, "Removed target/mitts/release directory");
-        }
-    } else {
-        if mitts_dir.exists() {
-            let _ = std::fs::remove_dir_all(&mitts_dir);
-            Ui::stage_item(true, &badge, "Removed target/mitts directory");
-        }
-        if legacy_mitts_dir.exists() {
-            let _ = std::fs::remove_dir_all(&legacy_mitts_dir);
-        }
-    }
-
-    if mitts_dir.exists() {
-        clean_stray_tmp_links(&mitts_dir);
+    if !args.release && legacy_mitts_dir.exists() {
+        let _ = std::fs::remove_dir_all(&legacy_mitts_dir);
     }
 
     if args.cache {
-        if let Ok((cas, ac)) = open_cas_and_ac(args.cache_dir.as_ref()) {
-            let skipped = CacheGc::new(&cas, &ac)
-                .prune(&GcOptions {
-                    max_bytes: Some(0),
-                    max_age: None,
-                })
-                .is_ok_and(|r| r.skipped_active_build);
-            let msg = if skipped {
-                "Skipped CAS eviction (active build holds cache lease)"
-            } else {
-                "Pruned global CAS and Action Cache"
-            };
-            Ui::stage_item(true, &badge, msg);
-        }
+        clean_target::prune_cache(args.cache_dir.as_ref());
     }
 
     let ws_msg = format!("workspace: {}", project_dir.display());

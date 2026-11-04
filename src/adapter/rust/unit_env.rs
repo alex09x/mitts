@@ -98,12 +98,7 @@ pub fn compute_unit_rustc_env_with_target(
     }
 
     if unit.kind == "test" || unit.kind == "custom-test" {
-        let effective_td = target_dir.map(|p| p.to_path_buf()).unwrap_or_else(|| {
-            let ws = unit.workspace_root.clone().unwrap_or_else(|| {
-                super::compiler_resolve::find_workspace_root(&unit.manifest_path)
-            });
-            ws.join("target").join("mitts")
-        });
+        let effective_td = test_target_dir(unit, target_dir);
         let tmp_dir = effective_td.join("tmp");
         if target_dir.is_some() {
             let _ = std::fs::create_dir_all(&tmp_dir);
@@ -135,6 +130,18 @@ pub fn compute_unit_rustc_env_with_target(
     }
 
     env
+}
+
+fn test_target_dir(unit: &PlannedCompilationUnit, target_dir: Option<&Path>) -> PathBuf {
+    target_dir
+        .map(Path::to_path_buf)
+        .or_else(|| std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from))
+        .unwrap_or_else(|| {
+            let ws = unit.workspace_root.clone().unwrap_or_else(|| {
+                super::compiler_resolve::find_workspace_root(&unit.manifest_path)
+            });
+            ws.join("target")
+        })
 }
 
 /// The `CARGO_PKG_*` metadata Cargo gives every rustc, build-script compile and
@@ -191,13 +198,11 @@ pub fn unit_has_build_script(unit: &PlannedCompilationUnit) -> bool {
 pub fn apply_test_binary_env(
     cmd: &mut std::process::Command,
     unit: &PlannedCompilationUnit,
-    cwd: &Path,
+    _cwd: &Path,
     target_dir: Option<&Path>,
     release: bool,
 ) {
-    let effective_td = target_dir
-        .map(|td| td.to_path_buf())
-        .unwrap_or_else(|| cwd.join("target").join("mitts"));
+    let effective_td = test_target_dir(unit, target_dir);
     let tmp_dir = effective_td.join("tmp");
     let _ = std::fs::create_dir_all(&tmp_dir);
     cmd.env("CARGO_TARGET_TMPDIR", &tmp_dir);

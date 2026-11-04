@@ -326,7 +326,7 @@ fn test_nb1_nb2_check_metadata_only_and_build_upgrade_plus_all_targets() {
                 .any(|a| a.description.contains("integ"))
     );
 
-    let deps_dir = proj.join("target/mitts/debug/deps");
+    let deps_dir = proj.join("target/debug/deps");
     assert!(
         deps_dir.join("libnb_proj.rmeta").exists() && !deps_dir.join("libnb_proj.rlib").exists()
     );
@@ -380,18 +380,34 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
     );
     assert!(proj.join("Cargo.toml").exists());
 
-    let (_, res) = RustAdapter::build(&RustBuildOptions {
+    let build_options = RustBuildOptions {
         cache_dir: Some(isolated_cache.path().to_path_buf()),
         manifest_path: Some(proj.join("Cargo.toml")),
         target_dir: Some(custom_td.clone()),
         ..Default::default()
-    })
-    .unwrap();
+    };
+    let (_, res) = RustAdapter::build(&build_options).unwrap();
     assert!(
         res.success
             && custom_td.join(".mitts-target").is_file()
             && !tmp.path().join("CACHEDIR.TAG").exists()
     );
+    let alias = "debug/deps/libcp.rlib";
+    let cold = mitts::core::TargetArtifactIndex::load(&custom_td, "debug");
+    assert!(cold.artifacts.contains_key(alias));
+    for path in cold.artifacts.keys() {
+        fs::remove_file(custom_td.join(path)).unwrap();
+    }
+    let (_, warm) = RustAdapter::build(&build_options).unwrap();
+    assert!(warm.success && warm.cached);
+    let owned: Vec<_> = mitts::core::TargetArtifactIndex::load(&custom_td, "debug")
+        .artifacts
+        .keys()
+        .map(|path| custom_td.join(path))
+        .collect();
+    assert!(!owned.is_empty());
+    assert!(owned.contains(&custom_td.join(alias)));
+    write_file(&custom_td, "debug/cargo-output", "preserve Cargo output");
     assert_eq!(
         handle_clean(&CleanArgs {
             cache_dir: Some(isolated_cache.path().to_path_buf()),
@@ -400,5 +416,9 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
         }),
         0
     );
-    assert!(!custom_td.exists());
+    assert!(owned.iter().all(|path| !path.exists()));
+    assert_eq!(
+        fs::read_to_string(custom_td.join("debug/cargo-output")).unwrap(),
+        "preserve Cargo output"
+    );
 }

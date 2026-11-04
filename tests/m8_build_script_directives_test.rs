@@ -91,7 +91,7 @@ cfg_lib = { path = "../cfg_lib" }
     let (_, res1) = RustAdapter::build_native(&opt1).expect("Build 1 failed");
     assert_eq!(res1.exit_code, 0);
 
-    let bin = root.path().join("target/mitts/debug/cfg_app");
+    let bin = root.path().join("target/debug/cfg_app");
     let out1 = Command::new(&bin).output().unwrap();
     assert_eq!(
         String::from_utf8_lossy(&out1.stdout),

@@ -216,9 +216,7 @@ fn an_alternative_sparse_registry_with_a_token_resolves_fetches_and_builds() {
         "{lock}"
     );
     assert!(lock.contains(&format!("checksum = \"{sum}\"")), "{lock}");
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "1");
     assert!(
         hits.load(Ordering::SeqCst) >= 3,
@@ -290,9 +288,7 @@ fn a_crates_io_mirror_keeps_the_crates_io_source_in_the_lockfile() {
     );
     assert!(lock.contains(&format!("checksum = \"{sum}\"")));
     assert!(hits.load(Ordering::SeqCst) >= 3);
-    let run = Command::new(app.join("target/mitts/debug/app"))
-        .output()
-        .unwrap();
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "1");
     // crates.io packages share the flat store, mirror or not.
     assert!(cache.join("sources/alt-one-0.1.0/.mitts-ok").is_file());

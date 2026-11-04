@@ -20,6 +20,7 @@ pub mod compiler;
 pub mod compiler_args;
 mod compiler_remap;
 pub mod compiler_resolve;
+pub mod credential_provider;
 pub mod dag;
 pub mod dag_cache;
 pub mod dag_runner;
@@ -31,20 +32,16 @@ pub mod dag_unit_publish;
 pub mod dag_worker;
 pub mod dep_info;
 pub mod dependency_check;
+pub mod diagnostic_dedupe;
 pub mod doctest;
 pub mod env_macro;
 pub mod env_macro_cache;
 pub mod env_macro_scope;
 pub mod features;
 pub mod features_helpers;
-pub mod credential_provider;
 pub mod fetcher;
 pub mod git_resolve;
-pub mod patch_resolve;
 pub mod git_source;
-pub mod registry_config;
-pub mod resolve_graph;
-pub mod vendor_source;
 pub mod inputs;
 pub mod key;
 pub mod key_flags;
@@ -57,24 +54,27 @@ pub mod manifest_snapshot;
 pub mod manifest_tests;
 pub mod manifest_workspace;
 pub mod package_selection;
+pub mod patch_resolve;
 pub mod pipelining;
 pub mod planner;
 pub mod planner_deps;
 pub mod planner_units;
 pub mod profile;
 pub mod project_config;
+pub mod registry_config;
+pub mod resolve_graph;
 pub mod resolver;
 pub mod single_flight;
 pub mod source_lookup;
 pub mod sparse_index;
 pub mod target_filter;
-pub mod diagnostic_dedupe;
-pub mod toolchain_probes;
 pub mod test_selection;
+pub mod toolchain_probes;
 pub mod types;
 pub mod unescape;
 pub mod unit_env;
 pub mod unit_inputs;
+pub mod vendor_source;
 
 pub use build_script::execute_build_script;
 pub use build_script_directives::BuildScriptDirectives;
@@ -128,25 +128,32 @@ impl RustAdapter {
         }
     }
 
-    /// Resolves the dedicated isolated Mitts target directory for the workspace (target/mitts).
+    /// Resolves the Rust target root, using Cargo's standard target directory by default.
     pub fn resolve_target_dir(manifest_path: &Path, opt: &RustBuildOptions) -> Result<PathBuf> {
+        let target_dir = Self::resolve_target_dir_without_tags(manifest_path, opt)?;
+
+        // Ensure target directory has CACHEDIR.TAG and .gitignore so IDEs/tools treat it as build cache
+        if opt.target_dir.is_none() {
+            let _ = Self::ensure_target_dir_tags(&target_dir);
+        }
+        Ok(target_dir)
+    }
+
+    /// Cleanup resolves paths without creating an otherwise absent output root.
+    pub(crate) fn resolve_target_dir_without_tags(
+        manifest_path: &Path,
+        opt: &RustBuildOptions,
+    ) -> Result<PathBuf> {
         let target_dir = if let Some(ref td) = opt.target_dir {
             td.clone()
-        } else if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
-            PathBuf::from(cargo_td).join("mitts")
+        } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR") {
+            PathBuf::from(cargo_td)
         } else {
             let project_dir = manifest_path
                 .parent()
                 .context("Manifest path has no parent directory")?;
-            project_dir.join("target").join("mitts")
+            project_dir.join("target")
         };
-
-        // Ensure target directory has CACHEDIR.TAG and .gitignore so IDEs/tools treat it as build cache
-        if opt.target_dir.is_none() {
-            if let Some(parent) = target_dir.parent() {
-                let _ = Self::ensure_target_dir_tags(parent);
-            }
-        }
 
         Ok(target_dir)
     }

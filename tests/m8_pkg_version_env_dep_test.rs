@@ -82,13 +82,13 @@ fn test_m8_pkg_version_env_dep_same_clone_and_cross_clone_hit() {
         "First build must compile the crate"
     );
 
-    let bin_a = clone_a.path().join("target/mitts/debug/ver_app");
+    let bin_a = clone_a.path().join("target/debug/ver_app");
     assert!(bin_a.is_file());
     let out_a1 = Command::new(&bin_a).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_a1.stdout), "VER:0.1.0");
 
-    // 2. Re-build in Clone A after clean (removing target/mitts) -> must be pure HIT!
-    let _ = fs::remove_dir_all(clone_a.path().join("target/mitts"));
+    // 2. Re-build in Clone A after clean (removing target) -> must be pure HIT!
+    let _ = fs::remove_dir_all(clone_a.path().join("target"));
     let compiling_a2 = Arc::new(Mutex::new(Vec::new()));
     let cb_a2 = {
         let list = compiling_a2.clone();
@@ -143,7 +143,7 @@ fn test_m8_pkg_version_env_dep_same_clone_and_cross_clone_hit() {
         "Clone B must achieve a cross-worktree CAS HIT for env!(\"CARGO_PKG_VERSION\")"
     );
 
-    let bin_b = clone_b.path().join("target/mitts/debug/ver_app");
+    let bin_b = clone_b.path().join("target/debug/ver_app");
     assert!(bin_b.is_file());
     let out_b = Command::new(&bin_b).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_b.stdout), "VER:0.1.0");
@@ -243,7 +243,7 @@ edition = "2021"
     let (_, res1) = RustAdapter::build_native(&opt1).expect("Build 1 failed");
     assert_eq!(res1.exit_code, 0);
 
-    let bin = root.path().join("target/mitts/debug/dyn_app");
+    let bin = root.path().join("target/debug/dyn_app");
     let out1 = Command::new(&bin).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out1.stdout), "GEN:1");
 

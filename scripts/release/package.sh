@@ -23,7 +23,9 @@ commit=$(git rev-parse HEAD)
 [[ -z $(git status --porcelain --untracked-files=no) ]]
 package_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 [[ "$tag" == "v$package_version" ]]
-export RUSTFLAGS="--remap-path-prefix=$source_root=. --remap-path-prefix=$HOME=/rust-home"
+# Native dependency assembly may retain absolute paths in DWARF despite Rust
+# remapping. Distribution binaries omit debug info while keeping normal symbols.
+export RUSTFLAGS="--remap-path-prefix=$source_root=. --remap-path-prefix=$HOME=/rust-home -C strip=debuginfo"
 export CARGO_INCREMENTAL=0
 export MACOSX_DEPLOYMENT_TARGET=11.0
 builder=${MITTS_CI_BIN:-mitts}
@@ -36,12 +38,12 @@ lock_digest() {
 lock_before=$(lock_digest)
 "$builder" --version
 "$builder" build --release --native --bin mitts --manifest-path "$source_root/Cargo.toml" \
-    --cache-dir "$cache" --target-dir "$source_root/target/mitts-release"
+    --cache-dir "$cache" --target-dir "$source_root/target"
 [[ "$(lock_digest)" == "$lock_before" ]]
 # Mitts outputs may share immutable CAS inodes. Sign only an owned private copy.
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-cp target/mitts-release/release/mitts "$stage/mitts"
+cp target/release/mitts "$stage/mitts"
 chmod u+w "$stage/mitts"
 binary="$stage/mitts"
 if [[ "$target" == *apple-darwin ]]; then

@@ -74,7 +74,7 @@ fn a_member_inherits_the_workspace_rust_version_only_when_it_opts_in() {
         String::from_utf8_lossy(&out.stderr)
     );
     let printed = |bin: &str| {
-        let run = Command::new(ws.join("target/mitts/debug").join(bin))
+        let run = Command::new(ws.join("target/debug").join(bin))
             .output()
             .unwrap();
         String::from_utf8_lossy(&run.stdout).to_string()
