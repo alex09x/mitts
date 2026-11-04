@@ -108,7 +108,13 @@ fn coverage_exclusions(args: &CoverageArgs, ws_root: &Path) -> String {
     } else {
         ws_root.join(cache)
     };
-    let cache = fs::canonicalize(&cache).unwrap_or(cache);
+    // A path through a symlink (macOS's /var is /private/var) is recorded in a profile as it was
+    // given to the compiler, so the cache is excluded under both spellings.
+    let canonical_cache = fs::canonicalize(&cache).unwrap_or_else(|_| cache.clone());
+    let mut cache_spellings = vec![canonical_cache];
+    if !cache_spellings.contains(&cache) {
+        cache_spellings.push(cache);
+    }
     let escape = |path: &Path| {
         path.to_string_lossy()
             .chars()
@@ -129,8 +135,10 @@ fn coverage_exclusions(args: &CoverageArgs, ws_root: &Path) -> String {
         r"/target/".to_string(),
         r"\.mitts/".to_string(),
     ];
-    for dir in ["sources", "git"] {
-        patterns.push(format!("{}/", escape(&cache.join(dir))));
+    for cache in &cache_spellings {
+        for dir in ["sources", "git"] {
+            patterns.push(format!("{}/", escape(&cache.join(dir))));
+        }
     }
     if let Some(pattern) = &args.ignore_filename_regex {
         patterns.push(format!("({pattern})"));

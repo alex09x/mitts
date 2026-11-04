@@ -82,16 +82,27 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?}");
 }
 
-#[test]
-fn coverage_leaves_a_git_dependency_out_of_the_report() {
+/// The source files of an LCOV report for an app with a git dependency, or `None` when the
+/// tools to measure coverage are missing. With `symlinked_cache` the cache directory is given
+/// through a symlink (as macOS's /var is /private/var), so the path recorded in a profile is not
+/// the canonical one.
+fn reported_files(symlinked_cache: bool) -> Option<Vec<String>> {
     let tools =
         resolve_llvm_tool("llvm-profdata").is_some() && resolve_llvm_tool("llvm-cov").is_some();
     let has_git = Command::new("git").arg("--version").output().is_ok();
     if !tools || !has_git {
         eprintln!("skipped: llvm-tools or git are not installed");
-        return;
+        return None;
     }
     let dir = TempDir::new().unwrap();
+    let cache = dir.path().join("cache");
+    if symlinked_cache {
+        #[cfg(unix)]
+        {
+            fs::create_dir_all(dir.path().join("real-cache")).unwrap();
+            std::os::unix::fs::symlink(dir.path().join("real-cache"), &cache).unwrap();
+        }
+    }
     let dep = dir.path().join("dep");
     let app = dir.path().join("app");
     for path in [dep.join("src"), app.join("src")] {
@@ -133,7 +144,7 @@ fn coverage_leaves_a_git_dependency_out_of_the_report() {
         .args(["llvm-cov", "--lcov", "--output-path"])
         .arg(&lcov)
         .arg("--cache-dir")
-        .arg(dir.path().join("cache"))
+        .arg(&cache)
         .env("CARGO_HOME", dir.path().join("cargo-home"))
         .output()
         .unwrap();
@@ -144,13 +155,34 @@ fn coverage_leaves_a_git_dependency_out_of_the_report() {
     );
 
     let report = fs::read_to_string(&lcov).unwrap();
-    let files: Vec<&str> = report
-        .lines()
-        .filter_map(|line| line.strip_prefix("SF:"))
-        .collect();
-    assert_eq!(
-        files,
-        ["src/lib.rs"],
-        "only the measured crate is reported; the git dependency is left out"
-    );
+    Some(
+        report
+            .lines()
+            .filter_map(|line| line.strip_prefix("SF:"))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+#[test]
+fn coverage_leaves_a_git_dependency_out_of_the_report() {
+    if let Some(files) = reported_files(false) {
+        assert_eq!(
+            files,
+            ["src/lib.rs"],
+            "only the measured crate is reported; the git dependency is left out"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn coverage_leaves_a_git_dependency_out_when_the_cache_path_is_a_symlink() {
+    if let Some(files) = reported_files(true) {
+        assert_eq!(
+            files,
+            ["src/lib.rs"],
+            "the cache is excluded under the spelling the profile records, not only the canonical one"
+        );
+    }
 }
