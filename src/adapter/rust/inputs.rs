@@ -71,7 +71,9 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
             .take_while(|a| a.starts_with(&cargo_git_checkouts) && *a != cargo_git_checkouts)
             .any(|a| a.join(".cargo-ok").is_file());
 
-    let in_mitts_git = package_dir.ancestors().skip(1).any(|a| {
+    // The package directory itself counts: a repository with one crate at its root is checked
+    // out to `<cache>/git/checkouts/<repo>/<rev>/`, which holds the marker and is the package.
+    let in_mitts_git = package_dir.ancestors().any(|a| {
         a.join(crate::core::source_store::MITTS_OK_MARKER).is_file()
             && a.parent()
                 .and_then(|repo| repo.parent())
