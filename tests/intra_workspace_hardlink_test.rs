@@ -258,9 +258,12 @@ version = "0.1.0"
 
     let debug_dir = target_dir.join("debug");
     let dest = debug_dir.join("my-hyphen-pkg");
-    let alt_path = debug_dir.join("my_hyphen_pkg");
+    // Explicit copies exercise linking without an automatic executable alias.
+    let alt_path = debug_dir.join("workspace-copy");
 
     assert!(dest.is_file(), "Primary binary must exist: {:?}", dest);
+    assert!(!debug_dir.join("my_hyphen_pkg").exists());
+    mitts::core::link_intra_workspace(&dest, &alt_path, &[target_dir.as_path()], true).unwrap();
     assert!(
         alt_path.is_file(),
         "Alternate binary alias must exist: {:?}",
@@ -326,6 +329,7 @@ version = "0.1.0"
         "Build v2 failed: exit_code={}, stderr={}",
         res2.exit_code, res2.stderr
     );
+    mitts::core::link_intra_workspace(&dest, &alt_path, &[target_dir.as_path()], true).unwrap();
 
     // Verify executions output v2
     let out_dest_v2 = std::process::Command::new(&dest).output().unwrap();
@@ -381,6 +385,7 @@ version = "0.1.0"
         "Build v3 failed: exit_code={}, stderr={}",
         res3.exit_code, res3.stderr
     );
+    mitts::core::link_intra_workspace(&dest, &alt_path, &[target_dir.as_path()], true).unwrap();
 
     // Verify executions output v1 restored from cache
     let out_dest_v3 = std::process::Command::new(&dest).output().unwrap();
