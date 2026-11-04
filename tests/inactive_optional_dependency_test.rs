@@ -64,9 +64,7 @@ fn resolve_rand(consumer_manifest: &str, lock_dependencies: &[String]) -> Option
     let opt = RustBuildOptions::default();
     let index = FeatureGraphIndex::build(&packages, &opt);
     let hint: Option<&TomlDependency> = consumer_toml.dependencies.get("rand");
-    index
-        .resolve_dep_id_with_hint(0, "rand", hint)
-        .ok()
+    index.resolve_dep_id_with_hint(0, "rand", hint).ok()
 }
 
 const OPTIONAL_RAND: &str = r#"[package]
