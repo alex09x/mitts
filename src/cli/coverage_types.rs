@@ -184,3 +184,11 @@ pub struct CoverageArgs {
     #[arg(last = true)]
     pub test_args: Vec<String>,
 }
+
+impl CoverageArgs {
+    /// True when stdout carries only the JSON report, so a consumer can parse it: no banner,
+    /// stage lines or output of the instrumented tests may reach it (they go to stderr).
+    pub fn json_report_on_stdout(&self) -> bool {
+        self.json && !self.html && !self.lcov && self.output_path.is_none()
+    }
+}

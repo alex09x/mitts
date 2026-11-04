@@ -108,7 +108,13 @@ fn coverage_exclusions(args: &CoverageArgs, ws_root: &Path) -> String {
     } else {
         ws_root.join(cache)
     };
-    let cache = fs::canonicalize(&cache).unwrap_or(cache);
+    // A path through a symlink (macOS's /var is /private/var) is recorded in a profile as it was
+    // given to the compiler, so the cache is excluded under both spellings.
+    let canonical_cache = fs::canonicalize(&cache).unwrap_or_else(|_| cache.clone());
+    let mut cache_spellings = vec![canonical_cache];
+    if !cache_spellings.contains(&cache) {
+        cache_spellings.push(cache);
+    }
     let escape = |path: &Path| {
         path.to_string_lossy()
             .chars()
@@ -129,8 +135,10 @@ fn coverage_exclusions(args: &CoverageArgs, ws_root: &Path) -> String {
         r"/target/".to_string(),
         r"\.mitts/".to_string(),
     ];
-    for dir in ["sources", "git"] {
-        patterns.push(format!("{}/", escape(&cache.join(dir))));
+    for cache in &cache_spellings {
+        for dir in ["sources", "git"] {
+            patterns.push(format!("{}/", escape(&cache.join(dir))));
+        }
     }
     if let Some(pattern) = &args.ignore_filename_regex {
         patterns.push(format!("({pattern})"));
@@ -256,7 +264,9 @@ pub fn merge_and_report_coverage(
             }
         }
     } else {
-        println!();
+        if !args.json_report_on_stdout() {
+            println!();
+        }
         match cov_cmd.status() {
             Ok(s) => s,
             Err(err) => {
@@ -305,10 +315,15 @@ pub fn merge_and_report_coverage(
                 );
                 return 1;
             }
-            println!(
+            let message = format!(
                 "mitts coverage: line coverage {:.2}% meets threshold {:.2}%",
                 pct, threshold
             );
+            if args.json_report_on_stdout() {
+                eprintln!("{message}");
+            } else {
+                println!("{message}");
+            }
         } else {
             let _ = fs::remove_file(&pid_profdata);
             eprintln!("mitts coverage error: unable to calculate line coverage threshold");
@@ -336,7 +351,9 @@ pub fn merge_and_report_coverage(
             let _ = Command::new("open").arg(&index).status();
         }
     }
-    Ui::finish("coverage", &dur, "Coverage report completed");
+    if !args.json_report_on_stdout() {
+        Ui::finish("coverage", &dur, "Coverage report completed");
+    }
 
     0
 }
