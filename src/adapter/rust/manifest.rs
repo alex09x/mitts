@@ -11,11 +11,12 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 #[path = "manifest_benches.rs"]
 mod benches;
+#[path = "manifest_bins.rs"]
+mod bins;
 #[path = "manifest_examples.rs"]
 mod examples;
 
@@ -316,109 +317,8 @@ impl CargoToml {
             }
         }
 
-        // 2. Binary targets
-        if !self.bin.is_empty() {
-            for b in &self.bin {
-                let src = match b.path {
-                    Some(ref p) => pkg_dir.join(p),
-                    None => {
-                        let candidate1 = pkg_dir
-                            .join("src")
-                            .join("bin")
-                            .join(format!("{}.rs", b.name));
-                        let candidate2 = pkg_dir
-                            .join("src")
-                            .join("bin")
-                            .join(&b.name)
-                            .join("main.rs");
-                        if candidate1.is_file() {
-                            candidate1
-                        } else if candidate2.is_file() {
-                            // Cargo's second inferred location for a named binary.
-                            candidate2
-                        } else {
-                            pkg_dir.join("src").join("main.rs")
-                        }
-                    }
-                };
-                if src.is_file() {
-                    targets.push(DiscoveredTarget {
-                        name: b.name.clone(),
-                        kind: "bin".to_string(),
-                        src_path: src,
-                        edition: edition.clone(),
-                        crate_types: vec!["bin".to_string()],
-                        required_features: b.required_features.clone(),
-                        harness: b.harness.unwrap_or(true),
-                        test_role: None,
-                        explicit_only: false,
-                    });
-                }
-            }
-        } else {
-            let default_main = pkg_dir.join("src").join("main.rs");
-            if default_main.is_file() && !pkg_name.is_empty() {
-                targets.push(DiscoveredTarget {
-                    name: pkg_name.to_string(),
-                    kind: "bin".to_string(),
-                    src_path: default_main,
-                    edition: edition.clone(),
-                    crate_types: vec!["bin".to_string()],
-                    required_features: None,
-                    harness: true,
-                    test_role: None,
-                    explicit_only: false,
-                });
-            }
-
-            // Check autobins
-            let autobins = self
-                .package
-                .as_ref()
-                .and_then(|p| p.autobins)
-                .unwrap_or(true);
-            if autobins {
-                let bin_dir = pkg_dir.join("src").join("bin");
-                if let Ok(entries) = fs::read_dir(&bin_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs")
-                        {
-                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                                targets.push(DiscoveredTarget {
-                                    name: stem.to_string(),
-                                    kind: "bin".to_string(),
-                                    src_path: path,
-                                    edition: edition.clone(),
-                                    crate_types: vec!["bin".to_string()],
-                                    required_features: None,
-                                    harness: true,
-                                    test_role: None,
-                                    explicit_only: false,
-                                });
-                            }
-                        } else if path.is_dir() {
-                            let main_rs = path.join("main.rs");
-                            if main_rs.is_file() {
-                                if let Some(dir_name) = path.file_name().and_then(|s| s.to_str()) {
-                                    targets.push(DiscoveredTarget {
-                                        name: dir_name.to_string(),
-                                        kind: "bin".to_string(),
-                                        src_path: main_rs,
-                                        edition: edition.clone(),
-                                        crate_types: vec!["bin".to_string()],
-                                        required_features: None,
-                                        harness: true,
-                                        test_role: None,
-                                        explicit_only: false,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // 2. Binary targets: the `[[bin]]` tables and the ones found in the layout.
+        targets.extend(bins::discover(self, pkg_dir, edition.as_deref()));
 
         targets.extend(examples::discover(self, pkg_dir, edition.as_deref()));
 
