@@ -254,15 +254,13 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                         return Ok(false);
                     }
                     let clean = unit.target_name.replace('-', "_");
-                    let unhashed = deps_dir.join(format!("lib{clean}.{ext}"));
-                    if unhashed != target_dep_dest {
-                        let _ = crate::core::link_intra_workspace(
-                            &target_dep_dest,
-                            &unhashed,
-                            &[ctx.target_dir],
-                            false,
-                        );
-                    }
+                    super::dag_unit_publish::publish_library_alias(
+                        ctx,
+                        &target_dep_dest,
+                        &clean,
+                        ext,
+                        &out.cas_hash,
+                    );
                 }
 
                 if matches!(ext, "rlib" | "dylib" | "so" | "rmeta") {

@@ -8,9 +8,11 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+mod aliases;
 mod inputs;
 mod keys;
 
+pub(crate) use aliases::publish_library_alias;
 pub use inputs::record_extra_inputs_in_ctx;
 pub(crate) use keys::artifact_disambiguator;
 
@@ -195,15 +197,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     let rel_key = format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
                     ti.lock().unwrap().record(rel_key, hash.clone(), &dep_copy);
                 }
-                let unhashed = deps_dir.join(format!("lib{}.{}", clean_crate, ext));
-                if unhashed != dep_copy {
-                    let _ = crate::core::link_intra_workspace(
-                        &dep_copy,
-                        &unhashed,
-                        &[ctx.target_dir],
-                        false,
-                    );
-                }
+                publish_library_alias(ctx, &dep_copy, &clean_crate, ext, &hash);
             }
         }
 
@@ -247,15 +241,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                         .unwrap()
                         .record(rel_key, meta_hash.clone(), &dep_copy);
                 }
-                let unhashed = deps_dir.join(format!("lib{}.rmeta", clean_crate));
-                if unhashed != dep_copy {
-                    let _ = crate::core::link_intra_workspace(
-                        &dep_copy,
-                        &unhashed,
-                        &[ctx.target_dir],
-                        false,
-                    );
-                }
+                publish_library_alias(ctx, &dep_copy, &clean_crate, "rmeta", &meta_hash);
             }
         }
     }

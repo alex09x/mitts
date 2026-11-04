@@ -285,10 +285,7 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     let legacy_mitts_dir = project_dir.join(".mitts");
 
     Ui::header("clean");
-    let clean_lock_path = mitts_dir
-        .parent()
-        .unwrap_or(&mitts_dir)
-        .join(".mitts-clean.lock");
+    let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
     let _clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
         Ok(guard) => guard,
         Err(err) => {

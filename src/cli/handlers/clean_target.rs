@@ -10,7 +10,7 @@
 
 use crate::core::hash::Sha256;
 use crate::core::{CacheGc, FileLock, GcOptions, TargetArtifactIndex, TargetArtifactRecord};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::fs;
 use std::path::{Component, Path};
 use std::time::UNIX_EPOCH;
@@ -61,6 +61,38 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
     } else {
         &["debug", "release"]
     };
+    let legacy = target.join("mitts");
+    let legacy_owned =
+        owns_directory(&legacy) && !legacy.join("cas").is_dir() && !legacy.join("ac").is_dir();
+    let previous_lock = target.parent().map(|p| p.join(".mitts-clean.lock"));
+    let _legacy_guard =
+        if let Some(path) = previous_lock.filter(|p| p.is_file()) {
+            Some(FileLock::try_acquire_exclusive(&path)?.ok_or_else(|| {
+                anyhow::anyhow!("An older Mitts build is active; cleanup skipped")
+            })?)
+        } else {
+            None
+        };
+    // Cargo holds this lock while compiling/linking a profile. Nonblocking
+    // admission also avoids waiting cycles with nested build-script commands.
+    let mut _cargo_guards = Vec::new();
+    for profile in profiles {
+        let directory = target.join(profile);
+        if !directory.exists() {
+            continue;
+        }
+        if !directory.canonicalize()?.starts_with(&canonical_root) {
+            bail!("Refusing to clean a profile outside the target root");
+        }
+        let path = directory.join(".cargo-lock");
+        if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+            bail!("Refusing a symlinked Cargo profile lock");
+        }
+        let Some(guard) = FileLock::try_acquire_exclusive(&path)? else {
+            bail!("A Cargo build is active in profile {profile}; cleanup skipped");
+        };
+        _cargo_guards.push(guard);
+    }
     let mut removed = 0;
     for profile in profiles {
         let index = TargetArtifactIndex::load(target, profile);
@@ -96,9 +128,7 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
 
     // Older versions kept all outputs in this dedicated directory. Its lock
     // also protects old-version builds while the new layout uses the parent.
-    let legacy = target.join("mitts");
-    if owns_directory(&legacy) {
-        let _legacy_guard = FileLock::acquire_exclusive(&target.join(".mitts-clean.lock"))?;
+    if legacy_owned {
         if release_only {
             super::clean_stray_tmp_links(&legacy);
             let _ = fs::write(legacy.join(".mitts-target"), "mitts-target-v1\n");

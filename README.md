@@ -381,6 +381,8 @@ is local to each runner; a cross-machine remote cache is not available yet.
 Mitts uses the same default output paths as Cargo. Its shared artifact store stays
 separate, and `mitts clean` removes only indexed Mitts outputs that still match
 their recorded content; it preserves unrelated or replaced Cargo files.
+If Cargo holds a profile's build-directory lock, cleanup is skipped until that
+build finishes.
 
 **Where is the cache and how do I clear it?**
 `--cache-dir`, else `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` or

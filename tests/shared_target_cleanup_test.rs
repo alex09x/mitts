@@ -64,6 +64,7 @@ fn default_outputs_match_cargo_and_recover_after_a_cargo_build() {
     let binary = root.join("target/debug/layout-app");
     assert_eq!(run(&binary), "mitts");
     assert!(!root.join("target/mitts/debug/layout-app").exists());
+    assert!(!root.join(".mitts-clean.lock").exists());
 
     let output = Command::new("cargo")
         .current_dir(root)
@@ -119,6 +120,12 @@ fn clean_preserves_cargo_files_and_replaced_outputs_in_a_shared_root() {
         target.join("debug/deps/libowned.rlib"),
     )
     .unwrap();
+    let alias = target.join("debug/deps/libowned.rlib");
+    debug.record(
+        "debug/deps/libowned.rlib".into(),
+        Sha256::digest_file(&alias).unwrap(),
+        &alias,
+    );
     debug.save(&target, "debug").unwrap();
     fs::remove_file(target.join("debug/replaced")).unwrap();
     fs::write(target.join("debug/replaced"), b"Cargo replacement").unwrap();
@@ -178,4 +185,78 @@ fn clean_rejects_parent_traversal_and_symlinked_parents() {
         0
     );
     assert_eq!(fs::read(outside).unwrap(), b"preserve");
+}
+
+#[test]
+fn clean_skips_an_active_cargo_build_and_preserves_its_replacement() {
+    use std::time::{Duration, Instant};
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fixture(root);
+    build_mitts(root, false);
+    let binary = root.join("target/debug/layout-app");
+    fs::write(
+        root.join("build.rs"),
+        r#"
+fn main() {
+    std::fs::write(std::env::var("LAYOUT_GATE_READY").unwrap(), "ready").unwrap();
+    let release = std::env::var("LAYOUT_GATE_RELEASE").unwrap();
+    while !std::path::Path::new(&release).exists() {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+"#,
+    )
+    .unwrap();
+    let ready = root.join("ready");
+    let release = root.join("release-gate");
+    let mut cargo = Command::new("cargo");
+    cargo
+        .current_dir(root)
+        .args(["build", "--offline", "--target-dir"])
+        .arg(root.join("target"))
+        .env("MITTS_LAYOUT_TEST_MODE", "cargo")
+        .env("LAYOUT_GATE_READY", &ready)
+        .env("LAYOUT_GATE_RELEASE", &release)
+        .env_remove("CARGO_MAKEFLAGS")
+        .env_remove("MAKEFLAGS")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let child = cargo.spawn().unwrap();
+    let start = Instant::now();
+    while !ready.exists() && start.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    if !ready.exists() {
+        fs::write(&release, "release").unwrap();
+        let out = child.wait_with_output().unwrap();
+        panic!(
+            "Cargo never reached its build-script gate: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let mut clean = Command::new(env!("CARGO_BIN_EXE_mitts"));
+    clean
+        .current_dir(root)
+        .args(["clean", "--target-dir"])
+        .arg(root.join("target"))
+        .env_remove("CARGO_TARGET_DIR");
+    let attempt = clean.output().unwrap();
+    let skipped = !attempt.status.success()
+        && String::from_utf8_lossy(&attempt.stderr).contains("Cargo build is active");
+    let preserved = binary.exists();
+    fs::write(&release, "release").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        skipped && preserved,
+        "clean must skip an active Cargo build without deleting its output"
+    );
+    assert_eq!(run(&binary), "cargo");
+    assert!(clean.output().unwrap().status.success());
+    assert_eq!(run(&binary), "cargo");
 }
