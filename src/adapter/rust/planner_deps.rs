@@ -283,6 +283,7 @@ pub fn resolve_unit_dependencies_with_manifests(
         }
 
         if unit.kind == "bin"
+            || unit.kind == "example"
             || unit.kind == "test"
             || unit.kind == "custom-test"
             || unit.kind == "test-deps"

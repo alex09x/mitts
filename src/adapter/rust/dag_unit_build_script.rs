@@ -87,6 +87,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
             unit,
             ctx.opt.release,
             &unit.features,
+            ctx.opt.target_triple.as_deref(),
             Some(&artifacts_dir),
             &extern_crates,
             Some(&build_dep_env),
@@ -109,6 +110,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 unit,
                 ctx.opt.release,
                 &unit.features,
+                ctx.opt.target_triple.as_deref(),
                 Some(&artifacts_dir),
                 &extern_crates,
                 Some(&build_dep_env),
@@ -130,6 +132,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 &staging_dir,
                 ctx.opt.release,
                 &unit.features,
+                ctx.opt.target_triple.as_deref(),
                 Some(&artifacts_dir),
                 &extern_crates,
                 Some(&build_dep_env),
@@ -192,6 +195,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                     jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
                     deps_dir: Some(&artifacts_dir),
                     target_dir: Some(ctx.target_dir),
+                    target_triple: ctx.opt.target_triple.as_deref(),
                     cache_root: ctx.cas.root().parent(),
                 };
                 let out_res = inv.execute();

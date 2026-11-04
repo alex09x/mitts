@@ -305,10 +305,12 @@ pub fn run_native_dag_build(
         .filter(|k| k.contains(":unhashable:"))
         .count();
     let n_total = actions.len();
-    eprintln!(
-        "[mitts::stats] compiled={} cached={} tainted={} total={} fast_lock=0",
-        n_compiled, n_cached, n_tainted, n_total
-    );
+    if !opt.quiet {
+        eprintln!(
+            "[mitts::stats] compiled={} cached={} tainted={} total={} fast_lock=0",
+            n_compiled, n_cached, n_tainted, n_total
+        );
+    }
     if std::env::var("MITTS_STATS").as_deref() == Ok("json") {
         eprintln!(
             r#"{{"compiled": {}, "cached": {}, "tainted": {}, "total": {}, "fast_lock": 0}}"#,

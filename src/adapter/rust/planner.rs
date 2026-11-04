@@ -43,8 +43,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         project_dir,
         opt.start_dir.as_deref(),
     );
-    let explicit_target =
-        super::key_flags::resolve_explicit_target_from_args_and_dir(&opt.extra_args, &cfg_dir);
+    let explicit_target = super::key_flags::resolve_explicit_target(opt).or_else(|| {
+        super::key_flags::resolve_explicit_target_from_args_and_dir(&opt.extra_args, &cfg_dir)
+    });
     let _ = super::cargo_config::load_cargo_config_rustflags(&cfg_dir, explicit_target.as_deref())?;
     let _ = super::profile::resolve_unit_profile(
         &manifest_path,
@@ -414,6 +415,16 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     super::planner_units::prune_plan_root_units(&mut units, opt, has_all_ws);
+    for example in &opt.example_targets {
+        if !units
+            .iter()
+            .any(|unit| unit.kind == "example" && &unit.target_name == example)
+        {
+            anyhow::bail!(
+                "no example target named `{example}` is available with the selected package and features"
+            );
+        }
+    }
     let t_deps = std::time::Instant::now();
     let s_deps = super::compiler_resolve::rustc_subproc_stats();
 

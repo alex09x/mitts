@@ -97,6 +97,10 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Select target triple for cross-compilation
+    #[arg(long)]
+    pub target: Option<String>,
+
     /// Require an existing compatible Cargo.lock; do not resolve or write one.
     #[arg(long)]
     pub locked: bool,

@@ -31,6 +31,7 @@ pub struct RustcInvocation<'a> {
     pub jobserver_auth: Option<&'a str>,
     pub deps_dir: Option<&'a Path>,
     pub target_dir: Option<&'a Path>,
+    pub target_triple: Option<&'a str>,
     /// Root of the Mitts cache the build runs against (the parent of its `cas/`);
     /// the default cache root when `None`.
     pub cache_root: Option<&'a Path>,
@@ -74,7 +75,7 @@ impl<'a> RustcInvocation<'a> {
         }
 
         if success {
-            let is_bin = self.unit.kind == "bin";
+            let is_bin = self.unit.kind == "bin" || self.unit.kind == "example";
             let is_test = self.unit.kind == "test" || self.unit.kind == "custom-test";
             let is_check_or_clippy_ws = self.unit.is_workspace
                 && (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy);
@@ -103,7 +104,9 @@ impl<'a> RustcInvocation<'a> {
                 if let Ok(entries) = fs::read_dir(self.out_dir) {
                     for p in entries.flatten().map(|e| e.path()) {
                         match p.extension().and_then(|e| e.to_str()) {
-                            Some("rlib" | "dylib" | "so") if primary_output.is_none() => {
+                            Some("rlib" | "dylib" | "so" | "a" | "lib")
+                                if primary_output.is_none() =>
+                            {
                                 primary_output = Some(p)
                             }
                             Some("rmeta") if metadata_output.is_none() => metadata_output = Some(p),

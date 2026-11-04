@@ -16,6 +16,7 @@ pub mod build_script_keys;
 pub mod build_script_purity;
 pub mod builder;
 pub mod cargo_config;
+pub mod cargo_config_linker;
 pub mod compiler;
 pub mod compiler_args;
 mod compiler_remap;
@@ -144,7 +145,7 @@ impl RustAdapter {
         manifest_path: &Path,
         opt: &RustBuildOptions,
     ) -> Result<PathBuf> {
-        let target_dir = if let Some(ref td) = opt.target_dir {
+        let mut target_dir = if let Some(ref td) = opt.target_dir {
             td.clone()
         } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR") {
             PathBuf::from(cargo_td)
@@ -154,6 +155,10 @@ impl RustAdapter {
                 .context("Manifest path has no parent directory")?;
             project_dir.join("target")
         };
+
+        if let Some(target) = key_flags::resolve_explicit_target(opt) {
+            target_dir.push(target);
+        }
 
         Ok(target_dir)
     }

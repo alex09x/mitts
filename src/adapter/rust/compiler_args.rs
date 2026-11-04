@@ -56,7 +56,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.unit.src_path.clone()
     } else {
         let cache_root = crate::core::cache_root::resolve(inv.cache_root);
-        let rel = if inv.unit.kind == "bin" {
+        let rel = if inv.unit.kind == "bin" || inv.unit.kind == "example" {
             "main.rs"
         } else {
             "lib.rs"
@@ -76,9 +76,16 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     cmd.args(["--edition", edition]);
 
     let is_build_script = matches!(inv.unit.kind.as_str(), "custom-build" | "build-script");
-    let is_bin = inv.unit.kind == "bin" || is_build_script;
+    let is_bin = matches!(inv.unit.kind.as_str(), "bin" | "example") || is_build_script;
     let is_test = inv.unit.kind == "test" || inv.unit.kind == "custom-test";
     let is_proc_macro = inv.unit.kind == "proc-macro";
+    let native_crate_types: Vec<&str> = inv
+        .unit
+        .kind
+        .split(',')
+        .map(str::trim)
+        .filter(|kind| matches!(*kind, "dylib" | "cdylib" | "staticlib"))
+        .collect();
     let is_check_only = (inv.mode == BuildMode::Check || inv.mode == BuildMode::Clippy)
         && (!inv.unit.for_host || (inv.mode == BuildMode::Clippy && is_build_script));
 
@@ -126,6 +133,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         ]);
     } else if is_bin {
         cmd.args(["--crate-type", "bin", "--emit=dep-info,link"]);
+    } else if !native_crate_types.is_empty() {
+        for crate_type in &native_crate_types {
+            cmd.args(["--crate-type", crate_type]);
+        }
+        cmd.arg("--emit=dep-info,link");
     } else {
         cmd.args([
             "--crate-type",
@@ -178,8 +190,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     }) {
         cmd.args(["-C", &format!("lto={lto_mode}")]);
     }
-    let is_linked =
-        is_bin || is_test || is_proc_macro || matches!(inv.unit.kind.as_str(), "cdylib" | "dylib");
+    let is_linked = is_bin || is_test || is_proc_macro || !native_crate_types.is_empty();
     if let Some(ref strip_mode) = profile
         .strip
         .as_ref()
@@ -300,10 +311,12 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
 
     let base_dir = inv.unit.workspace_root.as_deref().unwrap_or(cwd.as_path());
     let config_start_dir = super::cargo_config::resolve_config_start_dir(base_dir);
-    let explicit_target = super::key_flags::resolve_explicit_target_from_args_and_dir(
-        inv.extra_compiler_args,
-        &config_start_dir,
-    );
+    let explicit_target = inv.target_triple.map(str::to_string).or_else(|| {
+        super::key_flags::resolve_explicit_target_from_args_and_dir(
+            inv.extra_compiler_args,
+            &config_start_dir,
+        )
+    });
 
     let config_flags = super::cargo_config::load_cargo_config_rustflags(
         &config_start_dir,
@@ -324,6 +337,23 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             inv.unit.kind.as_str(),
             "proc-macro" | "custom-build" | "build-script"
         );
+    if !is_host
+        && !inv
+            .extra_compiler_args
+            .iter()
+            .any(|arg| arg.starts_with("-Clinker="))
+        && !inv
+            .extra_compiler_args
+            .windows(2)
+            .any(|args| args[0] == "-C" && (args[1] == "linker" || args[1].starts_with("linker=")))
+    {
+        if let Some(linker) = super::cargo_config_linker::load_cargo_config_linker(
+            &config_start_dir,
+            explicit_target.as_deref(),
+        )? {
+            cmd.args(["-C", &format!("linker={linker}")]);
+        }
+    }
     let has_cli_t = inv
         .extra_compiler_args
         .iter()

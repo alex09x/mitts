@@ -70,6 +70,7 @@ impl CompilationDag {
                         | "bench"
                         | "cdylib"
                         | "dylib"
+                        | "staticlib"
                         | "proc-macro"
                 ) || super::pipelining::package_has_build_script(&node.unit.manifest_path)
             })

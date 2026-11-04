@@ -29,12 +29,14 @@ pub(crate) fn execute_unit(
     lock_mode: LockMode,
 ) -> Result<UnitExecutionStatus> {
     let clean_crate = unit.target_name.replace('-', "_");
-    let is_executable = matches!(unit.kind.as_str(), "bin" | "test" | "custom-test")
-        && !(unit.is_workspace
-            && matches!(
-                ctx.opt.mode,
-                crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
-            ));
+    let is_executable = matches!(
+        unit.kind.as_str(),
+        "bin" | "example" | "test" | "custom-test"
+    ) && !(unit.is_workspace
+        && matches!(
+            ctx.opt.mode,
+            crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
+        ));
 
     let has_build_script = super::unit_env::unit_has_build_script(unit);
     let t_bs = std::time::Instant::now();
@@ -209,6 +211,7 @@ pub(crate) fn execute_unit(
         jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
         deps_dir: Some(deps_dir),
         target_dir: Some(ctx.target_dir),
+        target_triple: ctx.opt.target_triple.as_deref(),
         cache_root: ctx.cas.root().parent(),
     };
 

@@ -55,6 +55,10 @@ pub struct CheckArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Select target triple for cross-compilation
+    #[arg(long)]
+    pub target: Option<String>,
+
     /// Require an existing compatible Cargo.lock; do not resolve or write one.
     #[arg(long)]
     pub locked: bool,
@@ -142,6 +146,7 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        target_triple: args.target.clone(),
         locked: args.locked,
         offline: args.offline,
         frozen: args.frozen,

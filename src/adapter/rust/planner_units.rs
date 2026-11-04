@@ -45,6 +45,22 @@ pub fn build_planned_units(
         let is_target_pkg = *is_workspace && opt.package.as_deref() == Some(&pkg.name);
         let is_primary = *is_workspace && is_primary_pkg(&pkg.name);
         let mut targets = pkg_toml.discover_targets(pkg_dir);
+        if (is_primary || is_target_pkg) && !opt.crate_types.is_empty() {
+            for target in &mut targets {
+                if target.kind == "lib" || target.kind == "proc-macro" {
+                    target.crate_types = opt.crate_types.clone();
+                }
+            }
+        }
+        if opt.example_targets.is_empty() {
+            targets.retain(|target| target.kind != "example");
+        } else {
+            targets.retain(|target| {
+                target.kind != "example"
+                    || (*is_workspace
+                        && opt.example_targets.iter().any(|name| name == &target.name))
+            });
+        }
         let has_tests = opt.mode == crate::adapter::BuildMode::Test
             || opt.all_tests
             || !opt.test_targets.is_empty();
@@ -115,8 +131,10 @@ pub fn build_planned_units(
 
         for target in targets {
             let is_pm = target.kind == "proc-macro";
-            let is_executable =
-                target.kind == "bin" || target.kind == "test" || target.kind == "test-deps";
+            let is_executable = matches!(
+                target.kind.as_str(),
+                "bin" | "example" | "test" | "test-deps"
+            );
 
             if is_pm {
                 if in_host || is_primary {
@@ -259,7 +277,6 @@ fn create_unit(
     manifest_dir_readers: &[PathBuf],
     ws_root: Option<&Path>,
 ) -> PlannedCompilationUnit {
-    let is_bin = target.kind == "bin";
     // `CARGO_MANIFEST_DIR` keys a unit on its absolute checkout path, so only the units
     // whose own sources read it carry the variable; see `env_macro_scope`.
     let env_vars: Vec<String> = env_vars
@@ -304,11 +321,7 @@ fn create_unit(
             "Uncached in M1 (eligible for M2 test binary artifact cache)".to_string(),
         )
     } else {
-        let kind = if is_bin {
-            "bin".to_string()
-        } else {
-            target.kind.clone()
-        };
+        let kind = target.kind.clone();
         let reason = if is_workspace {
             "Uncached in M1 (eligible for M2 workspace action cache)".to_string()
         } else {
@@ -344,9 +357,9 @@ fn create_unit(
 /// carries as its kind (`staticlib,cdylib,rlib` for regex's C API crate `rure`).
 pub fn is_library_kind(kind: &str) -> bool {
     kind == "lib"
-        || kind.split(',').all(|k| {
-            matches!(k.trim(), "lib" | "rlib" | "dylib" | "cdylib" | "staticlib")
-        })
+        || kind
+            .split(',')
+            .all(|k| matches!(k.trim(), "lib" | "rlib" | "dylib" | "cdylib" | "staticlib"))
 }
 
 pub fn prune_plan_root_units(
@@ -355,6 +368,7 @@ pub fn prune_plan_root_units(
     has_all_ws: bool,
 ) {
     let mut root_unit_ids = Vec::new();
+    let selecting_examples = !opt.example_targets.is_empty();
     let has_test_sel = opt.all_tests || !opt.test_targets.is_empty();
     let is_test_mode = opt.mode == crate::adapter::rust::types::BuildMode::Test;
     let only_tests_sel = !is_test_mode
@@ -379,17 +393,25 @@ pub fn prune_plan_root_units(
         }
         let bin_matches = !opt.doc_only
             && !only_tests_sel
-            && (is_test_mode
-                || (!(opt.lib_only && !opt.all_bins && opt.bin_targets.is_empty())
-                    && (opt.bin_targets.is_empty()
-                        || opt.bin_targets.iter().any(|b| {
-                            b == &u.target_name
-                                || b.replace('-', "_") == u.target_name.replace('-', "_")
-                        }))));
-        let lib_matches = !only_tests_sel
-            && (is_test_mode || opt.lib_only || (opt.bin_targets.is_empty() && !opt.all_bins));
+            && if opt.bin_targets.is_empty() {
+                !selecting_examples && (is_test_mode || (opt.all_bins || !opt.lib_only))
+            } else {
+                opt.bin_targets.iter().any(|b| {
+                    b == &u.target_name || b.replace('-', "_") == u.target_name.replace('-', "_")
+                })
+            };
+        let lib_matches = selecting_examples
+            || (!only_tests_sel
+                && (is_test_mode || opt.lib_only || (opt.bin_targets.is_empty() && !opt.all_bins)));
+        let example_matches = selecting_examples
+            && u.kind == "example"
+            && opt
+                .example_targets
+                .iter()
+                .any(|name| name == &u.target_name);
         let kind_matches = ((is_library_kind(&u.kind) || u.kind == "proc-macro") && lib_matches)
-            || (u.kind == "bin" && bin_matches);
+            || (u.kind == "bin" && bin_matches)
+            || example_matches;
         let is_primary_or_ws = (is_root_pkg && kind_matches)
             || (has_all_ws
                 && u.is_workspace

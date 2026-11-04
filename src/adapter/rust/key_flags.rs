@@ -82,6 +82,13 @@ pub fn resolve_explicit_target_from_args(extra_args: &[String]) -> Option<String
 }
 
 pub fn resolve_explicit_target(opt: &RustBuildOptions) -> Option<String> {
+    if let Some(target) = opt
+        .target_triple
+        .as_deref()
+        .filter(|target| !target.trim().is_empty())
+    {
+        return Some(target.to_string());
+    }
     let start_dir = opt.start_dir.as_deref().unwrap_or(Path::new("."));
     resolve_explicit_target_from_args_and_dir(&opt.extra_args, start_dir)
 }
@@ -237,6 +244,9 @@ pub fn compute_unit_flags_with_ws(
         }
     }
     u_flags.push("SCHEMA_VERSION=rust_key_v3".to_string());
+    if unit.kind.split(',').any(|kind| kind.trim() == "staticlib") {
+        u_flags.push("STATICLIB_OUTPUT_V1".to_string());
+    }
     let ws_for_profile = unit.workspace_root.as_deref().or(ws_root);
     let profile = super::profile::resolve_unit_profile_for(
         &unit.manifest_path,
@@ -272,7 +282,14 @@ pub fn compute_unit_flags_with_ws(
     }
     let is_linked = matches!(
         unit.kind.as_str(),
-        "bin" | "cdylib" | "dylib" | "proc-macro" | "test" | "custom-test"
+        "bin"
+            | "example"
+            | "cdylib"
+            | "dylib"
+            | "staticlib"
+            | "proc-macro"
+            | "test"
+            | "custom-test"
     );
     if let Some(ref strip_mode) = profile
         .strip
@@ -289,7 +306,7 @@ pub fn compute_unit_flags_with_ws(
         format!("CARGO_CRATE_NAME={}", unit.target_name),
         format!("CRATE_KIND={}", unit.kind),
     ]);
-    if unit.kind == "bin" || unit.kind == "custom-test" {
+    if matches!(unit.kind.as_str(), "bin" | "example" | "custom-test") {
         u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
     }
     u_flags.push(format!(
@@ -335,7 +352,9 @@ pub fn compute_unit_flags_with_ws(
             format!("ENV_MACRO:CARGO_PKG_VERSION_PATCH={}", patch)
         } else if var == "CARGO_CRATE_NAME" {
             format!("ENV_MACRO:CARGO_CRATE_NAME={}", unit.target_name)
-        } else if var == "CARGO_BIN_NAME" && matches!(unit.kind.as_str(), "bin" | "custom-test") {
+        } else if var == "CARGO_BIN_NAME"
+            && matches!(unit.kind.as_str(), "bin" | "example" | "custom-test")
+        {
             format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
         } else if var == "CARGO_BIN_NAME" {
             "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()

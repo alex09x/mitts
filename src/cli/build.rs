@@ -30,6 +30,10 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         locked: args.locked,
         offline: args.offline,
         frozen: args.frozen,
+        example_targets: args.example.clone(),
+        target_triple: args.target.clone(),
+        crate_types: args.crate_types.clone(),
+        quiet: args.quiet,
         fast_lock: args.fast_lock,
         native: args.native,
         cargo: args.cargo,
@@ -107,6 +111,24 @@ pub fn create_progress_callback(progress: Option<indicatif::ProgressBar>) -> Bui
             } else {
                 eprintln!("{}", line);
             }
+        }
+    }))
+}
+
+fn create_quiet_progress_callback() -> BuildProgressCallback {
+    BuildProgressCallback(std::sync::Arc::new(|event| {
+        let text = match event {
+            BuildProgressEvent::CompilerMessage(text) | BuildProgressEvent::Diagnostic(text) => {
+                text
+            }
+            BuildProgressEvent::InitTotal { .. }
+            | BuildProgressEvent::Compiling(_)
+            | BuildProgressEvent::UnitFinished => return,
+        };
+        if text.ends_with('\n') {
+            eprint!("{text}");
+        } else {
+            eprintln!("{text}");
         }
     }))
 }
@@ -199,15 +221,21 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
     let profile = if opt.release { "release" } else { "dev" };
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
 
-    Ui::header(&format!("build [{}]", profile));
+    if !args.quiet {
+        Ui::header(&format!("build [{}]", profile));
+    }
     let term_guard = TerminalGuard::acquire();
-    let progress = if !is_verbose {
+    let progress = if !is_verbose && !args.quiet {
         Some(Ui::create_build_progress(profile))
     } else {
         None
     };
 
-    opt.progress = Some(create_progress_callback(progress.clone()));
+    opt.progress = Some(if args.quiet {
+        create_quiet_progress_callback()
+    } else {
+        create_progress_callback(progress.clone())
+    });
 
     let build_res = RustAdapter::build(&opt);
     if let Some(ref pb) = progress {
@@ -223,6 +251,7 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
     }
 
     match build_res {
+        Ok((_plan, result)) if args.quiet && result.success => 0,
         Ok((plan, result)) => render_build_result(&plan, &result, profile, start, is_verbose),
         Err(err) => {
             Ui::report_error(&err);

@@ -143,6 +143,10 @@ pub struct RustBuildOptions {
     pub offline: bool,
     pub locked: bool,
     pub frozen: bool,
+    pub example_targets: Vec<String>,
+    pub target_triple: Option<String>,
+    pub crate_types: Vec<String>,
+    pub quiet: bool,
     /// Whether the fast build lock may answer a no-op build. `None` keeps it active only
     /// for the default store; `Some(true)` keeps it active with an explicit `cache_dir` too.
     pub fast_lock: Option<bool>,

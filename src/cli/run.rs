@@ -23,6 +23,7 @@ struct SelectedRunTarget {
     pkg_name: String,
     pkg_dir: PathBuf,
     bin_name: String,
+    is_example: bool,
 }
 
 fn resolve_run_target(
@@ -103,11 +104,12 @@ fn resolve_run_target(
     let mut all_bins: Vec<SelectedRunTarget> = Vec::new();
     for (p_name, p_dir, p_toml) in &candidate_pkgs {
         for t in p_toml.discover_targets(p_dir) {
-            if t.kind == "bin" {
+            if matches!(t.kind.as_str(), "bin" | "example") {
                 all_bins.push(SelectedRunTarget {
                     pkg_name: p_name.clone(),
                     pkg_dir: p_dir.clone(),
                     bin_name: t.name,
+                    is_example: t.kind == "example",
                 });
             }
         }
@@ -118,6 +120,30 @@ fn resolve_run_target(
             .then_with(|| a.pkg_name.cmp(&b.pkg_name))
     });
 
+    if !opt.example_targets.is_empty() {
+        if !opt.bin_targets.is_empty() || opt.example_targets.len() > 1 {
+            eprintln!("error: `mitts run` accepts one `--bin` or `--example` target");
+            return Err(101);
+        }
+        let requested = &opt.example_targets[0];
+        let matches: Vec<_> = all_bins
+            .into_iter()
+            .filter(|target| target.is_example && &target.bin_name == requested)
+            .collect();
+        return match matches.len() {
+            1 => Ok(matches.into_iter().next().unwrap()),
+            0 => {
+                eprintln!("error: no example target named `{requested}`");
+                Err(101)
+            }
+            _ => {
+                eprintln!("error: multiple packages define example `{requested}`; select a package with --package");
+                Err(101)
+            }
+        };
+    }
+
+    all_bins.retain(|target| !target.is_example);
     if opt.bin_targets.len() > 1 {
         eprintln!("error: `mitts run` can run at most one executable at a time");
         return Err(101);
@@ -203,11 +229,24 @@ pub fn handle_run(args: &RunArgs) -> i32 {
     };
 
     opt.package = Some(selected.pkg_name.clone());
-    opt.bin_targets = vec![selected.bin_name.clone()];
+    if selected.is_example {
+        opt.example_targets = vec![selected.bin_name.clone()];
+        opt.bin_targets.clear();
+    } else {
+        opt.bin_targets = vec![selected.bin_name.clone()];
+        opt.example_targets.clear();
+    }
 
     let profile = if opt.release { "release" } else { "dev" };
+    let quiet = args.build_args.quiet;
     let term_guard = TerminalGuard::acquire();
+    if !quiet {
+        Ui::header(&format!("run [{}]", profile));
+    }
     let progress = Ui::create_build_progress(profile);
+    if quiet {
+        progress.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+    }
 
     let progress_clone = progress.clone();
     opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(
@@ -226,10 +265,18 @@ pub fn handle_run(args: &RunArgs) -> i32 {
                 progress_clone.inc(1);
             }
             BuildProgressEvent::CompilerMessage(rendered) => {
-                progress_clone.println(rendered);
+                if quiet {
+                    eprintln!("{rendered}");
+                } else {
+                    progress_clone.println(rendered);
+                }
             }
             BuildProgressEvent::Diagnostic(line) => {
-                progress_clone.println(line);
+                if quiet {
+                    eprintln!("{line}");
+                } else {
+                    progress_clone.println(line);
+                }
             }
         },
     )));
