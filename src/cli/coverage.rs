@@ -136,11 +136,14 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     }
 
     let profile = if args.release { "release" } else { "dev" };
-    Ui::header(&format!("coverage [{}]", profile));
-    Ui::stage_start(
-        "📊",
-        "Compiling and instrumenting test targets for LLVM coverage",
-    );
+    let data_on_stdout = args.json_report_on_stdout();
+    if !data_on_stdout {
+        Ui::header(&format!("coverage [{}]", profile));
+        Ui::stage_start(
+            "📊",
+            "Compiling and instrumenting test targets for LLVM coverage",
+        );
+    }
 
     let _cache_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
     let (plan, result) = match RustAdapter::build(&opt) {
@@ -174,7 +177,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     };
 
     if discovered.test_binaries.is_empty() {
-        println!("mitts coverage: no test binaries found to run");
+        eprintln!("mitts coverage: no test binaries found to run");
         return 0;
     }
 
@@ -183,13 +186,15 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     let _ = fs::remove_dir_all(&profraw_dir);
     let _ = fs::create_dir_all(&profraw_dir);
 
-    Ui::stage_start(
-        "🧪",
-        &format!(
-            "Running {} test binaries with profile collection",
-            discovered.test_binaries.len()
-        ),
-    );
+    if !data_on_stdout {
+        Ui::stage_start(
+            "🧪",
+            &format!(
+                "Running {} test binaries with profile collection",
+                discovered.test_binaries.len()
+            ),
+        );
+    }
     let profpattern = profraw_dir.join("cov-%p-%m.profraw");
 
     let mut failed_exit_code: Option<i32> = None;
@@ -248,6 +253,12 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         for extra in &args.test_args {
             cmd.arg(extra);
         }
+        if data_on_stdout {
+            // The tests' own stdout must not reach the JSON report: send it to stderr.
+            if let Some(stdio) = stderr_as_stdio() {
+                cmd.stdout(stdio);
+            }
+        }
         let status = match cmd.status() {
             Ok(s) => s,
             Err(err) => {
@@ -297,4 +308,21 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         start,
     );
     failed_exit_code.unwrap_or(report_code)
+}
+
+/// A duplicate of this process's stderr, usable as a child's stdout.
+fn stderr_as_stdio() -> Option<std::process::Stdio> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        std::io::stderr()
+            .as_fd()
+            .try_clone_to_owned()
+            .ok()
+            .map(std::process::Stdio::from)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }

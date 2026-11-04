@@ -256,7 +256,9 @@ pub fn merge_and_report_coverage(
             }
         }
     } else {
-        println!();
+        if !args.json_report_on_stdout() {
+            println!();
+        }
         match cov_cmd.status() {
             Ok(s) => s,
             Err(err) => {
@@ -305,10 +307,15 @@ pub fn merge_and_report_coverage(
                 );
                 return 1;
             }
-            println!(
+            let message = format!(
                 "mitts coverage: line coverage {:.2}% meets threshold {:.2}%",
                 pct, threshold
             );
+            if args.json_report_on_stdout() {
+                eprintln!("{message}");
+            } else {
+                println!("{message}");
+            }
         } else {
             let _ = fs::remove_file(&pid_profdata);
             eprintln!("mitts coverage error: unable to calculate line coverage threshold");
@@ -336,7 +343,9 @@ pub fn merge_and_report_coverage(
             let _ = Command::new("open").arg(&index).status();
         }
     }
-    Ui::finish("coverage", &dur, "Coverage report completed");
+    if !args.json_report_on_stdout() {
+        Ui::finish("coverage", &dur, "Coverage report completed");
+    }
 
     0
 }
