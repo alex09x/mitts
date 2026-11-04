@@ -19,15 +19,16 @@ fn test_m8_main_binary_dispatch_and_subcommands() {
     // 1. Help outputs for all subcommands (exercises main.rs Cli matching)
     let subcommands = [
         "build", "check", "clippy", "fmt", "test", "coverage", "llvm-cov", "run", "explain",
-        "fetch", "gc", "clean",
+        "fetch", "gc", "clean", "metadata", "rustc",
     ];
     for sub in subcommands {
-        let status = Command::new(bin_path)
+        let output = Command::new(bin_path)
             .arg(sub)
             .arg("--help")
-            .status()
+            .output()
             .unwrap();
-        assert!(status.success());
+        assert!(output.status.success(), "{sub} --help failed");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: mitts"));
     }
 
     // 2. Dispatch successful command through main
@@ -35,22 +36,22 @@ fn test_m8_main_binary_dispatch_and_subcommands() {
         .join("fixtures")
         .join("hello-rust")
         .join("Cargo.toml");
-    let status_clean = Command::new(bin_path)
+    let output_clean = Command::new(bin_path)
         .arg("clean")
         .arg("--manifest-path")
         .arg(&fixture_manifest)
-        .status()
+        .output()
         .unwrap();
-    assert!(status_clean.success());
+    assert!(output_clean.status.success());
 
     // 3. Dispatch failing command through main (tests ExitCode::from(code as u8))
-    let status_err = Command::new(bin_path)
+    let output_err = Command::new(bin_path)
         .arg("clean")
         .arg("--manifest-path")
         .arg("/nonexistent/path/Cargo.toml")
-        .status()
+        .output()
         .unwrap();
-    assert!(!status_err.success());
+    assert!(!output_err.status.success());
 }
 
 #[test]
