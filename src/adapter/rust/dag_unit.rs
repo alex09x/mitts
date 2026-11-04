@@ -299,21 +299,13 @@ pub(crate) fn execute_unit(
             cb.0(BuildProgressEvent::CompilerMessage(output.stdout.clone()));
         }
     }
-    if !output.stderr.is_empty() {
-        // Shown once per build like Cargo; the cache entry keeps the full text.
-        let shown = super::diagnostic_dedupe::dedupe(&output.stderr);
-        ctx.compiler_messages.lock().unwrap().push(shown.clone());
-        if let Some(ref cb) = ctx.opt.progress {
-            if output.success {
-                cb.0(BuildProgressEvent::CompilerMessage(shown));
-            } else {
-                cb.0(BuildProgressEvent::CompilerMessage(format!(
-                    "Command: {}\n{}",
-                    output.command_line, shown
-                )));
-            }
-        }
-    }
+    // Shown once per build like Cargo; the cache entry keeps the full text.
+    super::unit_output::publish(
+        ctx,
+        unit,
+        &output.stderr,
+        (!output.success).then_some(output.command_line.as_str()),
+    );
 
     if !output.success {
         let _ = fs::remove_dir_all(&staging_dir);

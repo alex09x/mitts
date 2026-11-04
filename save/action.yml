@@ -1,0 +1,41 @@
+# Mitts Build — save action: prune the Mitts store and save it to the Actions cache.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+name: Save Mitts cache
+description: Prune the Mitts store, then save it to the GitHub Actions cache. Run it after the setup action, with if always() when partial caches help.
+author: Alexander Panasenko
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  max-bytes:
+    description: Prune the store to at most this many bytes before saving, oldest objects first.
+    required: false
+    default: '2147483648'
+
+runs:
+  using: composite
+  steps:
+    - id: prune
+      if: env.SETUP_MITTS_CACHE == 'true' && env.SETUP_MITTS_CACHE_HIT != 'true'
+      shell: bash
+      env:
+        MAX_BYTES: ${{ inputs.max-bytes }}
+      run: |
+        set -euo pipefail
+        [ -n "${SETUP_MITTS_CACHE_KEY:-}" ] && [ -d "${MITTS_CACHE_DIR:-}" ] || {
+          echo 'Run the setup action first; nothing to save.' >&2
+          exit 1
+        }
+        case "$MAX_BYTES" in ''|*[!0-9]*) echo 'max-bytes must be a whole number' >&2; exit 2 ;; esac
+        # Prune before upload so the saved cache stays bounded and free of stale entries.
+        mitts gc --cache-dir "$MITTS_CACHE_DIR" --max-bytes "$MAX_BYTES"
+    - if: env.SETUP_MITTS_CACHE == 'true' && env.SETUP_MITTS_CACHE_HIT != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ env.MITTS_CACHE_DIR }}
+        key: ${{ env.SETUP_MITTS_CACHE_KEY }}

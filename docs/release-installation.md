@@ -7,10 +7,15 @@ curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
 The installer supports macOS (Apple Silicon, macOS 11+) and Linux
-(ARM64 and x86-64, glibc 2.35+). It needs curl, tar and either shasum or
-sha256sum. Rust and a native linker are needed when building Rust projects;
-Cargo is not used to install the ready binary. Windows and musl Linux are not
-provided as binary targets. Source installation remains available through Cargo.
+(ARM64 and x86-64, glibc 2.34+). Linux binaries are packaged in an Amazon Linux
+2023 build environment, so they also run in Amazon Linux 2023 containers. The
+installer needs curl, tar and either shasum or sha256sum. Rust and a native
+linker are needed when building Rust projects; Cargo is not used to install the
+ready binary. Windows and musl Linux are not provided as binary targets. Source
+installation remains available through Cargo.
+
+In GitHub Actions use the setup action, which installs a release and keeps the
+Mitts cache between runs: see [github-action.md](github-action.md).
 
 The release pipeline also checks these source-install routes on all three native
 platforms, using a fresh prefix and an isolated Mitts cache:

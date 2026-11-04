@@ -38,7 +38,6 @@ struct Node {
     enabled: BTreeSet<String>,
     activated: HashSet<String>,
     requested: HashSet<String>,
-    weak_pending: HashMap<String, Vec<String>>,
     dependencies: BTreeSet<String>,
 }
 
@@ -72,7 +71,6 @@ impl Node {
             enabled: BTreeSet::new(),
             activated: HashSet::new(),
             requested: HashSet::new(),
-            weak_pending: HashMap::new(),
             dependencies: BTreeSet::new(),
         }
     }
@@ -90,17 +88,12 @@ impl Node {
             enabled: BTreeSet::new(),
             activated: HashSet::new(),
             requested: HashSet::new(),
-            weak_pending: HashMap::new(),
             dependencies: pkg.dependencies.iter().cloned().collect(),
         }
     }
 
     fn is_optional(&self, dep: &str) -> bool {
         self.deps.iter().any(|d| d.name == dep && d.optional)
-    }
-
-    fn has_dep(&self, dep: &str) -> bool {
-        self.deps.iter().any(|d| d.name == dep)
     }
 
     /// Enables features, closing over their definitions; returns features newly requested
@@ -115,48 +108,34 @@ impl Node {
                 }
                 for v in vals {
                     if let Some(d) = v.strip_prefix("dep:") {
-                        self.activate(d, &mut dep_reqs);
+                        self.activate(d);
                     } else if let Some((d, df)) = v.split_once('/') {
-                        let (d, weak) = match d.strip_suffix('?') {
-                            Some(x) => (x, true),
-                            None => (d, false),
-                        };
-                        if !weak {
-                            self.activate(d, &mut dep_reqs);
-                            dep_reqs
-                                .entry(d.to_string())
-                                .or_default()
-                                .push(df.to_string());
-                        } else if self.activated.contains(d)
-                            || (self.has_dep(d) && !self.is_optional(d))
-                        {
-                            dep_reqs
-                                .entry(d.to_string())
-                                .or_default()
-                                .push(df.to_string());
-                        } else {
-                            self.weak_pending
-                                .entry(d.to_string())
-                                .or_default()
-                                .push(df.to_string());
-                        }
+                        // `dep?/feat` is weak: a build leaves an inactive optional dependency
+                        // out. Cargo's resolver, and so Cargo.lock, still includes it with the
+                        // requested feature; a lockfile that omitted it is rejected by
+                        // `cargo --locked`. Whether the build uses it is decided by the
+                        // feature graph, not here.
+                        let d = d.strip_suffix('?').unwrap_or(d);
+                        self.activate(d);
+                        dep_reqs
+                            .entry(d.to_string())
+                            .or_default()
+                            .push(df.to_string());
                     } else {
                         stack.push(v);
                     }
                 }
             } else if self.implicit.contains(&f) && self.enabled.insert(f.clone()) {
-                self.activate(&f, &mut dep_reqs);
+                self.activate(&f);
             }
             // An unknown feature on a dependency is ignored, as Cargo ignores it there.
         }
         dep_reqs
     }
 
-    fn activate(&mut self, dep: &str, dep_reqs: &mut HashMap<String, Vec<String>>) {
-        if self.is_optional(dep) && self.activated.insert(dep.to_string()) {
-            if let Some(pending) = self.weak_pending.remove(dep) {
-                dep_reqs.entry(dep.to_string()).or_default().extend(pending);
-            }
+    fn activate(&mut self, dep: &str) {
+        if self.is_optional(dep) {
+            self.activated.insert(dep.to_string());
         }
     }
 }

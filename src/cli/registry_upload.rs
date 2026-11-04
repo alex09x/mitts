@@ -107,6 +107,34 @@ mod tests {
         }
     }
 
+    /// Reads one whole HTTP request: the headers and the `Content-Length` body. A test server
+    /// that answers and closes while request bytes are still unread resets the connection, and
+    /// macOS then fails the client's write with "Invalid argument", which made the tests that
+    /// check the client's error flaky.
+    fn read_request(stream: &std::net::TcpStream) -> (String, Vec<u8>) {
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut headers = String::new();
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" || line.is_empty() {
+                break;
+            }
+            headers.push_str(&line);
+        }
+        let length: usize = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse().unwrap())
+            })
+            .unwrap_or(0);
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).unwrap();
+        (headers, body)
+    }
+
     #[test]
     fn upload_sends_expected_protocol_and_authorization() {
         let _proxy_env = LoopbackProxyEnv::new();
@@ -167,8 +195,8 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 4096];
-            assert!(stream.read(&mut request).unwrap() > 0);
+            let (headers, _) = read_request(&stream);
+            assert!(!headers.is_empty());
             let body = r#"{"errors":[{"detail":"private registry detail"}]}"#;
             write!(
                 stream,
@@ -204,8 +232,8 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 4096];
-            assert!(stream.read(&mut request).unwrap() > 0);
+            let (headers, _) = read_request(&stream);
+            assert!(!headers.is_empty());
             write!(stream, "HTTP/1.1 302 Found\r\nLocation: http://{target_address}/other\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
         });
         assert!(upload_to(

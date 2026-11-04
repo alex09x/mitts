@@ -12,6 +12,7 @@ use crate::adapter::{
     BuildMode, BuildProgressCallback, BuildProgressEvent, RustAdapter, RustBuildOptions,
 };
 use crate::cli::diagnostic::render_compiler_diagnostics;
+use crate::cli::message_format::{self, MessageFormat};
 use crate::cli::terminal::TerminalGuard;
 use crate::cli::ui::Ui;
 use clap::Args;
@@ -22,6 +23,14 @@ pub struct CheckArgs {
     /// Path to Cargo.toml
     #[arg(long)]
     pub manifest_path: Option<PathBuf>,
+
+    /// Limit concurrent native build units (same as MITTS_JOBS; the flag wins)
+    #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    pub jobs: Option<u64>,
+
+    /// Diagnostic output: human text (default) or Cargo-compatible JSON lines on stdout
+    #[arg(long, value_enum, default_value_t = MessageFormat::Human)]
+    pub message_format: MessageFormat,
 
     /// Package to check
     #[arg(skip)]
@@ -179,6 +188,15 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         all_examples: args.all_targets,
         ..Default::default()
     };
+
+    if args.message_format.is_json() {
+        // Machine-readable run: no banner, no progress bar, nothing but JSON lines on stdout.
+        opt.json_diagnostics = true;
+        opt.progress = Some(message_format::json_progress());
+        let outcome =
+            RustAdapter::build(&opt).map(|(_, result)| (result.success, result.exit_code));
+        return message_format::finish_json(outcome);
+    }
 
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };

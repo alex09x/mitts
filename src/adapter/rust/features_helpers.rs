@@ -260,6 +260,13 @@ impl<'a> FeatureGraphIndex<'a> {
                 return Ok(Some(self.pkg_ids[hinted[0]].clone()));
             }
         }
+        // The lockfile lists a package's active dependencies. An optional dependency whose
+        // feature is off is absent from that list, so it is inactive here: skip it instead of
+        // resolving it against every same-named package (for example two locked versions).
+        let package = &self.packages[pkg_idx];
+        if !package.dependencies.is_empty() && is_any_optional_dep(package.toml, real_name) {
+            return Ok(None);
+        }
         Err(RustAdapterError::MetadataFailed(format!(
             "Ambiguous dependency '{}' in package '{}' ({} candidate packages and no lockfile disambiguation)",
             real_name,

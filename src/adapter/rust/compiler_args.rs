@@ -184,11 +184,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.args(["-C", &format!("codegen-units={cgu}")]);
     }
     // LTO happens where the final artifact is linked: binaries, and test executables under
-    // a `[profile.test] lto` setting.
+    // a `[profile.test] lto` setting. rustc runs LTO only for executables, cdylibs and
+    // staticlibs, and rejects `-C lto` when a unit also emits an rlib or dylib. Cargo passes
+    // no LTO flag for such a mixed unit, and so does Mitts.
     let is_lto_target = super::pipelining::is_linking_kind(&inv.unit.kind);
+    let all_outputs_support_lto = native_crate_types
+        .iter()
+        .all(|crate_type| matches!(*crate_type, "cdylib" | "staticlib"));
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| {
         !inv.unit.for_host
             && is_lto_target
+            && all_outputs_support_lto
             && matches!(inv.mode, BuildMode::Build | BuildMode::Test)
     }) {
         cmd.args(["-C", &format!("lto={lto_mode}")]);
@@ -290,6 +296,12 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     } else {
         inv.out_dir.to_path_buf()
     };
+    let immutable_package = super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace);
+    let cwd = if immutable_package {
+        cwd
+    } else {
+        super::compiler_remap::coverage_working_dir(inv).unwrap_or(cwd)
+    };
     cmd.current_dir(&cwd);
     cmd.envs(super::unit_env::compute_unit_rustc_env_with_target(
         inv.unit,
@@ -378,6 +390,9 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
                 cmd.arg(arg);
             }
             i += 1;
+        } else if arg == super::types::JSON_DIAGNOSTICS_ARG {
+            // Applies to every unit and is added once, below.
+            i += 1;
         } else if is_primary_target {
             cmd.arg(arg);
             i += 1;
@@ -399,8 +414,14 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     let is_pipelined_lib = super::planner_units::is_library_kind(&inv.unit.kind)
         && inv.mode != BuildMode::Check
         && inv.mode != BuildMode::Clippy;
+    let json_diagnostics = inv
+        .extra_compiler_args
+        .iter()
+        .any(|arg| arg == super::types::JSON_DIAGNOSTICS_ARG);
     if is_pipelined_lib {
         cmd.args(["--error-format=json", "--json=artifacts"]);
+    } else if json_diagnostics {
+        cmd.arg(super::types::JSON_DIAGNOSTICS_ARG);
     } else {
         cmd.arg("--color=never");
     }

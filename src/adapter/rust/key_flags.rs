@@ -192,6 +192,10 @@ pub fn compute_unit_flags_with_ws(
         }
         i += 1;
     }
+    if !is_host && super::compiler_remap::is_coverage_build(effective_flags) {
+        // Instrumented units record source paths that differ from a plain build's.
+        u_flags.push(super::compiler_remap::COVERAGE_KEY_FLAG.to_string());
+    }
     if unit.is_workspace {
         let reads_manifest_dir = unit.env_vars.iter().any(|v| v == "CARGO_MANIFEST_DIR")
             || unit.cache_eligibility.contains("untracked dynamic env");

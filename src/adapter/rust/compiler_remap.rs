@@ -18,6 +18,62 @@ use std::process::Command;
 // do not reuse linked artifacts that still name the previous target/mitts tree.
 pub(crate) const KEY_FLAG: &str = "REMAP_ALIASES=canonical-v3-cargo-layout";
 
+/// Versions how coverage builds name source files; part of the unit key of instrumented units.
+pub(crate) const COVERAGE_KEY_FLAG: &str = "COVERAGE_PATHS=build-root-relative-v1";
+
+/// Whether the compiler arguments request source-based coverage instrumentation.
+pub(crate) fn is_coverage_build(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "-Cinstrument-coverage")
+        || args
+            .windows(2)
+            .any(|pair| pair[0] == "-C" && pair[1] == "instrument-coverage")
+}
+
+/// Coverage reports name a file by the path rustc recorded, and the remap decides that path.
+/// Dropping every package's own root gave every crate the same `src/lib.rs`, so a report could
+/// neither tell the crates apart nor exclude one of them. Under the build's workspace root
+/// every package keeps its path relative to that root, whether it is a member, a path
+/// dependency with its own lockfile, or a vendored copy; a package outside the root gets a
+/// distinct `external/<name>-<version>` prefix. Registry and git sources are not mutable
+/// workspace packages and keep absolute paths, which the report layer excludes by default.
+///
+/// The recorded names must be unique on their own: LLVM merges coverage by file name, and joins
+/// the recorded compilation directory (rustc's working directory) with a relative name. The
+/// working directory of an instrumented unit is therefore the build root, see
+/// [`coverage_working_dir`], which the first rule maps to nothing.
+fn append_coverage_source_remap(inv: &RustcInvocation<'_>, cmd: &mut Command, pkg_dir: &Path) {
+    let build_root = inv
+        .unit
+        .workspace_root
+        .clone()
+        .unwrap_or_else(|| find_workspace_root(&inv.unit.manifest_path));
+    append_aliases(cmd, &build_root, "");
+
+    // Compare real locations: a dependency path such as `app/../outsider` starts with `app`
+    // component by component, yet lies outside it. The rule below also covers a package under
+    // the root that was reached through a path with `..` in it.
+    let canonical_root = build_root.canonicalize().unwrap_or(build_root);
+    let canonical_pkg = pkg_dir
+        .canonicalize()
+        .unwrap_or_else(|_| pkg_dir.to_path_buf());
+    let label = match canonical_pkg.strip_prefix(&canonical_root) {
+        Ok(relative) => relative.to_string_lossy().to_string(),
+        Err(_) => format!("external/{}-{}", inv.unit.package_name, inv.unit.version),
+    };
+    if !label.is_empty() {
+        append_aliases(cmd, pkg_dir, &label);
+    }
+}
+
+/// The directory rustc runs in for an instrumented unit: the build root, so the compilation
+/// directory recorded in the coverage mapping is empty and file names alone identify files.
+pub(crate) fn coverage_working_dir(inv: &RustcInvocation<'_>) -> Option<PathBuf> {
+    if !is_coverage_build(inv.extra_compiler_args) || inv.unit.for_host {
+        return None;
+    }
+    inv.unit.workspace_root.clone()
+}
+
 /// rustc and the Darwin linker can canonicalize paths independently of the
 /// manifest spelling (notably /var -> /private/var). Cover both spellings so
 /// debug metadata and macro spans cannot retain the checkout's absolute root.
@@ -85,9 +141,13 @@ pub(crate) fn append_path_remaps(
     pkg_dir: &Path,
 ) {
     if !super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace) {
-        let ws_root = find_workspace_root(&inv.unit.manifest_path);
-        if pkg_dir.starts_with(&ws_root) {
-            append_aliases(cmd, &ws_root, "");
+        if is_coverage_build(inv.extra_compiler_args) {
+            append_coverage_source_remap(inv, cmd, pkg_dir);
+        } else {
+            let ws_root = find_workspace_root(&inv.unit.manifest_path);
+            if pkg_dir.starts_with(&ws_root) {
+                append_aliases(cmd, &ws_root, "");
+            }
         }
     }
     append_darwin_oso_prefix(inv, cmd);

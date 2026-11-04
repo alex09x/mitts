@@ -35,6 +35,7 @@ pub mod dag_worker;
 pub mod dep_info;
 pub mod dependency_check;
 pub mod diagnostic_dedupe;
+pub mod diagnostics_json;
 pub mod doctest;
 pub mod env_macro;
 pub mod env_macro_cache;
@@ -78,6 +79,7 @@ pub mod types;
 pub mod unescape;
 pub mod unit_env;
 pub mod unit_inputs;
+pub mod unit_output;
 pub mod vendor_source;
 
 pub use build_script::execute_build_script;

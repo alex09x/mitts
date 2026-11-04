@@ -250,13 +250,16 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 }
                 let out = out_res?;
                 if !out.stderr.is_empty() {
+                    let shown = if ctx.opt.json_diagnostics {
+                        super::diagnostics_json::wrap(unit, &out.stderr)
+                    } else {
+                        out.stderr.clone()
+                    };
                     let mut msgs = ctx.compiler_messages.lock().unwrap();
-                    if !msgs.contains(&out.stderr) {
-                        msgs.push(out.stderr.clone());
+                    if !msgs.contains(&shown) {
+                        msgs.push(shown.clone());
                         if let Some(ref cb) = ctx.opt.progress {
-                            cb.0(super::types::BuildProgressEvent::CompilerMessage(
-                                out.stderr.clone(),
-                            ));
+                            cb.0(super::types::BuildProgressEvent::CompilerMessage(shown));
                         }
                     }
                 }

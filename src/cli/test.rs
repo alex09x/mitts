@@ -22,6 +22,10 @@ pub struct TestArgs {
     #[arg(long)]
     pub manifest_path: Option<PathBuf>,
 
+    /// Limit concurrent native build units (same as MITTS_JOBS; the flag wins)
+    #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    pub jobs: Option<u64>,
+
     /// Package with tests to run
     #[arg(skip)]
     pub package: Option<String>,
@@ -247,6 +251,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         example_targets: Vec::new(),
         crate_types: Vec::new(),
         quiet: false,
+        json_diagnostics: false,
     };
 
     let root_manifest = opt

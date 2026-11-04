@@ -26,6 +26,17 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         eprintln!("error: --doc is not supported with coverage");
         return 101;
     }
+    if args.output_path.is_some() {
+        if args.html {
+            eprintln!("error: --output-path writes one file; use --output-dir for --html");
+            return 2;
+        }
+        let single_file_formats = [args.json, args.lcov, args.text];
+        if single_file_formats.iter().filter(|chosen| **chosen).count() != 1 {
+            eprintln!("error: --output-path needs exactly one of --json, --lcov or --text");
+            return 2;
+        }
+    }
 
     let start = std::time::Instant::now();
     let (llvm_profdata, llvm_cov) = if !args.no_run {
@@ -98,6 +109,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         example_targets: Vec::new(),
         crate_types: Vec::new(),
         quiet: false,
+        json_diagnostics: false,
     };
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {

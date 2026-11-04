@@ -1,0 +1,90 @@
+# Mitts Build — setup action: install a verified Mitts release and restore its build cache.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+name: Setup Mitts
+description: Install a verified Mitts release and restore its content-addressed build cache.
+author: Alexander Panasenko
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  version:
+    description: Release to install, as vX.Y.Z or X.Y.Z. Empty installs the latest stable release.
+    required: false
+    default: ''
+  cache:
+    description: Restore the Mitts cache. Pair it with the save action at the end of the job.
+    required: false
+    default: 'true'
+  cache-key:
+    description: Extra text mixed into the cache key, for example a job name.
+    required: false
+    default: ''
+  cache-dir:
+    description: Mitts cache root. Empty uses MITTS_CACHE_DIR, then XDG_CACHE_HOME/mitts, then ~/.cache/mitts.
+    required: false
+    default: ''
+
+outputs:
+  version:
+    description: Installed Mitts version, for example 0.3.22.
+    value: ${{ steps.install.outputs.version }}
+  cache-dir:
+    description: Cache root used by this job. Also exported as MITTS_CACHE_DIR.
+    value: ${{ steps.dir.outputs.cache-dir }}
+  cache-hit:
+    description: "true when the exact cache key was restored."
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        MITTS_VERSION: ${{ inputs.version }}
+        MITTS_INSTALL_ROOT: ${{ runner.temp }}/setup-mitts
+      run: |
+        set -euo pipefail
+        # The installer is the one shipped with this action's own ref and verifies the
+        # release archive against its published SHA-256 sums before installing.
+        sh "$GITHUB_ACTION_PATH/site/install.sh"
+        printf '%s\n' "$MITTS_INSTALL_ROOT/bin" >> "$GITHUB_PATH"
+        version=$("$MITTS_INSTALL_ROOT/bin/mitts" --version | awk '{print $2}')
+        printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+    - id: dir
+      shell: bash
+      env:
+        INPUT_CACHE_DIR: ${{ inputs.cache-dir }}
+      run: |
+        set -euo pipefail
+        dir=${INPUT_CACHE_DIR:-${MITTS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/mitts}}
+        mkdir -p "$dir"
+        # One explicit root for the build, the gc and the cache action.
+        printf 'MITTS_CACHE_DIR=%s\n' "$dir" >> "$GITHUB_ENV"
+        printf 'cache-dir=%s\n' "$dir" >> "$GITHUB_OUTPUT"
+    - id: key
+      shell: bash
+      env:
+        CACHE_KEY: mitts-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.install.outputs.version }}-${{ inputs.cache-key }}-${{ hashFiles('**/Cargo.lock') }}
+        CACHE_ENABLED: ${{ inputs.cache }}
+      run: |
+        set -euo pipefail
+        printf 'SETUP_MITTS_CACHE_KEY=%s\n' "$CACHE_KEY" >> "$GITHUB_ENV"
+        printf 'SETUP_MITTS_CACHE=%s\n' "$CACHE_ENABLED" >> "$GITHUB_ENV"
+    - id: restore
+      if: inputs.cache == 'true'
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ steps.dir.outputs.cache-dir }}
+        key: ${{ env.SETUP_MITTS_CACHE_KEY }}
+        restore-keys: |
+          mitts-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.install.outputs.version }}-${{ inputs.cache-key }}-
+    - shell: bash
+      env:
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: printf 'SETUP_MITTS_CACHE_HIT=%s\n' "$CACHE_HIT" >> "$GITHUB_ENV"
