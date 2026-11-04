@@ -16,7 +16,7 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
-mod crate_types;
+pub(crate) mod crate_types;
 use std::process::Command;
 
 /// Prepares and configures the `Command` for a `RustcInvocation`.
