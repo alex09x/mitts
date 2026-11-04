@@ -54,7 +54,9 @@ fn test_m8_rust_adapter_resolve_manifest_and_target_dir() {
 
 #[test]
 fn test_target_root_and_test_env_agree() {
-    use mitts::adapter::rust::unit_env::{apply_test_binary_env, compute_unit_rustc_env_with_target};
+    use mitts::adapter::rust::unit_env::{
+        apply_test_binary_env, compute_unit_rustc_env_with_target,
+    };
     use std::path::PathBuf;
     use std::process::Command;
 
