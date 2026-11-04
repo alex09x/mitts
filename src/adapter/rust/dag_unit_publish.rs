@@ -30,7 +30,12 @@ pub(crate) fn unit_dest_binary(
     target_dir: &Path,
     profile: &str,
 ) -> PathBuf {
-    if unit.kind == "test" || unit.kind == "custom-test" {
+    if unit.kind == "example" {
+        target_dir
+            .join(profile)
+            .join("examples")
+            .join(&unit.target_name)
+    } else if unit.kind == "test" || unit.kind == "custom-test" {
         target_dir
             .join(profile)
             .join("deps")
@@ -183,8 +188,16 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             if !ctx.opt.native || unit.is_workspace {
                 let profile_name = if ctx.opt.release { "release" } else { "debug" };
                 let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                let _ = fs::create_dir_all(&deps_dir);
-                let dep_copy = deps_dir.join(file_name);
+                let is_staticlib = matches!(ext, "a" | "lib");
+                let dep_copy = if is_staticlib {
+                    ctx.target_dir.join(profile_name).join(file_name)
+                } else {
+                    let _ = fs::create_dir_all(&deps_dir);
+                    deps_dir.join(file_name)
+                };
+                if let Some(parent) = dep_copy.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
                 if lib_path != &dep_copy {
                     let _ = crate::core::link_intra_workspace(
                         lib_path,
@@ -194,10 +207,21 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     );
                 }
                 if let Some(ti) = ctx.target_index {
-                    let rel_key = format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
-                    ti.lock().unwrap().record(rel_key, hash.clone(), &dep_copy);
+                    let rel_key = dep_copy
+                        .strip_prefix(ctx.target_dir)
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|_| PathBuf::from(profile_name).join(file_name));
+                    ti.lock().unwrap().record(
+                        rel_key.to_string_lossy().to_string(),
+                        hash.clone(),
+                        &dep_copy,
+                    );
                 }
-                publish_library_alias(ctx, &dep_copy, &clean_crate, ext, &hash);
+                if !is_staticlib {
+                    publish_library_alias(ctx, &dep_copy, &clean_crate, ext, &hash);
+                } else {
+                    action_outputs.push(dep_copy);
+                }
             }
         }
 

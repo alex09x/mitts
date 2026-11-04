@@ -16,6 +16,7 @@ pub mod build_script_keys;
 pub mod build_script_purity;
 pub mod builder;
 pub mod cargo_config;
+pub mod cargo_config_linker;
 pub mod compiler;
 pub mod compiler_args;
 mod compiler_remap;
@@ -144,7 +145,7 @@ impl RustAdapter {
         manifest_path: &Path,
         opt: &RustBuildOptions,
     ) -> Result<PathBuf> {
-        let target_dir = if let Some(ref td) = opt.target_dir {
+        let mut target_dir = if let Some(ref td) = opt.target_dir {
             td.clone()
         } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR") {
             PathBuf::from(cargo_td)
@@ -154,6 +155,10 @@ impl RustAdapter {
                 .context("Manifest path has no parent directory")?;
             project_dir.join("target")
         };
+
+        if let Some(target) = key_flags::resolve_explicit_target(opt) {
+            target_dir.push(target);
+        }
 
         Ok(target_dir)
     }
@@ -206,7 +211,16 @@ impl RustAdapter {
         offline: bool,
         cache_dir: Option<&Path>,
     ) -> Result<lockfile::CargoLock> {
-        lockfile::CargoLock::resolve_or_sync(manifest_path, offline, cache_dir)
+        Self::resolve_lockfile_with_mode(manifest_path, offline, false, cache_dir)
+    }
+
+    pub fn resolve_lockfile_with_mode(
+        manifest_path: &Path,
+        offline: bool,
+        locked: bool,
+        cache_dir: Option<&Path>,
+    ) -> Result<lockfile::CargoLock> {
+        lockfile::CargoLock::resolve_or_sync_with_mode(manifest_path, offline, locked, cache_dir)
     }
 
     /// Fetches all dependencies in Cargo.lock into `store`. `cache_dir` is the cache root
@@ -217,10 +231,20 @@ impl RustAdapter {
         opt: &fetcher::FetchOptions,
         cache_dir: Option<&Path>,
     ) -> Result<fetcher::FetchResult> {
-        let lock = Self::resolve_lockfile(manifest_path, opt.offline, cache_dir)?;
+        let effective_opt = fetcher::FetchOptions {
+            offline: opt.offline || opt.frozen,
+            locked: opt.locked || opt.frozen,
+            frozen: opt.frozen,
+        };
+        let lock = Self::resolve_lockfile_with_mode(
+            manifest_path,
+            effective_opt.offline,
+            effective_opt.locked,
+            cache_dir,
+        )?;
         let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
         let config = registry_config::RegistryConfig::load(project_dir)?;
         let fetcher = fetcher::CrateFetcher::with_config(store.clone(), config);
-        fetcher.fetch_all(&lock, opt)
+        fetcher.fetch_all(&lock, &effective_opt)
     }
 }

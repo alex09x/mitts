@@ -63,6 +63,22 @@ pub struct TestArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Select target triple for cross-compilation
+    #[arg(long)]
+    pub target: Option<String>,
+
+    /// Require an existing compatible Cargo.lock; do not resolve or write one.
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Do not use the network to resolve dependencies; use only local sources.
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Require a compatible Cargo.lock and use only locally available sources.
+    #[arg(long)]
+    pub frozen: bool,
+
     /// Compile, but don't run tests
     #[arg(long)]
     pub no_run: bool,
@@ -87,7 +103,7 @@ pub struct TestArgs {
     #[arg(long)]
     pub no_fail_fast: bool,
 
-    /// Test only the specified integration test target
+    /// Test the named integration target (repeatable; combines with --bin)
     #[arg(long = "test", action = clap::ArgAction::Append)]
     pub test: Vec<String>,
 
@@ -95,7 +111,7 @@ pub struct TestArgs {
     #[arg(long)]
     pub tests: bool,
 
-    /// Test only the specified binary
+    /// Test the named binary target (repeatable; combines with --test)
     #[arg(long = "bin", action = clap::ArgAction::Append)]
     pub bin: Vec<String>,
 
@@ -115,7 +131,7 @@ pub struct TestArgs {
     #[arg(long)]
     pub nocapture: bool,
 
-    /// Run only tests that exactly match the filter (equivalent to -- --exact)
+    /// Require exact test-name matches; pass before `--`, with filters after it
     #[arg(long)]
     pub exact: bool,
 
@@ -123,7 +139,7 @@ pub struct TestArgs {
     #[arg(long)]
     pub ignored: bool,
 
-    /// Arguments passed to the test binary runner (e.g. -- --nocapture)
+    /// Arguments passed to test binaries after `--` (for example, test-name filters)
     #[arg(last = true)]
     pub test_args: Vec<String>,
 }
@@ -195,6 +211,10 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             all_features: args.all_features,
             no_cache: args.no_cache,
             cache_dir: args.cache_dir.clone(),
+            target: args.target.clone(),
+            locked: args.locked,
+            offline: args.offline,
+            frozen: args.frozen,
             no_run: args.no_run,
             no_fail_fast: args.no_fail_fast,
             filter: args.filter.clone(),
@@ -231,6 +251,10 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        target_triple: args.target.clone(),
+        locked: args.locked,
+        offline: args.offline,
+        frozen: args.frozen,
         fast_lock: None,
         native: true,
         cargo: false,
@@ -245,6 +269,9 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         lib_only: args.lib,
         doc_only: args.doc,
         exclude: args.exclude.clone(),
+        example_targets: Vec::new(),
+        crate_types: Vec::new(),
+        quiet: false,
     };
 
     let root_manifest = opt

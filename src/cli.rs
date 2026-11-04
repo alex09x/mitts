@@ -31,6 +31,9 @@ pub enum Commands {
     /// Compile the local package and its dependencies into the isolated Mitts target
     Build(BuildArgs),
 
+    /// Run native rustc queries for the selected package target
+    Rustc(BuildArgs),
+
     /// Check a package to catch errors without producing binary artifacts
     Check(CheckArgs),
 
@@ -54,6 +57,12 @@ pub enum Commands {
 
     /// Explain the effective build plan, compilation units, and cache eligibility
     Explain(ExplainArgs),
+
+    /// Print a target-filtered package and dependency graph as JSON
+    #[command(
+        after_help = "Format 1 includes packages, workspace members, resolve.root, resolve.nodes, dependency kinds, and selected features. The graph describes active native build units for the requested platform and features."
+    )]
+    Metadata(MetadataArgs),
 
     /// Fetch dependencies into the global source store
     Fetch(FetchArgs),
@@ -126,6 +135,34 @@ pub struct BuildArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Require an existing compatible Cargo.lock; do not resolve or write one.
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Do not use the network to resolve dependencies; use only local sources.
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Require a compatible Cargo.lock and use only locally available sources.
+    #[arg(long)]
+    pub frozen: bool,
+
+    /// Select target triple; outputs go under target/<triple>
+    #[arg(long)]
+    pub target: Option<String>,
+
+    /// Build a named example target (repeatable; output under target/<profile>/examples)
+    #[arg(long = "example", action = clap::ArgAction::Append)]
+    pub example: Vec<String>,
+
+    /// Suppress Mitts progress and success summaries; keep errors and program output
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Override library crate types (for example, staticlib; use with --lib)
+    #[arg(long = "crate-type", action = clap::ArgAction::Append)]
+    pub crate_types: Vec<String>,
+
     /// Keep the fast build lock active with an explicit cache directory (API only)
     #[arg(skip)]
     pub fast_lock: Option<bool>,
@@ -150,7 +187,7 @@ pub struct BuildArgs {
     #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
     pub exclude: Vec<String>,
 
-    /// Build only the specified binary
+    /// Build the named binary target (repeatable; combines with other target selectors)
     #[arg(long = "bin", action = clap::ArgAction::Append)]
     pub bin: Vec<String>,
 
@@ -217,6 +254,53 @@ pub struct ExplainArgs {
 }
 
 #[derive(Args, Debug, Clone, Default)]
+pub struct MetadataArgs {
+    /// Path to Cargo.toml
+    #[arg(long)]
+    pub manifest_path: Option<PathBuf>,
+
+    /// Package whose dependency graph should be selected
+    #[arg(short, long)]
+    pub package: Option<String>,
+
+    /// Space or comma separated list of features to activate
+    #[arg(short = 'F', long)]
+    pub features: Vec<String>,
+
+    /// Do not activate the `default` feature
+    #[arg(long)]
+    pub no_default_features: bool,
+
+    /// Activate all available features
+    #[arg(long)]
+    pub all_features: bool,
+
+    /// Filter dependencies for a target triple
+    #[arg(long)]
+    pub filter_platform: Option<String>,
+
+    /// Require an existing compatible Cargo.lock
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Resolve using local index and source data only
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Combine locked and offline resolution
+    #[arg(long)]
+    pub frozen: bool,
+
+    /// Metadata JSON format version
+    #[arg(long, default_value_t = 1)]
+    pub format_version: u32,
+
+    /// Directory for the shared artifact and source cache
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, Default)]
 pub struct FetchArgs {
     /// Path to Cargo.toml
     #[arg(long)]
@@ -263,7 +347,9 @@ pub mod coverage_types;
 pub mod diagnostic;
 pub mod fmt;
 pub mod handlers;
+pub mod metadata;
 pub mod run;
+pub mod rustc;
 pub mod terminal;
 pub mod test;
 pub mod test_doctest;
@@ -277,7 +363,9 @@ pub use coverage::{handle_coverage, CoverageArgs};
 pub use diagnostic::render_compiler_diagnostics;
 pub use fmt::{handle_fmt, FmtArgs};
 pub use handlers::{handle_clean, handle_explain, handle_fetch, handle_gc};
+pub use metadata::handle_metadata;
 pub use run::handle_run;
+pub use rustc::handle_rustc;
 pub use terminal::TerminalGuard;
 pub use test::{handle_test, TestArgs};
 pub use ui::Ui;

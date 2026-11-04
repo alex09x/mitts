@@ -92,13 +92,11 @@ version = "0.5.0"
     let b_pkg = inline_deps_lock.get_package("dep-b").unwrap();
     assert_eq!(b_pkg.dependencies, vec!["dep-a", "unix-dep"]);
 
-    // 4. resolve_or_sync offline failure when lock missing or incompatible
-    let res = CargoLock::resolve_or_sync(&manifest, true, None);
+    // 4. Offline resolution fails without cached package metadata, without writing a lock.
+    let offline_cache = temp.path().join("offline-cache");
+    let res = CargoLock::resolve_or_sync_with_mode(&manifest, true, false, Some(&offline_cache));
     assert!(res.is_err());
-    assert!(res
-        .unwrap_err()
-        .to_string()
-        .contains("Cargo.lock is missing or incompatible and --offline was specified"));
+    assert!(!lock_path.exists());
 
     // 5. resolve_or_sync succeeds when valid compatible lockfile already exists
     let valid_lock = r#"version = 3
@@ -120,8 +118,73 @@ name = "unix-dep"
 version = "0.5.0"
 "#;
     fs::write(&lock_path, valid_lock).unwrap();
-    let synced = CargoLock::resolve_or_sync(&manifest, true, None).unwrap();
+    let synced = CargoLock::resolve_or_sync_with_mode(&manifest, true, false, None).unwrap();
     assert_eq!(synced.packages.len(), 4);
+
+    // Locked mode rejects a compatible-looking lock whose dependency version is stale.
+    let incompatible_lock = valid_lock.replace("version = \"1.0.0\"", "version = \"9.0.0\"");
+    fs::write(&lock_path, incompatible_lock).unwrap();
+    let locked_incompatible =
+        CargoLock::resolve_or_sync_with_mode(&manifest, false, true, None).unwrap_err();
+    assert!(locked_incompatible.to_string().contains("--locked"));
+
+    // Locked mode must reject a missing lockfile rather than resolving online.
+    fs::remove_file(&lock_path).unwrap();
+    let locked_missing =
+        CargoLock::resolve_or_sync_with_mode(&manifest, false, true, None).unwrap_err();
+    assert!(locked_missing.to_string().contains("--locked"));
+
+    // Frozen mode combines offline resolution with the locked prohibition on creating a lock.
+    let frozen_missing =
+        CargoLock::resolve_or_sync_with_mode(&manifest, true, true, None).unwrap_err();
+    assert!(frozen_missing.to_string().contains("--frozen"));
+
+    let offline_only = temp.path().join("offline-only");
+    fs::create_dir_all(&offline_only).unwrap();
+    let empty_manifest = offline_only.join("Cargo.toml");
+    fs::write(
+        &empty_manifest,
+        "[package]\nname = \"offline-only\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let empty_cache = offline_only.join("cache");
+    CargoLock::resolve_or_sync_with_mode(&empty_manifest, true, false, Some(&empty_cache)).unwrap();
+    assert!(offline_only.join("Cargo.lock").exists());
+}
+
+#[test]
+fn test_fetch_locked_and_frozen_reject_missing_lock_without_resolution() {
+    let temp = TempDir::new().unwrap();
+    let manifest = temp.path().join("Cargo.toml");
+    fs::write(
+        &manifest,
+        "[package]\nname = \"locked-fetch-fixture\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let store = mitts::core::source_store::SourceStore::new(temp.path().join("sources")).unwrap();
+
+    for options in [
+        mitts::adapter::rust::fetcher::FetchOptions {
+            locked: true,
+            ..Default::default()
+        },
+        mitts::adapter::rust::fetcher::FetchOptions {
+            frozen: true,
+            ..Default::default()
+        },
+    ] {
+        let err = mitts::adapter::rust::RustAdapter::fetch(
+            &manifest,
+            &store,
+            &options,
+            Some(temp.path()),
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Cargo.lock is missing or incompatible"));
+        assert!(!temp.path().join("Cargo.lock").exists());
+    }
 }
 
 #[test]

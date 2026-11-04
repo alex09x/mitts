@@ -29,12 +29,14 @@ pub(crate) fn execute_unit(
     lock_mode: LockMode,
 ) -> Result<UnitExecutionStatus> {
     let clean_crate = unit.target_name.replace('-', "_");
-    let is_executable = matches!(unit.kind.as_str(), "bin" | "test" | "custom-test")
-        && !(unit.is_workspace
-            && matches!(
-                ctx.opt.mode,
-                crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
-            ));
+    let is_executable = matches!(
+        unit.kind.as_str(),
+        "bin" | "example" | "test" | "custom-test"
+    ) && !(unit.is_workspace
+        && matches!(
+            ctx.opt.mode,
+            crate::adapter::BuildMode::Check | crate::adapter::BuildMode::Clippy
+        ));
 
     let has_build_script = super::unit_env::unit_has_build_script(unit);
     let t_bs = std::time::Instant::now();
@@ -194,6 +196,7 @@ pub(crate) fn execute_unit(
     };
     let dest_binary = is_executable
         .then(|| super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name));
+    let extra_compiler_args = ctx.opt.effective_compiler_args();
 
     let invocation = RustcInvocation {
         unit,
@@ -205,7 +208,7 @@ pub(crate) fn execute_unit(
         features: &unit.features,
         directives: Some(&rustc_directives),
         mode: ctx.opt.mode,
-        extra_compiler_args: &ctx.opt.extra_args,
+        extra_compiler_args: &extra_compiler_args,
         jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
         deps_dir: Some(deps_dir),
         target_dir: Some(ctx.target_dir),

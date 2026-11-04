@@ -175,19 +175,13 @@ impl CargoLock {
         }
         if let Ok(toml) = super::manifest::CargoToml::from_file(manifest_path) {
             for (dep_name, dep_val) in toml.dependencies.iter().chain(&toml.build_dependencies) {
-                match dep_val {
-                    super::manifest::TomlDependency::Simple(_) => {
-                        if self.get_package(dep_name).is_none() {
-                            return Ok(false);
-                        }
-                    }
+                let (pkg_name, requirement) = match dep_val {
+                    super::manifest::TomlDependency::Simple(req) => (dep_name, Some(req.as_str())),
                     super::manifest::TomlDependency::Detailed(d) => {
                         if d.optional.unwrap_or(false) || d.path.is_some() {
                             continue;
                         }
                         if let Some(url) = d.git.as_deref() {
-                            // The locked commit must come from this URL at this tag/branch/rev;
-                            // a changed reference re-resolves like `cargo update` would.
                             let pkg_name = d.package_name.as_ref().unwrap_or(dep_name);
                             let want = match (&d.tag, &d.branch, &d.rev) {
                                 (Some(t), _, _) => format!("git+{url}?tag={t}#"),
@@ -195,20 +189,36 @@ impl CargoLock {
                                 (_, _, Some(r)) => format!("git+{url}?rev={r}#"),
                                 _ => format!("git+{url}#"),
                             };
-                            let pinned = self.packages.iter().any(|p| {
+                            if !self.packages.iter().any(|p| {
                                 &p.name == pkg_name
                                     && p.source.as_deref().is_some_and(|s| s.starts_with(&want))
-                            });
-                            if !pinned {
+                            }) {
                                 return Ok(false);
                             }
                             continue;
                         }
-                        let pkg_name = d.package_name.as_ref().unwrap_or(dep_name);
-                        if self.get_package(pkg_name).is_none() {
-                            return Ok(false);
-                        }
+                        (
+                            d.package_name.as_ref().unwrap_or(dep_name),
+                            d.version.as_deref(),
+                        )
                     }
+                };
+                let Some(requirement) = requirement else {
+                    if self.get_package(pkg_name).is_none() {
+                        return Ok(false);
+                    }
+                    continue;
+                };
+                let req = match semver::VersionReq::parse(requirement) {
+                    Ok(req) => req,
+                    Err(_) => return Ok(false),
+                };
+                if !self.packages.iter().any(|p| {
+                    p.name == *pkg_name
+                        && semver::Version::parse(&p.version)
+                            .is_ok_and(|version| req.matches(&version))
+                }) {
+                    return Ok(false);
                 }
             }
             return Ok(true);
@@ -234,6 +244,16 @@ impl CargoLock {
         offline: bool,
         cache_dir: Option<&Path>,
     ) -> Result<Self> {
+        Self::resolve_or_sync_with_mode(manifest_path, offline, false, cache_dir)
+    }
+
+    /// Resolves a lockfile while honoring Cargo's locked and offline resolution modes.
+    pub fn resolve_or_sync_with_mode(
+        manifest_path: &Path,
+        offline: bool,
+        locked: bool,
+        cache_dir: Option<&Path>,
+    ) -> Result<Self> {
         let manifest_dir = manifest_path
             .parent()
             .context("Manifest path has no parent directory")?;
@@ -250,8 +270,9 @@ impl CargoLock {
             }
         }
 
-        if offline {
-            bail!("Cargo.lock is missing or incompatible and --offline was specified");
+        if locked {
+            let mode = if offline { "--frozen" } else { "--locked" };
+            bail!("Cargo.lock is missing or incompatible and {mode} was specified");
         }
 
         // Sync-path: standalone native resolution via crates.io sparse index

@@ -43,8 +43,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         project_dir,
         opt.start_dir.as_deref(),
     );
-    let explicit_target =
-        super::key_flags::resolve_explicit_target_from_args_and_dir(&opt.extra_args, &cfg_dir);
+    let explicit_target = super::key_flags::resolve_explicit_target(opt).or_else(|| {
+        super::key_flags::resolve_explicit_target_from_args_and_dir(&opt.extra_args, &cfg_dir)
+    });
     let _ = super::cargo_config::load_cargo_config_rustflags(&cfg_dir, explicit_target.as_deref())?;
     let _ = super::profile::resolve_unit_profile(
         &manifest_path,
@@ -160,8 +161,19 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .map(|p| p.join("Cargo.lock"))
         .find(|p| p.is_file());
     let mut lockfile = match lock_path {
-        Some(ref lp) => CargoLock::from_file(lp)?,
-        None => CargoLock::resolve_or_sync(&manifest_path, false, opt.cache_dir.as_deref())?,
+        Some(ref lp) if opt.locked || opt.frozen => {
+            let lock = CargoLock::from_file(lp)?;
+            if !lock.validate_manifest_compatibility(&manifest_path)? {
+                anyhow::bail!("Cargo.lock is incompatible with the manifest and --locked/--frozen was specified");
+            }
+            lock
+        }
+        Some(_) | None => CargoLock::resolve_or_sync_with_mode(
+            &manifest_path,
+            opt.offline || opt.frozen,
+            opt.locked || opt.frozen,
+            opt.cache_dir.as_deref(),
+        )?,
     };
 
     // Ensure all path dependencies and workspace packages exist in the lockfile
@@ -403,6 +415,16 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     super::planner_units::prune_plan_root_units(&mut units, opt, has_all_ws);
+    for example in &opt.example_targets {
+        if !units
+            .iter()
+            .any(|unit| unit.kind == "example" && &unit.target_name == example)
+        {
+            anyhow::bail!(
+                "no example target named `{example}` is available with the selected package and features"
+            );
+        }
+    }
     let t_deps = std::time::Instant::now();
     let s_deps = super::compiler_resolve::rustc_subproc_stats();
 

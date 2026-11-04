@@ -55,6 +55,22 @@ pub struct ClippyArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Select target triple for cross-compilation
+    #[arg(long)]
+    pub target: Option<String>,
+
+    /// Require an existing compatible Cargo.lock; do not resolve or write one.
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Do not use the network to resolve dependencies; use only local sources.
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Require a compatible Cargo.lock and use only locally available sources.
+    #[arg(long)]
+    pub frozen: bool,
+
     /// Keep the fast build lock active with an explicit cache directory (API only)
     #[arg(skip)]
     pub fast_lock: Option<bool>,
@@ -79,7 +95,7 @@ pub struct ClippyArgs {
     #[arg(long)]
     pub lib: bool,
 
-    /// Lint only the specified binary
+    /// Lint the named binary target (repeatable; combines with other target selectors)
     #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
     pub bin: Vec<String>,
 
@@ -87,7 +103,7 @@ pub struct ClippyArgs {
     #[arg(long)]
     pub bins: bool,
 
-    /// Lint only the specified test target
+    /// Lint the named test target (repeatable; combines with --bin)
     #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
     pub test: Vec<String>,
 
@@ -130,6 +146,10 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        target_triple: args.target.clone(),
+        locked: args.locked,
+        offline: args.offline,
+        frozen: args.frozen,
         fast_lock: args.fast_lock,
         native: true,
         cargo: false,

@@ -54,6 +54,7 @@ pub fn try_restore_build_script(
         unit,
         release,
         features,
+        None,
         cas_artifacts_dir,
         extern_crates,
         extra_env,
@@ -65,6 +66,7 @@ pub(crate) fn try_restore_build_script_with_key(
     unit: &PlannedCompilationUnit,
     release: bool,
     features: &[String],
+    target_triple: Option<&str>,
     cas_artifacts_dir: Option<&Path>,
     extern_crates: &[(String, PathBuf)],
     extra_env: Option<&HashMap<String, String>>,
@@ -75,7 +77,9 @@ pub(crate) fn try_restore_build_script_with_key(
         return Ok((Some(BuildScriptDirectives::default()), None));
     };
 
-    let target = detect_default_target_triple();
+    let target = target_triple
+        .map(str::to_string)
+        .unwrap_or_else(detect_default_target_triple);
     let clean_crate = unit.package_name.replace('-', "_");
     let profile_name = if release { "release" } else { "debug" };
 
@@ -128,6 +132,7 @@ pub fn execute_build_script(
         staging_dir,
         release,
         features,
+        None,
         cas_artifacts_dir,
         extern_crates,
         extra_env,
@@ -141,6 +146,7 @@ pub(crate) fn execute_build_script_with_key(
     staging_dir: &Path,
     release: bool,
     features: &[String],
+    target_triple: Option<&str>,
     cas_artifacts_dir: Option<&Path>,
     extern_crates: &[(String, PathBuf)],
     extra_env: Option<&HashMap<String, String>>,
@@ -152,7 +158,9 @@ pub(crate) fn execute_build_script_with_key(
         return Ok(BuildScriptDirectives::default());
     };
 
-    let target = detect_default_target_triple();
+    let target = target_triple
+        .map(str::to_string)
+        .unwrap_or_else(detect_default_target_triple);
     let clean_crate = unit.package_name.replace('-', "_");
     let profile_name = if release { "release" } else { "debug" };
 
@@ -163,6 +171,7 @@ pub(crate) fn execute_build_script_with_key(
                 unit,
                 release,
                 features,
+                target_triple,
                 cas_artifacts_dir,
                 extern_crates,
                 extra_env,

@@ -140,6 +140,13 @@ pub struct RustBuildOptions {
     pub extra_args: Vec<String>,
     pub no_cache: bool,
     pub cache_dir: Option<PathBuf>,
+    pub offline: bool,
+    pub locked: bool,
+    pub frozen: bool,
+    pub example_targets: Vec<String>,
+    pub target_triple: Option<String>,
+    pub crate_types: Vec<String>,
+    pub quiet: bool,
     /// Whether the fast build lock may answer a no-op build. `None` keeps it active only
     /// for the default store; `Some(true)` keeps it active with an explicit `cache_dir` too.
     pub fast_lock: Option<bool>,
@@ -156,6 +163,18 @@ pub struct RustBuildOptions {
     pub lib_only: bool,
     pub doc_only: bool,
     pub exclude: Vec<String>,
+}
+
+impl RustBuildOptions {
+    pub fn effective_compiler_args(&self) -> Vec<String> {
+        if let Some(target) = self.target_triple.as_deref() {
+            let mut args = vec!["--target".to_string(), target.to_string()];
+            args.extend(self.extra_args.iter().cloned());
+            args
+        } else {
+            self.extra_args.clone()
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -171,28 +171,12 @@ fn extract_rustflags_from_toml(
         Some(effective_target)
     };
 
-    let check_target_fields = |key: &str, tbl: &toml::Value| -> Result<()> {
-        for field in ["linker", "runner"] {
-            if tbl.get(field).is_some() {
-                return Err(super::types::RustAdapterError::UnsupportedOption(format!(
-                    "target.{}.{} in {}",
-                    key,
-                    field,
-                    config_path.display()
-                ))
-                .into());
-            }
-        }
-        Ok(())
-    };
-
     if let Some(targets) = val.get("target").and_then(|t| t.as_table()) {
         let mut merged_target: Vec<String> = Vec::new();
         let mut found_target_table = false;
 
         // 1. Check target.<effective_target>
         if let Some(target_val) = targets.get(effective_target) {
-            check_target_fields(effective_target, target_val)?;
             if let Some(flags) = target_val.get("rustflags").and_then(parse_flags_value) {
                 found_target_table = true;
                 merged_target.extend(flags);
@@ -207,9 +191,7 @@ fn extract_rustflags_from_toml(
             else {
                 continue;
             };
-            let has_relevant = ["rustflags", "linker", "runner"]
-                .iter()
-                .any(|f| target_table.contains_key(*f));
+            let has_relevant = target_table.contains_key("rustflags");
             if has_relevant {
                 let matched =
                     super::target_filter::eval_base_target_cfg(key, target_opt).map_err(|e| {
@@ -221,7 +203,6 @@ fn extract_rustflags_from_toml(
                         )
                     })?;
                 if matched {
-                    check_target_fields(key, target_val)?;
                     if let Some(flags) = target_table.get("rustflags").and_then(parse_flags_value) {
                         found_target_table = true;
                         merged_target.extend(flags);

@@ -35,14 +35,18 @@ pub fn compute_options_hash(
     exclude.sort();
     let mut test_targets = opt.test_targets.clone();
     test_targets.sort();
+    let mut example_targets = opt.example_targets.clone();
+    example_targets.sort();
     let mut features = opt.features.clone();
     features.sort();
 
     let payload = format!(
-        "compiler_protocol={}|manifest={}|target_dir={}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkg={:?}|exclude={:?}|bins={:?}|all_bins={}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
+        "compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkg={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
         super::compiler_remap::KEY_FLAG,
         manifest_path.display(),
         target_dir.display(),
+        opt.target_triple,
+        opt.crate_types,
         opt.start_dir,
         opt.release,
         opt.mode,
@@ -53,6 +57,7 @@ pub fn compute_options_hash(
         exclude,
         bin_targets,
         opt.all_bins,
+        example_targets,
         opt.lib_only,
         opt.doc_only,
         test_targets,
@@ -108,6 +113,45 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
 
     let options_hash = compute_options_hash(opt, &target_dir, &manifest_path);
 
+    if !opt.crate_types.is_empty() {
+        if !opt.lib_only {
+            anyhow::bail!("--crate-type requires --lib in native Mitts builds");
+        }
+        for crate_type in &opt.crate_types {
+            if !matches!(
+                crate_type.as_str(),
+                "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
+            ) {
+                anyhow::bail!("unsupported --crate-type `{crate_type}`");
+            }
+        }
+    }
+    if opt.target_triple.is_some()
+        && opt
+            .extra_args
+            .iter()
+            .any(|arg| arg == "--target" || arg.starts_with("--target="))
+    {
+        anyhow::bail!("pass --target before `--`; do not also forward a rustc --target option");
+    }
+
+    // A fast-lock hit must not bypass the lockfile contract selected by this invocation.
+    if opt.locked || opt.frozen {
+        let lock_path = project_dir
+            .ancestors()
+            .map(|path| path.join("Cargo.lock"))
+            .find(|path| path.is_file())
+            .ok_or_else(|| {
+                anyhow::anyhow!("Cargo.lock is missing and --locked/--frozen was specified")
+            })?;
+        let lock = super::lockfile::CargoLock::from_file(&lock_path)?;
+        if !lock.validate_manifest_compatibility(&manifest_path)? {
+            anyhow::bail!(
+                "Cargo.lock is incompatible with the manifest and --locked/--frozen was specified"
+            );
+        }
+    }
+
     // Fast build lock pre-flight check: if zero project files changed, return in microsecond time.
     // Strictly restricted to Build and Check modes. In Test mode, test execution cannot be
     // cached by fast-lock because tests have runtime inputs and assertions that must be executed.
@@ -148,10 +192,12 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                     &format!("Fast build lock HIT: {} actions up-to-date", action_count),
                 );
                 let _ = logger.write_trace(profile, 0, "Fast lock hit (0ms no-op)");
-                eprintln!(
-                    "[mitts::stats] compiled=0 cached=0 tainted=0 total={} fast_lock=1",
-                    action_count
-                );
+                if !opt.quiet {
+                    eprintln!(
+                        "[mitts::stats] compiled=0 cached=0 tainted=0 total={} fast_lock=1",
+                        action_count
+                    );
+                }
                 if std::env::var("MITTS_STATS").as_deref() == Ok("json") {
                     eprintln!(
                         r#"{{"compiled": 0, "cached": 0, "total": {}, "fast_lock": 1}}"#,
@@ -210,7 +256,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         }
     }
 
-    let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
+    let is_verbose = !opt.quiet && (opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok());
     if is_verbose {
         println!(
             "[mitts::plan] Planning compilation from {}",

@@ -14,6 +14,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+#[path = "manifest_examples.rs"]
+mod examples;
+
 /// Strongly typed representation of a Cargo.toml manifest.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct CargoToml {
@@ -414,6 +417,8 @@ impl CargoToml {
                 }
             }
         }
+
+        targets.extend(examples::discover(self, pkg_dir, edition.as_deref()));
 
         targets
     }

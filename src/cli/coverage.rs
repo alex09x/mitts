@@ -65,6 +65,10 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         all_features: args.all_features,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
+        target_triple: args.target.clone(),
+        locked: args.locked,
+        offline: args.offline,
+        frozen: args.frozen,
         fast_lock: None,
         mode: BuildMode::Test,
         native: true,
@@ -80,6 +84,9 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         lib_only: args.lib,
         doc_only: args.doc,
         exclude: args.exclude.clone(),
+        example_targets: Vec::new(),
+        crate_types: Vec::new(),
+        quiet: false,
     };
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {

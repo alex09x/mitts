@@ -26,65 +26,65 @@ fn test_m8_binary_cli_execution() {
     let temp_cache = tempfile::tempdir().expect("cache tempdir");
 
     // 1. --help
-    let status = Command::new(bin_path)
+    let output = Command::new(bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("--help")
-        .status()
+        .output()
         .expect("run --help");
-    assert!(status.success(), "mitts --help should succeed");
+    assert!(output.status.success(), "mitts --help should succeed");
 
     // 2. explain
-    let status = Command::new(bin_path)
+    let output = Command::new(bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("explain")
         .arg("--manifest-path")
         .arg(&manifest)
-        .status()
+        .output()
         .expect("run explain");
-    assert!(status.success(), "mitts explain should succeed");
+    assert!(output.status.success(), "mitts explain should succeed");
 
     // 3. check
-    let status = Command::new(bin_path)
+    let output = Command::new(bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("check")
         .arg("--manifest-path")
         .arg(&manifest)
         .arg("--cache-dir")
         .arg(temp_cache.path())
-        .status()
+        .output()
         .expect("run check");
-    assert!(status.success(), "mitts check should succeed");
+    assert!(output.status.success(), "mitts check should succeed");
 
     // 4. fmt
-    let status = Command::new(bin_path)
+    let output = Command::new(bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("fmt")
         .arg("--check")
         .arg("--manifest-path")
         .arg(&manifest)
-        .status()
+        .output()
         .expect("run fmt --check");
-    assert!(status.success(), "mitts fmt --check should succeed");
+    assert!(output.status.success(), "mitts fmt --check should succeed");
 
     // 5. test
-    let status = Command::new(bin_path)
+    let output = Command::new(bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("test")
         .arg("--manifest-path")
         .arg(&manifest)
         .arg("--cache-dir")
         .arg(temp_cache.path())
-        .status()
+        .output()
         .expect("run test");
-    assert!(status.success(), "mitts test should succeed");
+    assert!(output.status.success(), "mitts test should succeed");
 
     // 6. clean
-    let status = Command::new(bin_path)
+    let output = Command::new(bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())
         .arg("clean")
         .arg("--manifest-path")
         .arg(&manifest)
-        .status()
+        .output()
         .expect("run clean");
-    assert!(status.success(), "mitts clean should succeed");
+    assert!(output.status.success(), "mitts clean should succeed");
 }
