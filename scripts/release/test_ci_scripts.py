@@ -52,6 +52,12 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
                     "target": target,
                 }) + "\\n")
             if mode == "metadata":
+                if os.environ.get("FAKE_MODE") == "readonly_cache":
+                    cache = pathlib.Path(args[args.index("--cache-dir") + 1])
+                    sealed = cache / "sealed"
+                    sealed.mkdir(parents=True)
+                    (sealed / "object").write_text("fixture")
+                    sealed.chmod(0o555)
                 if os.environ.get("FAKE_MODE") == "controller_writer":
                     store = pathlib.Path(os.environ["XDG_CACHE_HOME"]) / "mitts"
                     store.mkdir(parents=True, exist_ok=True)
@@ -117,6 +123,9 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
         self.assertEqual(len(tests), 3)  # library/binary tests plus alpha and beta
         self.assertEqual({event["target"] for event in tests}, {"unit", "alpha", "beta"})
         self.assertEqual(len({event["home"] for event in tests}), 3)
+        caches = [event["args"][event["args"].index("--cache-dir") + 1] for event in tests]
+        self.assertEqual(len(set(caches)), 1)
+        self.assertTrue(all(cache not in event["home"] for cache, event in zip(caches, tests)))
         self.assertTrue(all(not event["leaked"] for event in events))
         self.assertEqual(list(self.tmp_dir.iterdir()), [])
 
@@ -145,6 +154,12 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
         result = self.run_script("probe_store_isolation.sh", "alpha")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Cargo CLI is forbidden", result.stdout)
+
+    def test_probe_cleans_read_only_cache_directories(self):
+        self.env["FAKE_MODE"] = "readonly_cache"
+        result = self.run_script("probe_store_isolation.sh", "alpha")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(list(self.tmp_dir.iterdir()), [])
 
     def test_isolated_runner_uses_mitts_and_preserves_test_failure_status(self):
         self.env["FAKE_MODE"] = "fail"

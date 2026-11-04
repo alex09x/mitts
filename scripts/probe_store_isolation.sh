@@ -16,9 +16,17 @@ rustup_home=${RUSTUP_HOME:-$real_home/.rustup}
 controller=$(mktemp -d "${TMPDIR:-/tmp}/mitts-probe.XXXXXX") || exit 2
 active_sandbox=""
 
+remove_temporary_tree() {
+  local root=$1
+  [ -d "$root" ] || return 0
+  # CAS directories may be read-only. Never chmod files: some can be hardlinks.
+  find "$root" -type d -exec chmod u+w {} +
+  rm -rf "$root"
+}
+
 cleanup() {
-  [ -z "$active_sandbox" ] || rm -rf "$active_sandbox"
-  rm -rf "$controller"
+  [ -z "$active_sandbox" ] || remove_temporary_tree "$active_sandbox"
+  remove_temporary_tree "$controller"
 }
 trap cleanup EXIT
 
@@ -109,7 +117,7 @@ run_target() {
   local sandbox
   sandbox=$(mktemp -d "${TMPDIR:-/tmp}/mitts-probe-target.XXXXXX") || exit 2
   active_sandbox=$sandbox
-  mkdir -p "$sandbox/home" "$sandbox/xdg" "$sandbox/target" "$sandbox/cache"
+  mkdir -p "$sandbox/home" "$sandbox/xdg" "$sandbox/target"
   rc=0
   env ${drop[@]+"${drop[@]}"} \
     HOME="$sandbox/home" \
@@ -121,7 +129,7 @@ run_target() {
     CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \
     RUST_TEST_THREADS=1 \
     "$mitts_bin" test --manifest-path "$repo/Cargo.toml" --workspace --locked \
-      --target-dir "$sandbox/target" --cache-dir "$sandbox/cache" "$@" \
+      --target-dir "$sandbox/target" --cache-dir "$controller_cache" "$@" \
       > "$sandbox/out.log" 2>&1 || rc=$?
   touched=$(scan_default_store "$sandbox/home" "$sandbox/xdg")
   if [ "$rc" -ne 0 ]; then
@@ -134,7 +142,7 @@ run_target() {
   else
     echo "clean  $label"
   fi
-  rm -rf "$sandbox"
+  remove_temporary_tree "$sandbox"
   active_sandbox=""
 }
 
