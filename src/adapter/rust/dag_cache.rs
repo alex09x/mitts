@@ -348,13 +348,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         );
 
         for msg in [&entry.stdout, &entry.stderr] {
-            if !msg.is_empty() {
-                let shown = super::diagnostic_dedupe::dedupe(msg);
-                ctx.compiler_messages.lock().unwrap().push(shown.clone());
-                if let Some(ref cb) = ctx.opt.progress {
-                    cb.0(BuildProgressEvent::CompilerMessage(shown));
-                }
-            }
+            super::unit_output::publish(ctx, unit, msg, None);
         }
 
         let kind = if is_bin {

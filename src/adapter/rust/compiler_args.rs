@@ -384,6 +384,9 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
                 cmd.arg(arg);
             }
             i += 1;
+        } else if arg == super::types::JSON_DIAGNOSTICS_ARG {
+            // Applies to every unit and is added once, below.
+            i += 1;
         } else if is_primary_target {
             cmd.arg(arg);
             i += 1;
@@ -405,8 +408,14 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     let is_pipelined_lib = super::planner_units::is_library_kind(&inv.unit.kind)
         && inv.mode != BuildMode::Check
         && inv.mode != BuildMode::Clippy;
+    let json_diagnostics = inv
+        .extra_compiler_args
+        .iter()
+        .any(|arg| arg == super::types::JSON_DIAGNOSTICS_ARG);
     if is_pipelined_lib {
         cmd.args(["--error-format=json", "--json=artifacts"]);
+    } else if json_diagnostics {
+        cmd.arg(super::types::JSON_DIAGNOSTICS_ARG);
     } else {
         cmd.arg("--color=never");
     }

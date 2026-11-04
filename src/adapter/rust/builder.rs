@@ -44,7 +44,7 @@ pub fn compute_options_hash(
     packages.dedup();
 
     let payload = format!(
-        "jobs={}|compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkgs={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|all_benches={}|all_examples={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|cache_dir={:?}",
+        "jobs={}|compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkgs={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|all_benches={}|all_examples={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|json_diagnostics={}|cache_dir={:?}",
         crate::core::jobs::limit().unwrap_or(0),
         super::compiler_remap::KEY_FLAG,
         manifest_path.display(),
@@ -72,6 +72,7 @@ pub fn compute_options_hash(
         opt.all_features,
         opt.no_default_features,
         opt.extra_args,
+        opt.json_diagnostics,
         opt.cache_dir,
     );
     Sha256::digest(payload.as_bytes())

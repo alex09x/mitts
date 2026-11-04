@@ -13,6 +13,9 @@ use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// The compiler argument that selects JSON diagnostics (`--message-format=json`).
+pub const JSON_DIAGNOSTICS_ARG: &str = "--error-format=json";
+
 #[derive(Debug, Clone, thiserror::Error, Diagnostic)]
 pub enum RustAdapterError {
     #[error("Manifest not found at {0}")]
@@ -152,6 +155,9 @@ pub struct RustBuildOptions {
     pub target_triple: Option<String>,
     pub crate_types: Vec<String>,
     pub quiet: bool,
+    /// Ask rustc for JSON diagnostics and report them as Cargo-shaped records
+    /// (`mitts check|clippy --message-format=json`). Part of the action key.
+    pub json_diagnostics: bool,
     /// Whether the fast build lock may answer a no-op build. `None` keeps it active only
     /// for the default store; `Some(true)` keeps it active with an explicit `cache_dir` too.
     pub fast_lock: Option<bool>,
@@ -183,13 +189,19 @@ impl RustBuildOptions {
 
 impl RustBuildOptions {
     pub fn effective_compiler_args(&self) -> Vec<String> {
-        if let Some(target) = self.target_triple.as_deref() {
+        let mut args = if let Some(target) = self.target_triple.as_deref() {
             let mut args = vec!["--target".to_string(), target.to_string()];
             args.extend(self.extra_args.iter().cloned());
             args
         } else {
             self.extra_args.clone()
+        };
+        if self.json_diagnostics {
+            // Every unit reports JSON, and the argument keeps these actions apart from the
+            // human-readable ones in the action cache.
+            args.push(JSON_DIAGNOSTICS_ARG.to_string());
         }
+        args
     }
 }
 

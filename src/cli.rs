@@ -19,7 +19,7 @@ const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS
 #[command(version = MITTS_VERSION)]
 #[command(
     about = "Rust-first build and package tooling with a shared artifact cache",
-    after_help = "Environment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
+    after_help = "Environment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -30,7 +30,7 @@ pub struct Cli {
 pub enum Commands {
     /// Compile the local package and its dependencies into the isolated Mitts target
     #[command(
-        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+        after_help = "Use -j N, or set MITTS_JOBS=N, to limit concurrent native build units. N must be a positive integer; the flag wins over the variable."
     )]
     Build(BuildArgs),
 
@@ -39,13 +39,13 @@ pub enum Commands {
 
     /// Check a package to catch errors without producing binary artifacts
     #[command(
-        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+        after_help = "Use -j N, or set MITTS_JOBS=N, to limit concurrent native build units. N must be a positive integer; the flag wins over the variable."
     )]
     Check(CheckArgs),
 
     /// Run Clippy lints over local packages in the workspace
     #[command(
-        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+        after_help = "Use -j N, or set MITTS_JOBS=N, to limit concurrent native build units. N must be a positive integer; the flag wins over the variable."
     )]
     Clippy(ClippyArgs),
 
@@ -54,7 +54,7 @@ pub enum Commands {
 
     /// Execute unit and integration tests of a package
     #[command(
-        after_help = "Set MITTS_JOBS=N to limit concurrent native build units. N must be a positive integer."
+        after_help = "Use -j N, or set MITTS_JOBS=N, to limit concurrent native build units. N must be a positive integer; the flag wins over the variable."
     )]
     Test(TestArgs),
 
@@ -121,11 +121,31 @@ pub struct CleanArgs {
     pub cache_dir: Option<PathBuf>,
 }
 
+impl Commands {
+    /// The `-j/--jobs` value, for the commands that take one and when it was given.
+    pub fn jobs(&self) -> Option<usize> {
+        let jobs = match self {
+            Commands::Build(args) | Commands::Rustc(args) => args.jobs,
+            Commands::Check(args) => args.jobs,
+            Commands::Clippy(args) => args.jobs,
+            Commands::Test(args) => args.jobs,
+            Commands::Coverage(args) | Commands::LlvmCov(args) => args.jobs,
+            Commands::Run(args) => args.build_args.jobs,
+            _ => None,
+        };
+        jobs.and_then(|n| usize::try_from(n).ok())
+    }
+}
+
 #[derive(Args, Debug, Clone, Default)]
 pub struct BuildArgs {
     /// Path to Cargo.toml
     #[arg(long)]
     pub manifest_path: Option<PathBuf>,
+
+    /// Limit concurrent native build units (same as MITTS_JOBS; the flag wins)
+    #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    pub jobs: Option<u64>,
 
     /// Package to build
     #[arg(skip)]
@@ -378,6 +398,7 @@ pub mod coverage_types;
 pub mod diagnostic;
 pub mod fmt;
 pub mod handlers;
+pub mod message_format;
 pub mod metadata;
 mod package;
 mod package_archive;

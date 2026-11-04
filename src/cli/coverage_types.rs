@@ -17,6 +17,10 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub manifest_path: Option<PathBuf>,
 
+    /// Limit concurrent native build units (same as MITTS_JOBS; the flag wins)
+    #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    pub jobs: Option<u64>,
+
     /// Package to measure coverage for
     #[arg(skip)]
     pub package: Option<String>,

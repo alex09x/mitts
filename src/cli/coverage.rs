@@ -98,6 +98,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         example_targets: Vec::new(),
         crate_types: Vec::new(),
         quiet: false,
+        json_diagnostics: false,
     };
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {

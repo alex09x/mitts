@@ -18,6 +18,9 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if let Some(jobs) = cli.command.jobs() {
+        mitts::core::jobs::set_flag_limit(jobs);
+    }
     let code = match cli.command {
         Commands::Build(ref args) => handle_build(args),
         Commands::Rustc(ref args) => handle_rustc(args),
