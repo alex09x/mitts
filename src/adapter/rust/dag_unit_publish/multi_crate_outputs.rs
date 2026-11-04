@@ -12,7 +12,7 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{publish_library_alias, CachedOutput, PublishArgs};
+use super::{publish_library_alias, publish_uplifted_library, CachedOutput, PublishArgs};
 
 pub(super) fn publish_link_outputs(
     args: &PublishArgs<'_>,
@@ -101,6 +101,9 @@ pub(super) fn publish_link_outputs(
                 action_outputs.push(dep_copy);
             } else {
                 publish_library_alias(ctx, &dep_copy, clean_crate, ext, &hash);
+                if unit.is_workspace {
+                    publish_uplifted_library(ctx, &dep_copy, clean_crate, ext, &hash);
+                }
             }
         }
     }
