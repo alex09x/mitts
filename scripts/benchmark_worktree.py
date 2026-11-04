@@ -165,7 +165,7 @@ def prepare_commit_locks_and_fetch(
     res["cargo_lock_tracked_in_git"] = lock_tracked
     lock_path = src_dir / "Cargo.lock"
     if not lock_path.exists():
-        subprocess.run(["cargo", "generate-lockfile"], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run([str(ctx["mitts_bin"]), "fetch", "--cache-dir", str(ctx["mitts_cas"])], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     master_lock = proj_work / "master_Cargo.lock"
     if lock_path.is_file():
         shutil.copy2(lock_path, master_lock)
@@ -184,22 +184,22 @@ def prepare_commit_locks_and_fetch(
         if not c_tracked:
             if master_lock and master_lock.is_file():
                 shutil.copy2(master_lock, src_dir / "Cargo.lock")
-            pf = subprocess.run(["cargo", "fetch"], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            pf = subprocess.run([str(ctx["mitts_bin"]), "fetch", "--cache-dir", str(ctx["mitts_cas"])], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         else:
-            pf = subprocess.run(["cargo", "fetch", "--locked"], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            pf = subprocess.run([str(ctx["mitts_bin"]), "fetch", "--locked", "--cache-dir", str(ctx["mitts_cas"])], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
             if pf.returncode != 0:
-                pf = subprocess.run(["cargo", "fetch"], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                pf = subprocess.run([str(ctx["mitts_bin"]), "fetch", "--cache-dir", str(ctx["mitts_cas"])], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                 if pf.returncode == 0:
                     lock_rewritten_commits.append(c[:12])
         fetch_exit_codes[c[:12]] = pf.returncode
         if pf.returncode != 0:
-            raise RuntimeError(f"cargo fetch failed on commit {c[:12]}: {pf.stderr.strip()[-300:]}")
+            raise RuntimeError(f"mitts fetch failed on commit {c[:12]}: {pf.stderr.strip()[-300:]}")
         c_lock = proj_work / f"lock_{c[:12]}.lock"
         if (src_dir / "Cargo.lock").is_file():
             shutil.copy2(src_dir / "Cargo.lock", c_lock)
             commit_locks[c] = c_lock
             commit_lock_sha256[c[:12]] = hashlib.sha256(c_lock.read_bytes()).hexdigest()
-        subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1"], cwd=src_dir, env=ctx["envs"]["cargo_bare"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run([str(ctx["mitts_bin"]), "metadata", "--offline", "--format-version", "1", "--cache-dir", str(ctx["mitts_cas"])], cwd=src_dir, env=ctx["fetch_env"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
     if head_commit in commit_locks:
         commit_locks["HEAD"] = commit_locks[head_commit]

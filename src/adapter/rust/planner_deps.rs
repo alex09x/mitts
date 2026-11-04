@@ -53,6 +53,7 @@ pub fn resolve_unit_dependencies_with_manifests(
             proc_macro_names.insert(unit.package_name.replace('-', "_"));
         }
         if unit.kind != "bin"
+            && unit.kind != "example"
             && unit.kind != "test"
             && unit.kind != "custom-test"
             && unit.kind != "test-deps"
@@ -170,7 +171,10 @@ pub fn resolve_unit_dependencies_with_manifests(
                 (toml_opt.as_ref(), *has_bs)
             };
 
-        let is_test = unit.kind == "test" || unit.kind == "custom-test" || unit.kind == "test-deps";
+        let is_test = matches!(
+            unit.kind.as_str(),
+            "test" | "custom-test" | "test-deps" | "example"
+        );
 
         let mut unit_deps = Vec::new();
         if let Some(pkg) = pkg_match {

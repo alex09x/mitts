@@ -132,6 +132,8 @@ pub enum BuildMode {
 pub struct RustBuildOptions {
     pub manifest_path: Option<PathBuf>,
     pub package: Option<String>,
+    /// Additional package selectors, resolved together with `package` in one graph.
+    pub packages: Vec<String>,
     pub release: bool,
     pub target_dir: Option<PathBuf>,
     pub features: Vec<String>,
@@ -158,11 +160,22 @@ pub struct RustBuildOptions {
     pub start_dir: Option<PathBuf>,
     pub test_targets: Vec<String>,
     pub all_tests: bool,
+    pub all_benches: bool,
+    pub all_examples: bool,
     pub bin_targets: Vec<String>,
     pub all_bins: bool,
     pub lib_only: bool,
     pub doc_only: bool,
     pub exclude: Vec<String>,
+}
+
+impl RustBuildOptions {
+    pub fn selected_package_names(&self) -> impl Iterator<Item = &str> {
+        self.package
+            .iter()
+            .chain(self.packages.iter())
+            .map(String::as_str)
+    }
 }
 
 impl RustBuildOptions {

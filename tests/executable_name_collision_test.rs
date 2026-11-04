@@ -40,24 +40,27 @@ fn run(binary: &Path) -> String {
 fn hyphenated_binary_preserves_foreign_underscore_executable_on_publish_and_restore() {
     let workspace = TempDir::new().unwrap();
     let cache = TempDir::new().unwrap();
+    let foreign_cache = TempDir::new().unwrap();
     let root = workspace.path();
     let cargo_owner = root.join("cargo-owner");
     let target = root.join("target");
     write_binary(root, "foo-bar", "hyphenated");
     write_binary(&cargo_owner, "foo_bar", "foreign underscore");
 
-    let cargo = Command::new("cargo")
+    let foreign_build = Command::new(env!("CARGO_BIN_EXE_mitts"))
         .args(["build", "--offline", "--manifest-path"])
         .arg(cargo_owner.join("Cargo.toml"))
         .arg("--target-dir")
         .arg(&target)
+        .arg("--cache-dir")
+        .arg(foreign_cache.path())
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_MAKEFLAGS")
         .env_remove("MAKEFLAGS")
         .output()
         .unwrap();
-    assert!(cargo.status.success(), "{cargo:?}");
+    assert!(foreign_build.status.success(), "{foreign_build:?}");
     let foreign = target.join("debug/foo_bar");
     let original = fs::read(&foreign).unwrap();
     assert_eq!(run(&foreign), "foreign underscore");

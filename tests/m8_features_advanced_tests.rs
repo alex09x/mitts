@@ -13,6 +13,130 @@ use mitts::adapter::rust::manifest::CargoToml;
 use mitts::adapter::rust::types::RustBuildOptions;
 
 #[test]
+fn feature_resolves_root_dev_dependency_during_tests() {
+    let root = CargoToml::parse("[package]\nname='root'\nversion='0.1.0'\n[features]\ndefault=['serde']\nserde=['rand/serde']\n[dev-dependencies]\nrand='0.8'\n").unwrap();
+    let old = CargoToml::parse("[package]\nname='rand'\nversion='0.8.5'\n[features]\nserde=[]\n")
+        .unwrap();
+    let new = CargoToml::parse("[package]\nname='rand'\nversion='0.9.1'\n[features]\nserde=[]\n")
+        .unwrap();
+    let deps = vec!["rand 0.8.5".to_string()];
+    let packages = vec![
+        PackageFeatureContext {
+            name: "root",
+            version: "0.1.0",
+            source: None,
+            is_workspace: true,
+            is_root: true,
+            toml: &root,
+            dependencies: &deps,
+        },
+        PackageFeatureContext {
+            name: "rand",
+            version: "0.8.5",
+            source: None,
+            is_workspace: false,
+            is_root: false,
+            toml: &old,
+            dependencies: &[],
+        },
+        PackageFeatureContext {
+            name: "rand",
+            version: "0.9.1",
+            source: None,
+            is_workspace: false,
+            is_root: false,
+            toml: &new,
+            dependencies: &[],
+        },
+    ];
+    let options = RustBuildOptions {
+        mode: mitts::adapter::BuildMode::Test,
+        ..Default::default()
+    };
+    let result = resolve_package_features(&packages, &options).unwrap();
+    assert!(result["rand@0.8.5"].contains(&"serde".to_string()));
+    assert!(!result["rand@0.9.1"].contains(&"serde".to_string()));
+}
+
+#[test]
+fn feature_does_not_resolve_dev_only_dependency_during_build() {
+    let root = CargoToml::parse("[package]\nname='root'\nversion='0.1.0'\n[features]\ndefault=['serde']\nserde=['rand/serde']\n[dev-dependencies]\nrand='0.8'\n").unwrap();
+    let old = CargoToml::parse("[package]\nname='rand'\nversion='0.8.5'\n").unwrap();
+    let new = CargoToml::parse("[package]\nname='rand'\nversion='0.9.1'\n").unwrap();
+    let packages = vec![
+        PackageFeatureContext {
+            name: "root",
+            version: "0.1.0",
+            source: None,
+            is_workspace: true,
+            is_root: true,
+            toml: &root,
+            dependencies: &[],
+        },
+        PackageFeatureContext {
+            name: "rand",
+            version: "0.8.5",
+            source: None,
+            is_workspace: false,
+            is_root: false,
+            toml: &old,
+            dependencies: &[],
+        },
+        PackageFeatureContext {
+            name: "rand",
+            version: "0.9.1",
+            source: None,
+            is_workspace: false,
+            is_root: false,
+            toml: &new,
+            dependencies: &[],
+        },
+    ];
+    assert!(resolve_package_features(&packages, &RustBuildOptions::default()).is_ok());
+}
+
+#[test]
+fn inactive_weak_dependency_does_not_resolve_ambiguous_versions() {
+    let root = CargoToml::parse("[package]\nname='root'\nversion='0.1.0'\n[features]\ndefault=['dep?/extra']\n[dependencies]\ndep={version='*',optional=true}\n").unwrap();
+    let dep =
+        CargoToml::parse("[package]\nname='dep'\nversion='1.0.0'\n[features]\nextra=[]\n").unwrap();
+    let dep2 =
+        CargoToml::parse("[package]\nname='dep'\nversion='2.0.0'\n[features]\nextra=[]\n").unwrap();
+    let packages = vec![
+        PackageFeatureContext {
+            name: "root",
+            version: "0.1.0",
+            source: None,
+            is_workspace: true,
+            is_root: true,
+            toml: &root,
+            dependencies: &[],
+        },
+        PackageFeatureContext {
+            name: "dep",
+            version: "1.0.0",
+            source: None,
+            is_workspace: false,
+            is_root: false,
+            toml: &dep,
+            dependencies: &[],
+        },
+        PackageFeatureContext {
+            name: "dep",
+            version: "2.0.0",
+            source: None,
+            is_workspace: false,
+            is_root: false,
+            toml: &dep2,
+            dependencies: &[],
+        },
+    ];
+    let result = resolve_package_features(&packages, &RustBuildOptions::default()).unwrap();
+    assert!(!result["dep@1.0.0"].contains(&"extra".to_string()));
+    assert!(!result["dep@2.0.0"].contains(&"extra".to_string()));
+}
+
+#[test]
 fn test_m8_features_cross_crate_and_weak_dependencies() {
     let root_toml_str = r#"
 [package]

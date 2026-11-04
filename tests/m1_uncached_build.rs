@@ -130,7 +130,7 @@ edition = "2021"
 }
 
 #[test]
-fn test_coexistence_with_ordinary_cargo() {
+fn test_cli_and_adapter_share_standard_target() {
     let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = tempfile::TempDir::new().unwrap();
     let orig_fixture = fixture_manifest();
@@ -142,18 +142,20 @@ fn test_coexistence_with_ordinary_cargo() {
     .unwrap();
     let manifest = fixture_dir.join("Cargo.toml");
 
-    // 1. Run ordinary Cargo build
-    let cargo_status = Command::new("cargo")
+    // 1. Build through the Mitts CLI.
+    let cargo_status = Command::new(env!("CARGO_BIN_EXE_mitts"))
         .arg("build")
+        .arg("--cache-dir")
+        .arg(isolated_cache.path())
         .arg("--manifest-path")
         .arg(&manifest)
         .status()
-        .expect("Failed to run cargo build");
-    assert!(cargo_status.success(), "Ordinary cargo build must succeed");
+        .expect("Failed to run mitts build");
+    assert!(cargo_status.success(), "Mitts CLI build must succeed");
 
     let ordinary_target = fixture_dir.join("target");
     let ordinary_bin = ordinary_target.join("debug").join("hello-rust");
-    assert!(ordinary_bin.exists(), "Ordinary cargo binary must exist");
+    assert!(ordinary_bin.exists(), "CLI binary must exist");
 
     // 2. Run Mitts build with the standard target directory
     let opt = RustBuildOptions {

@@ -136,11 +136,30 @@ pub fn save_build_script_cas(
     let cas_root = artifacts_dir.parent().unwrap_or(artifacts_dir);
     let script_cas_dir = cas_root.join("build_scripts").join(build_key);
     let exec_base = format!("{}:{}", build_key, directives.freshness_digest());
-    let exec_key = compute_execution_key(
+    let mut exec_key = compute_execution_key(
         &exec_base,
         &directives.rerun_if_changed_hashes,
         &directives.envs,
     );
+    // Missing watched paths require a fresh execution on each build. Preserve each
+    // execution's own outputs even when the watched-input digest is unchanged.
+    if directives
+        .rerun_if_changed_hashes
+        .values()
+        .any(|hash| hash == "<missing>")
+    {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NONCE: AtomicU64 = AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        exec_key = format!(
+            "{exec_key}-{}-{nanos}-{}",
+            std::process::id(),
+            NONCE.fetch_add(1, Ordering::Relaxed)
+        );
+    }
     let entry_dir = script_cas_dir.join(&exec_key);
     let cas_out = entry_dir
         .join(profile_name)

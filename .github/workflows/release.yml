@@ -320,14 +320,18 @@ jobs:
       - name: Require the clean exact source before obtaining publishing credentials
         env:
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          TAG: ${{ needs.source.outputs.tag }}
         run: |
           test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
           test -z "$(git -C source status --porcelain --untracked-files=all)"
+          MITTS_INSTALL_ROOT="$RUNNER_TEMP/mitts-publish" sh site/install.sh
+          test "$("$RUNNER_TEMP/mitts-publish/bin/mitts" --version)" = "mitts ${TAG#v} ($SOURCE_SHA)"
       - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
         id: auth
       - name: Publish only the exact verified package and verify public registry bytes
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          MITTS_PUBLISH_BIN: ${{ runner.temp }}/mitts-publish/bin/mitts
           TAG: ${{ needs.source.outputs.tag }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
         run: python scripts/release/registry.py publish verified-crate "$TAG" "$SOURCE_SHA" --manifest-path source/Cargo.toml

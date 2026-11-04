@@ -49,9 +49,17 @@ jobs:
           TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
-          cargo package --locked --manifest-path source/Cargo.toml
+          set -euo pipefail
+          [[ "$(git -C source rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          MITTS_INSTALL_ROOT="$RUNNER_TEMP/mitts-bootstrap" sh site/install.sh
+          "$RUNNER_TEMP/mitts-bootstrap/bin/mitts" build --locked \
+            --manifest-path source/Cargo.toml --target-dir "$RUNNER_TEMP/mitts-build" \
+            --cache-dir "$RUNNER_TEMP/mitts-cache"
+          "$RUNNER_TEMP/mitts-build/debug/mitts" package --locked \
+            --manifest-path source/Cargo.toml --target-dir "$RUNNER_TEMP/mitts-package" \
+            --cache-dir "$RUNNER_TEMP/mitts-cache"
           mkdir verified-crate
-          cp "source/target/package/mitts-${TAG#v}.crate" verified-crate/
+          cp "$RUNNER_TEMP/mitts-package/package/mitts-${TAG#v}.crate" verified-crate/
           python scripts/release/registry.py prepare verified-crate "$TAG" "$SOURCE_SHA"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         id: package

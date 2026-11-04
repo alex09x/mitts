@@ -221,7 +221,7 @@ pub(crate) fn execute_unit(
     )> = std::sync::OnceLock::new();
     let resolve_post_rustc = || {
         post_rustc_resolved.get_or_init(|| {
-            super::dag_unit_build_script::finalize_post_rustc_purity(
+            crate::adapter::rust::dag_unit_build_script::keys::finalize_post_rustc_purity(
                 unit,
                 &clean_crate,
                 ctx,
@@ -241,15 +241,19 @@ pub(crate) fn execute_unit(
             } else {
                 None
             };
-            let early_rk = super::dag_unit_publish::resolve_unit_result_key(
-                unit,
-                final_key,
-                &staging_dir,
-                ws_root.as_deref(),
-                final_purity.as_ref(),
-                directives.out_dir.as_deref(),
-            )
-            .unwrap_or_else(|| super::dag_unit_publish::taint_unhashable_key(final_key));
+            let early_rk = if !ctx.is_cache_enabled {
+                super::dag_unit_publish::taint_unhashable_key(final_key)
+            } else {
+                super::dag_unit_publish::resolve_unit_result_key(
+                    unit,
+                    final_key,
+                    &staging_dir,
+                    ws_root.as_deref(),
+                    final_purity.as_ref(),
+                    directives.out_dir.as_deref(),
+                )
+                .unwrap_or_else(|| super::dag_unit_publish::taint_unhashable_key(final_key))
+            };
             let artifact_key =
                 super::dag_unit_publish::artifact_disambiguator(&early_rk, Some(&staging_dir));
             if let Some(rk_map) = ctx.resolved_keys {

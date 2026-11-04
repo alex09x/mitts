@@ -29,6 +29,7 @@ pub fn test_role(target_name: &str) -> TestRole {
 /// True when any target-selecting option other than `--doc` is set.
 pub fn has_target_selection(opt: &RustBuildOptions) -> bool {
     opt.lib_only
+        || opt.all_benches
         || opt.all_tests
         || opt.all_bins
         || !opt.test_targets.is_empty()
@@ -82,6 +83,7 @@ pub fn select_test_targets(targets: &mut Vec<DiscoveredTarget>, opt: &RustBuildO
             }
             // `--test NAME` never names an example; `--tests` takes every tested example.
             TestRole::Example(_) => opt.all_tests && !t.explicit_only,
+            TestRole::Bench => opt.all_benches && !t.explicit_only,
         }
     });
 }
@@ -159,10 +161,10 @@ pub fn validate_test_options(
         if opt.exclude.iter().any(|ex| ex == &pkg_name) {
             continue;
         }
-        if let Some(ref target_pkg) = opt.package {
-            if &pkg_name != target_pkg {
-                continue;
-            }
+        if opt.selected_package_names().next().is_some()
+            && !opt.selected_package_names().any(|name| name == pkg_name)
+        {
+            continue;
         }
         let member_manifest = pkg_dir.join("Cargo.toml");
         let toml = super::manifest::CargoToml::from_file(&member_manifest)?;

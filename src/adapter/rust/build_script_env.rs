@@ -38,10 +38,7 @@ pub fn configure_build_script_run_cmd(
     }
 
     let (major, minor, patch, pre) = super::compiler_resolve::parse_version_parts(&unit.version);
-    let num_jobs = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .to_string();
+    let num_jobs = crate::core::jobs::limit().unwrap_or(1).to_string();
 
     run_cmd
         .current_dir(pkg_dir)

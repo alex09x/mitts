@@ -33,6 +33,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: 1.98.0
+      - name: Build Mitts test driver
+        run: |
+          set -euo pipefail
+          MITTS_INSTALL_ROOT="$RUNNER_TEMP/mitts-bootstrap" sh site/install.sh
+          "$RUNNER_TEMP/mitts-bootstrap/bin/mitts" build --locked \
+            --target-dir "$RUNNER_TEMP/mitts-test-driver" --cache-dir "$RUNNER_TEMP/mitts-build-cache"
+          printf 'MITTS_CI_BIN=%s\n' "$RUNNER_TEMP/mitts-test-driver/debug/mitts" >> "$GITHUB_ENV"
       - name: Workflow and installer regressions
         run: python -m unittest discover -s scripts/release -p 'test_*.py' -v
       - name: Validate GitHub Actions syntax
@@ -45,9 +52,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
-      CARGO_BUILD_JOBS: '2'
       RUST_TEST_THREADS: '1'
-      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -104,7 +109,7 @@ jobs:
           name: coverage-${{ matrix.os }}
           path: coverage/
           if-no-files-found: error
-      - name: Prove isolation for every existing test target with independent Cargo runner
+      - name: Prove isolation for every existing test target with Mitts runner
         working-directory: source
         run: |
           set -euo pipefail

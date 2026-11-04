@@ -97,7 +97,7 @@ def select_workspace_targets(
     ws_dir: Path, env: dict[str, str] | None = None, exclude: frozenset[str] | set[str] = frozenset()
 ) -> dict:
     """
-    Uses `cargo metadata --offline --no-deps --format-version 1` to deterministically
+    Uses `mitts metadata --offline --format-version 1` to deterministically
     pick compiled workspace member source files (avoiding filesystem-order `os.walk`
     or non-root files like `tests/common/mod.rs` or `tests/ui/*.rs`). Packages named in
     `exclude` (the project's `--exclude` arguments, tokio's nightly-only `tests-build`)
@@ -110,7 +110,7 @@ def select_workspace_targets(
 
     try:
         out = subprocess.check_output(
-            ["cargo", "metadata", "--offline", "--no-deps", "--format-version", "1"],
+            ["mitts", "metadata", "--offline", "--format-version", "1"],
             cwd=ws_dir,
             env=env,
             text=True,

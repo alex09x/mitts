@@ -8,7 +8,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use super::types::RustAdapterError;
+mod ingest;
+use ingest::ingest_profiles_from_toml;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -21,7 +22,6 @@ pub struct ResolvedProfiles {
     pub wildcard_overrides: HashMap<String, toml::Table>,
     pub build_overrides: HashMap<String, toml::Table>,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitProfileSettings {
     pub debuginfo: u32,
@@ -137,17 +137,12 @@ pub fn resolve_unit_profile_for(
         }
     });
 
-    let base_name = if release { "release" } else { "dev" };
+    let default_base_name = if release { "release" } else { "dev" };
     let profile_name = match (test, release) {
         (true, true) => "bench",
         (true, false) => "test",
-        (false, _) => base_name,
+        (false, _) => default_base_name,
     };
-    let base_upper = base_name.to_uppercase();
-    let upper_prof = profile_name.to_uppercase();
-    let default_debug = if release || for_host { 0 } else { 2 };
-    let default_opt = if release && !for_host { "3" } else { "0" };
-    let default_assertions = !release;
 
     let loaded = if let Some(ws) = &effective_ws_root {
         let stamp = compute_profile_files_stamp(ws);
@@ -165,22 +160,51 @@ pub fn resolve_unit_profile_for(
         ResolvedProfiles::default()
     };
 
+    let base_name = if test {
+        loaded
+            .profiles
+            .get(profile_name)
+            .and_then(|table| table.get("inherits"))
+            .and_then(toml::Value::as_str)
+            .unwrap_or(default_base_name)
+    } else {
+        default_base_name
+    };
+    let base_upper = base_name.to_uppercase();
+    let upper_prof = profile_name.to_uppercase();
+    let base_release = base_name == "release";
+    let default_debug = if base_release || for_host { 0 } else { 2 };
+    let default_opt = if base_release && !for_host { "3" } else { "0" };
+    let default_assertions = !base_release;
+
     let clean_name = pkg_name.replace('-', "_");
     let pkg_tbl = merged_profile_tables(base_name, profile_name, |n| {
         loaded
             .package_overrides
             .get(&(n.to_string(), pkg_name.to_string()))
-            .or_else(|| loaded.package_overrides.get(&(n.to_string(), clean_name.clone())))
+            .or_else(|| {
+                loaded
+                    .package_overrides
+                    .get(&(n.to_string(), clean_name.clone()))
+            })
     });
     let wild_tbl = (!is_workspace)
-        .then(|| merged_profile_tables(base_name, profile_name, |n| loaded.wildcard_overrides.get(n)))
+        .then(|| {
+            merged_profile_tables(base_name, profile_name, |n| {
+                loaded.wildcard_overrides.get(n)
+            })
+        })
         .flatten();
     let bo_tbl = for_host
         .then(|| merged_profile_tables(base_name, profile_name, |n| loaded.build_overrides.get(n)))
         .flatten();
     let top_tbl = merged_profile_tables(base_name, profile_name, |n| loaded.profiles.get(n));
-    let (pkg_tbl, wild_tbl, bo_tbl, top_tbl) =
-        (pkg_tbl.as_ref(), wild_tbl.as_ref(), bo_tbl.as_ref(), top_tbl.as_ref());
+    let (pkg_tbl, wild_tbl, bo_tbl, top_tbl) = (
+        pkg_tbl.as_ref(),
+        wild_tbl.as_ref(),
+        bo_tbl.as_ref(),
+        top_tbl.as_ref(),
+    );
 
     let lookup_unit_val = |key: &str| -> Option<&toml::Value> {
         pkg_tbl
@@ -191,7 +215,9 @@ pub fn resolve_unit_profile_for(
     let profile_env = |env_suffix: &str| -> Option<String> {
         read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", upper_prof, env_suffix)).or_else(|| {
             (profile_name != base_name)
-                .then(|| read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", base_upper, env_suffix)))
+                .then(|| {
+                    read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", base_upper, env_suffix))
+                })
                 .flatten()
         })
     };
@@ -359,93 +385,4 @@ fn load_workspace_and_config_profiles(
         ingest_profiles_from_toml(&val, &mut resolved, &path, active_profile)?;
     }
     Ok(resolved)
-}
-
-fn validate_profile_table(
-    scope: &str,
-    tbl: &toml::Table,
-    allow_top_only: bool,
-    source_path: &Path,
-) -> anyhow::Result<()> {
-    for (key, val) in tbl {
-        let valid = match key.as_str() {
-            "debug" => match val {
-                toml::Value::Boolean(_) => true,
-                toml::Value::Integer(i) => (0..=2).contains(i),
-                toml::Value::String(s) => parse_debug_str(s.as_str()).is_some(),
-                _ => false,
-            },
-            "opt-level" => parse_opt_level_value(val).is_some(),
-            "codegen-units" => val.as_integer().is_some_and(|i| i >= 1),
-            "strip" => parse_strip_value(val).is_some(),
-            "overflow-checks" | "debug-assertions" | "incremental" => val.is_bool(),
-            "panic" if allow_top_only => matches!(val.as_str(), Some("unwind") | Some("abort")),
-            "rpath" if allow_top_only => val.as_bool() == Some(false),
-            "lto" if allow_top_only => {
-                val.as_bool() == Some(false)
-                    || val.as_str() == Some("false")
-                    || parse_lto_value(val).is_some()
-            }
-            "package" | "build-override" if allow_top_only => val.is_table(),
-            _ => false,
-        };
-        if !valid {
-            let msg = format!("{}.{} in {}", scope, key, source_path.display());
-            return Err(RustAdapterError::UnsupportedOption(msg).into());
-        }
-    }
-    Ok(())
-}
-
-fn ingest_profiles_from_toml(
-    val: &toml::Value,
-    resolved: &mut ResolvedProfiles,
-    source_path: &Path,
-    active_profile: &str,
-) -> anyhow::Result<()> {
-    let Some(prof_table) = val.get("profile").and_then(|p| p.as_table()) else {
-        return Ok(());
-    };
-    for (prof_name, prof_val) in prof_table {
-        let Some(tbl) = prof_val.as_table() else {
-            continue;
-        };
-        let is_active = prof_name == active_profile;
-        if is_active {
-            validate_profile_table(&format!("profile.{prof_name}"), tbl, true, source_path)?;
-        }
-        merge_table(resolved.profiles.entry(prof_name.clone()).or_default(), tbl);
-        if let Some(bo) = tbl.get("build-override").and_then(|b| b.as_table()) {
-            if is_active {
-                let s = format!("profile.{prof_name}.build-override");
-                validate_profile_table(&s, bo, false, source_path)?;
-            }
-            let bo_map = &mut resolved.build_overrides;
-            merge_table(bo_map.entry(prof_name.clone()).or_default(), bo);
-        }
-        if let Some(pkg_table) = tbl.get("package").and_then(|p| p.as_table()) {
-            for (pkg_k, pkg_v) in pkg_table {
-                let Some(pkg_tbl) = pkg_v.as_table() else {
-                    continue;
-                };
-                if is_active {
-                    let s = format!("profile.{prof_name}.package.{pkg_k}");
-                    validate_profile_table(&s, pkg_tbl, false, source_path)?;
-                }
-                let target_tbl = if pkg_k == "*" {
-                    resolved
-                        .wildcard_overrides
-                        .entry(prof_name.clone())
-                        .or_default()
-                } else {
-                    resolved
-                        .package_overrides
-                        .entry((prof_name.clone(), pkg_k.clone()))
-                        .or_default()
-                };
-                merge_table(target_tbl, pkg_tbl);
-            }
-        }
-    }
-    Ok(())
 }

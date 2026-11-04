@@ -171,7 +171,6 @@ def tool_cmd(tool: str, subcmd: str, ctx: dict, extra_args: list[str] | None = N
     extra = extra_args or []
     m_bin = str(ctx["mitts_bin"])
     m_cas = str(ctx["mitts_cas"])
-    locked = ["--locked"] if ctx.get("cargo_locked", True) else []
     if tool == "mitts_cas":
         if subcmd == "build":
             return [m_bin, "build", "--cache-dir", m_cas] + (extra + ["--", "--workspace"] if "--exclude" in extra else extra)
@@ -184,16 +183,7 @@ def tool_cmd(tool: str, subcmd: str, ctx: dict, extra_args: list[str] | None = N
         if subcmd == "test_smoke":
             return [m_bin, "test", "--workspace", "--tests", "--no-fail-fast", "--cache-dir", m_cas, DEFECT_TEST_NAME] + extra
     else:
-        if subcmd == "build":
-            return ["cargo", "build", "--offline"] + locked + (["--workspace"] + extra if "--exclude" in extra else extra)
-        if subcmd == "check":
-            return ["cargo", "check", "--workspace", "--offline"] + locked + extra
-        if subcmd == "clippy":
-            return ["cargo", "clippy", "--workspace", "--offline"] + locked + extra
-        if subcmd == "test_no_run":
-            return ["cargo", "test", "--workspace", "--tests", "--no-run", "--offline"] + locked + extra
-        if subcmd == "test_smoke":
-            return ["cargo", "test", "--workspace", "--tests", "--no-fail-fast", "--offline"] + locked + extra + ["--", DEFECT_TEST_NAME]
+        raise ValueError(f"Benchmark tool {tool!r} is unavailable under the Mitts-only policy")
     raise ValueError(f"Unknown subcmd: {subcmd}")
 
 
@@ -210,6 +200,8 @@ def tool_disk_paths(tool: str, wt_dirs: list[Path], ctx: dict) -> list[Path]:
 
 
 def run_timed(cmd: list[str], cwd: Path, env: dict[str, str]) -> dict:
+    if cmd and Path(cmd[0]).name == "cargo":
+        raise ValueError("Cargo benchmark commands are unavailable under the Mitts-only policy")
     t0 = time.perf_counter()
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as tf:
         p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=tf, stderr=subprocess.STDOUT, text=True)

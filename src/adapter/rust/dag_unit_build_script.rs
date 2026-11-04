@@ -12,7 +12,7 @@ pub mod compile;
 pub mod keys;
 pub mod script_inputs;
 
-pub(crate) use keys::{prepare_unit_build_script_keys, PreCompileKeyInfo};
+pub(crate) use keys::prepare_unit_build_script_keys;
 
 use super::build_script::execute_build_script_with_key;
 use super::build_script_directives::BuildScriptDirectives;
@@ -22,6 +22,7 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use crate::adapter::rust::dag_unit_build_script::keys::register_directives_in_ctx;
 
 pub(crate) fn create_staging_dir(cas_root: &Path, clean_crate: &str) -> Result<PathBuf> {
     static STAGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -82,7 +83,9 @@ pub(crate) fn run_build_script_if_needed<'a>(
     }
 
     // 1. Check CAS execution cache BEFORE allocating any staging directory or jobserver token
-    let (cached_directives, build_key_opt) =
+    let (cached_directives, build_key_opt) = if ctx.opt.no_cache {
+        (None, None)
+    } else {
         super::build_script::try_restore_build_script_with_key(
             unit,
             ctx.opt.release,
@@ -91,7 +94,8 @@ pub(crate) fn run_build_script_if_needed<'a>(
             Some(&artifacts_dir),
             &extern_crates,
             Some(&build_dep_env),
-        )?;
+        )?
+    };
     let (directives, staging_dir_opt, retained_job) = if let Some(d) = cached_directives {
         (d, None, None)
     } else {
@@ -105,7 +109,33 @@ pub(crate) fn run_build_script_if_needed<'a>(
             )?),
             None => None,
         };
-        let rechecked = if build_key_opt.is_some() {
+        let session_key = build_key_opt
+            .as_ref()
+            .map(|key| format!("__build_script_session__:{key}"));
+        let pkg_dir = unit
+            .manifest_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let session_result = session_key
+            .as_ref()
+            .and_then(|key| {
+                ctx.resolved_keys.and_then(|keys| {
+                    keys.lock()
+                        .unwrap()
+                        .get(key)
+                        .and_then(|value| toml::from_str::<BuildScriptDirectives>(value).ok())
+                })
+            })
+            .filter(|directives| {
+                directives.is_fresh_with_missing(pkg_dir, true)
+                    && directives
+                        .out_dir
+                        .as_ref()
+                        .is_some_and(|out| out.starts_with(ctx.cas.root()) && out.is_dir())
+            });
+        let rechecked = if session_result.is_some() {
+            session_result
+        } else if build_key_opt.is_some() {
             super::build_script::try_restore_build_script_with_key(
                 unit,
                 ctx.opt.release,
@@ -137,6 +167,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 &extern_crates,
                 Some(&build_dep_env),
                 build_key_opt.as_deref(),
+                !ctx.opt.no_cache,
             ) {
                 Ok(d) => d,
                 Err(err) => {
@@ -153,6 +184,20 @@ pub(crate) fn run_build_script_if_needed<'a>(
                     );
                 }
             };
+            if d.rerun_if_changed_hashes
+                .values()
+                .any(|hash| hash == "<missing>")
+                && d.out_dir
+                    .as_ref()
+                    .is_some_and(|out| out.starts_with(ctx.cas.root()) && out.is_dir())
+                && d.is_fresh_with_missing(pkg_dir, true)
+            {
+                if let (Some(keys), Some(key), Ok(value)) =
+                    (ctx.resolved_keys, session_key.as_ref(), toml::to_string(&d))
+                {
+                    keys.lock().unwrap().insert(key.clone(), value);
+                }
+            }
             (d, Some(staging_dir), Some(job_reservation))
         }
     };
@@ -235,37 +280,6 @@ pub(crate) fn run_build_script_if_needed<'a>(
     Ok((Some(directives), staging_dir_opt, retained_job))
 }
 
-fn register_directives_in_ctx(
-    unit: &PlannedCompilationUnit,
-    directives: &BuildScriptDirectives,
-    ctx: &ExecutionContext,
-) {
-    let dep_vars = directives.dep_env_vars();
-    if !dep_vars.is_empty() {
-        let mut all_meta = ctx.dep_build_metadata.lock().unwrap();
-        all_meta.insert(unit.unit_id(), dep_vars.clone());
-        all_meta.insert(unit.package_name.clone(), dep_vars);
-    }
-
-    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-    if let Some(env_map) = ctx.tracked_env_vars {
-        let mut guard = env_map.lock().unwrap();
-        for var in &directives.rerun_if_env_changed {
-            guard.insert(var.clone(), std::env::var(var).ok());
-        }
-    }
-    if let Some(files_map) = ctx.tracked_extra_files {
-        let mut guard = files_map.lock().unwrap();
-        for (file_rel, expected_hash) in &directives.rerun_if_changed_hashes {
-            let fpath = if Path::new(file_rel).is_absolute() {
-                PathBuf::from(file_rel)
-            } else {
-                pkg_dir.join(file_rel)
-            };
-            guard.insert(fpath, expected_hash.clone());
-        }
-    }
-}
 
 /// Records build script directives into thread-safe maps for downstream compilation and doctests.
 pub fn record_completed_directives(
@@ -357,71 +371,4 @@ pub fn inherit_dep_link_searches(
         }
     }
     inherited
-}
-
-pub(crate) fn finalize_post_rustc_purity(
-    unit: &PlannedCompilationUnit,
-    clean_crate: &str,
-    ctx: &ExecutionContext,
-    current_directives: Option<&BuildScriptDirectives>,
-    staging_dir: &Path,
-    pre_info: &PreCompileKeyInfo,
-) -> (
-    String,
-    Option<super::build_script_purity::BuildScriptPurity>,
-) {
-    if let (Some(d), Some(pre_purity)) = (current_directives, pre_info.build_purity_opt.as_ref()) {
-        if pre_purity.is_pure {
-            let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
-            let ws_root = match unit.is_workspace {
-                true => super::compiler::find_workspace_root(&unit.manifest_path),
-                false => ctx
-                    .target_dir
-                    .parent()
-                    .unwrap_or(ctx.target_dir)
-                    .to_path_buf(),
-            };
-            let out_dir_to_scan = d.out_dir.as_deref().unwrap_or(staging_dir);
-            let ref_files = super::build_script_purity::extract_out_dir_files_from_dep_info(
-                staging_dir,
-                out_dir_to_scan,
-                clean_crate,
-                Some(&ws_root),
-            );
-            if let Ok(post_purity) =
-                super::build_script_purity::assess_build_script_purity_with_dep_info(
-                    pkg_dir,
-                    Some(&ws_root),
-                    out_dir_to_scan,
-                    Some(ctx.target_dir),
-                    Some(ctx.cas.root()),
-                    d,
-                    ref_files.as_ref(),
-                )
-            {
-                if !post_purity.is_pure {
-                    let reason = post_purity.reason.as_deref().unwrap_or("unknown");
-                    eprintln!(
-                        "[mitts::purity] Unit '{}' marked impure: {reason}",
-                        unit.unit_id()
-                    );
-                    let fb_key = pre_info
-                        .ws_fallback_key
-                        .clone()
-                        .unwrap_or_else(|| pre_info.effective_action_key.clone());
-                    if let Ok(toml_str) = toml::to_string(d) {
-                        let meta_dir = ctx.cas.root().join("metadata");
-                        let safe_meta_key = crate::core::action_cache::safe_key_file_name(&fb_key);
-                        let _ = fs::write(meta_dir.join(format!("{safe_meta_key}.toml")), toml_str);
-                    }
-                    return (fb_key, Some(post_purity));
-                }
-                return (pre_info.effective_action_key.clone(), Some(post_purity));
-            }
-        }
-    }
-    (
-        pre_info.effective_action_key.clone(),
-        pre_info.build_purity_opt.clone(),
-    )
 }

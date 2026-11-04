@@ -8,11 +8,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use crate::adapter::{
-    BuildMode, BuildProgressCallback, BuildProgressEvent, RustAdapter, RustBuildOptions,
-};
+use crate::adapter::{BuildMode, RustAdapter, RustBuildOptions};
 use crate::cli::diagnostic::render_compiler_diagnostics;
 use crate::cli::terminal::TerminalGuard;
+pub use crate::cli::test_progress::create_test_progress_callback;
 use crate::cli::ui::Ui;
 use clap::Args;
 use std::path::PathBuf;
@@ -24,8 +23,11 @@ pub struct TestArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Package with tests to run
-    #[arg(short, long)]
+    #[arg(skip)]
     pub package: Option<String>,
+    /// Packages to test (repeat for multiple packages)
+    #[arg(short = 'p', long = "package", action = clap::ArgAction::Append)]
+    pub packages: Vec<String>,
 
     /// Test all packages in the workspace
     #[arg(long, visible_alias = "all")]
@@ -111,6 +113,14 @@ pub struct TestArgs {
     #[arg(long)]
     pub tests: bool,
 
+    /// Test all benchmarks
+    #[arg(long)]
+    pub benches: bool,
+
+    /// Test all targets, including examples and benchmarks
+    #[arg(long)]
+    pub all_targets: bool,
+
     /// Test the named binary target (repeatable; combines with --test)
     #[arg(long = "bin", action = clap::ArgAction::Append)]
     pub bin: Vec<String>,
@@ -144,54 +154,6 @@ pub struct TestArgs {
     pub test_args: Vec<String>,
 }
 
-pub fn create_test_progress_callback(
-    progress: Option<indicatif::ProgressBar>,
-) -> BuildProgressCallback {
-    let progress_clone = progress;
-    BuildProgressCallback(std::sync::Arc::new(move |event| match event {
-        BuildProgressEvent::InitTotal { total, cached } => {
-            if let Some(ref pb) = progress_clone {
-                Ui::set_build_progress_total(pb, total, cached);
-                pb.set_message("Compiling tests...".to_string());
-            } else {
-                println!(
-                    "[mitts::dag] Initialized DAG: {} units ({} pre-cached)",
-                    total, cached
-                );
-            }
-        }
-        BuildProgressEvent::Compiling(crate_name) => {
-            if let Some(ref pb) = progress_clone {
-                pb.set_message(format!("• {}", crate_name));
-            } else {
-                println!("[mitts::test] • {}", crate_name);
-            }
-        }
-        BuildProgressEvent::UnitFinished => {
-            if let Some(ref pb) = progress_clone {
-                if pb.position() >= pb.length().unwrap_or(0) {
-                    pb.set_length(pb.position() + 1);
-                }
-                pb.inc(1);
-            }
-        }
-        BuildProgressEvent::CompilerMessage(rendered) => {
-            if let Some(ref pb) = progress_clone {
-                pb.println(rendered);
-            } else {
-                println!("{}", rendered);
-            }
-        }
-        BuildProgressEvent::Diagnostic(line) => {
-            if let Some(ref pb) = progress_clone {
-                pb.println(line);
-            } else {
-                println!("{}", line);
-            }
-        }
-    }))
-}
-
 pub fn handle_test(args: &TestArgs) -> i32 {
     if !args.config.is_empty() {
         eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
@@ -202,6 +164,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         let cov_args = crate::cli::coverage::CoverageArgs {
             manifest_path: args.manifest_path.clone(),
             package: args.package.clone(),
+            packages: args.packages.clone(),
             workspace: args.workspace,
             exclude: args.exclude.clone(),
             release: args.release,
@@ -220,6 +183,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             filter: args.filter.clone(),
             test: args.test.clone(),
             tests: args.tests,
+            all_targets: args.all_targets,
             bin: args.bin.clone(),
             bins: args.bins,
             lib: args.lib,
@@ -242,7 +206,16 @@ pub fn handle_test(args: &TestArgs) -> i32 {
 
     let mut opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
-        package: args.package.clone(),
+        package: args
+            .package
+            .clone()
+            .or_else(|| args.packages.first().cloned()),
+        packages: args
+            .packages
+            .iter()
+            .skip(usize::from(args.package.is_none()))
+            .cloned()
+            .collect(),
         release: args.release,
         target_dir: args.target_dir.clone(),
         features: args.features.clone(),
@@ -263,10 +236,12 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         progress: None,
         start_dir: None,
         test_targets: args.test.clone(),
-        all_tests: args.tests,
+        all_tests: args.tests || args.all_targets,
+        all_benches: args.benches || args.all_targets,
+        all_examples: args.all_targets,
         bin_targets: args.bin.clone(),
-        all_bins: args.bins,
-        lib_only: args.lib,
+        all_bins: args.bins || args.all_targets,
+        lib_only: args.lib || args.all_targets,
         doc_only: args.doc,
         exclude: args.exclude.clone(),
         example_targets: Vec::new(),
@@ -399,6 +374,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapter::BuildProgressEvent;
 
     #[test]
     fn test_test_progress_callback_all_events() {

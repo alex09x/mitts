@@ -37,22 +37,26 @@ jobs:
           TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source-sha }}
           METHOD: ${{ matrix.method }}
-          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-install-target
         run: |
           set -euo pipefail
           root=$(mktemp -d)
           trap 'rm -rf "$root"' EXIT
+          curl -fsSL https://mittsbuild.com/install.sh -o "$root/install.sh"
+          MITTS_INSTALL_ROOT="$root/bootstrap" sh "$root/install.sh"
           if [[ "$METHOD" == registry ]]; then
-            # Exercise the advertised default: latest stable must be this release.
-            cargo install mitts --locked --root "$root/prefix"
+            curl -fsSL "https://crates.io/api/v1/crates/mitts/${TAG#v}/download" -o "$root/source.crate"
+            mkdir "$root/unpacked"
+            tar -xzf "$root/source.crate" -C "$root/unpacked"
+            mv "$root/unpacked/mitts-${TAG#v}" "$root/source"
           elif [[ "$METHOD" == git ]]; then
-            cargo install --git https://github.com/alex09x/mitts --tag "$TAG" mitts --locked --root "$root/prefix"
+            git clone --branch "$TAG" https://github.com/alex09x/mitts "$root/source"
+            [[ "$(git -C "$root/source" rev-parse HEAD)" == "$SOURCE_SHA" ]]
           else
             git clone --depth 1 --branch "$TAG" https://github.com/alex09x/mitts "$root/source"
             [[ "$(git -C "$root/source" rev-parse HEAD)" == "$SOURCE_SHA" ]]
-            cargo install --path "$root/source" --locked --root "$root/prefix"
           fi
-          binary="$root/prefix/bin/mitts"
+          "$root/bootstrap/bin/mitts" build --release --locked --manifest-path "$root/source/Cargo.toml" --target-dir "$root/target" --cache-dir "$root/build-cache"
+          binary="$root/target/release/mitts"
           actual=$("$binary" --version)
           [[ "$actual" == "mitts ${TAG#v} ($SOURCE_SHA)" ]]
           "$binary" --help > /dev/null

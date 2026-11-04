@@ -14,7 +14,7 @@ done
 case "$(uname -s)" in
     Darwin) system=apple-darwin ;;
     Linux) system=unknown-linux-gnu ;;
-    *) fail 'Supported systems: macOS and Linux (glibc 2.35 or newer).' ;;
+    *) fail 'Supported systems: macOS and Linux.' ;;
 esac
 case "$(uname -m)" in
     arm64|aarch64) architecture=aarch64 ;;
@@ -69,7 +69,7 @@ pending=$(mktemp "$destination/.mitts-install.XXXXXX") || fail 'Cannot stage the
 cp "$temporary/mitts" "$pending"
 chmod 755 "$pending"
 installed_version=$("$pending" --version) ||
-    fail 'Cannot execute release binary at destination; check mount permissions and OS/libc requirements (Linux glibc >= 2.35).'
+    fail 'Cannot execute release binary at destination; check mount permissions and OS/libc compatibility.'
 case "$installed_version" in
     "mitts ${version#v}"|"mitts ${version#v} ("*")") ;;
     *) fail "Unexpected binary version: $installed_version" ;;

@@ -53,6 +53,12 @@ fn spawn_mock_server(response_body: Vec<u8>, status_line: &str) -> (String, Send
         listener.set_nonblocking(true).unwrap();
         while rx.try_recv().is_err() {
             if let Ok((mut stream, _)) = listener.accept() {
+                // macOS can carry the listener's nonblocking mode into accepted sockets.
+                // The mock writes a complete HTTP response, so make the accepted stream
+                // explicitly blocking before reading the request or writing the body.
+                stream
+                    .set_nonblocking(false)
+                    .expect("set accepted mock stream to blocking mode");
                 let mut buf = [0u8; 1024];
                 let _ = stream.read(&mut buf);
                 let resp = format!(

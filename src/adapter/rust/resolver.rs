@@ -18,6 +18,8 @@ use semver::{Version, VersionReq};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+pub mod manifest_extract;
+pub use manifest_extract::{extract_dependencies_with_reqs, extract_root_package};
 use std::sync::{Arc, Mutex};
 
 /// A package's dependency entries before qualification: name and, for a path package,
@@ -215,11 +217,10 @@ impl NativeResolver {
                                     .and_then(|p| p.version.clone())
                                     .unwrap_or_else(|| "0.1.0".to_string());
                                 m_dep_list.push((name.clone(), Some(ver.clone())));
-                                if !local_names.contains(&name) {
+                                if !path_deps.iter().any(|(n, v)| n == &name && v == &ver) {
                                     path_deps.push((name.clone(), ver));
-                                    let canon = dep_dir
-                                        .canonicalize()
-                                        .unwrap_or_else(|_| dep_dir.clone());
+                                    let canon =
+                                        dep_dir.canonicalize().unwrap_or_else(|_| dep_dir.clone());
                                     if seen_path_dirs.insert(canon) {
                                         manifests.push((dep_dir, dt, false));
                                     }
@@ -302,7 +303,10 @@ impl NativeResolver {
             });
         }
         if let Some((root_name, root_version)) = extract_root_package(&manifest_content) {
-            if !path_deps.iter().any(|(n, _)| n == &root_name) {
+            if !path_deps
+                .iter()
+                .any(|(n, v)| n == &root_name && v == &root_version)
+            {
                 let root_specs: DepSpecs =
                     match member_deps.remove(&format!("{root_name} {root_version}")) {
                         Some(listed) => listed,
@@ -393,75 +397,4 @@ pub fn select_best_version<'a>(
         "No compatible non-yanked version found for requirement '{}'",
         req_str
     );
-}
-
-/// Extracts the package name and version from `[package]` section in Cargo.toml.
-pub fn extract_root_package(content: &str) -> Option<(String, String)> {
-    let (mut in_pkg, mut name, mut version) = (false, None, None);
-    for raw in content.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if line.starts_with('[') && line.ends_with(']') {
-            in_pkg = line == "[package]";
-            continue;
-        }
-        if in_pkg {
-            if let Some((k, v)) = line.split_once('=') {
-                let val = v.split('#').next().unwrap_or(v).trim().trim_matches('"');
-                match k.trim() {
-                    "name" => name = Some(val.to_string()),
-                    "version" => version = Some(val.to_string()),
-                    _ => {}
-                }
-            }
-        }
-    }
-    name.zip(version)
-}
-
-/// Parses top-level dependency names and version requirement strings from Cargo.toml content.
-pub fn extract_dependencies_with_reqs(content: &str) -> Vec<ManifestDirectDep> {
-    let (mut deps, mut in_dep_section) = (Vec::new(), false);
-    for raw in content.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if line.starts_with('[') && line.ends_with(']') {
-            let section = line[1..line.len() - 1].trim();
-            in_dep_section = matches!(
-                section,
-                "dependencies" | "build-dependencies" | "workspace.dependencies"
-            ) || section.starts_with("dependencies.")
-                || section.starts_with("target.");
-            continue;
-        }
-        if in_dep_section {
-            if let Some((dep_name, val_part)) = line.split_once('=') {
-                let name = dep_name.trim().trim_matches('"').to_string();
-                let val_str = val_part.trim();
-                let mut req = "*".to_string();
-                if val_str.starts_with('"') && val_str.ends_with('"') {
-                    req = val_str.trim_matches('"').to_string();
-                } else if val_str.starts_with('{') {
-                    for part in val_str.trim_matches(|c| c == '{' || c == '}').split(',') {
-                        if let Some((k, v)) = part.split_once('=') {
-                            if k.trim() == "version" {
-                                req = v.trim().trim_matches('"').to_string();
-                                break;
-                            }
-                        }
-                    }
-                }
-                if !name.is_empty() {
-                    deps.push(ManifestDirectDep::crates_io(name, req));
-                }
-            }
-        }
-    }
-    deps.sort_by(|a, b| a.name.cmp(&b.name));
-    deps.dedup_by(|a, b| a.name == b.name);
-    deps
 }

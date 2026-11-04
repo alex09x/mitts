@@ -57,7 +57,16 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
 
     let opt = RustBuildOptions {
         manifest_path: args.manifest_path.clone(),
-        package: args.package.clone(),
+        package: args
+            .package
+            .clone()
+            .or_else(|| args.packages.first().cloned()),
+        packages: args
+            .packages
+            .iter()
+            .skip(usize::from(args.package.is_none()))
+            .cloned()
+            .collect(),
         release: args.release,
         target_dir: args.target_dir.clone(),
         features: args.features.clone(),
@@ -79,6 +88,8 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         start_dir: None,
         test_targets: args.test.clone(),
         all_tests: args.tests || args.all_targets,
+        all_benches: args.all_targets,
+        all_examples: args.all_targets,
         bin_targets: args.bin.clone(),
         all_bins: args.bins || args.all_targets,
         lib_only: args.lib,

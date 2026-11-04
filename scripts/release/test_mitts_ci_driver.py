@@ -11,8 +11,8 @@ import test_ci_scripts as fixtures
 
 class MittsDriverTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = fixtures.IsolationRunnerTests(
-            "test_isolated_runner_preserves_test_failure_status"
+        self.fixture = fixtures.MittsOnlyIsolationScriptsTests(
+            "test_isolated_runner_uses_mitts_and_preserves_test_failure_status"
         )
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
@@ -26,6 +26,8 @@ class MittsDriverTests(unittest.TestCase):
                 sys.exit(98)
             if any(k.startswith("MITTS_") for k in os.environ):
                 sys.exit(97)
+            if any(os.environ.get(k) != "" for k in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER")):
+                sys.exit(95)
             home = pathlib.Path(os.environ["HOME"])
             if not home.is_dir() or pathlib.Path(os.environ["XDG_CACHE_HOME"]).exists():
                 sys.exit(96)
@@ -34,7 +36,7 @@ class MittsDriverTests(unittest.TestCase):
             sys.exit(41 if os.environ.get("FAKE_MODE") == "fail" else 0)
         """,
         )
-        self.fixture.env.update(MITTS_TEST_DRIVER="mitts", MITTS_CI_BIN=str(binary))
+        self.fixture.env.update(MITTS_TEST_DRIVER="mitts", MITTS_CI_BIN=str(binary), RUSTC_WRAPPER="ambient-wrapper")
 
     def test_native_driver_runs_directly_in_clean_home(self):
         result = self.fixture.run_script("run_tests_isolated.sh", "--no-fail-fast")
