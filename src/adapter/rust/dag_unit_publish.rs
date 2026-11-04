@@ -13,7 +13,7 @@ mod inputs;
 mod keys;
 mod multi_crate_outputs;
 
-pub(crate) use aliases::publish_library_alias;
+pub(crate) use aliases::{publish_library_alias, publish_uplifted_library};
 pub use inputs::record_extra_inputs_in_ctx;
 pub(crate) use keys::artifact_disambiguator;
 

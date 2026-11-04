@@ -270,6 +270,15 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                         ext,
                         &out.cas_hash,
                     );
+                    if unit.is_workspace && !is_staticlib {
+                        super::dag_unit_publish::publish_uplifted_library(
+                            ctx,
+                            &target_dep_dest,
+                            &clean,
+                            ext,
+                            &out.cas_hash,
+                        );
+                    }
                 }
 
                 if matches!(ext, "rlib" | "dylib" | "so" | "a" | "lib" | "rmeta") {
