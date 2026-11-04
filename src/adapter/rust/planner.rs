@@ -160,8 +160,21 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .map(|p| p.join("Cargo.lock"))
         .find(|p| p.is_file());
     let mut lockfile = match lock_path {
-        Some(ref lp) => CargoLock::from_file(lp)?,
-        None => CargoLock::resolve_or_sync(&manifest_path, false, opt.cache_dir.as_deref())?,
+        Some(ref lp) => {
+            let lock = CargoLock::from_file(lp)?;
+            if (opt.locked || opt.offline || opt.frozen)
+                && !lock.validate_manifest_compatibility(&manifest_path)?
+            {
+                anyhow::bail!("Cargo.lock is incompatible with the manifest and --locked/--offline was specified");
+            }
+            lock
+        }
+        None => CargoLock::resolve_or_sync_with_mode(
+            &manifest_path,
+            opt.offline || opt.frozen,
+            opt.locked || opt.frozen,
+            opt.cache_dir.as_deref(),
+        )?,
     };
 
     // Ensure all path dependencies and workspace packages exist in the lockfile

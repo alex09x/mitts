@@ -206,7 +206,16 @@ impl RustAdapter {
         offline: bool,
         cache_dir: Option<&Path>,
     ) -> Result<lockfile::CargoLock> {
-        lockfile::CargoLock::resolve_or_sync(manifest_path, offline, cache_dir)
+        Self::resolve_lockfile_with_mode(manifest_path, offline, false, cache_dir)
+    }
+
+    pub fn resolve_lockfile_with_mode(
+        manifest_path: &Path,
+        offline: bool,
+        locked: bool,
+        cache_dir: Option<&Path>,
+    ) -> Result<lockfile::CargoLock> {
+        lockfile::CargoLock::resolve_or_sync_with_mode(manifest_path, offline, locked, cache_dir)
     }
 
     /// Fetches all dependencies in Cargo.lock into `store`. `cache_dir` is the cache root
@@ -217,10 +226,20 @@ impl RustAdapter {
         opt: &fetcher::FetchOptions,
         cache_dir: Option<&Path>,
     ) -> Result<fetcher::FetchResult> {
-        let lock = Self::resolve_lockfile(manifest_path, opt.offline, cache_dir)?;
+        let effective_opt = fetcher::FetchOptions {
+            offline: opt.offline || opt.frozen,
+            locked: opt.locked || opt.frozen,
+            frozen: opt.frozen,
+        };
+        let lock = Self::resolve_lockfile_with_mode(
+            manifest_path,
+            effective_opt.offline,
+            effective_opt.locked,
+            cache_dir,
+        )?;
         let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
         let config = registry_config::RegistryConfig::load(project_dir)?;
         let fetcher = fetcher::CrateFetcher::with_config(store.clone(), config);
-        fetcher.fetch_all(&lock, opt)
+        fetcher.fetch_all(&lock, &effective_opt)
     }
 }

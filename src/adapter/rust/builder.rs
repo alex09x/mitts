@@ -108,6 +108,21 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
 
     let options_hash = compute_options_hash(opt, &target_dir, &manifest_path);
 
+    // A fast-lock hit must not bypass the lockfile contract selected by this invocation.
+    if opt.locked || opt.offline || opt.frozen {
+        let lock_path = project_dir
+            .ancestors()
+            .map(|path| path.join("Cargo.lock"))
+            .find(|path| path.is_file())
+            .ok_or_else(|| {
+                anyhow::anyhow!("Cargo.lock is missing and a locked/offline mode was specified")
+            })?;
+        let lock = super::lockfile::CargoLock::from_file(&lock_path)?;
+        if !lock.validate_manifest_compatibility(&manifest_path)? {
+            anyhow::bail!("Cargo.lock is incompatible with the manifest and a locked/offline mode was specified");
+        }
+    }
+
     // Fast build lock pre-flight check: if zero project files changed, return in microsecond time.
     // Strictly restricted to Build and Check modes. In Test mode, test execution cannot be
     // cached by fast-lock because tests have runtime inputs and assertions that must be executed.

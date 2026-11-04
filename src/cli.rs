@@ -126,6 +126,18 @@ pub struct BuildArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Require an existing compatible Cargo.lock; do not resolve or write one.
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Do not use the network to resolve dependencies; use only local sources.
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Require a compatible Cargo.lock and use only locally available sources.
+    #[arg(long)]
+    pub frozen: bool,
+
     /// Keep the fast build lock active with an explicit cache directory (API only)
     #[arg(skip)]
     pub fast_lock: Option<bool>,
@@ -150,7 +162,7 @@ pub struct BuildArgs {
     #[arg(long, value_name = "SPEC", action = clap::ArgAction::Append)]
     pub exclude: Vec<String>,
 
-    /// Build only the specified binary
+    /// Build the named binary target (repeatable; combines with other target selectors)
     #[arg(long = "bin", action = clap::ArgAction::Append)]
     pub bin: Vec<String>,
 

@@ -97,6 +97,18 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Require an existing compatible Cargo.lock; do not resolve or write one.
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Do not use the network to resolve dependencies; use only local sources.
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Require a compatible Cargo.lock and use only locally available sources.
+    #[arg(long)]
+    pub frozen: bool,
+
     /// Compile, but don't run tests or collect profiles
     #[arg(long)]
     pub no_run: bool,
@@ -105,7 +117,7 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub no_fail_fast: bool,
 
-    /// Test only the specified integration test target
+    /// Test the named integration target (repeatable; combines with --bin)
     #[arg(long = "test", action = clap::ArgAction::Append)]
     pub test: Vec<String>,
 
@@ -113,7 +125,7 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub tests: bool,
 
-    /// Test only the specified binary
+    /// Test the named binary target (repeatable; combines with --test)
     #[arg(long = "bin", action = clap::ArgAction::Append)]
     pub bin: Vec<String>,
 
@@ -133,7 +145,7 @@ pub struct CoverageArgs {
     #[arg(long)]
     pub nocapture: bool,
 
-    /// Run only tests that exactly match the filter (equivalent to -- --exact)
+    /// Require exact test-name matches; pass before `--`, with filters after it
     #[arg(long)]
     pub exact: bool,
 
@@ -149,7 +161,7 @@ pub struct CoverageArgs {
     #[arg(long, action = clap::ArgAction::Append)]
     pub config: Vec<String>,
 
-    /// Arguments passed to the test binary runner
+    /// Arguments passed to test binaries after `--` (for example, test-name filters)
     #[arg(last = true)]
     pub test_args: Vec<String>,
 }
