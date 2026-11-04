@@ -184,11 +184,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.args(["-C", &format!("codegen-units={cgu}")]);
     }
     // LTO happens where the final artifact is linked: binaries, and test executables under
-    // a `[profile.test] lto` setting.
+    // a `[profile.test] lto` setting. rustc runs LTO only for executables, cdylibs and
+    // staticlibs, and rejects `-C lto` when a unit also emits an rlib or dylib. Cargo passes
+    // no LTO flag for such a mixed unit, and so does Mitts.
     let is_lto_target = super::pipelining::is_linking_kind(&inv.unit.kind);
+    let all_outputs_support_lto = native_crate_types
+        .iter()
+        .all(|crate_type| matches!(*crate_type, "cdylib" | "staticlib"));
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| {
         !inv.unit.for_host
             && is_lto_target
+            && all_outputs_support_lto
             && matches!(inv.mode, BuildMode::Build | BuildMode::Test)
     }) {
         cmd.args(["-C", &format!("lto={lto_mode}")]);
