@@ -69,8 +69,7 @@ fn prepared_archive_rejects_oversized_unpacked_entry() {
     encoder.write_all(header.as_bytes()).unwrap();
     std::fs::write(&path, encoder.finish().unwrap()).unwrap();
     let metadata = serde_json::json!({"name": "demo", "vers": "1.0.0"});
-    let error =
-        prepared_archive(&path, &temp.path().join("Cargo.toml"), &metadata).unwrap_err();
+    let error = prepared_archive(&path, &temp.path().join("Cargo.toml"), &metadata).unwrap_err();
     assert!(error.to_string().contains("unpacked crate is too large"));
 }
 

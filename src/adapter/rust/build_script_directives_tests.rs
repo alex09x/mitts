@@ -11,7 +11,8 @@ use std::fs;
 
 #[test]
 fn test_parse_stdout_dedup() {
-    let stdout = "cargo:rerun-if-changed=build.rs\ncargo:rerun-if-changed=build.rs\ncargo:rustc-cfg=feat\n";
+    let stdout =
+        "cargo:rerun-if-changed=build.rs\ncargo:rerun-if-changed=build.rs\ncargo:rustc-cfg=feat\n";
     let dir = BuildScriptDirectives::parse_stdout(stdout);
     assert_eq!(dir.rerun_if_changed, vec!["build.rs"]);
     assert_eq!(dir.cfgs, vec!["feat"]);

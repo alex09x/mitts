@@ -12,8 +12,8 @@ use crate::adapter::rust::build_script_directives::BuildScriptDirectives;
 use crate::adapter::rust::build_script_purity::BuildScriptPurity;
 use crate::adapter::rust::dag_cache::ExecutionContext;
 use crate::adapter::rust::types::PlannedCompilationUnit;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 pub(crate) struct PreCompileKeyInfo {
     pub effective_action_key: String,

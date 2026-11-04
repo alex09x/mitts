@@ -18,11 +18,11 @@ use super::build_script::execute_build_script_with_key;
 use super::build_script_directives::BuildScriptDirectives;
 use super::dag_cache::ExecutionContext;
 use super::types::PlannedCompilationUnit;
+use crate::adapter::rust::dag_unit_build_script::keys::register_directives_in_ctx;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::adapter::rust::dag_unit_build_script::keys::register_directives_in_ctx;
 
 pub(crate) fn create_staging_dir(cas_root: &Path, clean_crate: &str) -> Result<PathBuf> {
     static STAGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -279,7 +279,6 @@ pub(crate) fn run_build_script_if_needed<'a>(
 
     Ok((Some(directives), staging_dir_opt, retained_job))
 }
-
 
 /// Records build script directives into thread-safe maps for downstream compilation and doctests.
 pub fn record_completed_directives(
