@@ -26,7 +26,18 @@ Clippy and the existing full suite on Linux x86-64 and macOS ARM64. Tests run
 through `run_tests_isolated.sh`; the per-target `probe_store_isolation.sh` is
 mandatory too. Rust1.98.0 includes clippy, rustfmt and llvm-tools-preview. Network
 access is required for existing registry fixtures. The stable aggregate check
-is `gate`; every native job must succeed. No benchmark is part of CI.
+is `gate`; every native and probe job must succeed. No benchmark is part of CI.
+
+The probe runs in its own `probe` jobs beside `native`, not after it. It is split
+with `MITTS_PROBE_SHARD=INDEX/COUNT`: the sorted test targets are dealt round-robin
+(Linux 4 shards, macOS 2) and shard 1 also runs the library and binary unit tests,
+so every target runs exactly once per operating system. A newer push to a pull
+request cancels its older CI run; `main` and release runs are never cancelled.
+
+Test executables dominate CI cost, not test code: each `tests/*.rs` links the whole
+library, 228 executables in all. `[profile.dev] debug = false` keeps them near
+12 MB instead of 90 MB (cold build of all targets on 4 CPUs: 72 s and 20.4 GB
+before, 37.6 s and 4.3 GB after). Test execution itself is about four minutes.
 
 Release reuses an already successful push-to-main CI only when both its source
 and workflow-controller commit match exactly. If that CI is running, Release

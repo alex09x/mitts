@@ -126,6 +126,41 @@ if [ "$#" -eq 0 ] && [ "$test_count" -eq 0 ] && [ -d "$repo/tests" ] \
   exit 1
 fi
 
+# MITTS_PROBE_SHARD=INDEX/COUNT (1-based) runs a deterministic slice of the targets so CI can
+# spread the probe over parallel jobs. Targets are sorted, then dealt round-robin; shard 1
+# also runs the library and binary unit tests. Every shard keeps the metadata completeness
+# checks above, so a missing target still fails all of them.
+shard_index=1
+shard_count=1
+if [ -n "${MITTS_PROBE_SHARD:-}" ]; then
+  case "$MITTS_PROBE_SHARD" in
+    *[!0-9/]* | */*/* | /* | */) shard_valid=0 ;;
+    */*) shard_valid=1 ;;
+    *) shard_valid=0 ;;
+  esac
+  if [ "$shard_valid" -ne 1 ]; then
+    echo "probe_store_isolation: MITTS_PROBE_SHARD must look like INDEX/COUNT, got '$MITTS_PROBE_SHARD'" >&2
+    exit 2
+  fi
+  shard_index=$((10#${MITTS_PROBE_SHARD%/*}))
+  shard_count=$((10#${MITTS_PROBE_SHARD#*/}))
+  if [ "$shard_count" -lt 1 ] || [ "$shard_index" -lt 1 ] || [ "$shard_index" -gt "$shard_count" ]; then
+    echo "probe_store_isolation: MITTS_PROBE_SHARD index must be between 1 and the shard count, got '$MITTS_PROBE_SHARD'" >&2
+    exit 2
+  fi
+fi
+if [ "$shard_count" -gt 1 ]; then
+  all_names=(${test_names[@]+"${test_names[@]}"})
+  test_names=()
+  position=0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    if [ $((position % shard_count)) -eq $((shard_index - 1)) ]; then test_names+=("$name"); fi
+    position=$((position + 1))
+  done < <(printf '%s\n' ${all_names[@]+"${all_names[@]}"} | LC_ALL=C sort)
+fi
+echo "probe_store_isolation: shard $shard_index/$shard_count runs ${#test_names[@]} integration target(s)"
+
 writers=0
 failures=0
 
@@ -164,8 +199,8 @@ run_target() {
   active_sandbox=""
 }
 
-run_target "library and binary unit tests" --lib --bins
-for name in "${test_names[@]}"; do run_target "$name" --test "$name"; done
+if [ "$shard_index" -eq 1 ]; then run_target "library and binary unit tests" --lib --bins; fi
+for name in ${test_names[@]+"${test_names[@]}"}; do run_target "$name" --test "$name"; done
 
 echo "probe_store_isolation: $writers target(s) wrote to the default store, $failures failed"
 [ "$writers" -eq 0 ] && [ "$failures" -eq 0 ]
