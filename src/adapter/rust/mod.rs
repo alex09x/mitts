@@ -130,6 +130,20 @@ impl RustAdapter {
 
     /// Resolves the Rust target root, using Cargo's standard target directory by default.
     pub fn resolve_target_dir(manifest_path: &Path, opt: &RustBuildOptions) -> Result<PathBuf> {
+        let target_dir = Self::resolve_target_dir_without_tags(manifest_path, opt)?;
+
+        // Ensure target directory has CACHEDIR.TAG and .gitignore so IDEs/tools treat it as build cache
+        if opt.target_dir.is_none() {
+            let _ = Self::ensure_target_dir_tags(&target_dir);
+        }
+        Ok(target_dir)
+    }
+
+    /// Cleanup resolves paths without creating an otherwise absent output root.
+    pub(crate) fn resolve_target_dir_without_tags(
+        manifest_path: &Path,
+        opt: &RustBuildOptions,
+    ) -> Result<PathBuf> {
         let target_dir = if let Some(ref td) = opt.target_dir {
             td.clone()
         } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR") {
@@ -140,11 +154,6 @@ impl RustAdapter {
                 .context("Manifest path has no parent directory")?;
             project_dir.join("target")
         };
-
-        // Ensure target directory has CACHEDIR.TAG and .gitignore so IDEs/tools treat it as build cache
-        if opt.target_dir.is_none() {
-            let _ = Self::ensure_target_dir_tags(&target_dir);
-        }
 
         Ok(target_dir)
     }

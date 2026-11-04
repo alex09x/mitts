@@ -63,6 +63,7 @@ impl TargetArtifactIndex {
         if !self.dirty {
             return Ok(());
         }
+        self.record_library_aliases(target_dir);
         let path = Self::index_path(target_dir, profile);
         let data =
             serde_json::to_vec(self).with_context(|| "Failed to serialize TargetArtifactIndex")?;
@@ -85,6 +86,57 @@ impl TargetArtifactIndex {
         }
         self.dirty = false;
         Ok(())
+    }
+
+    // Unhashed library aliases are published after their keyed artifacts. Track
+    // them too so clean can remove only our files in Cargo's shared target root.
+    fn record_library_aliases(&mut self, target_dir: &Path) {
+        let records: Vec<_> = self
+            .artifacts
+            .iter()
+            .map(|(p, r)| (p.clone(), r.clone()))
+            .collect();
+        for (relative, record) in records {
+            let path = Path::new(&relative);
+            let Some(ext @ ("rlib" | "rmeta" | "dylib" | "so")) =
+                path.extension().and_then(|e| e.to_str())
+            else {
+                continue;
+            };
+            let Some((name, suffix)) = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.rsplit_once('-'))
+            else {
+                continue;
+            };
+            if !name.starts_with("lib")
+                || suffix.is_empty()
+                || !suffix.bytes().all(|c| c.is_ascii_hexdigit())
+            {
+                continue;
+            }
+            let alias = path.with_file_name(format!("{name}.{ext}"));
+            let dest = target_dir.join(&alias);
+            let Ok(meta) = fs::symlink_metadata(&dest) else {
+                continue;
+            };
+            if !meta.is_file() || meta.len() != record.size {
+                continue;
+            }
+            #[cfg(unix)]
+            let same_file = {
+                use std::os::unix::fs::MetadataExt;
+                meta.ino() == record.ino && meta.dev() == record.dev
+            };
+            #[cfg(not(unix))]
+            let same_file = false;
+            if same_file
+                || crate::core::hash::Sha256::digest_file(&dest).is_ok_and(|h| h == record.cas_hash)
+            {
+                self.record(alias.to_string_lossy().into_owned(), record.cas_hash, &dest);
+            }
+        }
     }
 
     /// Evaluates whether an existing artifact at `dest_path` is intact without reading full file content:
