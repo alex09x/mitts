@@ -251,6 +251,14 @@ pub fn compute_unit_flags_with_ws(
     if unit.kind.split(',').any(|kind| kind.trim() == "staticlib") {
         u_flags.push("STATICLIB_OUTPUT_V1".to_string());
     }
+    // The `--crate-type` list rustc gets decides which files the unit produces. It is derived
+    // from the manifest's list (`lib` becomes `rlib`), so the manifest's own text in
+    // `CRATE_KIND` does not change when the derivation does; entries built before such a change
+    // would be restored without the rlib. A plain library passes none and keeps its key.
+    let crate_types = super::compiler_args::crate_types::for_unit_kind(&unit.kind);
+    if !crate_types.is_empty() {
+        u_flags.push(format!("CRATE_TYPES={}", crate_types.join(",")));
+    }
     let ws_for_profile = unit.workspace_root.as_deref().or(ws_root);
     let profile = super::profile::resolve_unit_profile_for(
         &unit.manifest_path,
@@ -431,6 +439,46 @@ mod tests {
             Some(root),
         )
         .unwrap()
+    }
+
+    fn crate_type_flags(kind: &str) -> Vec<String> {
+        let root = workspace("");
+        let mut unit = unit_with_deps(&[]);
+        unit.kind = kind.into();
+        unit.manifest_path = root.path().join("app").join("Cargo.toml");
+        unit.workspace_root = Some(root.path().to_path_buf());
+        compute_unit_flags_with_ws(
+            &unit,
+            &root.path().join("app"),
+            &[],
+            BuildMode::Build,
+            false,
+            Some(root.path()),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_crate_types_passed_to_rustc_are_part_of_the_key() {
+        // `lib` is passed on as `rlib`; an entry built when it was dropped has another key.
+        let flags = crate_type_flags("lib,cdylib,staticlib");
+        assert!(flags.contains(&"CRATE_TYPES=rlib,cdylib,staticlib".to_string()));
+        let explicit = crate_type_flags("rlib,cdylib,staticlib");
+        assert!(explicit.contains(&"CRATE_TYPES=rlib,cdylib,staticlib".to_string()));
+        let without_rlib = crate_type_flags("cdylib,staticlib");
+        assert!(without_rlib.contains(&"CRATE_TYPES=cdylib,staticlib".to_string()));
+    }
+
+    #[test]
+    fn a_plain_library_keeps_its_key() {
+        for kind in ["lib", "rlib", "bin"] {
+            assert!(
+                !crate_type_flags(kind)
+                    .iter()
+                    .any(|flag| flag.starts_with("CRATE_TYPES=")),
+                "{kind}"
+            );
+        }
     }
 
     #[test]

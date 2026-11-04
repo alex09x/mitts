@@ -12,7 +12,7 @@
 /// plain library (rustc then defaults to an rlib). `lib` in a manifest's `crate-type` list is
 /// the Rust library, an rlib; it must be passed on as such, or the unit builds no rlib and
 /// dependents find only the cdylib, which carries no Rust metadata.
-pub(super) fn for_unit_kind(kind: &str) -> Vec<&str> {
+pub(crate) fn for_unit_kind(kind: &str) -> Vec<&str> {
     let kinds: Vec<_> = kind.split(',').map(str::trim).collect();
     let has_native_type = kinds
         .iter()
