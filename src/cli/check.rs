@@ -36,7 +36,7 @@ pub struct CheckArgs {
     pub target_dir: Option<PathBuf>,
 
     /// Space or comma separated list of features to activate
-    #[arg(short = 'F', long)]
+    #[arg(short = 'F', long, value_delimiter = ',', num_args = 1..)]
     pub features: Vec<String>,
 
     /// Do not activate the `default` feature

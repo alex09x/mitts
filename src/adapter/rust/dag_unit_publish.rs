@@ -11,6 +11,7 @@
 mod aliases;
 mod inputs;
 mod keys;
+mod multi_crate_outputs;
 
 pub(crate) use aliases::publish_library_alias;
 pub use inputs::record_extra_inputs_in_ctx;
@@ -63,6 +64,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     let clean_crate = unit.target_name.replace('-', "_");
     let mut cached_outputs = Vec::new();
     let mut action_outputs = Vec::new();
+    let mut link_output_sources = Vec::new();
 
     let is_mutable = super::unit_inputs::is_mutable_unit(unit);
     let ws_root = if is_mutable {
@@ -148,97 +150,32 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             }
         }
     } else {
-        // 4. Publish primary library output (rlib/dylib/so)
-        if let Some(lib_path) = args
-            .output
-            .primary_output
-            .as_ref()
-            .or(args.output.metadata_output.as_ref())
-        {
-            let (hash, size) = ctx.cas.store_file(lib_path)?;
-            let ext = lib_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("rlib");
-            let disambig = if ext == "rmeta" {
+        let (outputs, paths, sources) =
+            multi_crate_outputs::publish_link_outputs(&args, &artifact_key, &clean_crate)?;
+        cached_outputs.extend(outputs);
+        action_outputs.extend(paths);
+        link_output_sources = sources;
+
+        // 5. Publish metadata output, including check-only output also used as primary_output.
+        if let Some(mp) = args.output.metadata_output.as_ref() {
+            let (meta_hash, meta_size) = ctx.cas.store_file(mp)?;
+            let metadata_disambiguator = if link_output_sources.is_empty() {
                 format!("{artifact_key}-m")
             } else {
                 artifact_key.clone()
             };
             let named = ctx.cas.named_artifact_path_with_disambiguator(
                 &unit.target_name,
-                &hash,
-                &disambig,
-                ext,
-            )?;
-
-            let file_name = lib_path.file_name().unwrap_or_default();
-            cached_outputs.push(CachedOutput {
-                relative_path: PathBuf::from(file_name),
-                cas_hash: hash.clone(),
-                file_size: size,
-                executable: false,
-            });
-            ctx.completed_artifacts
-                .lock()
-                .unwrap()
-                .insert(unit.unit_id(), named.clone());
-            action_outputs.push(named);
-
-            if !ctx.opt.native || unit.is_workspace {
-                let profile_name = if ctx.opt.release { "release" } else { "debug" };
-                let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                let is_staticlib = matches!(ext, "a" | "lib");
-                let dep_copy = if is_staticlib {
-                    ctx.target_dir.join(profile_name).join(file_name)
-                } else {
-                    let _ = fs::create_dir_all(&deps_dir);
-                    deps_dir.join(file_name)
-                };
-                if let Some(parent) = dep_copy.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                if lib_path != &dep_copy {
-                    let _ = crate::core::link_intra_workspace(
-                        lib_path,
-                        &dep_copy,
-                        &[args.staging_dir, ctx.target_dir],
-                        false,
-                    );
-                }
-                if let Some(ti) = ctx.target_index {
-                    let rel_key = dep_copy
-                        .strip_prefix(ctx.target_dir)
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|_| PathBuf::from(profile_name).join(file_name));
-                    ti.lock().unwrap().record(
-                        rel_key.to_string_lossy().to_string(),
-                        hash.clone(),
-                        &dep_copy,
-                    );
-                }
-                if !is_staticlib {
-                    publish_library_alias(ctx, &dep_copy, &clean_crate, ext, &hash);
-                } else {
-                    action_outputs.push(dep_copy);
-                }
-            }
-        }
-
-        // 5. Publish metadata output (rmeta) if distinct from primary_output
-        if let Some(mp) = args
-            .output
-            .metadata_output
-            .as_ref()
-            .filter(|mp| args.output.primary_output.as_ref() != Some(*mp))
-        {
-            let (meta_hash, meta_size) = ctx.cas.store_file(mp)?;
-            let _ = ctx.cas.named_artifact_path_with_disambiguator(
-                &unit.target_name,
                 &meta_hash,
-                &artifact_key,
+                &metadata_disambiguator,
                 "rmeta",
-            );
+            )?;
+            let mut completed = ctx.completed_artifacts.lock().unwrap();
+            if link_output_sources.is_empty() {
+                completed.insert(unit.unit_id(), named);
+            } else {
+                completed.entry(unit.unit_id()).or_insert(named);
+            }
             let file_name = mp.file_name().unwrap_or_default();
             cached_outputs.push(CachedOutput {
                 relative_path: PathBuf::from(file_name),
@@ -300,6 +237,12 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 if scan_file(mp) {
                     contains_ws_root_path = true;
                 }
+            }
+            if link_output_sources
+                .iter()
+                .any(|path| scan_file(path.as_path()))
+            {
+                contains_ws_root_path = true;
             }
         }
     }

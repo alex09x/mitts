@@ -280,17 +280,7 @@ pub fn compute_unit_flags_with_ws(
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| !unit.for_host) {
         u_flags.push(format!("LTO={lto_mode}"));
     }
-    let is_linked = matches!(
-        unit.kind.as_str(),
-        "bin"
-            | "example"
-            | "cdylib"
-            | "dylib"
-            | "staticlib"
-            | "proc-macro"
-            | "test"
-            | "custom-test"
-    );
+    let is_linked = super::pipelining::is_linking_kind(&unit.kind);
     if let Some(ref strip_mode) = profile
         .strip
         .as_ref()

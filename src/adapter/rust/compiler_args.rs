@@ -15,6 +15,8 @@ use crate::adapter::rust::compiler_remap::append_path_remaps;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
+
+mod crate_types;
 use std::process::Command;
 
 /// Prepares and configures the `Command` for a `RustcInvocation`.
@@ -79,13 +81,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     let is_bin = matches!(inv.unit.kind.as_str(), "bin" | "example") || is_build_script;
     let is_test = inv.unit.kind == "test" || inv.unit.kind == "custom-test";
     let is_proc_macro = inv.unit.kind == "proc-macro";
-    let native_crate_types: Vec<&str> = inv
-        .unit
-        .kind
-        .split(',')
-        .map(str::trim)
-        .filter(|kind| matches!(*kind, "dylib" | "cdylib" | "staticlib"))
-        .collect();
+    let native_crate_types = crate_types::for_unit_kind(&inv.unit.kind);
     let is_check_only = (inv.mode == BuildMode::Check || inv.mode == BuildMode::Clippy)
         && (!inv.unit.for_host || (inv.mode == BuildMode::Clippy && is_build_script));
 
@@ -179,10 +175,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     }
     // LTO happens where the final artifact is linked: binaries, and test executables under
     // a `[profile.test] lto` setting.
-    let is_lto_target = matches!(
-        inv.unit.kind.as_str(),
-        "bin" | "cdylib" | "staticlib" | "dylib" | "test" | "custom-test"
-    );
+    let is_lto_target = super::pipelining::is_linking_kind(&inv.unit.kind);
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| {
         !inv.unit.for_host
             && is_lto_target
@@ -393,8 +386,9 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     {
         cmd.args(["--cap-lints", "allow"]);
     }
-    let is_pipelined_lib =
-        inv.unit.kind == "lib" && inv.mode != BuildMode::Check && inv.mode != BuildMode::Clippy;
+    let is_pipelined_lib = super::planner_units::is_library_kind(&inv.unit.kind)
+        && inv.mode != BuildMode::Check
+        && inv.mode != BuildMode::Clippy;
     if is_pipelined_lib {
         cmd.args(["--error-format=json", "--json=artifacts"]);
     } else {

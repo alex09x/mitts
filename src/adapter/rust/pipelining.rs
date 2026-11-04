@@ -24,6 +24,25 @@ pub enum DepRequirement {
     FullArtifact,
 }
 
+/// Whether a compilation unit must link code from its dependencies.
+/// `PlannedCompilationUnit::kind` is a comma-separated crate-type list for native libraries.
+pub fn is_linking_kind(kind: &str) -> bool {
+    kind.split(',').map(str::trim).any(|kind| {
+        matches!(
+            kind,
+            "bin"
+                | "test"
+                | "custom-test"
+                | "proc-macro"
+                | "dylib"
+                | "cdylib"
+                | "staticlib"
+                | "example"
+                | "bench"
+        )
+    })
+}
+
 /// Returns true if the package described by manifest_path has a configured build script that exists.
 pub fn package_has_build_script(manifest_path: &Path) -> bool {
     let pkg_dir = manifest_path.parent().unwrap_or(Path::new("."));
@@ -51,19 +70,7 @@ pub fn classify_dep_requirement(
         return DepRequirement::FullArtifact;
     }
     // Linking targets need native code from all their dependencies
-    let is_consumer_linking = matches!(
-        consumer.kind.as_str(),
-        "bin"
-            | "test"
-            | "custom-test"
-            | "proc-macro"
-            | "dylib"
-            | "cdylib"
-            | "staticlib"
-            | "example"
-            | "bench"
-    );
-    if is_consumer_linking {
+    if is_linking_kind(&consumer.kind) {
         return DepRequirement::FullArtifact;
     }
     // If consumer package has a build script, all host/build dependencies (including transitive)
@@ -178,7 +185,14 @@ where
                     cb(&artifact_path);
                 }
             } else if emit == "link" {
-                primary_output = Some(artifact_path);
+                let candidate_is_rlib = artifact_path.extension().is_some_and(|ext| ext == "rlib");
+                let current_is_rlib = primary_output
+                    .as_ref()
+                    .and_then(|path: &PathBuf| path.extension())
+                    .is_some_and(|ext| ext == "rlib");
+                if primary_output.is_none() || candidate_is_rlib || !current_is_rlib {
+                    primary_output = Some(artifact_path);
+                }
             }
         } else if let Some(rendered) = parse_rustc_rendered_diagnostic(&line) {
             collected_stderr.push_str(&rendered);

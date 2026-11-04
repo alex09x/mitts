@@ -228,7 +228,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                 }
             }
         } else {
-            let mut staged_completed: Vec<(String, PathBuf, bool)> = Vec::new();
+            let mut staged_completed: Vec<(String, PathBuf, u8)> = Vec::new();
             for out in &entry.outputs {
                 let ext = out
                     .relative_path
@@ -239,8 +239,17 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                     let profile_name = if ctx.opt.release { "release" } else { "debug" };
                     let deps_dir = ctx.target_dir.join(profile_name).join("deps");
                     let _ = fs::create_dir_all(&deps_dir);
-                    let target_dep_dest = deps_dir.join(&out.relative_path);
-                    let rel_key = format!("{}/deps/{}", profile_name, out.relative_path.display());
+                    let is_staticlib = matches!(ext, "a" | "lib");
+                    let target_dep_dest = if is_staticlib {
+                        ctx.target_dir.join(profile_name).join(&out.relative_path)
+                    } else {
+                        deps_dir.join(&out.relative_path)
+                    };
+                    let rel_key = if is_staticlib {
+                        format!("{}/{}", profile_name, out.relative_path.display())
+                    } else {
+                        format!("{}/deps/{}", profile_name, out.relative_path.display())
+                    };
                     if crate::core::target_index::check_or_restore(
                         ctx.target_index,
                         ctx.cas,
@@ -263,12 +272,12 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                     );
                 }
 
-                if matches!(ext, "rlib" | "dylib" | "so" | "rmeta") {
+                if matches!(ext, "rlib" | "dylib" | "so" | "a" | "lib" | "rmeta") {
                     let is_meta_only = ext == "rmeta"
                         && !entry.outputs.iter().any(|o| {
                             matches!(
                                 o.relative_path.extension().and_then(|e| e.to_str()),
-                                Some("rlib" | "dylib" | "so")
+                                Some("rlib" | "dylib" | "so" | "a" | "lib")
                             )
                         });
                     let disambig = if is_meta_only {
@@ -284,16 +293,20 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                     ) else {
                         return Ok(false);
                     };
-                    staged_completed.push((unit.unit_id(), named, ext != "rmeta"));
+                    let priority = match ext {
+                        "rlib" => 3,
+                        "dylib" | "so" => 2,
+                        "a" | "lib" => 1,
+                        _ => 0,
+                    };
+                    staged_completed.push((unit.unit_id(), named, priority));
                 }
             }
-            let mut map = ctx.completed_artifacts.lock().unwrap();
-            for (uid, named, overwrite) in staged_completed {
-                if overwrite {
-                    map.insert(uid, named);
-                } else {
-                    map.entry(uid).or_insert(named);
-                }
+            if let Some((uid, named, _)) = staged_completed
+                .into_iter()
+                .max_by_key(|(_, _, priority)| *priority)
+            {
+                ctx.completed_artifacts.lock().unwrap().insert(uid, named);
             }
         }
 
