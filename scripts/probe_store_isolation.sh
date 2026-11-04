@@ -83,6 +83,24 @@ test_count=0
 if [ "$#" -gt 0 ]; then
   test_names=("$@")
 else
+  # This repository auto-discovers each top-level tests/*.rs as an integration target.
+  # A non-empty but incomplete metadata response must not silently skip targets.
+  python3 - "$controller/metadata.json" "$repo/Cargo.toml" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = pathlib.Path(sys.argv[2]).resolve()
+metadata = json.loads(pathlib.Path(sys.argv[1]).read_text())
+package = next((p for p in metadata.get("packages", [])
+                if pathlib.Path(p.get("manifest_path", "")).resolve() == manifest), None)
+names = {t["name"] for t in (package or {}).get("targets", []) if "test" in t.get("kind", [])}
+expected = {p.stem for p in (manifest.parent / "tests").glob("*.rs")}
+missing = sorted(expected - names)
+if missing:
+    print("probe_store_isolation: metadata omitted integration test targets: " + ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+PY
   while IFS= read -r name; do test_names+=("$name"); test_count=$((test_count + 1)); done < <(
     python3 - "$controller/metadata.json" "$repo/Cargo.toml" <<'PY'
 import json

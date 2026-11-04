@@ -149,6 +149,12 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
         self.assertIn("metadata omitted integration test targets", result.stderr)
         self.assertFalse(any(event["command"] == "test" for event in self.read_events()))
 
+    def test_probe_rejects_partially_missing_integration_targets(self):
+        result = self.run_script("probe_store_isolation.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("metadata omitted integration test targets", result.stderr)
+        self.assertFalse(any(event["command"] == "test" for event in self.read_events()))
+
     def test_probe_rejects_cargo_cli_invocation(self):
         self.env["FAKE_MODE"] = "cargo_probe"
         result = self.run_script("probe_store_isolation.sh", "alpha")
