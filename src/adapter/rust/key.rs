@@ -131,7 +131,7 @@ pub fn derive_unit_action_key_context(
     let mut unit_keys: HashMap<String, String> = HashMap::new();
 
     // Gather effective environment flags (all CARGO_*, RUST_*, RUSTFLAGS, etc.)
-    let mut effective_flags = opt.extra_args.clone();
+    let mut effective_flags = opt.effective_compiler_args();
     for (k, v) in crate::core::build_env::collect_relevant_env_vars() {
         effective_flags.push(format!("ENV:{}={}", k, v));
     }

@@ -165,6 +165,18 @@ pub struct RustBuildOptions {
     pub exclude: Vec<String>,
 }
 
+impl RustBuildOptions {
+    pub fn effective_compiler_args(&self) -> Vec<String> {
+        if let Some(target) = self.target_triple.as_deref() {
+            let mut args = vec!["--target".to_string(), target.to_string()];
+            args.extend(self.extra_args.iter().cloned());
+            args
+        } else {
+            self.extra_args.clone()
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum EnvMacroDiscovery {
     /// Successfully discovered static environment variable names read by env!/option_env!

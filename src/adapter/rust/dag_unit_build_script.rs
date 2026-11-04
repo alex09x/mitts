@@ -181,6 +181,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 bs_unit.src_path = build_rs;
                 bs_unit.for_host = true;
                 let bs_out = temp_stage.0.join("clippy_build_script");
+                let extra_compiler_args = ctx.opt.effective_compiler_args();
                 let inv = super::compiler::RustcInvocation {
                     unit: &bs_unit,
                     action_key: "build_script_clippy",
@@ -191,11 +192,10 @@ pub(crate) fn run_build_script_if_needed<'a>(
                     features: &unit.features,
                     directives: None,
                     mode: super::types::BuildMode::Clippy,
-                    extra_compiler_args: &ctx.opt.extra_args,
+                    extra_compiler_args: &extra_compiler_args,
                     jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
                     deps_dir: Some(&artifacts_dir),
                     target_dir: Some(ctx.target_dir),
-                    target_triple: ctx.opt.target_triple.as_deref(),
                     cache_root: ctx.cas.root().parent(),
                 };
                 let out_res = inv.execute();

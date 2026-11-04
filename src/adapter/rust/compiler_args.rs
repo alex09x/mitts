@@ -311,12 +311,10 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
 
     let base_dir = inv.unit.workspace_root.as_deref().unwrap_or(cwd.as_path());
     let config_start_dir = super::cargo_config::resolve_config_start_dir(base_dir);
-    let explicit_target = inv.target_triple.map(str::to_string).or_else(|| {
-        super::key_flags::resolve_explicit_target_from_args_and_dir(
-            inv.extra_compiler_args,
-            &config_start_dir,
-        )
-    });
+    let explicit_target = super::key_flags::resolve_explicit_target_from_args_and_dir(
+        inv.extra_compiler_args,
+        &config_start_dir,
+    );
 
     let config_flags = super::cargo_config::load_cargo_config_rustflags(
         &config_start_dir,
