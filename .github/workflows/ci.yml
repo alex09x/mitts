@@ -82,6 +82,13 @@ jobs:
       - name: Native Bash 3.2 isolation-runner regressions
         if: runner.os == 'macOS'
         run: python3 -m unittest discover -s scripts/release -p test_ci_scripts.py -v
+      - name: Build and use the exact-source Mitts driver
+        working-directory: source
+        run: |
+          "$MITTS_CI_BIN" build --locked --bin mitts --cache-dir "$MITTS_CI_CACHE_DIR" --target-dir "$RUNNER_TEMP/mitts-candidate"
+          binary="$RUNNER_TEMP/mitts-candidate/debug/mitts"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\n' "$binary" >> "$GITHUB_ENV"
       - name: Formatting
         working-directory: source
         run: python3 "$GITHUB_WORKSPACE/scripts/release/check_format.py" --source . --mitts "$MITTS_CI_BIN"

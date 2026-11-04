@@ -59,7 +59,7 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
                 root = pathlib.Path(os.environ["FAKE_REPO"])
                 print(json.dumps({"packages": [{
                     "manifest_path": str(root / "Cargo.toml"),
-                    "targets": [
+                    "targets": [] if os.environ.get("FAKE_MODE") == "empty_metadata" else [
                         {"name": "alpha", "kind": ["test"]},
                         {"name": "beta", "kind": ["test"]},
                     ],
@@ -129,6 +129,13 @@ class MittsOnlyIsolationScriptsTests(unittest.TestCase):
         result = self.run_script("probe_store_isolation.sh", "alpha")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("metadata touched a default store", result.stderr)
+
+    def test_probe_rejects_missing_integration_targets(self):
+        self.env["FAKE_MODE"] = "empty_metadata"
+        result = self.run_script("probe_store_isolation.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("metadata omitted integration test targets", result.stderr)
+        self.assertFalse(any(event["command"] == "test" for event in self.read_events()))
 
     def test_isolated_runner_uses_mitts_and_preserves_test_failure_status(self):
         self.env["FAKE_MODE"] = "fail"

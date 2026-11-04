@@ -63,10 +63,11 @@ if [ -n "$controller_touched" ]; then
 fi
 
 test_names=()
+test_count=0
 if [ "$#" -gt 0 ]; then
   test_names=("$@")
 else
-  while IFS= read -r name; do test_names+=("$name"); done < <(
+  while IFS= read -r name; do test_names+=("$name"); test_count=$((test_count + 1)); done < <(
     python3 - "$controller/metadata.json" "$repo/Cargo.toml" <<'PY'
 import json
 import pathlib
@@ -83,6 +84,12 @@ for package in metadata.get("packages", []):
             print(target["name"])
 PY
   )
+fi
+
+if [ "$#" -eq 0 ] && [ "$test_count" -eq 0 ] && [ -d "$repo/tests" ] \
+   && find "$repo/tests" -type f -name '*.rs' -print -quit | grep -q .; then
+  echo 'probe_store_isolation: metadata omitted integration test targets' >&2
+  exit 1
 fi
 
 writers=0
