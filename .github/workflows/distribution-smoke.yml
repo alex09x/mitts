@@ -15,6 +15,16 @@ on:
       source-sha:
         type: string
         required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published Mitts tag to verify
+        type: string
+        required: true
+      source-sha:
+        description: Exact source commit behind the published tag
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -40,7 +50,11 @@ jobs:
         run: |
           set -euo pipefail
           root=$(mktemp -d)
-          trap 'rm -rf "$root"' EXIT
+          cleanup() {
+            find "$root" -type d -exec chmod u+w {} +
+            rm -rf "$root"
+          }
+          trap cleanup EXIT
           curl -fsSL https://mittsbuild.com/install.sh -o "$root/install.sh"
           MITTS_INSTALL_ROOT="$root/bootstrap" sh "$root/install.sh"
           if [[ "$METHOD" == registry ]]; then

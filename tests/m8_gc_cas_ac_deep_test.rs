@@ -161,21 +161,24 @@ fn test_m8_gc_build_scripts_atomic_unpublish_and_last_used() {
 
     std::fs::write(old_exec_dir.join("meta.toml"), b"cfgs = []").unwrap();
     std::fs::write(old_exec_dir.join(".last_used"), b"").unwrap();
+    std::fs::File::open(old_exec_dir.join(".last_used"))
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
+        .unwrap();
 
     std::fs::write(active_exec_dir.join("meta.toml"), b"cfgs = []").unwrap();
     std::fs::write(active_exec_dir.join(".last_used"), b"").unwrap();
-
-    // Sleep 60ms so both entries age past 50ms
-    std::thread::sleep(std::time::Duration::from_millis(60));
-
-    // Now touch .last_used on active_exec_dir, refreshing its effective time
-    std::fs::write(active_exec_dir.join(".last_used"), b"touched").unwrap();
+    // Give the stale and active entries deterministic ages without a timing-sensitive sleep.
+    std::fs::File::open(active_exec_dir.join(".last_used"))
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::now()))
+        .unwrap();
 
     let gc = CacheGc::new(&cas, &ac);
     let _ = gc
         .prune(&GcOptions {
             max_bytes: None,
-            max_age: Some(std::time::Duration::from_millis(50)),
+            max_age: Some(std::time::Duration::from_secs(3600)),
         })
         .unwrap();
 

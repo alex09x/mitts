@@ -152,7 +152,7 @@ run_target() {
   touched=$(scan_default_store "$sandbox/home" "$sandbox/xdg")
   if [ "$rc" -ne 0 ]; then
     echo "FAIL $label rc=$rc"
-    tail -20 "$sandbox/out.log"
+    tail -100 "$sandbox/out.log"
     failures=$((failures + 1))
   elif [ -n "$touched" ]; then
     echo "WRITES $label ->$touched"

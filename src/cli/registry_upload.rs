@@ -70,7 +70,9 @@ mod tests {
 
     impl LoopbackProxyEnv {
         fn new() -> Self {
-            let lock = ENV_LOCK.lock().unwrap();
+            let lock = ENV_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let no_proxy = std::env::var_os("NO_PROXY");
             let lower_no_proxy = std::env::var_os("no_proxy");
             for key in ["NO_PROXY", "no_proxy"] {
