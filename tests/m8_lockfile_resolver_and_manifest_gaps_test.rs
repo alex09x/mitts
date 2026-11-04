@@ -93,7 +93,8 @@ version = "0.5.0"
     assert_eq!(b_pkg.dependencies, vec!["dep-a", "unix-dep"]);
 
     // 4. Offline resolution fails without cached package metadata, without writing a lock.
-    let res = CargoLock::resolve_or_sync_with_mode(&manifest, true, false, None);
+    let offline_cache = temp.path().join("offline-cache");
+    let res = CargoLock::resolve_or_sync_with_mode(&manifest, true, false, Some(&offline_cache));
     assert!(res.is_err());
     assert!(!lock_path.exists());
 
@@ -146,7 +147,8 @@ version = "0.5.0"
         "[package]\nname = \"offline-only\"\nversion = \"0.1.0\"\n",
     )
     .unwrap();
-    CargoLock::resolve_or_sync_with_mode(&empty_manifest, true, false, None).unwrap();
+    let empty_cache = offline_only.join("cache");
+    CargoLock::resolve_or_sync_with_mode(&empty_manifest, true, false, Some(&empty_cache)).unwrap();
     assert!(offline_only.join("Cargo.lock").exists());
 }
 
