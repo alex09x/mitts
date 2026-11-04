@@ -185,9 +185,49 @@ jobs:
         if: always()
         working-directory: source
         run: git diff --exit-code -- Cargo.toml Cargo.lock
+  # The published setup and save actions, run from this checkout exactly as a consumer would.
+  action:
+    name: action (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+      - id: mitts
+        uses: ./
+        with:
+          cache-key: action-smoke
+      - name: Installed Mitts builds a crate through the restored cache root
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.mitts.outputs.version }}
+          EXPECTED_CACHE_DIR: ${{ steps.mitts.outputs.cache-dir }}
+        run: |
+          set -euo pipefail
+          test "$(mitts --version | awk '{print $2}')" = "$EXPECTED_VERSION"
+          test "$MITTS_CACHE_DIR" = "$EXPECTED_CACHE_DIR"
+          smoke="$RUNNER_TEMP/action-smoke"
+          mkdir -p "$smoke/src"
+          printf '[package]\nname = "action_smoke"\nversion = "0.1.0"\nedition = "2021"\n' > "$smoke/Cargo.toml"
+          printf 'fn main() { println!("ok"); }\n' > "$smoke/src/main.rs"
+          cd "$smoke"
+          mitts build --target-dir "$smoke/target"
+          test "$("$smoke/target/debug/action_smoke")" = ok
+          test -d "$MITTS_CACHE_DIR"
+      - uses: ./save
+        with:
+          max-bytes: '1073741824'
   gate:
     if: always()
-    needs: [automation, native, probe]
+    needs: [automation, native, probe, action]
     runs-on: ubuntu-22.04
     steps:
       - name: Require every check
@@ -195,4 +235,5 @@ jobs:
           AUTOMATION: ${{ needs.automation.result }}
           NATIVE: ${{ needs.native.result }}
           PROBE: ${{ needs.probe.result }}
-        run: test "$AUTOMATION" = success && test "$NATIVE" = success && test "$PROBE" = success
+          ACTION: ${{ needs.action.result }}
+        run: test "$AUTOMATION" = success && test "$NATIVE" = success && test "$PROBE" = success && test "$ACTION" = success
