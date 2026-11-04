@@ -18,6 +18,9 @@
   baseline or as a workaround. `Cargo.toml` and `Cargo.lock` remain the project
   inputs; `CARGO_*` environment names emitted for build-script compatibility do
   not authorize launching Cargo.
+- Do not add CI helpers that invoke Cargo indirectly (for example, Rust cache
+  actions that run `cargo metadata`); use Mitts' explicit cache or tooling that
+  does not launch Cargo.
 - crates.io publication uses the Mitts release package artifact and the registry
   HTTP API; source-install acceptance builds the registry/Git/checkout source
   with Mitts. Do not reintroduce Cargo-based packaging or installation checks.
