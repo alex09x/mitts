@@ -20,11 +20,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 pub mod manifest_extract;
 pub use manifest_extract::{extract_dependencies_with_reqs, extract_root_package};
+mod member_deps;
+mod path_packages;
+use member_deps::DepSpec;
 use std::sync::{Arc, Mutex};
 
-/// A package's dependency entries before qualification: name and, for a path package,
-/// its version.
-type DepSpecs = Vec<(String, Option<String>)>;
+/// A package's dependency entries before qualification (see [`DepSpec`]).
+type DepSpecs = Vec<DepSpec>;
 
 #[derive(Debug, Clone)]
 pub struct ManifestDirectDep {
@@ -216,7 +218,7 @@ impl NativeResolver {
                                 let ver = p_ref
                                     .and_then(|p| p.version.clone())
                                     .unwrap_or_else(|| "0.1.0".to_string());
-                                m_dep_list.push((name.clone(), Some(ver.clone())));
+                                m_dep_list.push(DepSpec::path(name.clone(), ver.clone()));
                                 if !path_deps.iter().any(|(n, v)| n == &name && v == &ver) {
                                     path_deps.push((name.clone(), ver));
                                     let canon =
@@ -232,17 +234,17 @@ impl NativeResolver {
                         // A member's optional dependencies stay in: it resolves with every feature on.
                         TomlDependency::Detailed(d) if d.git.is_some() => {
                             let name = git_resolver.resolve(dep_name, d, offline, &mut git_out)?;
-                            m_dep_list.push((name, None));
+                            m_dep_list.push(DepSpec::bare(name));
                         }
                         TomlDependency::Simple(req) => {
-                            m_dep_list.push((dep_name.clone(), None));
+                            m_dep_list.push(DepSpec::registry(dep_name.clone(), Some(req.clone())));
                             if !local_names.contains(dep_name) {
                                 remote_deps.push(ManifestDirectDep::crates_io(dep_name, req));
                             }
                         }
                         TomlDependency::Detailed(d) => {
                             let pkg = d.package_name.as_ref().unwrap_or(dep_name).clone();
-                            m_dep_list.push((pkg.clone(), None));
+                            m_dep_list.push(DepSpec::registry(pkg.clone(), d.version.clone()));
                             if !local_names.contains(&pkg) {
                                 remote_deps.push(ManifestDirectDep {
                                     name: pkg,
@@ -286,6 +288,8 @@ impl NativeResolver {
         lock.packages.append(&mut git_out.packages);
         path_deps.sort();
         path_deps.dedup();
+        // A `[patch]` that points at a workspace member put it into the graph already.
+        path_packages::drop_listed_twice(&mut lock.packages, &path_deps);
         // Dependency lists are attached once every package is known: a name shared by
         // several packages is written as "name version", as Cargo does.
         let mut pending_specs: Vec<(usize, DepSpecs)> = Vec::new();
@@ -312,8 +316,12 @@ impl NativeResolver {
                         Some(listed) => listed,
                         None => direct_remote_names
                             .iter()
-                            .map(|n| (n.clone(), None))
-                            .chain(path_deps.iter().map(|(n, v)| (n.clone(), Some(v.clone()))))
+                            .map(|n| DepSpec::bare(n.clone()))
+                            .chain(
+                                path_deps
+                                    .iter()
+                                    .map(|(n, v)| DepSpec::path(n.clone(), v.clone())),
+                            )
                             .collect(),
                     };
                 pending_specs.push((lock.packages.len(), root_specs));
@@ -334,12 +342,10 @@ impl NativeResolver {
             .into_iter()
             .map(|(idx, specs)| {
                 let mut list: Vec<String> = specs
-                    .into_iter()
-                    .map(|(name, ver)| match ver {
-                        Some(v) if name_counts.get(name.as_str()).copied().unwrap_or(0) > 1 => {
-                            format!("{name} {v}")
-                        }
-                        _ => name,
+                    .iter()
+                    .map(|spec| {
+                        let count = name_counts.get(spec.name.as_str()).copied().unwrap_or(0);
+                        spec.lock_entry(&lock.packages, count)
                     })
                     .collect();
                 list.sort();
