@@ -22,8 +22,7 @@
   actions that run `cargo metadata`); use Mitts' explicit cache or tooling that
   does not launch Cargo.
 - crates.io publication uses the Mitts release package artifact and the registry
-  HTTP API; source-install acceptance builds the registry/Git/checkout source
-  with Mitts. Do not reintroduce Cargo-based packaging or installation checks.
+  HTTP API. Do not reintroduce Cargo-based packaging or installation checks.
 - If Mitts lacks a needed operation or its behavior is unclear, stop that check,
   preserve its exact acceptance contract, and file a reproducible issue in
   `alex09x/mitts`. Do not fall back to Cargo or edit project manifests/configs to
