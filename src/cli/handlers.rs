@@ -210,6 +210,12 @@ pub fn handle_gc(args: &GcArgs) -> i32 {
         max_bytes: args.max_bytes,
         max_age: args.max_age_secs.map(std::time::Duration::from_secs),
     };
+    // The private stores of uncached builds whose process has exited.
+    let cache_root = crate::core::cache_root::resolve(args.cache_dir.as_deref());
+    let swept = crate::core::ephemeral_store::sweep_dead(&cache_root);
+    if swept > 0 {
+        println!("mitts: removed {swept} private store(s) left by uncached builds");
+    }
     match CacheGc::new(&cas, &ac).prune(&opts) {
         Ok(report) if report.skipped_active_build => {
             println!(

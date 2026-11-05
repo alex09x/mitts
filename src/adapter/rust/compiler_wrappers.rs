@@ -31,6 +31,21 @@ pub fn compiler_command(
     Ok(cmd)
 }
 
+/// The warning printed when compiler wrappers make a build uncached: a wrapper (sccache, a
+/// script) is an input Mitts cannot know, so no unit is reused and every run compiles again.
+pub fn uncached_wrapper_warning(wrappers: &[std::ffi::OsString]) -> String {
+    let names: Vec<String> = wrappers
+        .iter()
+        .map(|w| w.to_string_lossy().into_owned())
+        .collect();
+    format!(
+        "[mitts::warn] a rustc wrapper is configured ({}): this build is not cached. Clear it to \
+         use the cache: set RUSTC_WRAPPER= and CARGO_BUILD_RUSTC_WRAPPER= (empty), or remove \
+         `rustc-wrapper` from the cargo config.",
+        names.join(", ")
+    )
+}
+
 /// Resolve compiler wrappers in Cargo's precedence order and invocation order.
 pub fn compiler_wrappers(start_dir: &Path, workspace: bool) -> Result<Vec<std::ffi::OsString>> {
     let mut configured = [None::<std::ffi::OsString>, None::<std::ffi::OsString>];
@@ -94,4 +109,23 @@ pub fn compiler_wrappers(start_dir: &Path, workspace: bool) -> Result<Vec<std::f
         }
     }
     Ok(wrappers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn the_warning_names_each_wrapper_and_how_to_clear_it() {
+        let text = uncached_wrapper_warning(&[
+            OsString::from("/home/u/.cargo/bin/sccache"),
+            OsString::from("ws-wrap"),
+        ]);
+        assert!(text.starts_with("[mitts::warn] "));
+        assert!(text.contains("/home/u/.cargo/bin/sccache, ws-wrap"));
+        assert!(text.contains("not cached"));
+        assert!(text.contains("RUSTC_WRAPPER="));
+        assert!(text.contains("CARGO_BUILD_RUSTC_WRAPPER="));
+    }
 }

@@ -18,6 +18,7 @@ pub mod build_logger;
 pub(crate) mod cache_phase;
 pub mod cache_root;
 pub mod cas;
+pub mod ephemeral_store;
 pub mod file_scanner;
 pub mod gc;
 pub mod hash;
