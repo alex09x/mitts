@@ -217,6 +217,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             nocapture: args.nocapture,
             exact: args.exact,
             ignored: args.ignored,
+            concurrency: args.concurrency,
             verbose: args.verbose,
             config: args.config.clone(),
             test_args: args.test_args.clone(),

@@ -199,7 +199,44 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     let profpattern = profraw_dir.join("cov-%p-%m.profraw");
 
     let mut failed_exit_code: Option<i32> = None;
-    for (_, bin_path, env) in &discovered.test_binaries {
+    if let Some(requested) = args.concurrency {
+        // Every test is a process of its own with its own profile file (`%p` is the process id).
+        let selection = super::test::TestArgs {
+            filter: args.filter.clone(),
+            exact: args.exact,
+            ignored: args.ignored,
+            no_fail_fast: args.no_fail_fast,
+            release: args.release,
+            ..Default::default()
+        };
+        let code = super::test_parallel::run(
+            &discovered,
+            &selection,
+            &root_dir,
+            &plan,
+            profile,
+            start,
+            requested,
+            &[(
+                "LLVM_PROFILE_FILE".to_string(),
+                profpattern.clone().into_os_string(),
+            )],
+        );
+        if code != 0 {
+            if !args.no_fail_fast {
+                let _ = fs::remove_dir_all(&profraw_dir);
+                return code;
+            }
+            failed_exit_code = Some(code);
+        }
+    }
+    // The tests run one binary after another unless they were run in parallel above.
+    let serial = if args.concurrency.is_some() {
+        &[][..]
+    } else {
+        &discovered.test_binaries[..]
+    };
+    for (_, bin_path, env) in serial {
         let abs_bin = if bin_path.is_absolute() {
             bin_path.clone()
         } else {

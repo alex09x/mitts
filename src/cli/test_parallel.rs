@@ -86,6 +86,8 @@ struct Context<'a> {
     plan: &'a BuildPlan,
     release: bool,
     targets: Vec<Target>,
+    /// Added to every test process (for example the profile file pattern of a coverage run).
+    extra_env: Vec<(String, std::ffi::OsString)>,
 }
 
 impl Context<'_> {
@@ -103,6 +105,9 @@ impl Context<'_> {
             for (name, file) in &self.binaries.cli_binaries {
                 cmd.env(format!("CARGO_BIN_EXE_{name}"), file);
             }
+        }
+        for (key, value) in &self.extra_env {
+            cmd.env(key, value);
         }
         cmd
     }
@@ -137,6 +142,7 @@ fn parallel_for<T: Sync>(items: &[T], jobs: usize, work: impl Fn(usize, &T) + Sy
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     binaries: &DiscoveredBinaries,
     args: &TestArgs,
@@ -145,6 +151,7 @@ pub fn run(
     profile: &str,
     start: Instant,
     requested_jobs: usize,
+    extra_env: &[(String, std::ffi::OsString)],
 ) -> i32 {
     let jobs = jobs_for(requested_jobs);
     let targets: Vec<Target> = binaries
@@ -180,6 +187,7 @@ pub fn run(
         plan,
         release: args.release,
         targets,
+        extra_env: extra_env.to_vec(),
     };
 
     // List the tests of all binaries at once.

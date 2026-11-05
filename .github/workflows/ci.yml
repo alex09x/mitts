@@ -105,7 +105,7 @@ jobs:
           ulimit -n 4096
           mkdir -p .ci-tools
           cp "$GITHUB_WORKSPACE/scripts/run_tests_isolated.sh" .ci-tools/run-tests.sh
-          bash .ci-tools/run-tests.sh --no-fail-fast --lcov --output-dir "$GITHUB_WORKSPACE/coverage"
+          bash .ci-tools/run-tests.sh -c --no-fail-fast --lcov --output-dir "$GITHUB_WORKSPACE/coverage"
       - name: Documentation tests through Mitts
         working-directory: source
         run: bash .ci-tools/run-tests.sh --doc

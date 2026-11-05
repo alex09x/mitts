@@ -28,6 +28,16 @@ concurrent build units.
 On this repository's own suite (945 tests, 244 binaries) on a 32-core Linux host: 95 s without
 the flag, 18 s with `-c`.
 
+## Coverage
+
+`mitts coverage -c` and `mitts llvm-cov -c` (and `mitts test --coverage -c`) run the tests the
+same way. Every test process writes its own profile file, named by its process id, and the
+report merges all of them, so the report has the same form as for a serial run. On this
+repository, whole-project coverage took 159 s serial and 43 s with `-c` on the same host. The
+line coverage differed by 14 of 61 625 lines (94.42% and 94.40%), most likely lines that depend on
+the order or timing of the tests; compare the two on your project before relying on exact
+numbers. This repository's CI runs its coverage and its isolation probe with `-c`.
+
 ## Dangers: tests that were never meant to run together
 
 Separate processes remove the sharing *inside* a process. Everything *outside* a process is

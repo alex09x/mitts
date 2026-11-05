@@ -11,10 +11,66 @@
 //! `mitts test -c` / `--concurrency[=N]` runs every test in a process of its own, many at a
 //! time, the way cargo-nextest does. Without a number the pool is two thirds of the cores.
 
+use mitts::cli::coverage_tools::resolve_llvm_tool;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 use tempfile::TempDir;
+
+/// A coverage run with `-c`: each test is a process with its own profile file, and the report
+/// is the merge of all of them.
+#[test]
+fn coverage_with_concurrency_merges_the_profiles_of_all_test_processes() {
+    if resolve_llvm_tool("llvm-profdata").is_none() || resolve_llvm_tool("llvm-cov").is_none() {
+        eprintln!("skipped: llvm-tools are not installed");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    write(
+        &dir.path().join("Cargo.toml"),
+        "[package]\nname = \"covered\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    // alpha (line 1) and beta (line 2) are each covered by their own test; gamma (line 3) by none.
+    write(
+        &dir.path().join("src/lib.rs"),
+        "pub fn alpha() -> u32 { 1 }\npub fn beta() -> u32 { 2 }\npub fn gamma() -> u32 { 3 }\n\
+         #[cfg(test)]\nmod tests {\n    use super::*;\n    #[test] fn a() { assert_eq!(alpha(), 1); }\n    #[test] fn b() { assert_eq!(beta(), 2); }\n}\n",
+    );
+    let report = dir.path().join("report.lcov");
+    let output = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .current_dir(dir.path())
+        .args([
+            "llvm-cov",
+            "--offline",
+            "--lib",
+            "-c=3",
+            "--lcov",
+            "--output-path",
+        ])
+        .arg(&report)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .env("CARGO_HOME", dir.path().join("cargo-home"))
+        .env_remove("RUSTC_WRAPPER")
+        .env_remove("CARGO_BUILD_RUSTC_WRAPPER")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lcov = fs::read_to_string(&report).unwrap();
+    let count = |line: u32| -> Option<u64> {
+        lcov.lines()
+            .find_map(|l| l.strip_prefix(&format!("DA:{line},")))
+            .and_then(|c| c.split(',').next()?.parse().ok())
+    };
+    assert!(count(1).is_some_and(|c| c > 0), "alpha is covered:\n{lcov}");
+    assert!(count(2).is_some_and(|c| c > 0), "beta is covered:\n{lcov}");
+    assert_eq!(count(3), Some(0), "gamma is not covered:\n{lcov}");
+}
 
 fn write(path: &Path, body: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
