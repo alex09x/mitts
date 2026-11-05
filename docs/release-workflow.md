@@ -190,13 +190,12 @@ package is read-only; conflicting bytes fail without replacement or yanking.
 GitHub and crates.io cannot be published atomically: if registry publication
 fails after GitHub succeeds, report that partial outcome and rerun failed jobs.
 
-Registry, Git-tag and clone/path installations run in fresh prefixes on Linux/macOS,
-ARM64/x86-64. Each installed CLI must report the exact version and source SHA,
-execute help and compile a tiny project using its own isolated Mitts cache.
-The registry installation exercises unpinned `cargo install mitts --locked` so
-the default latest stable selection must resolve to this release too.
-Source-built binaries are not claimed to have upstream Developer ID signatures;
-Apple signing applies to the directly downloaded prebuilt Mac binaries.
+The release does not install the published crate afterwards (registry, Git-tag and
+clone/path installations were checked on every target before; that step was removed
+because it runs after publication and cannot stop it). The prebuilt binaries are
+still installed from the public release and checked on every target before the crate
+is published. Source-built binaries are not claimed to have upstream Developer ID
+signatures; Apple signing applies to the directly downloaded prebuilt Mac binaries.
 
 Since0.3.20 the supported native targets are Linux ARM64/x86-64 and macOS
 Apple Silicon. Mac Intel is absent from compilation, notarization and installation

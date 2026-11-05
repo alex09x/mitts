@@ -17,8 +17,7 @@ installation remains available through Cargo.
 In GitHub Actions use the setup action, which installs a release and keeps the
 Mitts cache between runs: see [github-action.md](github-action.md).
 
-The release pipeline also checks these source-install routes on all three native
-platforms, using a fresh prefix and an isolated Mitts cache:
+Source-install routes (the release pipeline does not check them after publication):
 
 ```sh
 cargo install mitts --version 0.3.20 --locked

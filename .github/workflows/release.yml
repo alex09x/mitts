@@ -335,10 +335,3 @@ jobs:
           TAG: ${{ needs.source.outputs.tag }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
         run: python scripts/release/registry.py publish verified-crate "$TAG" "$SOURCE_SHA" --manifest-path source/Cargo.toml
-  source-install:
-    if: ${{ !cancelled() && inputs.mode == 'publish' && needs.registry-publish.result == 'success' }}
-    needs: [source, registry-publish]
-    uses: ./.github/workflows/distribution-smoke.yml
-    with:
-      tag: ${{ needs.source.outputs.tag }}
-      source-sha: ${{ needs.source.outputs.sha }}
