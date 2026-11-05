@@ -87,6 +87,14 @@ class SelfhostPackagingTests(unittest.TestCase):
             """,
             )
             fixtures.write_executable(
+                tools / "strip",
+                """\
+                import pathlib, sys
+                assert sys.argv[1] == "-S", sys.argv
+                with pathlib.Path(sys.argv[-1]).open("a") as output: output.write("# debug map stripped\\n")
+            """,
+            )
+            fixtures.write_executable(
                 tools / "cargo",
                 "raise SystemExit('Cargo must not compile this release')",
             )
@@ -124,6 +132,14 @@ class SelfhostPackagingTests(unittest.TestCase):
             ) as archive:
                 packaged = archive.extractfile("mitts").read()
                 self.assertIn(b"signed private copy", packaged)
+                # The debug map is stripped on the private copy, before it is signed, and the
+                # builder's immutable object is left alone.
+                self.assertIn(b"debug map stripped", packaged)
+                self.assertLess(
+                    packaged.index(b"debug map stripped"),
+                    packaged.index(b"signed private copy"),
+                )
+                self.assertNotIn(b"debug map stripped", obj.read_bytes())
                 self.assertNotEqual(
                     hashlib.sha256(packaged).digest(),
                     hashlib.sha256(obj.read_bytes()).digest(),
