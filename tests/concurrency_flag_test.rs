@@ -9,7 +9,7 @@
  */
 
 //! `mitts test -c` / `--concurrency[=N]` runs every test in a process of its own, many at a
-//! time, the way cargo-nextest does. Without a number the pool is two thirds of the cores.
+//! time, the way cargo-nextest does. Without a number the pool is all the cores.
 
 use mitts::cli::coverage_tools::resolve_llvm_tool;
 use std::fs;

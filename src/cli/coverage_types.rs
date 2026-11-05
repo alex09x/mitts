@@ -174,7 +174,7 @@ pub struct CoverageArgs {
 
     /// Run every test in its own process, many at a time, as `mitts test -c` does
     ///
-    /// Without a number the pool is two thirds of the cores; `-c=N` runs N processes at once.
+    /// Without a number the pool is all the cores; `-c=N` runs N processes at once.
     /// Each process writes its own profile file, so the report is the same as for a serial run.
     #[arg(short = 'c', long, value_name = "N", num_args = 0..=1, require_equals = true, default_missing_value = "0")]
     pub concurrency: Option<usize>,
