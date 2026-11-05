@@ -66,11 +66,11 @@ pub fn build_planned_units(
         }
         let has_tests = opt.mode == crate::adapter::BuildMode::Test
             || opt.all_tests
-            || opt.all_benches
+            || opt.selects_benches()
             || !opt.test_targets.is_empty();
         if has_tests && (is_primary || is_target_pkg) {
             let mut test_targets = pkg_toml.discover_test_targets(pkg_dir);
-            if opt.all_benches {
+            if opt.selects_benches() {
                 test_targets.extend(pkg_toml.discover_bench_targets(pkg_dir));
             }
             if opt.doc_only {

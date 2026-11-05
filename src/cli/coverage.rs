@@ -100,6 +100,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         test_targets: args.test.clone(),
         all_tests: args.tests || args.all_targets,
         all_benches: args.all_targets,
+        bench_targets: Vec::new(),
         all_examples: args.all_targets,
         bin_targets: args.bin.clone(),
         all_bins: args.bins || args.all_targets,

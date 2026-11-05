@@ -19,6 +19,7 @@ use std::process::Command;
 /// Returns true if doctests should be executed according to CLI arguments.
 pub fn should_run_doctests(args: &TestArgs) -> bool {
     !args.no_run
+        && !args.bench_mode
         && (args.doc
             || (!args.lib
                 && args.test.is_empty()

@@ -29,7 +29,7 @@ pub fn test_role(target_name: &str) -> TestRole {
 /// True when any target-selecting option other than `--doc` is set.
 pub fn has_target_selection(opt: &RustBuildOptions) -> bool {
     opt.lib_only
-        || opt.all_benches
+        || opt.selects_benches()
         || opt.all_tests
         || opt.all_bins
         || !opt.test_targets.is_empty()
@@ -83,7 +83,10 @@ pub fn select_test_targets(targets: &mut Vec<DiscoveredTarget>, opt: &RustBuildO
             }
             // `--test NAME` never names an example; `--tests` takes every tested example.
             TestRole::Example(_) => opt.all_tests && !t.explicit_only,
-            TestRole::Bench => opt.all_benches && !t.explicit_only,
+            // `mitts bench --bench NAME` names targets; `--benches` takes every one.
+            TestRole::Bench => {
+                opt.bench_targets.contains(&t.name) || (opt.all_benches && !t.explicit_only)
+            }
         }
     });
 }

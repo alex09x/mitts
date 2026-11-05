@@ -105,7 +105,7 @@ pub fn resolve_package_features_with_resolver(
     // 2. Fixed-point propagation loop: activate dependencies and expand features
     let is_test = opt.mode == crate::adapter::BuildMode::Test
         || opt.all_tests
-        || opt.all_benches
+        || opt.selects_benches()
         || opt.all_examples
         || !opt.example_targets.is_empty()
         || !opt.test_targets.is_empty();

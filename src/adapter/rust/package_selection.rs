@@ -154,7 +154,7 @@ pub fn select_transitive_packages<'a>(
     let mut to_visit: Vec<&'a CargoLockPackage> = root_pkgs;
     let is_test = opt.mode == crate::adapter::rust::types::BuildMode::Test
         || opt.all_tests
-        || opt.all_benches
+        || opt.selects_benches()
         || opt.all_examples
         || !opt.example_targets.is_empty()
         || !opt.test_targets.is_empty();

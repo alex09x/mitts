@@ -52,6 +52,12 @@ pub enum Commands {
     /// Format Rust source files in the workspace using rustfmt
     Fmt(FmtArgs),
 
+    /// Compile and run the benchmark targets of a package in the bench profile
+    #[command(
+        after_help = "Builds [[bench]] and benches/ targets with the release profile plus [profile.bench] and runs each with `--bench` (a libtest or harness = false benchmark such as Criterion measures instead of testing). Select targets with --bench NAME; BENCHNAME and arguments after `--` go to the benchmark binaries. Library and binary unit tests and documentation tests are not run. Use -j N, or set MITTS_JOBS=N, to limit concurrent native build units."
+    )]
+    Bench(BenchArgs),
+
     /// Execute unit and integration tests of a package
     #[command(
         after_help = "Use -j N, or set MITTS_JOBS=N, to limit concurrent native build units. N must be a positive integer; the flag wins over the variable."
@@ -129,6 +135,7 @@ impl Commands {
             Commands::Check(args) => args.jobs,
             Commands::Clippy(args) => args.jobs,
             Commands::Test(args) => args.jobs,
+            Commands::Bench(args) => args.jobs,
             Commands::Coverage(args) | Commands::LlvmCov(args) => args.jobs,
             Commands::Run(args) => args.build_args.jobs,
             _ => None,
@@ -389,6 +396,7 @@ pub struct GcArgs {
     pub max_age_secs: Option<u64>,
 }
 
+pub mod bench;
 pub mod build;
 pub mod check;
 pub mod clippy;
@@ -417,6 +425,7 @@ mod test_progress;
 pub mod test_runner;
 pub mod ui;
 
+pub use bench::{handle_bench, BenchArgs};
 pub use build::handle_build;
 pub use check::{handle_check, CheckArgs};
 pub use clippy::{handle_clippy, ClippyArgs};

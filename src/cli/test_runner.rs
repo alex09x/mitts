@@ -136,7 +136,7 @@ pub fn discover_test_binaries(
                 )
             })?;
         let mut test_targets = toml.discover_test_targets(&pkg_dir);
-        if opt.all_benches {
+        if opt.selects_benches() {
             test_targets.extend(toml.discover_bench_targets(&pkg_dir));
         }
         crate::adapter::rust::test_selection::select_test_targets(&mut test_targets, opt);
@@ -212,7 +212,11 @@ pub fn execute_test_binaries_with_plan(
             );
             return 1;
         }
-        println!("mitts test: no tests found to run");
+        if args.bench_mode {
+            println!("mitts bench: no benchmark targets found to run");
+        } else {
+            println!("mitts test: no tests found to run");
+        }
         return 0;
     }
 

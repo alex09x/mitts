@@ -43,7 +43,7 @@ pub fn compute_options_hash(
     packages.sort_unstable();
     packages.dedup();
 
-    let payload = format!(
+    let mut payload = format!(
         "jobs={}|compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkgs={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|all_benches={}|all_examples={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|json_diagnostics={}|cache_dir={:?}",
         crate::core::jobs::limit().unwrap_or(0),
         super::compiler_remap::KEY_FLAG,
@@ -75,6 +75,12 @@ pub fn compute_options_hash(
         opt.json_diagnostics,
         opt.cache_dir,
     );
+    if !opt.bench_targets.is_empty() {
+        let mut benches = opt.bench_targets.clone();
+        benches.sort();
+        benches.dedup();
+        payload.push_str(&format!("|bench_targets={benches:?}"));
+    }
     Sha256::digest(payload.as_bytes())
 }
 

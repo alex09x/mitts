@@ -84,7 +84,7 @@ pub fn prune_plan_root_units(
 ) {
     let mut root_unit_ids = Vec::new();
     let selecting_examples = opt.all_examples || !opt.example_targets.is_empty();
-    let has_test_sel = opt.all_tests || opt.all_benches || !opt.test_targets.is_empty();
+    let has_test_sel = opt.all_tests || opt.selects_benches() || !opt.test_targets.is_empty();
     let is_test_mode = opt.mode == crate::adapter::rust::types::BuildMode::Test;
     let only_tests_sel = !is_test_mode
         && has_test_sel
