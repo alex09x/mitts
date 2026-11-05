@@ -11,6 +11,7 @@
 pub mod action;
 pub mod action_cache;
 pub mod action_manifest;
+pub mod auto_gc;
 pub mod build_env;
 pub mod build_lock;
 pub mod build_lock_types;

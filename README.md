@@ -127,6 +127,7 @@ mitts test --tests -p foo    # Cargo-style target selection
 mitts test --all-targets --no-run  # compile tests, examples and benchmarks
 mitts bench                  # build benchmark targets (bench profile) and run them with --bench
 mitts bench --bench speed -- --save-baseline main
+# The cache stays under MITTS_CACHE_MAX_BYTES (default 100G) by itself: docs/cache-limits.md
 mitts llvm-cov --ignore-filename-regex 'tests/' --fail-under-lines 80
 mitts check | clippy | fmt | coverage
 mitts explain                # the plan, units and why each is cached or not

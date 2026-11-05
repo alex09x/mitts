@@ -142,6 +142,21 @@ impl Commands {
         };
         jobs.and_then(|n| usize::try_from(n).ok())
     }
+
+    /// For the commands that build with the shared cache: their `--cache-dir` (`Some(None)`
+    /// when the default cache is used). `None` for the others.
+    pub fn cache_use(&self) -> Option<Option<PathBuf>> {
+        match self {
+            Commands::Build(args) | Commands::Rustc(args) => Some(args.cache_dir.clone()),
+            Commands::Check(args) => Some(args.cache_dir.clone()),
+            Commands::Clippy(args) => Some(args.cache_dir.clone()),
+            Commands::Test(args) => Some(args.cache_dir.clone()),
+            Commands::Bench(args) => Some(args.cache_dir.clone()),
+            Commands::Coverage(args) | Commands::LlvmCov(args) => Some(args.cache_dir.clone()),
+            Commands::Run(args) => Some(args.build_args.cache_dir.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Args, Debug, Clone, Default)]
