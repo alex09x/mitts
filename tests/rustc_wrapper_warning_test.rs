@@ -104,6 +104,38 @@ fn an_empty_wrapper_variable_clears_it_and_the_build_is_cached_without_a_warning
 }
 
 #[test]
+fn sccache_does_not_turn_the_cache_off_and_is_not_run() {
+    let dir = project();
+    // The same project, with a wrapper named sccache: it records that it ran.
+    let wrapper = dir.path().join("sccache");
+    let ran = dir.path().join("sccache-ran.log");
+    write(
+        &wrapper,
+        &format!("#!/bin/sh\necho ran >> '{}'\nexec \"$@\"\n", ran.display()),
+    );
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    write(
+        &dir.path().join(".cargo/config.toml"),
+        &format!("[build]\nrustc-wrapper = \"{}\"\n", wrapper.display()),
+    );
+
+    let first = check(&dir, &[]);
+    assert!(first.status.success(), "{}", stderr(&first));
+    assert!(
+        !stderr(&first).contains("a rustc wrapper is configured"),
+        "{}",
+        stderr(&first)
+    );
+    let again = check(&dir, &[]);
+    assert!(
+        stderr(&again).contains("compiled=0 cached="),
+        "the repeat is a cache hit: {}",
+        stderr(&again)
+    );
+    assert!(!ran.exists(), "Mitts compiles without sccache");
+}
+
+#[test]
 fn without_a_wrapper_there_is_no_warning() {
     let dir = project();
     fs::remove_file(dir.path().join(".cargo/config.toml")).unwrap();
