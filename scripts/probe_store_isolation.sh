@@ -181,7 +181,7 @@ run_target() {
     RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
     CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \
     RUST_TEST_THREADS=1 \
-    "$mitts_bin" test --manifest-path "$repo/Cargo.toml" --workspace --locked \
+    "$mitts_bin" test -c --manifest-path "$repo/Cargo.toml" --workspace --locked \
       --target-dir "$sandbox/target" --cache-dir "$controller_cache" "$@" \
       > "$sandbox/out.log" 2>&1 || rc=$?
   touched=$(scan_default_store "$sandbox/home" "$sandbox/xdg")

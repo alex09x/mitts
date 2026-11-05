@@ -240,6 +240,7 @@ pub fn execute_test_binaries_with_plan(
             profile,
             start,
             requested,
+            &[],
         );
     }
 
