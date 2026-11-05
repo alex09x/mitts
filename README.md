@@ -124,6 +124,7 @@ mitts build --release
 mitts run                    # build and run a binary
 mitts test                   # unit, integration and doc tests
 mitts test --tests -p foo    # Cargo-style target selection
+mitts test -c                # every test in its own process, 2/3 of the cores (-c=8: 8): docs/test-concurrency.md
 mitts test --all-targets --no-run  # compile tests, examples and benchmarks
 mitts bench                  # build benchmark targets (bench profile) and run them with --bench
 mitts bench --bench speed -- --save-baseline main

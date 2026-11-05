@@ -141,6 +141,18 @@ pub struct TestArgs {
     #[arg(long)]
     pub doc: bool,
 
+    /// Run every test in its own process, many at a time (like cargo-nextest)
+    ///
+    /// Without a number the pool is two thirds of the cores; `-c=N` or `--concurrency=N` runs
+    /// N processes at once. Write the number with `=`: a bare `-c` leaves the next word to the
+    /// test filter (`mitts test -c quick`). Each test binary lists its tests, then each test
+    /// runs as `binary --exact NAME`; the tests of all binaries share one pool. Output of a
+    /// test is shown when it fails. The first failure stops new tests unless --no-fail-fast.
+    /// Binaries with `harness = false` run once as a whole; arguments after `--` are not
+    /// passed to the test processes. Not related to -j, which limits concurrent build units.
+    #[arg(short = 'c', long, value_name = "N", num_args = 0..=1, require_equals = true, default_missing_value = "0")]
+    pub concurrency: Option<usize>,
+
     /// Run tests without capturing output (equivalent to -- --nocapture)
     #[arg(long)]
     pub nocapture: bool,
