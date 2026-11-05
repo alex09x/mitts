@@ -143,7 +143,7 @@ pub struct TestArgs {
 
     /// Run every test in its own process, many at a time (like cargo-nextest)
     ///
-    /// Without a number the pool is two thirds of the cores; `-c=N` or `--concurrency=N` runs
+    /// Without a number the pool is all the cores; `-c=N` or `--concurrency=N` runs
     /// N processes at once. Write the number with `=`: a bare `-c` leaves the next word to the
     /// test filter (`mitts test -c quick`). Each test binary lists its tests, then each test
     /// runs as `binary --exact NAME`; the tests of all binaries share one pool. Output of a

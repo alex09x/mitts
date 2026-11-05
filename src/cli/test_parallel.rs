@@ -14,7 +14,7 @@
 //! runs as `binary --exact NAME` in a separate process, `N` processes at once. A test cannot
 //! affect another through shared state, a crash or a hang loses one test, and the tests of all
 //! binaries share one pool instead of running binary after binary. Without a number the pool
-//! is two thirds of the cores. Output of a test is captured and shown when it fails.
+//! is all the cores. Output of a test is captured and shown when it fails.
 //!
 //! A binary without the standard harness (`harness = false`) is run once as a whole. Arguments
 //! after `--` are not passed to the test processes in this mode.
@@ -30,18 +30,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
-/// The number of processes for `--concurrency[=N]`: `N`, or two thirds of the cores (at least
-/// one) when no number was given (0).
+/// The number of processes for `--concurrency[=N]`: `N`, or all the cores when no number was
+/// given (0).
 pub fn jobs_for(requested: usize) -> usize {
     if requested > 0 {
         return requested;
     }
-    let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
-    two_thirds(cores)
-}
-
-fn two_thirds(cores: usize) -> usize {
-    (cores * 2 / 3).max(1)
+    std::thread::available_parallelism().map_or(2, |n| n.get())
 }
 
 /// The test names of a libtest `--list` output.
@@ -331,13 +326,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn two_thirds_of_the_cores_by_default_and_the_requested_number_otherwise() {
+    fn all_the_cores_by_default_and_the_requested_number_otherwise() {
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        assert_eq!(jobs_for(0), cores);
         assert!(jobs_for(0) >= 1);
         assert_eq!(jobs_for(7), 7);
         assert_eq!(jobs_for(1), 1);
-        for (cores, expected) in [(1, 1), (2, 1), (3, 2), (4, 2), (6, 4), (12, 8), (32, 21)] {
-            assert_eq!(two_thirds(cores), expected, "{cores} cores");
-        }
     }
 
     #[test]

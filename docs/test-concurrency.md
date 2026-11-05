@@ -1,7 +1,7 @@
 # Running tests in parallel processes: `-c` / `--concurrency`
 
 ```sh
-mitts test -c                       # two thirds of the cores
+mitts test -c                       # all the cores
 mitts test -c=8                     # 8 processes at once
 mitts test --concurrency=8 quick_   # same, with a name filter
 mitts test -c --no-fail-fast        # run everything and list every failure
@@ -14,8 +14,8 @@ does it, and the tests of all binaries share one pool:
 - each test binary lists its tests (`--list`), then every test runs as `binary --exact NAME`;
 - a crash or a hang loses one test, and a test cannot change another one's memory, statics or
   environment variables;
-- the pool is two thirds of the cores (at least one) unless a number is given; there is no
-  configuration file;
+- the pool is all the cores unless a number is given (`-c=4` to leave the machine some room);
+  there is no configuration file;
 - the output of a test is captured and printed when it fails, with the test name;
 - a failure stops starting new tests unless `--no-fail-fast` is given; the exit code is 101;
 - `TESTNAME` and `--exact` select tests as usual; `#[ignore]` tests are skipped, `--ignored`
