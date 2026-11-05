@@ -47,6 +47,11 @@ cp target/release/mitts "$stage/mitts"
 chmod u+w "$stage/mitts"
 binary="$stage/mitts"
 if [[ "$target" == *apple-darwin ]]; then
+    # rustc strips debug info with rust-objcopy, which some runner toolchains cannot start
+    # (libLLVM.dylib missing). The linker's debug map then still names the precompiled std
+    # objects under $HOME/.rustup, which the path check below rejects. Apple's strip removes
+    # the debug map whatever rustc did; the signature is made afterwards.
+    strip -S "$binary"
     codesign --force --sign - "$binary"
 else
     bash "$source_root/scripts/release/check-glibc.sh" "$binary"
