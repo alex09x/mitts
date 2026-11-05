@@ -75,10 +75,12 @@ fn interval() -> Duration {
     Duration::from_secs(seconds)
 }
 
-/// Whether the last check is older than `interval` (or there was none).
+/// Whether the last check is older than `interval` (or there was none). A marker dated after
+/// `now` (the clock was set back, or the file system's time runs ahead) cannot be trusted and
+/// counts as old: the check then runs and stamps the marker again.
 fn due(marker: &Path, interval: Duration, now: SystemTime) -> bool {
     match fs::metadata(marker).and_then(|m| m.modified()) {
-        Ok(last) => now.duration_since(last).is_ok_and(|age| age >= interval),
+        Ok(last) => now.duration_since(last).unwrap_or(Duration::MAX) >= interval,
         Err(_) => true,
     }
 }
@@ -162,9 +164,10 @@ mod tests {
     fn a_check_is_due_without_a_marker_and_after_the_interval() {
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join(MARKER);
-        let now = SystemTime::now();
-        assert!(due(&marker, Duration::from_secs(3600), now));
+        assert!(due(&marker, Duration::from_secs(3600), SystemTime::now()));
         fs::write(&marker, "").unwrap();
+        // The time is taken after the marker was written: a marker dated after `now` is old.
+        let now = SystemTime::now();
         assert!(!due(&marker, Duration::from_secs(3600), now));
         assert!(due(
             &marker,
@@ -172,5 +175,14 @@ mod tests {
             now + Duration::from_secs(3601)
         ));
         assert!(due(&marker, Duration::ZERO, now));
+    }
+
+    #[test]
+    fn a_marker_dated_in_the_future_counts_as_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join(MARKER);
+        fs::write(&marker, "").unwrap();
+        let before_the_marker = SystemTime::now() - Duration::from_secs(86_400);
+        assert!(due(&marker, Duration::from_secs(3600), before_the_marker));
     }
 }
