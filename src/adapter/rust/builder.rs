@@ -98,12 +98,17 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         project_dir,
         opt.start_dir.as_deref(),
     );
-    let has_wrapper =
-        !crate::adapter::rust::compiler_wrappers::compiler_wrappers(&config_dir, true)?.is_empty();
+    let wrappers = crate::adapter::rust::compiler_wrappers::compiler_wrappers(&config_dir, true)?;
     let mut uncached_opt = opt.clone();
-    if has_wrapper {
+    if !wrappers.is_empty() {
         uncached_opt.no_cache = true;
         uncached_opt.fast_lock = Some(false);
+        if !opt.no_cache && !opt.quiet {
+            eprintln!(
+                "{}",
+                crate::adapter::rust::compiler_wrappers::uncached_wrapper_warning(&wrappers)
+            );
+        }
     }
     let opt = &uncached_opt;
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;

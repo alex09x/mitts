@@ -32,9 +32,17 @@ pub fn run_native_dag_build(
     explanation.manifest_snapshot.verify_fresh()?;
     let _manifest_scope = explanation.manifest_snapshot.enter();
     let unit_keys = &deriver.initial_base_keys;
-    let cas = match opt.cache_dir {
-        Some(ref cd) => ContentAddressedStore::new(cd.join("cas"))?,
-        None => ContentAddressedStore::default_store()?,
+    let cache_root = crate::core::cache_root::resolve(opt.cache_dir.as_deref());
+    crate::core::ephemeral_store::sweep_dead(&cache_root);
+    let cas = if opt.no_cache {
+        // Nothing of an uncached build is read again: its outputs go to a store of its own
+        // that is removed after the process (see `ephemeral_store`).
+        ContentAddressedStore::new(crate::core::ephemeral_store::create(&cache_root)?)?
+    } else {
+        match opt.cache_dir {
+            Some(ref cd) => ContentAddressedStore::new(cd.join("cas"))?,
+            None => ContentAddressedStore::default_store()?,
+        }
     };
     let ac = match opt.cache_dir {
         Some(ref cd) => ActionCache::new(cd.join("ac"))?,

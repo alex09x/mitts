@@ -11,6 +11,7 @@
 pub mod action;
 pub mod action_cache;
 pub mod action_manifest;
+pub mod auto_gc;
 pub mod build_env;
 pub mod build_lock;
 pub mod build_lock_types;
@@ -18,6 +19,7 @@ pub mod build_logger;
 pub(crate) mod cache_phase;
 pub mod cache_root;
 pub mod cas;
+pub mod ephemeral_store;
 pub mod file_scanner;
 pub mod gc;
 pub mod hash;
