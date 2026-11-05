@@ -436,6 +436,7 @@ pub mod rustc;
 pub mod terminal;
 pub mod test;
 pub mod test_doctest;
+pub mod test_parallel;
 mod test_progress;
 pub mod test_runner;
 pub mod ui;

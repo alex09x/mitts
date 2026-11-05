@@ -231,6 +231,18 @@ pub fn execute_test_binaries_with_plan(
     };
     let effective_plan = plan.unwrap_or(&default_plan);
 
+    if let Some(requested) = args.concurrency {
+        return super::test_parallel::run(
+            &binaries,
+            args,
+            root_dir,
+            effective_plan,
+            profile,
+            start,
+            requested,
+        );
+    }
+
     let mut failure_code: Option<i32> = None;
     let mut failed_harness: Option<String> = None;
     for (desc, bin_path, env) in &mut binaries.test_binaries {
