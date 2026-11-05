@@ -150,6 +150,8 @@ pub struct TestArgs {
     /// test is shown when it fails. The first failure stops new tests unless --no-fail-fast.
     /// Binaries with `harness = false` run once as a whole; arguments after `--` are not
     /// passed to the test processes. Not related to -j, which limits concurrent build units.
+    /// Tests that share a fixed port, file, database or cache with each other can fail when run
+    /// at once: see docs/test-concurrency.md for the dangers and how to write independent tests.
     #[arg(short = 'c', long, value_name = "N", num_args = 0..=1, require_equals = true, default_missing_value = "0")]
     pub concurrency: Option<usize>,
 
