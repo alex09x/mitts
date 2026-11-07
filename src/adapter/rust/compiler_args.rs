@@ -14,7 +14,7 @@ use super::types::BuildMode;
 use crate::adapter::rust::compiler_remap::append_path_remaps;
 use anyhow::Result;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) mod crate_types;
 use std::process::Command;
@@ -279,7 +279,10 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.args(["--extern", &arg]);
     }
     if let Some(deps) = inv.deps_dir {
-        cmd.args(["-L", &format!("dependency={}", deps.display())]);
+        cmd.args([
+            "-L",
+            &format!("dependency={}", physical_search_dir(deps).display()),
+        ]);
         if let Some(cas_root) = deps
             .parent()
             .filter(|_| is_check_only && deps.file_name().is_some_and(|n| n == "artifacts"))
@@ -426,4 +429,19 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         cmd.arg("--color=never");
     }
     Ok((cmd, clean_crate, is_pipelined_lib))
+}
+
+/// The directory as the linker should see it for `-L dependency=`.
+///
+/// On macOS `ld` records the path of a transitive rlib (found through `-L`) in the N_OSO stabs
+/// exactly as the search directory is spelled, while it resolves the path of a direct
+/// `--extern`. `-oso_prefix` is the physical checkout root (see `compiler_remap`), so a
+/// directory spelled through a symlink (`/var/...` for `/private/var/...`, as `TempDir` and
+/// many CI workspaces do) left the checkout path in the binary on macOS 15's linker.
+fn physical_search_dir(dir: &Path) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())
+    } else {
+        dir.to_path_buf()
+    }
 }
