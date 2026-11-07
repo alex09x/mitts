@@ -27,6 +27,19 @@
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
+<p align="center">
+  <b>English</b> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.ru.md">Русский</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.zh-CN.md">简体中文</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.es.md">Español</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.pt-BR.md">Português (Brasil)</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.ja.md">日本語</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.de.md">Deutsch</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.fr.md">Français</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.ko.md">한국어</a> ·
+  <a href="https://github.com/alex09x/mitts/blob/main/readme/README.ar.md">العربية</a>
+</p>
+
 ---
 
 Mitts plans the workspace itself and invokes `rustc` directly. Every
