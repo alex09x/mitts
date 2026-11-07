@@ -72,12 +72,12 @@ As soluções alternativas comuns têm arestas afiadas:
   projetos com conjuntos de features diferentes sobrescrevem os artefatos uns dos outros.
 - **Um wrapper de compilador como o sccache** enxerga uma chamada do `rustc` por vez. Sua
   chave depende de caminhos absolutos a menos que sejam normalizados, e crates que
-  invocam o vinculador (`bin`, `proc-macro`, `dylib`) não são cacheados. O Cargo ainda
+  invocam o linker (`bin`, `proc-macro`, `dylib`) não são cacheados. O Cargo ainda
   planeja a compilação e executa todos os scripts de build.
 
 O Mitts segue um caminho diferente: ele substitui o executor do Cargo, não o compilador.
 Ele enxerga todo o grafo de unidades, de modo que pode derivar a chave de cada unidade pelas chaves
-de suas dependências, cachear unidades de vinculação e execuções de scripts de build, e permitir
+de suas dependências, cachear unidades de linkagem e execuções de scripts de build, e permitir
 que várias compilações compartilhem um único armazenamento com segurança.
 
 ## Destaques
@@ -91,7 +91,7 @@ que várias compilações compartilhem um único armazenamento com segurança.
   Os fluxos de build, teste, lint, cobertura e código-fonte de lançamento deste repositório
   são executados pelo Mitts; eles não invocam a CLI do Cargo. A interoperabilidade externa
   com o Cargo permanece disponível para os consumidores.
-- **Unidades de vinculação e scripts de build são cacheados.** Binários, testes, proc macros
+- **Unidades de linkagem e scripts de build são cacheados.** Binários, testes, proc macros
   e execuções de scripts de build recebem chave e são armazenados, não apenas `rlib`s.
 - **Compilações concorrentes cooperam.** Locks por chave: dois terminais ou worktrees
   que precisem da mesma dependência a compilam uma única vez. Um jobserver limita
@@ -204,7 +204,7 @@ que `mitts run` e `mitts test` iniciam, com as regras de `force` e `relative` do
 os arquivos de configuração são entradas, de modo que um valor alterado recompila o que o leu.
 
 Sem um `Cargo.lock`, o Mitts resolve um da mesma forma que o Cargo: versão
-mais recente não cancelada (non-yanked) por requisito, features fluindo pelas arestas, uma
+mais alta não retirada (non-yanked) por requisito, features fluindo pelas arestas, uma
 dependência opcional incluída apenas quando uma feature a ativa, uma versão por
 faixa de compatibilidade. O resultado é um lockfile que o Cargo aceita como seu.
 
@@ -246,7 +246,7 @@ faria.
 
 O protocolo completo — derivação de chaves, locks, scripts de build, o caminho rápido,
 layout do armazenamento e coleta de lixo — está em
-[../docs/architecture.md](../docs/architecture.md).
+[docs/architecture.md](../docs/architecture.md).
 
 <a id="architecture"></a>
 ## Arquitetura
@@ -358,7 +358,7 @@ O Mitts está em pré-lançamento. Conheça estes pontos antes de confiar nele:
   worktrees apenas quando sua chave puder se tornar independente de caminho (sem
   leituras de `CARGO_MANIFEST_DIR`, sem script de build, sem proc macro impura declarada).
   Caso contrário, a chave inclui o caminho absoluto. No macOS, as informações de depuração (debug stabs)
-  do vinculador são gravadas relativas ao workspace (`-oso_prefix`), de modo que binários vinculados
+  do linker são gravadas relativas ao workspace (`-oso_prefix`), de modo que binários linkados
   também são compartilhados; inicie o depurador na raiz do workspace para que ele
   encontre os arquivos de objeto.
 - **Macros que leem seus arquivos cabem a você declarar.** Uma proc macro é tratada
@@ -407,7 +407,7 @@ economia de disco.
 | Cache remoto / de equipe | planejado |
 | Windows, compilação cruzada | não suportado |
 
-Marcos e evidências: [../ROADMAP.md](../ROADMAP.md).
+Marcos e evidências: [ROADMAP.md](../ROADMAP.md).
 
 ## FAQ
 
@@ -448,8 +448,8 @@ elegível para o cache.
   em cada workspace. Sem hardlinks para arquivos graváveis, sem truques com timestamps.
 - A limpeza nunca toca em artefatos de uma compilação ativa.
 
-Regras para colaboradores e agentes: [../AGENTS.md](../AGENTS.md).
-Decisões de arquitetura: [../docs/decisions](../docs/decisions).
+Regras para colaboradores e agentes: [AGENTS.md](../AGENTS.md).
+Decisões de arquitetura: [docs/decisions](../docs/decisions).
 
 ## Autor
 

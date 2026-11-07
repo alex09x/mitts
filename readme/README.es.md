@@ -11,7 +11,7 @@
 <h1 align="center">Mitts Build</h1>
 
 <p align="center">
-  <b>El trabajo de compilación, bajo control estricto.</b><br>
+  <b>Trabajo de compilación, contabilizado.</b><br>
   Un sistema de compilación centrado en Rust con una caché de artefactos direccionada por contenido a nivel de máquina
   y seguimiento explícito de entradas. Lee tus archivos <code>Cargo.toml</code> y <code>Cargo.lock</code> existentes.
 </p>
@@ -71,7 +71,7 @@ Los mismos `serde`, `syn` o `tokio` se compilan una y otra vez, y cada copia con
 Las soluciones habituales tienen aristas problemáticas:
 
 - **Un `CARGO_TARGET_DIR` compartido** serializa las compilaciones detrás de un único bloqueo, y los proyectos con diferentes conjuntos de características sobrescriben los artefactos de los demás.
-- **Un wrapper del compilador como sccache** observa una invocación de `rustc` a la vez. Su clave depende de rutas absolutas a menos que estén normalizadas, y los crates que invocan al enlazador (`bin`, `proc-macro`, `dylib`) no se almacenan en caché. Cargo sigue planificando la compilación y ejecutando cada build script.
+- **Un wrapper del compilador como sccache** observa una invocación de `rustc` a la vez. Su clave depende de rutas absolutas a menos que estén normalizadas, y los crates que invocan al enlazador (`bin`, `proc-macro`, `dylib`) no se almacenan en caché. Cargo sigue planificando la compilación y ejecutando cada script de compilación.
 
 Mitts toma un camino diferente: reemplaza el ejecutor de Cargo, no el compilador. Ve el grafo completo de unidades (unit graph), lo que le permite identificar cada unidad según las claves de sus dependencias, almacenar en caché las unidades de enlace y las ejecuciones de scripts de compilación, y permitir que varias compilaciones compartan un almacén de forma segura.
 
@@ -82,7 +82,7 @@ Mitts toma un camino diferente: reemplaza el ejecutor de Cargo, no el compilador
 - **Claves completas.** Cadena de herramientas (toolchain), destino (target), perfil, opciones, características, contenido de fuentes, claves de dependencias y entorno rastreado. Las entradas desconocidas implican una recompilación.
 - **Los manifiestos de Cargo siguen siendo el contrato.** Sin nuevos manifiestos, sin un segundo archivo de bloqueo. Los flujos de trabajo de compilación, prueba, lint, cobertura y fuentes de publicación de este repositorio se ejecutan a través de Mitts; no invocan la CLI de Cargo. La interoperabilidad externa con Cargo sigue estando disponible para los consumidores.
 - **Las unidades de enlace y los scripts de compilación se almacenan en caché.** Los ejecutables, pruebas, macros procedimentales y ejecuciones de scripts de compilación se identifican mediante claves y se almacenan, no solo las bibliotecas `rlib`.
-- **Las compilaciones concurrentes cooperan.** Bloqueos por clave: dos terminales o copias de trabajo que necesitan la misma dependencia la compilan una sola vez. Un único servidor de trabajos (jobserver) limita el paralelismo para todos los procesos de Mitts en la máquina.
+- **Las compilaciones concurrentes cooperan.** Bloqueos por clave: dos terminales o worktrees que necesitan la misma dependencia la compilan una sola vez. Un único servidor de trabajos (jobserver) limita el paralelismo para todos los procesos de Mitts en la máquina.
 - **Uso compartido seguro.** Los objetos del almacén son inmutables: publicados atómicamente, almacenados en modo de solo lectura y restaurados mediante reflink o copia. `MITTS_VERIFY_RESTORE=1` vuelve a calcular el hash de cada objeto antes de restaurarlo (el valor predeterminado confía en el almacén, lo que ahorra una lectura de cada byte restaurado). Donde el sistema de archivos no admite reflink, la restauración crea un enlace duro (hardlink) del objeto del almacén de solo lectura dentro de `target/` en lugar de copiar sus bytes: el inodo compartido permanece en `0o444` (`0o555` para ejecutables), el índice de target rechaza un enlace que haya adquirido bits de escritura y Mitts solo reemplaza los archivos del espacio de trabajo mediante renombrado. Nunca habrá un enlace con permisos de escritura a un objeto del almacén. `MITTS_STORE_HARDLINKS=0` mantiene copias privadas para espacios de trabajo donde otras herramientas escriben in situ.
 - **Preparación del espacio de trabajo con zero-copy.** Los alias de bibliotecas dentro del espacio de trabajo, los binarios secundarios y la preparación atómica de unidades utilizan enlaces duros y promoción por renombrado dentro del espacio de trabajo sin copiar bytes. Cuando `MITTS_CACHE_DIR` y el `target/` del espacio de trabajo residen en el mismo volumen del sistema de archivos, las promociones de preparación operan sin copiar bytes; a través de puntos de montaje distintos, recurren de manera transparente a una copia segura.
 - **Una ruta rápida sin operaciones (no-op fast path).** Un espacio de trabajo sin cambios omite la planificación y la generación de claves.
@@ -221,7 +221,7 @@ Un acierto de caché requiere que coincidan todas las entradas indicadas a conti
 | Destino y perfil | Tripleta de destino, configuración de perfil, `RUSTFLAGS` y rustflags de la configuración de Cargo |
 | Características | Conjunto resuelto de características de la unidad (resolver 1 o 2, como haría Cargo) |
 | Fuentes | Hashes de contenido de los archivos del paquete y de cada archivo que rustc informe haber leído (`include_str!`, `include_bytes!`, módulos) |
-| Dependencias | Las claves de acción de todas las unidades dependientes |
+| Dependencias | Las claves de acción de todas las unidades de dependencia |
 | Entorno | Parámetros relevantes de `CARGO_*` y `RUST_*`, y variables leídas mediante `env!` / `option_env!`, registrando explícitamente `<unset>` |
 | Configuración de Cargo | Los archivos `.cargo/config(.toml)` que leería Cargo |
 | Scripts de compilación | Sus directivas, `OUT_DIR`, el contenido de las rutas `rerun-if-changed` y los valores de las variables `rerun-if-env-changed` |
@@ -235,7 +235,7 @@ Algunas macros procedimentales leen archivos de tu paquete durante su expansión
 impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 ```
 
-Los crates que dependen de una macro listada se identifican por cada archivo en su paquete y por su ruta absoluta: una plantilla editada los recompila, y otra copia de trabajo nunca los reutiliza. Cualquier otra macro se considera pura, y las unidades que dependen de ella se comparten entre árboles de trabajo. Nombra el crate del que dependes; el crate de macros que este incluye (`sqlx-macros`) también funciona.
+Los crates que dependen de una macro listada se identifican por cada archivo en su paquete y por su ruta absoluta: una plantilla editada los recompila, y otra copia de trabajo nunca los reutiliza. Cualquier otra macro se considera pura, y las unidades que dependen de ella se comparten entre worktrees. Nombra el crate del que dependes; el crate de macros que este incluye (`sqlx-macros`) también funciona.
 
 <a id="comparison"></a>
 ## Comparación
@@ -248,7 +248,7 @@ Una comparación cualitativa de cómo cada herramienta reutiliza el trabajo. No 
 | Reutilización entre espacios de trabajo y worktrees | no (por cada `target/`) | sí, por llamada a `rustc` | sí, por unidad |
 | La clave depende de la ruta de la copia de trabajo | — | sí, a menos que esté normalizada | no para crates del registro; para crates del espacio de trabajo solo si no son elegibles |
 | Almacena en caché unidades `bin`, pruebas y `proc-macro` | — | no | sí |
-| Almacena en caché ejecuciones de build scripts | no | no | sí |
+| Almacena en caché ejecuciones de scripts de compilación | no | no | sí |
 | Compilaciones concurrentes de una misma dependencia | esperan en el bloqueo de `target/` | ambas pueden compilar si hay fallo de caché | una compila, la otra reutiliza |
 | Caché remota / de equipo | no | sí (S3, GCS, Redis, …) | planificado |
 | Windows | sí | sí | no |
@@ -266,7 +266,7 @@ Mitts se encuentra en fase pre-release. Ten en cuenta lo siguiente antes de conf
 - **Solo registros sparse.** Se rechazan con sugerencias los registros servidos mediante índice git (`registry+…` distinto de crates.io, o `[source] registry = "https://…"` sin `sparse+`) y las fuentes `local-registry`.
 - **Las credenciales solo se leen, nunca se escriben.** `cargo login` sigue siendo responsabilidad de Cargo; `cargo:wincred` es exclusivo de Windows y se omite.
 - **Algunas unidades nunca se almacenan en caché:** crates de tipo `cdylib`, `dylib` o `staticlib`, y crates cuyas lecturas de `env!` no se pueden rastrear. Siempre se compilan; son informados por `mitts explain`.
-- **Crates del espacio de trabajo entre copias de trabajo.** Tus propios crates se reutilizan entre árboles de trabajo únicamente cuando su clave puede independizarse de la ruta (sin lecturas de `CARGO_MANIFEST_DIR`, sin script de compilación, sin macros procedimentales impuras declaradas). De lo contrario, la clave incluye la ruta absoluta. En macOS, las entradas debug stabs del enlazador se escriben relativas al espacio de trabajo (`-oso_prefix`), por lo que los binarios enlazados también se comparten; inicia el depurador en la raíz del espacio de trabajo para que localice los archivos objeto.
+- **Crates del espacio de trabajo entre copias de trabajo.** Tus propios crates se reutilizan entre worktrees únicamente cuando su clave puede independizarse de la ruta (sin lecturas de `CARGO_MANIFEST_DIR`, sin script de compilación, sin macros procedimentales impuras declaradas). De lo contrario, la clave incluye la ruta absoluta. En macOS, las entradas debug stabs del enlazador se escriben relativas al espacio de trabajo (`-oso_prefix`), por lo que los binarios enlazados también se comparten; inicia el depurador en la raíz del espacio de trabajo para que localice los archivos objeto.
 - **Las macros que leen tus archivos deben ser declaradas por ti.** Una macro procedimental se considera pura a menos que el proyecto la enumere (ver arriba). Los dependientes de una macro listada rastrean cada archivo de su paquete; una macro no listada que lea un archivo sin registrarlo ante rustc puede generar un resultado desactualizado, exactamente igual que con Cargo.
 - **Los scripts de compilación no están en un sandbox.** Un script que lea archivos o variables no declarados mediante `rerun-if-*` puede producir un resultado obsoleto, exactamente igual que con Cargo.
 - **Las características no compatibles de Cargo fallan de forma explícita.** Por ejemplo, `--profile` o patrones globales con comodines en directorios intermedios en `workspace.members`. Mitts informa de ellos en lugar de hacer conjeturas.
@@ -277,7 +277,7 @@ Mitts se encuentra en fase pre-release. Ten en cuenta lo siguiente antes de conf
 <a id="performance"></a>
 ## Rendimiento
 
-Las métricas de rendimiento solo se publican bajo una metodología reproducible: hardware fijo, ejecuciones en frío, en caliente y con entradas modificadas, múltiples árboles de trabajo, tomando como base la opción más sólida entre Cargo estándar y sccache, y verificaciones de paridad en diagnósticos, códigos de salida y resultados de pruebas. El estudio está en curso ([ROADMAP M8](../ROADMAP.md)). Hasta que sea publicado, Mitts no hace afirmaciones sobre aceleración o ahorro de disco.
+Las métricas de rendimiento solo se publican bajo una metodología reproducible: hardware fijo, ejecuciones en frío, en caliente y con entradas modificadas, múltiples worktrees, tomando como base la opción más sólida entre Cargo estándar y sccache, y verificaciones de paridad en diagnósticos, códigos de salida y resultados de pruebas. El estudio está en curso ([ROADMAP M8](../ROADMAP.md)). Hasta que sea publicado, Mitts no hace afirmaciones sobre aceleración o ahorro de disco.
 
 <a id="status"></a>
 ## Estado

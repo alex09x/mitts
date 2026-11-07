@@ -55,7 +55,7 @@ Mitts 自行规划工作区并直接调用 `rustc`。每个编译动作都会获
 
 Cargo 的构建缓存位于每个工作区的 `target/` 目录中。任何创建新 `target/` 的操作都会从零开始：
 
-- 同一代码仓库的第二份克隆或 `git worktree`，
+- 同一代码仓库的第二份检出或 `git worktree`，
 - 切换到修改了 `Cargo.lock` 的分支，然后再切回来，
 - 依赖于相同 crate 及相同特性的另一个项目，
 - 各自在独立 worktree 中工作的并行编码 Agent。
@@ -90,7 +90,7 @@ Mitts 采用了不同的路线：它替换的是 Cargo 的执行器，而不是�
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
-要从源码构建检出，首先安装最新发布的 Mitts，然后使用 Mitts 构建检出：
+要从源码检出构建，请先安装最新发布的 Mitts，再用 Mitts 构建该检出：
 
 ```sh
 git clone https://github.com/alex09x/mitts
@@ -125,7 +125,7 @@ mitts clean                  # remove this workspace's Mitts artifacts
 
 对于 Git 项目，打包目前要求代码仓库整洁且 package 位于其根目录。清单的 `include` 模式可以选择被忽略的文件；嵌套的工作区 package 以及符号链接目录目前尚不支持。`mitts publish` 面向 crates.io 并从 `CARGO_REGISTRY_TOKEN` 读取令牌。
 
-Mitts 将构建输出写入 Cargo 常规的 `target/debug/` 和 `target/release/` 目录。`CARGO_TARGET_DIR` 和 `--target-dir` 可用于选择不同的输出根路径。其共享缓存是分开的（`--cache-dir`，否则为 `$MITTS_CACHE_DIR`，否则为 `$XDG_CACHE_HOME/mitts`，否则为 `~/.cache/mitts`）。工件存储、动作缓存、锁、jobserver、源码存储、git 镜像与索引缓存全部位于该唯一样根路径下。
+Mitts 将构建输出写入 Cargo 常规的 `target/debug/` 和 `target/release/` 目录。`CARGO_TARGET_DIR` 和 `--target-dir` 可用于选择不同的输出根路径。其共享缓存是分开的（`--cache-dir`，否则为 `$MITTS_CACHE_DIR`，否则为 `$XDG_CACHE_HOME/mitts`，否则为 `~/.cache/mitts`）。工件存储、动作缓存、锁、jobserver、源码存储、git 镜像与索引缓存全部位于该单一根路径下。
 
 无论是公开还是私有 Git 依赖，均由 Mitts 本身使用系统 `git` 进行克隆，因此您的 SSH 密钥、agent、凭据助手和 `GIT_SSH_COMMAND` 完全像在命令行上一样生效；交互提示已被禁用，因此凭据缺失会直接失败而不是挂起。没有任何操作经过 Cargo。Cargo 已经在 `~/.cargo/git/checkouts` 下检出的内容会被复用，而不会重新克隆。
 
@@ -258,7 +258,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 - **凭据只读，从不写入。** `cargo login` 仍是 Cargo 的职责；`cargo:wincred` 仅限 Windows 且会被跳过。
 - **部分单元永不缓存：** `cdylib`、`dylib` 或 `staticlib` 类型的 crate，以及 `env!` 读取无法追踪的 crate。它们始终重新构建；`mitts explain` 会对它们进行报告。
 - **跨检出的工作区 crate。** 您自己的 crate 仅在它们的键可以做到路径无关（无 `CARGO_MANIFEST_DIR` 读取、无 build script、无声明的非纯 proc macro）时，才能在 worktree 间复用。否则键会包含绝对路径。在 macOS 上，链接器的调试 stabs 相对于工作区写入（`-oso_prefix`），因此链接生成的二进制文件也可以共享；在工作区根目录下启动调试器以便其查找对象文件。
-- **读取文件的宏需由您自行声明。** 除非项目声明（见上文），否则 proc macro 均被视为纯宏。依赖这些宏的 crate 受 package 内所有文件影响；未声明但读取文件且未向 rustc 注册的宏可能会产生陈旧的结果，这与 Cargo 完全一致。
+- **读取文件的宏需由您自行声明。** 除非项目将其列入清单（见上文），否则 proc macro 均被视为纯宏。依赖已列出宏的 crate 会追踪其 package 内的每个文件；未列出但读取文件且未向 rustc 注册的宏可能会产生陈旧的结果，这与 Cargo 完全一致。
 - **Build script 未经沙盒化。** 读取未经 `rerun-if-*` 声明的文件或变量的 script 可能会产生陈旧的结果——这与 Cargo 完全一致。
 - **不受支持的 Cargo 特性会明确报错。** 例如 `--profile`，以及 `workspace.members` 中间目录包含通配符的 glob。Mitts 会报告它们，而不是盲目猜测。
 - **同文件系统零拷贝。** 从暂存区进行零拷贝单元提升要求 `MITTS_CACHE_DIR` 与工作区 `target/` 目录位于同一文件系统挂载点上。跨越文件系统边界时会自动安全回退到标准复制。
@@ -283,7 +283,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 | `check`、`clippy`、`fmt`、`test`（含文档测试）、`coverage` | 完成 |
 | 具配额的保守 GC | 完成 |
 | 基于同一存储的 C/C++ 适配器 | 实验性 |
-| 工作区 crate 路径无关的键 | 部分完成 |
+| 工作区 crate 路径无关的键 | 部分支持 |
 | 可复现基准测试研究 | 进行中 |
 | 远程 / 团队缓存 | 计划中 |
 | Windows、交叉编译 | 不支持 |

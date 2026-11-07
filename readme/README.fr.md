@@ -59,7 +59,7 @@ Si une entrée ne peut pas être prise en compte, l'action est recompilée, jama
 Le cache de build de Cargo réside dans le répertoire `target/` de chaque espace de travail. Tout
 ce qui crée un nouveau `target/` repart de zéro :
 
-- un second clone ou `git worktree` du même dépôt,
+- un second checkout ou `git worktree` du même dépôt,
 - basculer sur une branche qui modifie `Cargo.lock`, puis revenir en arrière,
 - un autre projet qui dépend des mêmes crates avec les mêmes fonctionnalités (features),
 - des agents de codage parallèles, travaillant chacun dans son propre worktree.
@@ -84,7 +84,7 @@ de partager un même magasin en toute sécurité.
 ## Points clés
 
 - **Réutilisation entre espaces de travail.** Un magasin par machine. Une dépendance compilée pour
-  un clone est restaurée dans le suivant avec les mêmes entrées.
+  un checkout est restaurée dans le suivant avec les mêmes entrées.
 - **Clés complètes.** Chaîne d'outils, cible, profil, drapeaux, fonctionnalités,
   contenu des sources, clés des dépendances et environnement suivi. Des entrées inconnues entraînent
   une recompilation.
@@ -307,7 +307,7 @@ Cela peut ralentir ces builds.
 Certaines macros procédurales lisent des fichiers de votre paquet lors de leur expansion : `sqlx` vérifie
 les requêtes par rapport à `.sqlx/`, `askama` compile `templates/`, `rust-embed` et
 `include_dir` intègrent des répertoires entiers. rustc n'est informé de ces lectures que lorsque
-la macro les déclare, il faut donc déclarer ces crates dans le `Cargo.toml` racine :
+la macro les enregistre, il faut donc déclarer ces crates dans le `Cargo.toml` racine :
 
 ```toml
 [workspace.metadata.mitts]          # [package.metadata.mitts] in a single crate
@@ -316,7 +316,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 
 Les crates qui dépendent d'une macro listée ont pour clé chaque fichier de leur paquet
 et leur chemin absolu : un gabarit modifié entraîne leur recompilation, et un autre
-clone ne les réutilise jamais. Toute autre macro est traitée comme pure, et ses
+checkout ne les réutilise jamais. Toute autre macro est traitée comme pure, et ses
 dépendants sont partagés entre les worktrees. Nommez la crate dont vous dépendez ; la
 crate de macro qu'elle importe (`sqlx-macros`) fonctionne également.
 
@@ -329,7 +329,7 @@ affirmation de performance.
 | --- | --- | --- | --- |
 | Lit `Cargo.toml` / `Cargo.lock` tel quel | oui | oui | oui |
 | Réutilisation entre espaces de travail et worktrees | non (par `target/`) | oui, par appel à `rustc` | oui, par unité |
-| La clé dépend du chemin du clone | — | oui, sauf si normalisé | non pour les crates de registre ; pour les crates d'espace de travail seulement si non éligibles |
+| La clé dépend du chemin du checkout | — | oui, sauf si normalisé | non pour les crates de registre ; pour les crates d'espace de travail seulement si non éligibles |
 | Met en cache les unités `bin`, de test et `proc-macro` | — | non | oui |
 | Met en cache les exécutions de scripts de build | non | non | oui |
 | Compilations concurrentes d'une même dépendance | attente sur le verrou de `target/` | les deux peuvent compiler en cas d'absence | l'un compile, l'autre réutilise |
@@ -355,7 +355,7 @@ Mitts est en version préliminaire. Sachez ceci avant de vous appuyer dessus :
 - **Certaines unités ne sont jamais mises en cache :** les crates de type `cdylib`, `dylib` ou
   `staticlib`, et les crates dont les lectures de `env!` ne peuvent pas être suivies. Elles sont toujours
   compilées ; elles sont signalées par `mitts explain`.
-- **Crates d'espace de travail entre clones.** Vos propres crates ne sont réutilisées entre
+- **Crates d'espace de travail entre checkouts.** Vos propres crates ne sont réutilisées entre
   worktrees que lorsque leur clé peut être rendue indépendante du chemin (pas de
   lecture de `CARGO_MANIFEST_DIR`, pas de script de build, pas de macro procédurale impure déclarée).
   Sinon, la clé inclut le chemin absolu. Sur macOS, les stabs de débogage de l'éditeur de liens
@@ -426,8 +426,8 @@ est local à chaque exécuteur ; un cache distant multi-machines n'est pas encor
 Mitts utilise les mêmes chemins de sortie par défaut que Cargo. Son magasin partagé d'artefacts reste
 séparé, et `mitts clean` ne supprime que les sorties indexées de Mitts qui correspondent encore
 à leur contenu enregistré ; il préserve les fichiers Cargo non liés ou remplacés.
-Si Cargo détient le verrou du répertoire de build d'un profil, le nettoyage est différé jusqu'à ce que ce
-build soit terminé.
+Si Cargo détient le verrou du répertoire de build d'un profil, le nettoyage est ignoré tant que ce
+build n'est pas terminé.
 
 **Où se trouve le cache et comment le vider ?**
 `--cache-dir`, sinon `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` ou

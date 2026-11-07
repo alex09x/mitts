@@ -11,7 +11,7 @@
 <h1 align="center">Mitts Build</h1>
 
 <p align="center">
-  <b>Build work, accounted for.</b><br>
+  <b>Build-Arbeit, lückenlos erfasst.</b><br>
   Ein Rust-orientiertes Build-System mit einem maschinenweiten, inhaltsadressierten Artefakt-Cache
   und expliziter Eingabeerfassung. Es liest Ihre vorhandenen Dateien <code>Cargo.toml</code> und <code>Cargo.lock</code>.
 </p>
@@ -78,7 +78,7 @@ Die üblichen Ausweichlösungen haben ihre Tücken:
   weiterhin den Build und führt jedes Build-Skript aus.
 
 Mitts wählt einen anderen Weg: Es ersetzt den Build-Executor von Cargo, nicht den Compiler.
-Es sieht den gesamten Unit-Graphen, sodass es jede Einheit anhand der Schlüssel ihrer Abhängigkeiten
+Es sieht den gesamten Einheitengraphen, sodass es jede Einheit anhand der Schlüssel ihrer Abhängigkeiten
 schlüsseln, Link-Einheiten und Build-Skript-Läufe zwischenspeichern und mehrere Builds sicher einen
 gemeinsamen Speicher nutzen lassen kann.
 
@@ -108,7 +108,7 @@ gemeinsamen Speicher nutzen lassen kann.
   Link zu einem Speicherobjekt. `MITTS_STORE_HARDLINKS=0` behält private Kopien für Workspaces bei,
   in die andere Werkzeuge direkt an Ort und Stelle schreiben.
 - **Zero-Copy-Workspace-Staging.** Workspace-interne Bibliotheks-Aliase, sekundäre Binärdateien
-  und atomares Unit-Staging nutzen interne Hardlinks und Rename-Promotion ohne
+  und atomares Einheiten-Staging nutzen interne Hardlinks und Rename-Promotion ohne
   Kopieren von Bytes. Wenn `MITTS_CACHE_DIR` und das `target/` des Workspace auf demselben
   Dateisystem-Volume liegen, arbeiten Staging-Promotions ohne Kopieren von Bytes; über separate
   Mounts hinweg greifen sie transparent auf sicheres Kopieren zurück.
@@ -275,7 +275,7 @@ Aktionen.
 | Pfad | Was dort liegt |
 | --- | --- |
 | `src/cli/` | Befehlshandler: `build`, `test`, `clippy`, `explain`, … |
-| `src/adapter/rust/` | Cargo-Semantik: Manifeste, Lock-Datei, Sparse-Index, Feature-Auflösung, Unit-Planung, Action-Keys, der DAG-Runner, Build-Skripte, Doctests |
+| `src/adapter/rust/` | Cargo-Semantik: Manifeste, Lock-Datei, Sparse-Index, Feature-Auflösung, Einheitenplanung, Aktionsschlüssel, der DAG-Runner, Build-Skripte, Doctests |
 | `src/adapter/c/` | Experimenteller C/C++-Adapter auf demselben Speicher |
 | `src/core/` | Sprachneutraler Speicher (`cas.rs`), Action-Cache, Sperren, Jobserver, schneller Pfad (`build_lock*.rs`), GC, Reflinks |
 | `docs/` | [Protokoll](../docs/architecture.md), [Designentscheidungen](../docs/decisions), [Szenarien](../docs/scenarios) |
@@ -294,7 +294,7 @@ Eingabe nicht erfassen, wird das Ergebnis nicht wiederverwendet.
 | Target und Profil | Target-Triple, Profileinstellungen, `RUSTFLAGS` und rustflags aus der Cargo-Konfiguration |
 | Features | Das aufgelöste Feature-Set der Einheit (Resolver 1 oder 2, wie bei Cargo) |
 | Quellcodedateien | Inhaltshashes der Paketdateien und jeder Datei, deren Einlesen rustc meldet (`include_str!`, `include_bytes!`, Module) |
-| Abhängigkeiten | Die Action-Keys aller abhängigen Einheiten |
+| Abhängigkeiten | Die Aktionsschlüssel aller Abhängigkeitseinheiten |
 | Umgebung | Relevante `CARGO_*`- und `RUST_*`-Einstellungen sowie über `env!` / `option_env!` gelesene Variablen, mit `<unset>` explizit erfasst |
 | Cargo-Konfiguration | Die `.cargo/config(.toml)`-Dateien, die Cargo einlesen würde |
 | Build-Skripte | Deren Direktiven, `OUT_DIR` und der Inhalt von `rerun-if-changed`-Pfaden sowie Werte von `rerun-if-env-changed`-Variablen |
@@ -329,7 +329,7 @@ keine Leistungsbehauptung.
 | --- | --- | --- | --- |
 | Liest `Cargo.toml` / `Cargo.lock` wie gewohnt | ja | ja | ja |
 | Wiederverwendung über Workspaces und Worktrees hinweg | nein (pro `target/`) | ja, pro `rustc`-Aufruf | ja, pro Einheit |
-| Schlüssel hängt vom Checkout-Pfad ab | — | ja, sofern nicht normalisiert | nein für Registry-Crates; für Workspace-Crates nur dann, wenn nicht berechtigt |
+| Schlüssel hängt vom Checkout-Pfad ab | — | ja, sofern nicht normalisiert | nein für Registry-Crates; für Workspace-Crates nur dann, wenn dafür nicht geeignet |
 | Cacht `bin`-, Test- und `proc-macro`-Einheiten | — | nein | ja |
 | Cacht Build-Skript-Läufe | nein | nein | ja |
 | Parallele Builds derselben Abhängigkeit | warten auf die `target/`-Sperre | beide kompilieren eventuell bei einem Miss | einer kompiliert, der andere verwendet wieder |
@@ -357,7 +357,7 @@ Mitts befindet sich im Pre-Release-Stadium. Beachten Sie Folgendes, bevor Sie da
   neu gebaut und von `mitts explain` ausgewiesen.
 - **Workspace-Crates über Checkouts hinweg.** Eigene Crates werden über
   Worktrees hinweg nur dann wiederverwendet, wenn ihr Schlüssel pfadunabhängig gestaltet werden kann (keine
-  `CARGO_MANIFEST_DIR`-Lesevorgänge, kein Build-Skript, kein deklariertes unrein prozedurales Makro).
+  `CARGO_MANIFEST_DIR`-Lesevorgänge, kein Build-Skript, kein deklariertes unreines Proc-Makro).
   Andernfalls enthält der Schlüssel den absoluten Pfad. Unter macOS werden die Debug-Stabs
   des Linkers relativ zum Workspace geschrieben (`-oso_prefix`), sodass auch gelinkte
   Binärdateien geteilt werden; starten Sie den Debugger im Workspace-Root, damit er die
@@ -373,7 +373,7 @@ Mitts befindet sich im Pre-Release-Stadium. Beachten Sie Folgendes, bevor Sie da
 - **Nicht unterstützte Cargo-Features schlagen unmissverständlich fehl.** Zum Beispiel `--profile`,
   Globs mit Wildcards in Zwischenverzeichnissen in `workspace.members`. Mitts
   meldet diese Fehler explizit, anstatt Vermutungen anzustellen.
-- **Zero-Copy auf demselben Dateisystem.** Zero-Copy-Unit-Promotion aus dem Staging setzt voraus,
+- **Zero-Copy auf demselben Dateisystem.** Zero-Copy-Einheiten-Promotion aus dem Staging setzt voraus,
   dass `MITTS_CACHE_DIR` und das `target/`-Verzeichnis des Workspace auf demselben
   Dateisystem-Mount liegen. Beim Überschreiten von Dateisystemgrenzen greift das System sicher auf standardmäßiges Kopieren zurück.
 
