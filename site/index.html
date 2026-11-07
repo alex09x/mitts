@@ -49,6 +49,8 @@
       <a href="#compare">Compare</a>
       <a href="#limits">Limits</a>
       <a href="#start">Start</a>
+      <a href="docs/">Docs</a>
+      <a href="benchmarks/">Benchmarks</a>
     </nav>
   </header>
 
@@ -157,7 +159,7 @@
         <div class="arch-layer core"><small>core</small><code>content-addressed store · action cache · key locks · jobserver · fast path · GC · reflinks</code></div>
       </div>
       <ul class="facts">
-        <li><b>Immutable objects.</b> Published read-only, verified by hash before use, restored by reflink or copy. Never hardlinked into a writable workspace.</li>
+        <li><b>Immutable objects.</b> Published read-only, verified by hash before use, restored by reflink, read-only hardlink or copy. Never writable through the workspace.</li>
         <li><b>Atomic publish.</b> Outputs are staged, then renamed into the store. An interrupted build never leaves a partial object.</li>
         <li><b>Cooperating builds.</b> Per-key locks with double-checked lookup: two builds that need the same unit compile it once.</li>
         <li><b>One jobserver.</b> Parallelism is bounded across every Mitts process on the machine.</li>
@@ -195,7 +197,7 @@
         <span class="num">05</span>
         <div>
           <h2 id="compare-title">Where it sits.</h2>
-          <p>How each tool reuses work. A qualitative comparison, not a performance claim.</p>
+          <p>How each tool reuses work. A qualitative comparison; the measured one, on 100 Rust projects, is on the <a href="benchmarks/">benchmarks page</a>.</p>
         </div>
       </header>
       <div class="table-wrap">
@@ -267,7 +269,7 @@
         <span class="num">08</span>
         <div>
           <h2 id="status-title">Where it stands.</h2>
-          <p>Pre-release. Milestones M0–M6 are complete; hardening for real projects and a reproducible benchmark study are in progress. No performance numbers are published until that study is — with fixed hardware, cold, warm and changed-input runs, and the stronger of Cargo and sccache as the baseline.</p>
+          <p>Pre-release. Milestones M0–M6 are complete and hardening for real projects continues. The benchmark study is published: <a href="benchmarks/">100 Rust projects on three machines</a>, with plain Cargo and sccache as baselines, cold, warm and changed-input runs, and the cases where Mitts is not faster. The <a href="docs/">documentation</a> covers every command and how the cache works.</p>
         </div>
       </header>
       <ol class="milestones">
@@ -278,7 +280,7 @@
         <li><b>M5</b>Pilot, deduplication &amp; conservative GC</li>
         <li><b>M6</b>Second adapter: C/C++</li>
         <li class="wip"><b>M7</b>Hardening for real projects</li>
-        <li class="wip"><b>M8</b>Reproducible benchmarks</li>
+        <li><b>M8</b>Reproducible benchmarks</li>
         <li class="plan"><b>M9</b>Remote &amp; team cache</li>
       </ol>
     </section>
