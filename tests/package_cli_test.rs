@@ -333,6 +333,35 @@ fn package_verifies_extracted_crate_and_publish_dry_run() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_single_tar_header_format(&archive);
+}
+
+/// Every member header of a `.crate` carries the same magic. Strict readers (the crates.io scan, issue
+/// #71) reject an archive that mixes POSIX ustar headers (`ustar\0` + `00`) with GNU ones (`ustar  \0`).
+fn assert_single_tar_header_format(archive: &std::path::Path) {
+    use std::io::Read;
+    let mut tar = Vec::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(archive).unwrap())
+        .read_to_end(&mut tar)
+        .unwrap();
+    let mut magics = std::collections::BTreeSet::new();
+    let mut offset = 0;
+    while offset + 512 <= tar.len() && tar[offset..offset + 512].iter().any(|byte| *byte != 0) {
+        let header = &tar[offset..offset + 512];
+        magics.insert(header[257..265].to_vec());
+        let size = std::str::from_utf8(&header[124..135])
+            .unwrap()
+            .trim_matches(|c: char| c == '\0' || c == ' ')
+            .to_string();
+        let size = usize::from_str_radix(&size, 8).unwrap_or(0);
+        offset += 512 + size.div_ceil(512) * 512;
+    }
+    assert_eq!(
+        magics.len(),
+        1,
+        "the archive mixes tar header formats: {magics:?}"
+    );
+    assert_eq!(magics.into_iter().next().unwrap(), b"ustar  \0".to_vec());
 }
 
 #[test]
