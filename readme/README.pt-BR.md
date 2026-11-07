@@ -1,6 +1,6 @@
-<!-- translation-source: 8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d -->
+<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
 > [!NOTE]
-> Esta é uma tradução da documentação oficial em inglês no commit [8cdc4c9](https://github.com/alex09x/mitts/blob/8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d/README.md). A versão canônica e mais atualizada é o [README em inglês](https://github.com/alex09x/mitts/blob/main/README.md).
+> Esta é uma tradução da documentação oficial em inglês no commit [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md). A versão canônica e mais atualizada é o [README em inglês](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -20,6 +20,7 @@
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
+  <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
 
 <p align="center">
@@ -455,6 +456,22 @@ Decisões de arquitetura: [docs/decisions](../docs/decisions).
 
 [Alexander Panasenko](https://prod.codes/about/) · alex@prod.codes ·
 [mittsbuild.com](https://mittsbuild.com)
+
+## Como citar
+
+Para citar o Mitts, use a versão arquivada. O DOI de conceito [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) sempre aponta para a versão mais recente; o DOI da versão 0.3.29 é [10.5281/zenodo.24030068](https://doi.org/10.5281/zenodo.24030068). A opção «Cite this repository» do GitHub lê o [CITATION.cff](../CITATION.cff).
+
+```bibtex
+@software{panasenko_2026_24030068,
+  author    = {Panasenko, Alexander},
+  title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {0.3.29},
+  doi       = {10.5281/zenodo.24030068},
+  url       = {https://doi.org/10.5281/zenodo.24030068}
+}
+```
 
 ## Licença
 
