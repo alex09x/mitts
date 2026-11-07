@@ -20,6 +20,7 @@ use anyhow::{bail, Result};
 pub use context::ExecutionContext;
 pub(crate) use lock::{acquire_unit_job_token, UnitJobReservation};
 use std::fs;
+use std::path::Path;
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
 pub(crate) fn execute_unit(
@@ -187,9 +188,10 @@ pub(crate) fn execute_unit(
 
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
     let cas_artifacts = ctx.cas.root().join("artifacts");
+    let active_build_deps = super::build_deps::active_dir();
     let target_deps_dir = ctx.target_dir.join(profile_name).join("deps");
     let deps_dir = if ctx.opt.native {
-        &cas_artifacts
+        active_build_deps.as_deref().unwrap_or(&cas_artifacts)
     } else {
         let _ = fs::create_dir_all(&target_deps_dir);
         &target_deps_dir
@@ -241,7 +243,7 @@ pub(crate) fn execute_unit(
             } else {
                 None
             };
-            let early_rk = if !ctx.is_cache_enabled {
+            let early_rk = if !ctx.is_cache_enabled || final_key.contains(":unhashable:") {
                 super::dag_unit_publish::taint_unhashable_key(final_key)
             } else {
                 super::dag_unit_publish::resolve_unit_result_key(
@@ -260,24 +262,39 @@ pub(crate) fn execute_unit(
                 rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
             }
 
-            if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {
-                if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
-                    &unit.target_name,
-                    &meta_hash,
-                    &artifact_key,
-                    "rmeta",
-                ) {
-                    ctx.completed_artifacts
-                        .lock()
-                        .unwrap()
-                        .insert(unit.unit_id(), named.clone());
-                    cb(&unit.unit_id(), &named);
-                }
-                if !ctx.opt.native || unit.is_workspace {
-                    if let Some(fname) = rmeta_path.file_name() {
-                        let _ = fs::create_dir_all(&target_deps_dir);
-                        let dep_copy = target_deps_dir.join(fname);
-                        let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+            if super::build_deps::is_importable_crate_unit(unit) {
+                if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {
+                    let bdeps_meta = active_build_deps
+                        .as_deref()
+                        .zip(rmeta_path.file_name())
+                        .and_then(|(bdeps, fname)| {
+                            super::build_deps::materialize_in_dir(
+                                ctx.cas,
+                                bdeps,
+                                Path::new(fname),
+                                &meta_hash,
+                            )
+                            .ok()
+                        });
+                    if let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
+                        &unit.target_name,
+                        &meta_hash,
+                        &artifact_key,
+                        "rmeta",
+                    ) {
+                        let published = bdeps_meta.unwrap_or(named);
+                        ctx.completed_artifacts
+                            .lock()
+                            .unwrap()
+                            .insert(unit.unit_id(), published.clone());
+                        cb(&unit.unit_id(), &published);
+                    }
+                    if !ctx.opt.native || unit.is_workspace {
+                        if let Some(fname) = rmeta_path.file_name() {
+                            let _ = fs::create_dir_all(&target_deps_dir);
+                            let dep_copy = target_deps_dir.join(fname);
+                            let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+                        }
                     }
                 }
             }

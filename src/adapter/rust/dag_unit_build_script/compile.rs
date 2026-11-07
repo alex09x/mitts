@@ -179,7 +179,9 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
             &format!("{}={}", crate_name.replace('-', "_"), effective.display()),
         ]);
     }
-    if let Some(artifacts) = args.cas_artifacts_dir {
+    if let Some(bdeps) = crate::adapter::rust::build_deps::active_dir() {
+        compile_cmd.args(["-L", &format!("dependency={}", bdeps.display())]);
+    } else if let Some(artifacts) = args.cas_artifacts_dir {
         compile_cmd.args(["-L", &format!("dependency={}", artifacts.display())]);
     }
     let is_dep_active = |name: &str,

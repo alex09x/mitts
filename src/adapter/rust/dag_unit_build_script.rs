@@ -227,6 +227,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 bs_unit.for_host = true;
                 let bs_out = temp_stage.0.join("clippy_build_script");
                 let extra_compiler_args = ctx.opt.effective_compiler_args();
+                let active_bdeps = super::build_deps::active_dir();
                 let inv = super::compiler::RustcInvocation {
                     unit: &bs_unit,
                     action_key: "build_script_clippy",
@@ -239,7 +240,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                     mode: super::types::BuildMode::Clippy,
                     extra_compiler_args: &extra_compiler_args,
                     jobserver_auth: ctx.jobserver.and_then(|j| j.auth()),
-                    deps_dir: Some(&artifacts_dir),
+                    deps_dir: active_bdeps.as_deref().or(Some(&artifacts_dir)),
                     target_dir: Some(ctx.target_dir),
                     cache_root: ctx.cas.root().parent(),
                 };
@@ -250,11 +251,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 }
                 let out = out_res?;
                 if !out.stderr.is_empty() {
-                    let shown = if ctx.opt.json_diagnostics {
-                        super::diagnostics_json::wrap(unit, &out.stderr)
-                    } else {
-                        out.stderr.clone()
-                    };
+                    let shown = super::unit_output::shown_text(ctx, unit, &out.stderr);
                     let mut msgs = ctx.compiler_messages.lock().unwrap();
                     if !msgs.contains(&shown) {
                         msgs.push(shown.clone());

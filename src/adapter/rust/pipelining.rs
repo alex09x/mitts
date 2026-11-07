@@ -149,7 +149,20 @@ pub struct PipelinedRustcResult {
 }
 
 /// Executes a `rustc` process with pipelined metadata artifact notification.
-pub fn run_pipelined_rustc<F>(mut cmd: Command, on_metadata: F) -> Result<PipelinedRustcResult>
+pub fn run_pipelined_rustc<F>(cmd: Command, on_metadata: F) -> Result<PipelinedRustcResult>
+where
+    F: FnOnce(&Path),
+{
+    run_pipelined_rustc_with_format(cmd, false, on_metadata)
+}
+
+/// Executes a `rustc` process with pipelined metadata artifact notification, preserving raw JSON
+/// diagnostic objects when `preserve_json_diagnostics` is `true`.
+pub fn run_pipelined_rustc_with_format<F>(
+    mut cmd: Command,
+    preserve_json_diagnostics: bool,
+    on_metadata: F,
+) -> Result<PipelinedRustcResult>
 where
     F: FnOnce(&Path),
 {
@@ -194,8 +207,13 @@ where
                     primary_output = Some(artifact_path);
                 }
             }
-        } else if let Some(rendered) = parse_rustc_rendered_diagnostic(&line) {
-            collected_stderr.push_str(&rendered);
+        } else if !preserve_json_diagnostics {
+            if let Some(rendered) = parse_rustc_rendered_diagnostic(&line) {
+                collected_stderr.push_str(&rendered);
+            } else {
+                collected_stderr.push_str(&line);
+                collected_stderr.push('\n');
+            }
         } else {
             collected_stderr.push_str(&line);
             collected_stderr.push('\n');

@@ -28,9 +28,13 @@ pub struct ClippyArgs {
     #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
     pub jobs: Option<u64>,
 
-    /// Diagnostic output: human text (default) or Cargo-compatible JSON lines on stdout
-    #[arg(long, value_enum, default_value_t = MessageFormat::Human)]
+    /// Diagnostic output format: human, short, json, or Cargo json-* variants
+    #[arg(long, default_value_t = MessageFormat::Human, value_name = "FMT")]
     pub message_format: MessageFormat,
+
+    /// Suppress Mitts progress and success summaries; keep diagnostics and errors
+    #[arg(short = 'q', long)]
+    pub quiet: bool,
 
     /// Package to lint with Clippy
     #[arg(skip)]
@@ -186,33 +190,33 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         all_tests: args.tests || args.all_targets,
         all_benches: args.all_targets,
         all_examples: args.all_targets,
+        quiet: args.quiet,
         ..Default::default()
     };
 
-    if args.message_format.is_json() {
-        // Machine-readable run: no banner, no progress bar, nothing but JSON lines on stdout.
-        opt.json_diagnostics = true;
-        opt.progress = Some(message_format::json_progress());
-        let outcome =
-            RustAdapter::build(&opt).map(|(_, result)| (result.success, result.exit_code));
-        return message_format::finish_json(outcome);
+    if args.message_format != MessageFormat::Human {
+        return message_format::run_non_human_build(&mut opt, args.message_format);
     }
 
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
 
-    Ui::header(&format!("clippy [{}]", profile));
+    if !args.quiet {
+        Ui::header(&format!("clippy [{}]", profile));
+    }
     let term_guard = TerminalGuard::acquire();
-    let progress = if !is_verbose {
+    let progress = if !is_verbose && !args.quiet {
         Some(Ui::create_build_progress(profile))
     } else {
         None
     };
 
-    let progress_clone = progress.clone();
-    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(
-        move |event| match event {
+    opt.progress = Some(if args.quiet {
+        crate::cli::build::create_quiet_progress_callback()
+    } else {
+        let progress_clone = progress.clone();
+        BuildProgressCallback(std::sync::Arc::new(move |event| match event {
             BuildProgressEvent::InitTotal { total, cached } => {
                 if let Some(ref pb) = progress_clone {
                     Ui::set_build_progress_total(pb, total, cached);
@@ -273,8 +277,8 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
                     eprintln!("{}", line);
                 }
             }
-        },
-    )));
+        }))
+    });
 
     let build_res = RustAdapter::build(&opt);
     if let Some(ref pb) = progress {
@@ -299,6 +303,9 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
                     } else {
                         eprintln!("{}", result.stderr);
                     }
+                }
+                if args.quiet {
+                    return 0;
                 }
                 Ui::stage_start("📎", &format!("Linted target [{}]", profile));
                 if result.cached {
@@ -342,9 +349,13 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
                         eprintln!("{}", result.stderr);
                     }
                 }
-                Ui::stage_start("❌", &format!("Clippy check failed [{}]", profile));
+                if !args.quiet {
+                    Ui::stage_start("❌", &format!("Clippy check failed [{}]", profile));
+                }
                 render_compiler_diagnostics(&result.stderr, is_verbose);
-                Ui::finish_failed(profile, &dur, "clippy errors or warnings with -D warnings");
+                if !args.quiet {
+                    Ui::finish_failed(profile, &dur, "clippy errors or warnings with -D warnings");
+                }
             }
             result.exit_code
         }

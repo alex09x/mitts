@@ -162,23 +162,6 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         // 5. Publish metadata output, including check-only output also used as primary_output.
         if let Some(mp) = args.output.metadata_output.as_ref() {
             let (meta_hash, meta_size) = ctx.cas.store_file(mp)?;
-            let metadata_disambiguator = if link_output_sources.is_empty() {
-                format!("{artifact_key}-m")
-            } else {
-                artifact_key.clone()
-            };
-            let named = ctx.cas.named_artifact_path_with_disambiguator(
-                &unit.target_name,
-                &meta_hash,
-                &metadata_disambiguator,
-                "rmeta",
-            )?;
-            let mut completed = ctx.completed_artifacts.lock().unwrap();
-            if link_output_sources.is_empty() {
-                completed.insert(unit.unit_id(), named);
-            } else {
-                completed.entry(unit.unit_id()).or_insert(named);
-            }
             let file_name = mp.file_name().unwrap_or_default();
             cached_outputs.push(CachedOutput {
                 relative_path: PathBuf::from(file_name),
@@ -186,26 +169,56 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 file_size: meta_size,
                 executable: false,
             });
-            if !ctx.opt.native || unit.is_workspace {
-                let profile_name = if ctx.opt.release { "release" } else { "debug" };
-                let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                let _ = fs::create_dir_all(&deps_dir);
-                let dep_copy = deps_dir.join(file_name);
-                if mp != &dep_copy {
-                    let _ = crate::core::link_intra_workspace(
-                        mp,
-                        &dep_copy,
-                        &[args.staging_dir, ctx.target_dir],
-                        false,
-                    );
+            if super::build_deps::is_importable_crate_unit(unit) {
+                let metadata_disambiguator = if link_output_sources.is_empty() {
+                    format!("{artifact_key}-m")
+                } else {
+                    artifact_key.clone()
+                };
+                let named = ctx.cas.named_artifact_path_with_disambiguator(
+                    &unit.target_name,
+                    &meta_hash,
+                    &metadata_disambiguator,
+                    "rmeta",
+                )?;
+                let extern_meta = if let Some(ref bdeps) = super::build_deps::active_dir() {
+                    super::build_deps::materialize_in_dir(
+                        ctx.cas,
+                        bdeps,
+                        Path::new(file_name),
+                        &meta_hash,
+                    )?
+                } else {
+                    named
+                };
+                let mut completed = ctx.completed_artifacts.lock().unwrap();
+                if link_output_sources.is_empty() {
+                    completed.insert(unit.unit_id(), extern_meta);
+                } else {
+                    completed.entry(unit.unit_id()).or_insert(extern_meta);
                 }
-                if let Some(ti) = ctx.target_index {
-                    let rel_key = format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
-                    ti.lock()
-                        .unwrap()
-                        .record(rel_key, meta_hash.clone(), &dep_copy);
+                if !ctx.opt.native || unit.is_workspace {
+                    let profile_name = if ctx.opt.release { "release" } else { "debug" };
+                    let deps_dir = ctx.target_dir.join(profile_name).join("deps");
+                    let _ = fs::create_dir_all(&deps_dir);
+                    let dep_copy = deps_dir.join(file_name);
+                    if mp != &dep_copy {
+                        let _ = crate::core::link_intra_workspace(
+                            mp,
+                            &dep_copy,
+                            &[args.staging_dir, ctx.target_dir],
+                            false,
+                        );
+                    }
+                    if let Some(ti) = ctx.target_index {
+                        let rel_key =
+                            format!("{}/deps/{}", profile_name, file_name.to_string_lossy());
+                        ti.lock()
+                            .unwrap()
+                            .record(rel_key, meta_hash.clone(), &dep_copy);
+                    }
+                    publish_library_alias(ctx, &dep_copy, &clean_crate, "rmeta", &meta_hash);
                 }
-                publish_library_alias(ctx, &dep_copy, &clean_crate, "rmeta", &meta_hash);
             }
         }
     }

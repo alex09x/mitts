@@ -10,6 +10,7 @@
 
 use crate::adapter::{BuildMode, RustAdapter, RustBuildOptions};
 use crate::cli::diagnostic::render_compiler_diagnostics;
+use crate::cli::message_format::{self, MessageFormat};
 use crate::cli::terminal::TerminalGuard;
 pub use crate::cli::test_progress::create_test_progress_callback;
 use crate::cli::ui::Ui;
@@ -25,6 +26,14 @@ pub struct TestArgs {
     /// Limit concurrent native build units (same as MITTS_JOBS; the flag wins)
     #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
     pub jobs: Option<u64>,
+
+    /// Suppress Mitts banners and per-test pass lines; keep failures and summaries
+    #[arg(short = 'q', long)]
+    pub quiet: bool,
+
+    /// Diagnostic output format: human, short, json, or Cargo json-* variants
+    #[arg(long, default_value_t = MessageFormat::Human, value_name = "FMT")]
+    pub message_format: MessageFormat,
 
     /// Package with tests to run
     #[arg(skip)]
@@ -187,42 +196,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     }
 
     if args.coverage {
-        let cov_args = crate::cli::coverage::CoverageArgs {
-            manifest_path: args.manifest_path.clone(),
-            package: args.package.clone(),
-            packages: args.packages.clone(),
-            workspace: args.workspace,
-            exclude: args.exclude.clone(),
-            release: args.release,
-            target_dir: args.target_dir.clone(),
-            features: args.features.clone(),
-            no_default_features: args.no_default_features,
-            all_features: args.all_features,
-            no_cache: args.no_cache,
-            cache_dir: args.cache_dir.clone(),
-            target: args.target.clone(),
-            locked: args.locked,
-            offline: args.offline,
-            frozen: args.frozen,
-            no_run: args.no_run,
-            no_fail_fast: args.no_fail_fast,
-            filter: args.filter.clone(),
-            test: args.test.clone(),
-            tests: args.tests,
-            all_targets: args.all_targets,
-            bin: args.bin.clone(),
-            bins: args.bins,
-            lib: args.lib,
-            doc: args.doc,
-            nocapture: args.nocapture,
-            exact: args.exact,
-            ignored: args.ignored,
-            concurrency: args.concurrency,
-            verbose: args.verbose,
-            config: args.config.clone(),
-            test_args: args.test_args.clone(),
-            ..Default::default()
-        };
+        let cov_args = crate::cli::coverage::CoverageArgs::from_test_args(args);
         return crate::cli::coverage::handle_coverage(&cov_args);
     }
 
@@ -274,44 +248,55 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         exclude: args.exclude.clone(),
         example_targets: Vec::new(),
         crate_types: Vec::new(),
-        quiet: false,
-        json_diagnostics: false,
+        quiet: args.quiet,
+        json_diagnostics: args.message_format.is_json(),
+        diagnostic_format: args.message_format.diagnostic_format(),
     };
 
     let root_manifest = opt
         .manifest_path
         .clone()
         .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
-    let root_dir = {
-        let p = root_manifest
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        if p.as_os_str().is_empty() {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        } else {
-            std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
-        }
+    let parent = root_manifest.parent().unwrap_or(std::path::Path::new("."));
+    let root_dir = if parent.as_os_str().is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    } else {
+        std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf())
     };
 
     if let Err(err) =
         crate::adapter::rust::test_selection::validate_test_options(&opt, &root_manifest, &root_dir)
     {
         eprintln!("error: {:#}", err);
+        if args.message_format.is_json() {
+            message_format::emit_build_finished(false);
+        }
         return 101;
     }
 
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
+    let suppress_ui = args.quiet || args.message_format != MessageFormat::Human;
     let _cache_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
-    Ui::header(&format!("test [{}]", profile));
-    let term_guard = TerminalGuard::acquire();
-    let progress = if !is_verbose {
+    if !suppress_ui {
+        Ui::header(&format!("test [{}]", profile));
+    }
+    let term_guard = (!suppress_ui).then(TerminalGuard::acquire);
+    let progress = if !is_verbose && !suppress_ui {
         Some(Ui::create_build_progress(profile))
     } else {
         None
     };
-    opt.progress = Some(create_test_progress_callback(progress.clone()));
+    opt.progress = Some(if args.message_format.is_json() {
+        message_format::json_progress_for(args.message_format)
+    } else if args.message_format.is_short() {
+        message_format::short_progress()
+    } else if args.quiet {
+        crate::cli::build::create_quiet_progress_callback()
+    } else {
+        create_test_progress_callback(progress.clone())
+    });
     let build_start = std::time::Instant::now();
     let build_res = RustAdapter::build(&opt);
     let compile_duration = build_start.elapsed();
@@ -324,15 +309,28 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         Ok(res) => res,
         Err(err) => {
             Ui::report_error(&err);
+            if args.message_format.is_json() {
+                message_format::emit_build_finished(false);
+            }
             return 1;
         }
     };
 
+    if args.message_format.is_json() {
+        message_format::emit_build_finished(result.success);
+    }
+
     if !result.success {
-        let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-        Ui::stage_start("❌", &format!("Test compilation failed [{}]", profile));
-        render_compiler_diagnostics(&result.stderr, is_verbose);
-        Ui::finish_failed(profile, &dur, "compilation errors");
+        if args.message_format == MessageFormat::Human {
+            let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
+            if !args.quiet {
+                Ui::stage_start("❌", &format!("Test compilation failed [{}]", profile));
+            }
+            render_compiler_diagnostics(&result.stderr, is_verbose);
+            if !args.quiet {
+                Ui::finish_failed(profile, &dur, "compilation errors");
+            }
+        }
         if std::env::var_os("MITTS_TIMINGS").is_some() || args.verbose > 0 {
             crate::core::metrics::print_timings(
                 compile_duration,
@@ -398,28 +396,4 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     }
 
     exit_code
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::adapter::BuildProgressEvent;
-
-    #[test]
-    fn test_test_progress_callback_all_events() {
-        for pb in [None, Some(Ui::create_build_progress("dev"))] {
-            let cb = create_test_progress_callback(pb.clone());
-            cb.0(BuildProgressEvent::InitTotal {
-                total: 3,
-                cached: 1,
-            });
-            cb.0(BuildProgressEvent::Compiling("test_crate".to_string()));
-            cb.0(BuildProgressEvent::UnitFinished);
-            cb.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
-            cb.0(BuildProgressEvent::Diagnostic("diag".to_string()));
-            if let Some(p) = pb {
-                p.finish_and_clear();
-            }
-        }
-    }
 }

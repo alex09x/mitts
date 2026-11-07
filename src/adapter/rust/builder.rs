@@ -44,7 +44,7 @@ pub fn compute_options_hash(
     packages.dedup();
 
     let mut payload = format!(
-        "jobs={}|compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkgs={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|all_benches={}|all_examples={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|json_diagnostics={}|cache_dir={:?}",
+        "jobs={}|compiler_protocol={}|manifest={}|target_dir={}|target={:?}|crate_types={:?}|start_dir={:?}|release={}|mode={:?}|no_cache={}|native={}|cargo={}|pkgs={:?}|exclude={:?}|bins={:?}|all_bins={}|examples={:?}|lib_only={}|doc_only={}|tests={:?}|all_tests={}|all_benches={}|all_examples={}|features={:?}|all_features={}|no_default_features={}|extra_args={:?}|diag_format={:?}|cache_dir={:?}",
         crate::core::jobs::limit().unwrap_or(0),
         super::compiler_remap::KEY_FLAG,
         manifest_path.display(),
@@ -72,7 +72,7 @@ pub fn compute_options_hash(
         opt.all_features,
         opt.no_default_features,
         opt.extra_args,
-        opt.json_diagnostics,
+        opt.effective_diagnostic_format(),
         opt.cache_dir,
     );
     if !opt.bench_targets.is_empty() {
@@ -415,6 +415,12 @@ fn record_state_and_trace(
             if let Some(parent) = art.parent() {
                 root_binary_link_args.push(format!("-L{}", parent.display()));
             }
+        }
+        if opt.native && !plan.artifacts.is_empty() {
+            let cas_artifacts = crate::core::cache_root::resolve(opt.cache_dir.as_deref())
+                .join("cas")
+                .join("artifacts");
+            root_binary_link_args.push(format!("-L{}", cas_artifacts.display()));
         }
 
         let _ = FastBuildLock::record_state_with_options(

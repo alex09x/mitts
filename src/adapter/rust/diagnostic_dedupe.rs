@@ -14,8 +14,8 @@
 //! Each located diagnostic block of a compiler's output is hashed per build; a repeat is
 //! dropped and the compiler's own summary line gains "(N duplicates)".
 
-use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
@@ -90,6 +90,40 @@ pub fn dedupe(text: &str) -> String {
             }
         } else {
             out.push_str(&block);
+        }
+    }
+    out
+}
+
+/// Deduplicates single-line `--error-format=short` diagnostics (`path:line:col: level: ...`)
+/// across dual-compiled host and target units within one build.
+pub fn dedupe_short(text: &str) -> String {
+    let mut guard = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let seen = guard.get_or_insert_with(HashSet::new);
+    let mut dropped = 0usize;
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let plain = strip_ansi(line);
+        let trimmed = plain.trim_end();
+        let is_located_short = trimmed.contains(": warning") || trimmed.contains(": error");
+        if is_located_short {
+            let mut h = DefaultHasher::new();
+            trimmed.hash(&mut h);
+            if !seen.insert(h.finish()) {
+                dropped += 1;
+                continue;
+            }
+            out.push_str(line);
+        } else if dropped > 0 && is_summary(line) {
+            let (first, rest) = line.split_once('\n').unwrap_or((line, ""));
+            out.push_str(first);
+            out.push_str(&format!(" ({dropped} duplicates)"));
+            if !rest.is_empty() || line.ends_with('\n') {
+                out.push('\n');
+                out.push_str(rest);
+            }
+        } else {
+            out.push_str(line);
         }
     }
     out

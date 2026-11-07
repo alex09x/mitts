@@ -94,6 +94,7 @@ impl<'a> CacheGc<'a> {
     }
 
     pub fn prune(&self, opts: &GcOptions) -> Result<GcReport> {
+        crate::adapter::rust::build_deps::sweep_dead_in(&self.cas.root().join("tmp"));
         let sources_dir =
             super::cache_root::from_cas_root(self.cas.root()).join(super::cache_root::SOURCES_DIR);
         if sources_dir.is_dir() {

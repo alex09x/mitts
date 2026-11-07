@@ -49,7 +49,15 @@ impl<'a> RustcInvocation<'a> {
 
         let (success, mut exit_code, stdout, stderr, mut primary_output, mut metadata_output) =
             if is_pipelined_lib {
-                let res = super::pipelining::run_pipelined_rustc(cmd, on_metadata)?;
+                let preserve_json = super::compiler_args::diagnostics::resolve_diagnostic_format(
+                    self.extra_compiler_args,
+                )
+                .is_json();
+                let res = super::pipelining::run_pipelined_rustc_with_format(
+                    cmd,
+                    preserve_json,
+                    on_metadata,
+                )?;
                 (
                     res.success,
                     res.exit_code,

@@ -264,7 +264,7 @@ pub fn merge_and_report_coverage(
             }
         }
     } else {
-        if !args.json_report_on_stdout() {
+        if !args.json_report_on_stdout() && !args.quiet {
             println!();
         }
         match cov_cmd.status() {
@@ -333,25 +333,27 @@ pub fn merge_and_report_coverage(
 
     let _ = fs::remove_file(&pid_profdata);
     let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-    if let (Some(path), Some(_)) = (&report_file, &args.output_path) {
-        Ui::stage_item(
-            true,
-            &Ui::badge_cached(),
-            &format!("Report saved to {}", path.display()),
-        );
-    }
-    if args.html {
-        Ui::stage_item(
-            true,
-            &Ui::badge_cached(),
-            &format!("HTML report saved to {}", out_dir.display()),
-        );
-        if args.open {
-            let index = out_dir.join("index.html");
-            let _ = Command::new("open").arg(&index).status();
+    if !args.quiet {
+        if let (Some(path), Some(_)) = (&report_file, &args.output_path) {
+            Ui::stage_item(
+                true,
+                &Ui::badge_cached(),
+                &format!("Report saved to {}", path.display()),
+            );
+        }
+        if args.html {
+            Ui::stage_item(
+                true,
+                &Ui::badge_cached(),
+                &format!("HTML report saved to {}", out_dir.display()),
+            );
         }
     }
-    if !args.json_report_on_stdout() {
+    if args.html && args.open {
+        let index = out_dir.join("index.html");
+        let _ = Command::new("open").arg(&index).status();
+    }
+    if !args.json_report_on_stdout() && !args.quiet {
         Ui::finish("coverage", &dur, "Coverage report completed");
     }
 

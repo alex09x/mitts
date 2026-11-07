@@ -10,6 +10,7 @@
 
 use crate::adapter::{BuildProgressCallback, BuildProgressEvent, RustAdapter, RustBuildOptions};
 use crate::cli::diagnostic::render_compiler_diagnostics;
+use crate::cli::message_format::{self, MessageFormat};
 use crate::cli::terminal::TerminalGuard;
 use crate::cli::ui::Ui;
 use crate::cli::BuildArgs;
@@ -43,6 +44,8 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         target_triple: args.target.clone(),
         crate_types: args.crate_types.clone(),
         quiet: args.quiet,
+        json_diagnostics: args.message_format.is_json(),
+        diagnostic_format: args.message_format.diagnostic_format(),
         fast_lock: args.fast_lock,
         native: args.native,
         cargo: args.cargo,
@@ -124,7 +127,7 @@ pub fn create_progress_callback(progress: Option<indicatif::ProgressBar>) -> Bui
     }))
 }
 
-fn create_quiet_progress_callback() -> BuildProgressCallback {
+pub(crate) fn create_quiet_progress_callback() -> BuildProgressCallback {
     BuildProgressCallback(std::sync::Arc::new(|event| {
         let text = match event {
             BuildProgressEvent::CompilerMessage(text) | BuildProgressEvent::Diagnostic(text) => {
@@ -226,6 +229,9 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
     }
 
     let mut opt = to_rust_options(args);
+    if args.message_format != MessageFormat::Human {
+        return message_format::run_non_human_build(&mut opt, args.message_format);
+    }
     let start = std::time::Instant::now();
     let profile = if opt.release { "release" } else { "dev" };
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();

@@ -121,6 +121,10 @@ pub fn run_native_dag_build(
     let concurrency = max_concurrency.min(total_units.max(1));
 
     let cache_root = cas.root().parent().unwrap_or_else(|| cas.root());
+    let build_deps_dir = opt
+        .native
+        .then(|| super::build_deps::create_session_dir(cas.root(), opt.no_cache))
+        .transpose()?;
     let jobserver = Some(Arc::new(
         crate::core::JobserverPool::acquire_or_create_lazy(cache_root, max_concurrency),
     ));
@@ -201,10 +205,12 @@ pub fn run_native_dag_build(
             let target_index = Arc::clone(&target_index);
             let tracked_extra_files = Arc::clone(&tracked_extra_files);
             let tracked_env_vars = Arc::clone(&tracked_env_vars);
+            let build_deps_dir = build_deps_dir.clone();
 
             handles.push(s.spawn(move || -> Result<()> {
                 let _manifest_scope = manifest_snapshot.enter();
                 let _cache_budget = cache_budget.activate();
+                let _build_deps_scope = super::build_deps::enter(build_deps_dir.as_deref());
                 let ctx = ExecutionContext {
                     opt: &opt,
                     toolchain: &toolchain,

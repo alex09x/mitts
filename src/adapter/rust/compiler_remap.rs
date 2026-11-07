@@ -15,8 +15,8 @@ use std::process::Command;
 
 // Version the normalized semantics, never the machine-specific alias spellings.
 // The Cargo-compatible layout changes Darwin's relative N_OSO dependency paths;
-// do not reuse linked artifacts that still name the previous target/mitts tree.
-pub(crate) const KEY_FLAG: &str = "REMAP_ALIASES=canonical-v3-cargo-layout";
+// v4 switches composite unit keys to full-key metadata hashes for hermetic dependency resolution.
+pub(crate) const KEY_FLAG: &str = "REMAP_ALIASES=canonical-v4-hermetic-deps";
 
 /// Versions how coverage builds name source files; part of the unit key of instrumented units.
 pub(crate) const COVERAGE_KEY_FLAG: &str = "COVERAGE_PATHS=build-root-relative-v1";

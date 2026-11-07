@@ -229,14 +229,18 @@ pub fn run(
         }
     }
     if queue.is_empty() {
-        println!("mitts test: no tests matched ({skipped} skipped)");
+        if !args.quiet {
+            println!("mitts test: no tests matched ({skipped} skipped)");
+        }
         return 0;
     }
 
-    Ui::stage_start(
-        "🧪",
-        &format!("Running {} tests in {jobs} processes", queue.len()),
-    );
+    if !args.quiet {
+        Ui::stage_start(
+            "🧪",
+            &format!("Running {} tests in {jobs} processes", queue.len()),
+        );
+    }
     let stop = AtomicBool::new(false);
     let print = Mutex::new(());
     let outcome = Mutex::new((0usize, Vec::<String>::new()));
@@ -281,7 +285,9 @@ pub fn run(
         };
         let _guard = print.lock().unwrap();
         if ok {
-            println!("        PASS [{seconds:8.3}s] {shown}");
+            if !args.quiet {
+                println!("        PASS [{seconds:8.3}s] {shown}");
+            }
             outcome.lock().unwrap().0 += 1;
         } else {
             println!("        FAIL [{seconds:8.3}s] {shown}");
@@ -310,13 +316,17 @@ pub fn run(
         }
     );
     if failed.is_empty() {
-        Ui::finish(profile, &elapsed, &format!("{passed} tests passed"));
+        if !args.quiet {
+            Ui::finish(profile, &elapsed, &format!("{passed} tests passed"));
+        }
         0
     } else {
         for name in &failed {
             println!("        FAIL {name}");
         }
-        Ui::finish_failed(profile, &elapsed, &format!("{} tests failed", failed.len()));
+        if !args.quiet {
+            Ui::finish_failed(profile, &elapsed, &format!("{} tests failed", failed.len()));
+        }
         101
     }
 }
