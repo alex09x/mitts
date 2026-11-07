@@ -206,15 +206,20 @@ pub fn create_with_lock(
             }
             contents = toml::to_string(&normalized)?.into_bytes();
         }
-        let mut header = if symlink {
-            tar::Header::new_gnu()
+        // Every member gets a GNU header, like the synthesized ones below: git's ustar header must not
+        // be reused, because an archive that mixes ustar and GNU headers is rejected by strict readers
+        // (crates.io, issue #71). Only the permission bits are taken over from git.
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_mode(if symlink {
+            file_mode.unwrap_or(0o644)
         } else {
-            entry.header().clone()
-        };
-        if symlink {
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_mode(file_mode.unwrap_or(0o644));
-        }
+            entry
+                .header()
+                .mode()
+                .map(|mode| mode & 0o777)
+                .unwrap_or(0o644)
+        });
         header.set_uid(0);
         header.set_gid(0);
         header.set_mtime(0);
