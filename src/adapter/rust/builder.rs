@@ -81,6 +81,18 @@ pub fn compute_options_hash(
         benches.dedup();
         payload.push_str(&format!("|bench_targets={benches:?}"));
     }
+    if super::compiler_wrappers::wrapper_cache_enabled() {
+        let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
+        let config_dir = super::cargo_config::resolve_config_start_dir_with_opt(
+            project_dir,
+            opt.start_dir.as_deref(),
+        );
+        if let Ok(ids) = super::compiler_wrappers::resolve_wrapper_identities(&config_dir, true) {
+            if let Some(stamp) = super::compiler_wrappers::format_wrapper_identities_stamp(&ids) {
+                payload.push_str(&format!("|rustc_wrapper_identity={stamp}"));
+            }
+        }
+    }
     Sha256::digest(payload.as_bytes())
 }
 
@@ -101,13 +113,18 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let wrappers = crate::adapter::rust::compiler_wrappers::compiler_wrappers(&config_dir, true)?;
     let mut uncached_opt = opt.clone();
     if !wrappers.is_empty() {
-        uncached_opt.no_cache = true;
-        uncached_opt.fast_lock = Some(false);
-        if !opt.no_cache && !opt.quiet {
-            eprintln!(
-                "{}",
-                crate::adapter::rust::compiler_wrappers::uncached_wrapper_warning(&wrappers)
-            );
+        if crate::adapter::rust::compiler_wrappers::wrapper_cache_enabled() {
+            // Fail closed if any configured wrapper cannot be resolved or hashed on disk.
+            crate::adapter::rust::compiler_wrappers::resolve_wrapper_identities(&config_dir, true)?;
+        } else {
+            uncached_opt.no_cache = true;
+            uncached_opt.fast_lock = Some(false);
+            if !opt.no_cache && !opt.quiet {
+                eprintln!(
+                    "{}",
+                    crate::adapter::rust::compiler_wrappers::uncached_wrapper_warning(&wrappers)
+                );
+            }
         }
     }
     let opt = &uncached_opt;

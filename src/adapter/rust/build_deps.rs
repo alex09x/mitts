@@ -119,14 +119,16 @@ pub(crate) fn is_importable_crate_unit(unit: &PlannedCompilationUnit) -> bool {
 }
 
 /// Computes the 16-hex-char `-C metadata` / `-C extra-filename` suffix for `action_key`.
-/// Pure hex digests use their leading 16 characters; composite keys (`:bd:`, `:out:`,
-/// `:unhashable:`, `:ws_leak:`) hash the full string so build-script or taint suffixes
-/// produce distinct `StableCrateId`s.
+/// Per-process `:unhashable:<nonce>` taint markers are stripped first so ephemeral or
+/// tainted runs keep deterministic `StableCrateId`s across invocations; pure hex digests
+/// use their leading 16 characters, while deterministic composite keys (`:bd:`, `:out:`,
+/// `:ws_leak:`) hash the full string.
 pub(crate) fn unit_metadata_short_key(action_key: &str) -> String {
-    if action_key.len() >= 16 && action_key.bytes().all(|b| b.is_ascii_hexdigit()) {
-        action_key[..16].to_string()
+    let clean = super::dag_unit_publish::strip_unhashable_taint(action_key);
+    if clean.len() >= 16 && clean.bytes().all(|b| b.is_ascii_hexdigit()) {
+        clean[..16].to_string()
     } else {
-        let digest = Sha256::digest(action_key.as_bytes());
+        let digest = Sha256::digest(clean.as_bytes());
         digest[..16].to_string()
     }
 }

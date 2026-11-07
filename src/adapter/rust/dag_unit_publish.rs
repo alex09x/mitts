@@ -16,6 +16,7 @@ mod multi_crate_outputs;
 pub(crate) use aliases::{publish_library_alias, publish_uplifted_library};
 pub use inputs::record_extra_inputs_in_ctx;
 pub(crate) use keys::artifact_disambiguator;
+pub use keys::strip_unhashable_taint;
 
 use super::compiler::RustcOutput;
 use super::dag_cache::ExecutionContext;
@@ -98,10 +99,12 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     record_extra_inputs_in_ctx(ctx, ws_root.as_deref(), &extra_inputs);
 
     // 2. Compute result_key; shared artifact names follow it, not the coarse action key
+    let deterministic_rk =
+        compute_composite_result_key(&strip_unhashable_taint(action_key), &extra_inputs);
     let result_key = if can_publish_cache {
-        compute_composite_result_key(action_key, &extra_inputs)
+        deterministic_rk
     } else {
-        taint_unhashable_key(action_key)
+        taint_unhashable_key(&deterministic_rk)
     };
 
     if let Some(rk_map) = ctx.resolved_keys {

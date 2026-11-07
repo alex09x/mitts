@@ -76,13 +76,18 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
                         if rk.contains(":unhashable:") {
                             dep_tainted = true;
                         }
-                        Some((dep_id.clone(), rk.clone()))
+                        Some((
+                            dep_id.clone(),
+                            super::dag_unit_publish::strip_unhashable_taint(rk),
+                        ))
                     } else {
                         dep_tainted = true;
-                        shared
-                            .unit_keys
-                            .get(dep_id)
-                            .map(|k| (dep_id.clone(), k.clone()))
+                        shared.unit_keys.get(dep_id).map(|k| {
+                            (
+                                dep_id.clone(),
+                                super::dag_unit_publish::strip_unhashable_taint(k),
+                            )
+                        })
                     }
                 })
                 .collect()

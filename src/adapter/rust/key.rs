@@ -157,6 +157,17 @@ pub fn derive_unit_action_key_context(
     } else {
         config_rustflags
     };
+    let (ws_wrapper_flag, ext_wrapper_flag) = if super::compiler_wrappers::wrapper_cache_enabled() {
+        let ws_ids = super::compiler_wrappers::resolve_wrapper_identities(&config_start_dir, true)?;
+        let ext_ids =
+            super::compiler_wrappers::resolve_wrapper_identities(&config_start_dir, false)?;
+        (
+            super::compiler_wrappers::format_wrapper_identities_stamp(&ws_ids),
+            super::compiler_wrappers::format_wrapper_identities_stamp(&ext_ids),
+        )
+    } else {
+        (None, None)
+    };
 
     // 1. Gather all unique package directories and their workspace status
     let mut unique_pkgs: HashMap<PathBuf, bool> = HashMap::new();
@@ -227,6 +238,14 @@ pub fn derive_unit_action_key_context(
             for rf in &effective_target_rustflags {
                 u_flags.push(format!("CONFIG_RUSTFLAG:{}", rf));
             }
+        }
+        let wrapper_flag = if unit.is_workspace {
+            ws_wrapper_flag.as_ref()
+        } else {
+            ext_wrapper_flag.as_ref()
+        };
+        if let Some(wf) = wrapper_flag {
+            u_flags.push(wf.clone());
         }
 
         Ok::<_, anyhow::Error>((unit.unit_id(), inputs, u_flags))
