@@ -16,6 +16,7 @@
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
+  <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
 
 <p align="center">
@@ -447,6 +448,26 @@ Architecture decisions: [docs/decisions](docs/decisions).
 
 [Alexander Panasenko](https://prod.codes/about/) · alex@prod.codes ·
 [mittsbuild.com](https://mittsbuild.com)
+
+## Citation
+
+To cite Mitts, use the archived release. The concept DOI
+[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) always resolves to the
+latest version; the version DOI of 0.3.29 is
+[10.5281/zenodo.24030068](https://doi.org/10.5281/zenodo.24030068). GitHub's
+"Cite this repository" reads [CITATION.cff](CITATION.cff).
+
+```bibtex
+@software{panasenko_2026_24030068,
+  author    = {Panasenko, Alexander},
+  title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {0.3.29},
+  doi       = {10.5281/zenodo.24030068},
+  url       = {https://doi.org/10.5281/zenodo.24030068}
+}
+```
 
 ## License
 
