@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use Mitts in research or documentation, please cite the archived release."
+type: software
+title: "Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache"
+version: 0.3.29
+date-released: 2026-11-07
+doi: 10.5281/zenodo.24030067
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24030068
+    description: "Archived release 0.3.29 (version DOI)"
+  - type: doi
+    value: 10.5281/zenodo.24030067
+    description: "All versions (concept DOI, always resolves to the latest version)"
+authors:
+  - family-names: Panasenko
+    given-names: Alexander
+    orcid: "https://orcid.org/0009-0003-3569-6490"
+license:
+  - MIT
+  - Apache-2.0
+repository-code: "https://github.com/alex09x/mitts"
+url: "https://mittsbuild.com"

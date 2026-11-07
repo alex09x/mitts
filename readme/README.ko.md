@@ -1,7 +1,7 @@
-<!-- translation-source: 8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d -->
+<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
 
 > [!NOTE]
-> 이 문서는 커밋 [8cdc4c9](https://github.com/alex09x/mitts/blob/8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d/README.md) 기준 공식 영문 문서를 번역한 것입니다.
+> 이 문서는 커밋 [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md) 기준 공식 영문 문서를 번역한 것입니다.
 > 기준이 되는 최신 문서는 [영문 README](https://github.com/alex09x/mitts/blob/main/README.md)입니다.
 
 <p align="center">
@@ -22,6 +22,7 @@
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
+  <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
 
 <p align="center">
@@ -322,6 +323,22 @@ Mitts는 Cargo와 동일한 기본 출력 경로를 사용합니다. 공유 아�
 
 [Alexander Panasenko](https://prod.codes/about/) · alex@prod.codes ·
 [mittsbuild.com](https://mittsbuild.com)
+
+## 인용
+
+Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.3.29 버전의 DOI는 [10.5281/zenodo.24030068](https://doi.org/10.5281/zenodo.24030068)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
+
+```bibtex
+@software{panasenko_2026_24030068,
+  author    = {Panasenko, Alexander},
+  title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {0.3.29},
+  doi       = {10.5281/zenodo.24030068},
+  url       = {https://doi.org/10.5281/zenodo.24030068}
+}
+```
 
 ## 라이선스
 

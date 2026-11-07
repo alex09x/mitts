@@ -1,7 +1,7 @@
-<!-- translation-source: 8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d -->
+<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
 
 > [!NOTE]
-> هذه ترجمة عربية للتوثيق الرسمي باللغة الإنجليزية عند الإيداع [8cdc4c9](https://github.com/alex09x/mitts/blob/8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d/README.md). النسخة المعتمدة والأحدث هي [README باللغة الإنجليزية](https://github.com/alex09x/mitts/blob/main/README.md).
+> هذه ترجمة عربية للتوثيق الرسمي باللغة الإنجليزية عند الإيداع [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md). النسخة المعتمدة والأحدث هي [README باللغة الإنجليزية](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -24,6 +24,7 @@
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
+  <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
 
 <p align="center" dir="rtl">
@@ -361,6 +362,27 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 
 [Alexander Panasenko](https://prod.codes/about/) · alex@prod.codes ·
 [mittsbuild.com](https://mittsbuild.com)
+
+</div>
+
+<a id="citation"></a>
+## الاستشهاد
+
+للاستشهاد بـ Mitts، استخدم الإصدار المؤرشف. يشير معرّف DOI المفاهيمي <bdi>[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)</bdi> دائماً إلى أحدث إصدار؛ ومعرّف DOI للإصدار 0.3.29 هو <bdi>[10.5281/zenodo.24030068](https://doi.org/10.5281/zenodo.24030068)</bdi>. تقرأ ميزة «Cite this repository» في GitHub الملف <bdi>[CITATION.cff](../CITATION.cff)</bdi>.
+
+<div dir="ltr">
+
+```bibtex
+@software{panasenko_2026_24030068,
+  author    = {Panasenko, Alexander},
+  title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {0.3.29},
+  doi       = {10.5281/zenodo.24030068},
+  url       = {https://doi.org/10.5281/zenodo.24030068}
+}
+```
 
 </div>
 

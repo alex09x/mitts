@@ -1,7 +1,7 @@
-<!-- translation-source: 8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d -->
+<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
 
 > [!NOTE]
-> Ceci est une traduction de la documentation officielle en anglais au commit [8cdc4c9](https://github.com/alex09x/mitts/blob/8cdc4c9b31d16dfc2a53f0fa412b8957113b5e1d/README.md). La version canonique et la plus à jour reste le [README en anglais](https://github.com/alex09x/mitts/blob/main/README.md).
+> Ceci est une traduction de la documentation officielle en anglais au commit [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md). La version canonique et la plus à jour reste le [README en anglais](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -21,6 +21,7 @@
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
+  <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
 
 <p align="center">
@@ -456,6 +457,22 @@ Décisions d'architecture : [docs/decisions](../docs/decisions).
 
 [Alexander Panasenko](https://prod.codes/about/) · alex@prod.codes ·
 [mittsbuild.com](https://mittsbuild.com)
+
+## Citation
+
+Pour citer Mitts, utilisez la version archivée. Le DOI de concept [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) pointe toujours vers la dernière version ; le DOI de la version 0.3.29 est [10.5281/zenodo.24030068](https://doi.org/10.5281/zenodo.24030068). La fonction « Cite this repository » de GitHub lit [CITATION.cff](../CITATION.cff).
+
+```bibtex
+@software{panasenko_2026_24030068,
+  author    = {Panasenko, Alexander},
+  title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {0.3.29},
+  doi       = {10.5281/zenodo.24030068},
+  url       = {https://doi.org/10.5281/zenodo.24030068}
+}
+```
 
 ## Licence
 
