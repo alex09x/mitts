@@ -242,8 +242,10 @@ pub fn handle_run(args: &RunArgs) -> i32 {
     }
 
     let profile = if opt.release { "release" } else { "dev" };
-    let quiet = args.build_args.quiet;
-    let term_guard = TerminalGuard::acquire();
+    let msg_fmt = args.build_args.message_format;
+    let quiet =
+        args.build_args.quiet || msg_fmt != crate::cli::message_format::MessageFormat::Human;
+    let term_guard = (!quiet).then(TerminalGuard::acquire);
     if !quiet {
         Ui::header(&format!("run [{}]", profile));
     }
@@ -252,38 +254,44 @@ pub fn handle_run(args: &RunArgs) -> i32 {
         progress.set_draw_target(indicatif::ProgressDrawTarget::hidden());
     }
 
-    let progress_clone = progress.clone();
-    opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(
-        move |event| match event {
-            BuildProgressEvent::InitTotal { total, cached } => {
-                Ui::set_build_progress_total(&progress_clone, total, cached);
-                progress_clone.set_message("Compiling...".to_string());
-            }
-            BuildProgressEvent::Compiling(crate_name) => {
-                progress_clone.set_message(format!("• {}", crate_name));
-            }
-            BuildProgressEvent::UnitFinished => {
-                if progress_clone.position() >= progress_clone.length().unwrap_or(0) {
-                    progress_clone.set_length(progress_clone.position() + 1);
+    if msg_fmt.is_json() {
+        opt.progress = Some(crate::cli::message_format::json_progress_for(msg_fmt));
+    } else if msg_fmt.is_short() {
+        opt.progress = Some(crate::cli::message_format::short_progress());
+    } else {
+        let progress_clone = progress.clone();
+        opt.progress = Some(BuildProgressCallback(std::sync::Arc::new(
+            move |event| match event {
+                BuildProgressEvent::InitTotal { total, cached } => {
+                    Ui::set_build_progress_total(&progress_clone, total, cached);
+                    progress_clone.set_message("Compiling...".to_string());
                 }
-                progress_clone.inc(1);
-            }
-            BuildProgressEvent::CompilerMessage(rendered) => {
-                if quiet {
-                    eprintln!("{rendered}");
-                } else {
-                    progress_clone.println(rendered);
+                BuildProgressEvent::Compiling(crate_name) => {
+                    progress_clone.set_message(format!("• {}", crate_name));
                 }
-            }
-            BuildProgressEvent::Diagnostic(line) => {
-                if quiet {
-                    eprintln!("{line}");
-                } else {
-                    progress_clone.println(line);
+                BuildProgressEvent::UnitFinished => {
+                    if progress_clone.position() >= progress_clone.length().unwrap_or(0) {
+                        progress_clone.set_length(progress_clone.position() + 1);
+                    }
+                    progress_clone.inc(1);
                 }
-            }
-        },
-    )));
+                BuildProgressEvent::CompilerMessage(rendered) => {
+                    if quiet {
+                        eprintln!("{rendered}");
+                    } else {
+                        progress_clone.println(rendered);
+                    }
+                }
+                BuildProgressEvent::Diagnostic(line) => {
+                    if quiet {
+                        eprintln!("{line}");
+                    } else {
+                        progress_clone.println(line);
+                    }
+                }
+            },
+        )));
+    }
 
     let _cache_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());
     let build_res = RustAdapter::build(&opt);
@@ -292,8 +300,13 @@ pub fn handle_run(args: &RunArgs) -> i32 {
 
     match build_res {
         Ok((plan, result)) => {
+            if msg_fmt.is_json() {
+                crate::cli::message_format::emit_build_finished(result.success);
+            }
             if !result.success {
-                if !result.stderr.is_empty() {
+                if msg_fmt == crate::cli::message_format::MessageFormat::Human
+                    && !result.stderr.is_empty()
+                {
                     eprintln!("{}", result.stderr);
                 }
                 return result.exit_code;

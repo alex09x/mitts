@@ -32,6 +32,10 @@ pub struct CoverageArgs {
     #[arg(short, long)]
     pub release: bool,
 
+    /// Suppress Mitts progress and stage banners; keep errors and the coverage report
+    #[arg(short = 'q', long)]
+    pub quiet: bool,
+
     /// Only print high-level coverage summary table
     #[arg(long)]
     pub summary_only: bool,
@@ -197,5 +201,45 @@ impl CoverageArgs {
     /// stage lines or output of the instrumented tests may reach it (they go to stderr).
     pub fn json_report_on_stdout(&self) -> bool {
         self.json && !self.html && !self.lcov && self.output_path.is_none()
+    }
+
+    pub fn from_test_args(args: &crate::cli::test::TestArgs) -> Self {
+        Self {
+            manifest_path: args.manifest_path.clone(),
+            package: args.package.clone(),
+            packages: args.packages.clone(),
+            workspace: args.workspace,
+            exclude: args.exclude.clone(),
+            release: args.release,
+            quiet: args.quiet,
+            target_dir: args.target_dir.clone(),
+            features: args.features.clone(),
+            no_default_features: args.no_default_features,
+            all_features: args.all_features,
+            no_cache: args.no_cache,
+            cache_dir: args.cache_dir.clone(),
+            target: args.target.clone(),
+            locked: args.locked,
+            offline: args.offline,
+            frozen: args.frozen,
+            no_run: args.no_run,
+            no_fail_fast: args.no_fail_fast,
+            filter: args.filter.clone(),
+            test: args.test.clone(),
+            tests: args.tests,
+            all_targets: args.all_targets,
+            bin: args.bin.clone(),
+            bins: args.bins,
+            lib: args.lib,
+            doc: args.doc,
+            nocapture: args.nocapture,
+            exact: args.exact,
+            ignored: args.ignored,
+            concurrency: args.concurrency,
+            verbose: args.verbose,
+            config: args.config.clone(),
+            test_args: args.test_args.clone(),
+            ..Default::default()
+        }
     }
 }

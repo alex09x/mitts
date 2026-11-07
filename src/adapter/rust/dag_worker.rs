@@ -63,6 +63,11 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
         let mut dep_tainted = false;
         let dep_keys: Vec<(String, String)> = {
             let map = shared.resolved_keys.lock().unwrap();
+            for dep_id in &node.dependencies {
+                if map.get(dep_id).is_none_or(|rk| rk.contains(":unhashable:")) {
+                    dep_tainted = true;
+                }
+            }
             unit.dependencies
                 .iter()
                 .filter_map(|dep_id| {

@@ -34,6 +34,9 @@ pub fn doctest_runner_args(args: &TestArgs) -> Vec<String> {
     if let Some(ref filter) = args.filter {
         out.push(filter.clone());
     }
+    if args.quiet && !super::test_runner::has_explicit_quiet_or_format(&args.test_args) {
+        out.push("-q".to_string());
+    }
     for (enabled, flag) in [
         (args.nocapture, "--nocapture"),
         (args.exact, "--exact"),
@@ -134,7 +137,9 @@ pub fn execute_doctests(
             );
         }
 
-        println!("   Doc-tests {}", inv.crate_name);
+        if !args.quiet {
+            println!("   Doc-tests {}", inv.crate_name);
+        }
         let status = match doctest_command(&rustdoc, &inv, args).status() {
             Ok(st) => st,
             Err(err) => {

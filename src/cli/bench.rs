@@ -14,6 +14,7 @@
 //! differences are the selection (benchmark targets only), the profile, the argument and that
 //! no documentation tests run.
 
+use crate::cli::message_format::MessageFormat;
 use crate::cli::test::{handle_test, TestArgs};
 use clap::Args;
 use std::path::PathBuf;
@@ -27,6 +28,14 @@ pub struct BenchArgs {
     /// Limit concurrent native build units (same as MITTS_JOBS; the flag wins)
     #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
     pub jobs: Option<u64>,
+
+    /// Suppress Mitts banners and stage summaries
+    #[arg(short = 'q', long)]
+    pub quiet: bool,
+
+    /// Diagnostic output format: human, short, json, or Cargo json-* variants
+    #[arg(long, default_value_t = MessageFormat::Human, value_name = "FMT")]
+    pub message_format: MessageFormat,
 
     /// Packages to benchmark (repeat for multiple packages)
     #[arg(short = 'p', long = "package", action = clap::ArgAction::Append)]
@@ -116,6 +125,8 @@ fn test_args(args: &BenchArgs) -> TestArgs {
     TestArgs {
         manifest_path: args.manifest_path.clone(),
         jobs: args.jobs,
+        quiet: args.quiet,
+        message_format: args.message_format,
         packages: args.packages.clone(),
         workspace: args.workspace,
         exclude: args.exclude.clone(),

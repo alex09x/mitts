@@ -20,7 +20,11 @@ pub(super) fn publish_link_outputs(
     clean_crate: &str,
 ) -> Result<(Vec<CachedOutput>, Vec<PathBuf>, Vec<PathBuf>)> {
     let unit = args.unit;
+    if !crate::adapter::rust::build_deps::is_importable_crate_unit(unit) {
+        return Ok((Vec::new(), Vec::new(), Vec::new()));
+    }
     let ctx = args.ctx;
+    let active_bdeps = crate::adapter::rust::build_deps::active_dir();
     let mut source_outputs = collect_link_outputs(args.staging_dir, clean_crate);
     if let Some(primary) = args
         .output
@@ -57,12 +61,22 @@ pub(super) fn publish_link_outputs(
         action_outputs.push(named.clone());
 
         let priority = extern_artifact_priority(ext);
+        let extern_candidate = if let Some(ref bdeps) = active_bdeps {
+            crate::adapter::rust::build_deps::materialize_in_dir(
+                ctx.cas,
+                bdeps,
+                Path::new(file_name),
+                &hash,
+            )?
+        } else {
+            named
+        };
         if priority > 0
             && preferred_artifact
                 .as_ref()
                 .is_none_or(|(current, _)| priority > *current)
         {
-            preferred_artifact = Some((priority, named));
+            preferred_artifact = Some((priority, extern_candidate));
         }
 
         if !ctx.opt.native || unit.is_workspace {

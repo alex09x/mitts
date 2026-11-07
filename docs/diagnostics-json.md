@@ -1,18 +1,38 @@
-# Machine-readable diagnostics
+# Machine-readable and compact diagnostics
 
-`mitts check` and `mitts clippy` accept `--message-format`:
+`mitts build`, `mitts check`, `mitts clippy`, `mitts test`, `mitts bench`, and `mitts run` accept `--message-format`:
 
 | Value | Meaning |
 |---|---|
-| `human` (default) | Progress, banners and rendered diagnostics, as before. |
-| `json` | Cargo-compatible JSON lines on stdout; nothing else is printed there. |
+| `human` (default) | Progress, banners and rendered multi-line diagnostics. |
+| `short` | Single-line `file:line:col: level: message` diagnostics on stderr without Mitts banners. |
+| `json` | Cargo-compatible JSON lines on stdout; nothing else is printed there during compilation. |
+| `json-diagnostic-short` | JSON lines on stdout whose `compiler-message.message.rendered` uses single-line short text. |
+| `json-diagnostic-rendered-ansi` | JSON lines on stdout whose `compiler-message.message.rendered` preserves ANSI color escapes. |
+| `json-render-diagnostics` | Omits `compiler-message` records from stdout, renders diagnostics to stderr instead, and still emits `build-finished` on stdout. |
 
-Both `--message-format json` and `--message-format=json` work. Any other value is a usage
-error with exit code 2.
+Cargo's comma-separated JSON modifiers work as well (`json,json-diagnostic-short`,
+`json,json-diagnostic-rendered-ansi`, `json-render-diagnostics,json-diagnostic-short`, and
+`json-render-diagnostics,json-diagnostic-rendered-ansi`). Both `--message-format json` and
+`--message-format=json` work. Conflicting combinations (`human,json`, `json,json-render-diagnostics`,
+`json-diagnostic-short,json-diagnostic-rendered-ansi`) or unknown values are rejected with exit code 2.
 
-## The stream
+## Quiet mode (`-q` / `--quiet`)
 
-With `json`, each line of stdout is one JSON object with a `reason`.
+`mitts build`, `mitts check`, `mitts clippy`, `mitts test`, `mitts coverage` (`llvm-cov`), `mitts bench`,
+and `mitts run` accept `-q` / `--quiet`:
+
+- Suppresses Mitts banners, progress bars, `[mitts::stats]`, and decorative stage footers.
+- In `mitts test -q`, standard libtest binaries receive `-q` and per-binary `Running ...` / `Doc-tests ...`
+  headers are suppressed; test failures and the final `test result: ...` summary remain visible and the
+  exit code is unchanged.
+- In `mitts test -c -q`, per-test `PASS [...]` lines and stage banners are suppressed while `FAIL [...]`
+  output and the `Summary [...]` line remain visible.
+
+## The JSON stream
+
+With `json` (and `json-diagnostic-short` / `json-diagnostic-rendered-ansi`), each line of stdout during
+the build phase is one JSON object with a `reason`.
 
 `compiler-message` is written once per compiler diagnostic, in the order units finish:
 
@@ -22,11 +42,11 @@ With `json`, each line of stdout is one JSON object with a `reason`.
  "message":{"$message_type":"diagnostic","level":"error","code":{"code":"E0308"},"spans":[],"rendered":"..."}}
 ```
 
-`message` is the diagnostic exactly as rustc (or Clippy) emitted it, including `level`, `code`,
-`spans`, `children` and `rendered`. `target.kind` and `target.crate_types` both hold the unit's
-crate-type list. `package_id` is Mitts' own package id (`name@version`), not Cargo's URL form.
+`message` is the diagnostic as rustc (or Clippy) emitted it, including `level`, `code`, `spans`,
+`children` and `rendered`. `target.kind` and `target.crate_types` both hold the unit's crate-type
+list. `package_id` is Mitts' own package id (`name@version`), not Cargo's URL form.
 
-`build-finished` is always the last record:
+`build-finished` closes the compilation stream:
 
 ```json
 {"reason":"build-finished","success":false}
@@ -35,21 +55,14 @@ crate-type list. `package_id` is Mitts' own package id (`name@version`), not Car
 `success` is false when any unit failed or the build could not start. The process exit code is
 the same as in human mode.
 
-## stdout and stderr
-
-stdout holds only records. The banner, the progress bar and the final summary are not printed in
-`json` mode. Everything else goes to stderr: the `[mitts::stats]` line, errors that stop a build
-before any unit ran, and any text that is not a diagnostic (for example output of a rustc
-wrapper).
-
 ## Cache
 
-JSON diagnostics use their own entries in the action cache, so a human-mode run never replays text
-into the JSON stream and the other way round. A cached unit replays its stored diagnostics as
-records, so a second run prints the same warnings without compiling.
+Each diagnostic format (`human`, `short`, `json`, `json-diagnostic-short`, `json-diagnostic-rendered-ansi`)
+uses distinct entries in both the action cache and the fast build lock, so cached runs replay
+diagnostics in the exact requested format without cross-contaminating other modes.
 
 ## Job limit
 
-`-j N` (also `--jobs N`) on `build`, `check`, `clippy`, `test`, `run` and `coverage` caps
+`-j N` (also `--jobs N`) on `build`, `check`, `clippy`, `test`, `bench`, `run` and `coverage` caps
 concurrent native build units like `MITTS_JOBS=N`. The flag wins when both are set. `N` must be a
 positive integer.

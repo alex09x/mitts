@@ -14,7 +14,7 @@ use super::types::{BuildProgressEvent, PlannedCompilationUnit};
 use crate::core::action::{Action, ActionKind};
 use anyhow::Result;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub use super::dag_unit::context::*;
 
@@ -227,96 +227,15 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                     break;
                 }
             }
-        } else {
-            let mut staged_completed: Vec<(String, PathBuf, u8)> = Vec::new();
-            for out in &entry.outputs {
-                let ext = out
-                    .relative_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("rlib");
-                if !ctx.opt.native || unit.is_workspace {
-                    let profile_name = if ctx.opt.release { "release" } else { "debug" };
-                    let deps_dir = ctx.target_dir.join(profile_name).join("deps");
-                    let _ = fs::create_dir_all(&deps_dir);
-                    let is_staticlib = matches!(ext, "a" | "lib");
-                    let target_dep_dest = if is_staticlib {
-                        ctx.target_dir.join(profile_name).join(&out.relative_path)
-                    } else {
-                        deps_dir.join(&out.relative_path)
-                    };
-                    let rel_key = if is_staticlib {
-                        format!("{}/{}", profile_name, out.relative_path.display())
-                    } else {
-                        format!("{}/deps/{}", profile_name, out.relative_path.display())
-                    };
-                    if crate::core::target_index::check_or_restore(
-                        ctx.target_index,
-                        ctx.cas,
-                        &out.cas_hash,
-                        &target_dep_dest,
-                        &rel_key,
-                        false,
-                    )
-                    .is_err()
-                    {
-                        return Ok(false);
-                    }
-                    let clean = unit.target_name.replace('-', "_");
-                    super::dag_unit_publish::publish_library_alias(
-                        ctx,
-                        &target_dep_dest,
-                        &clean,
-                        ext,
-                        &out.cas_hash,
-                    );
-                    if unit.is_workspace && !is_staticlib {
-                        super::dag_unit_publish::publish_uplifted_library(
-                            ctx,
-                            &target_dep_dest,
-                            &clean,
-                            ext,
-                            &out.cas_hash,
-                        );
-                    }
-                }
-
-                if matches!(ext, "rlib" | "dylib" | "so" | "a" | "lib" | "rmeta") {
-                    let is_meta_only = ext == "rmeta"
-                        && !entry.outputs.iter().any(|o| {
-                            matches!(
-                                o.relative_path.extension().and_then(|e| e.to_str()),
-                                Some("rlib" | "dylib" | "so" | "a" | "lib")
-                            )
-                        });
-                    let disambig = if is_meta_only {
-                        format!("{artifact_key}-m")
-                    } else {
-                        artifact_key.clone()
-                    };
-                    let Ok(named) = ctx.cas.named_artifact_path_with_disambiguator(
-                        &unit.target_name,
-                        &out.cas_hash,
-                        &disambig,
-                        ext,
-                    ) else {
-                        return Ok(false);
-                    };
-                    let priority = match ext {
-                        "rlib" => 3,
-                        "dylib" | "so" => 2,
-                        "a" | "lib" => 1,
-                        _ => 0,
-                    };
-                    staged_completed.push((unit.unit_id(), named, priority));
-                }
-            }
-            if let Some((uid, named, _)) = staged_completed
-                .into_iter()
-                .max_by_key(|(_, _, priority)| *priority)
-            {
-                ctx.completed_artifacts.lock().unwrap().insert(uid, named);
-            }
+        } else if super::build_deps::is_importable_crate_unit(unit)
+            && !super::build_deps::restore_importable_unit_outputs(
+                ctx,
+                unit,
+                &entry.outputs,
+                &artifact_key,
+            )
+        {
+            return Ok(false);
         }
 
         if let Some(rk_map) = ctx.resolved_keys {

@@ -13,8 +13,28 @@ use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// The compiler argument that selects JSON diagnostics (`--message-format=json`).
+/// Compiler marker arguments that distinguish diagnostic output formats in the action cache.
 pub const JSON_DIAGNOSTICS_ARG: &str = "--error-format=json";
+pub const SHORT_DIAGNOSTICS_ARG: &str = "--error-format=short";
+pub const JSON_DIAG_SHORT_ARG: &str = "--json=diagnostic-short";
+pub const JSON_DIAG_ANSI_ARG: &str = "--json=diagnostic-rendered-ansi";
+
+/// Compiler diagnostic encoding requested by `--message-format`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DiagnosticFormat {
+    #[default]
+    Human,
+    Short,
+    Json,
+    JsonShort,
+    JsonAnsi,
+}
+
+impl DiagnosticFormat {
+    pub fn is_json(self) -> bool {
+        matches!(self, Self::Json | Self::JsonShort | Self::JsonAnsi)
+    }
+}
 
 #[derive(Debug, Clone, thiserror::Error, Diagnostic)]
 pub enum RustAdapterError {
@@ -158,6 +178,8 @@ pub struct RustBuildOptions {
     /// Ask rustc for JSON diagnostics and report them as Cargo-shaped records
     /// (`mitts check|clippy --message-format=json`). Part of the action key.
     pub json_diagnostics: bool,
+    /// Compiler diagnostic encoding selected by `--message-format`. Part of the action key.
+    pub diagnostic_format: DiagnosticFormat,
     /// Whether the fast build lock may answer a no-op build. `None` keeps it active only
     /// for the default store; `Some(true)` keeps it active with an explicit `cache_dir` too.
     pub fast_lock: Option<bool>,
@@ -195,6 +217,16 @@ impl RustBuildOptions {
 }
 
 impl RustBuildOptions {
+    pub fn effective_diagnostic_format(&self) -> DiagnosticFormat {
+        if self.diagnostic_format != DiagnosticFormat::Human {
+            self.diagnostic_format
+        } else if self.json_diagnostics {
+            DiagnosticFormat::Json
+        } else {
+            DiagnosticFormat::Human
+        }
+    }
+
     pub fn effective_compiler_args(&self) -> Vec<String> {
         let mut args = if let Some(target) = self.target_triple.as_deref() {
             let mut args = vec!["--target".to_string(), target.to_string()];
@@ -203,10 +235,24 @@ impl RustBuildOptions {
         } else {
             self.extra_args.clone()
         };
-        if self.json_diagnostics {
-            // Every unit reports JSON, and the argument keeps these actions apart from the
-            // human-readable ones in the action cache.
-            args.push(JSON_DIAGNOSTICS_ARG.to_string());
+        // Every unit reports diagnostics in the selected format, and the marker arguments keep
+        // these actions apart in the action cache so cached runs replay matching output.
+        match self.effective_diagnostic_format() {
+            DiagnosticFormat::Human => {}
+            DiagnosticFormat::Short => {
+                args.push(SHORT_DIAGNOSTICS_ARG.to_string());
+            }
+            DiagnosticFormat::Json => {
+                args.push(JSON_DIAGNOSTICS_ARG.to_string());
+            }
+            DiagnosticFormat::JsonShort => {
+                args.push(JSON_DIAGNOSTICS_ARG.to_string());
+                args.push(JSON_DIAG_SHORT_ARG.to_string());
+            }
+            DiagnosticFormat::JsonAnsi => {
+                args.push(JSON_DIAGNOSTICS_ARG.to_string());
+                args.push(JSON_DIAG_ANSI_ARG.to_string());
+            }
         }
         args
     }

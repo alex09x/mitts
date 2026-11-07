@@ -57,3 +57,26 @@ pub fn create_test_progress_callback(
         }
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_test_progress_callback_all_events() {
+        for pb in [None, Some(Ui::create_build_progress("dev"))] {
+            let cb = create_test_progress_callback(pb.clone());
+            cb.0(BuildProgressEvent::InitTotal {
+                total: 3,
+                cached: 1,
+            });
+            cb.0(BuildProgressEvent::Compiling("test_crate".to_string()));
+            cb.0(BuildProgressEvent::UnitFinished);
+            cb.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
+            cb.0(BuildProgressEvent::Diagnostic("diag".to_string()));
+            if let Some(p) = pb {
+                p.finish_and_clear();
+            }
+        }
+    }
+}

@@ -109,8 +109,9 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         exclude: args.exclude.clone(),
         example_targets: Vec::new(),
         crate_types: Vec::new(),
-        quiet: false,
+        quiet: args.quiet,
         json_diagnostics: false,
+        ..Default::default()
     };
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
@@ -138,7 +139,8 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
 
     let profile = if args.release { "release" } else { "dev" };
     let data_on_stdout = args.json_report_on_stdout();
-    if !data_on_stdout {
+    let suppress_chatter = data_on_stdout || args.quiet;
+    if !suppress_chatter {
         Ui::header(&format!("coverage [{}]", profile));
         Ui::stage_start(
             "📊",
@@ -164,8 +166,10 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     }
 
     if args.no_run {
-        let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
-        Ui::finish("coverage", &dur, "Instrumented test targets compiled");
+        if !suppress_chatter {
+            let dur = format!("{:.2}s", start.elapsed().as_secs_f64());
+            Ui::finish("coverage", &dur, "Instrumented test targets compiled");
+        }
         return 0;
     }
 
@@ -178,7 +182,9 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     };
 
     if discovered.test_binaries.is_empty() {
-        eprintln!("mitts coverage: no test binaries found to run");
+        if !args.quiet {
+            eprintln!("mitts coverage: no test binaries found to run");
+        }
         return 0;
     }
 
@@ -187,7 +193,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     let _ = fs::remove_dir_all(&profraw_dir);
     let _ = fs::create_dir_all(&profraw_dir);
 
-    if !data_on_stdout {
+    if !suppress_chatter {
         Ui::stage_start(
             "🧪",
             &format!(
@@ -207,6 +213,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
             ignored: args.ignored,
             no_fail_fast: args.no_fail_fast,
             release: args.release,
+            quiet: args.quiet,
             ..Default::default()
         };
         let code = super::test_parallel::run(
@@ -236,7 +243,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     } else {
         &discovered.test_binaries[..]
     };
-    for (_, bin_path, env) in serial {
+    for (desc, bin_path, env) in serial {
         let abs_bin = if bin_path.is_absolute() {
             bin_path.clone()
         } else {
@@ -287,6 +294,12 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         }
         if args.nocapture && !args.test_args.iter().any(|a| a == "--nocapture") {
             cmd.arg("--nocapture");
+        }
+        if args.quiet
+            && !desc.contains("::custom-test:")
+            && !super::test_runner::has_explicit_quiet_or_format(&args.test_args)
+        {
+            cmd.arg("-q");
         }
         for extra in &args.test_args {
             cmd.arg(extra);

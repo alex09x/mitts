@@ -17,6 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod crate_types;
+pub(crate) mod diagnostics;
 use std::process::Command;
 
 /// Prepares and configures the `Command` for a `RustcInvocation`.
@@ -39,7 +40,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.unit.target_name.replace('-', "_")
     };
     let edition = inv.unit.edition.as_deref().unwrap_or("2015");
-    let short_key = &inv.action_key[..inv.action_key.len().min(16)];
+    let short_key = super::build_deps::unit_metadata_short_key(inv.action_key);
     let is_host_kind = matches!(
         inv.unit.kind.as_str(),
         "proc-macro" | "custom-build" | "build-script"
@@ -377,57 +378,13 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     if let Some(target) = explicit_target.as_ref().filter(|_| !is_host && !has_cli_t) {
         cmd.args(["--target", target]);
     }
-    let mut i = 0;
-    while i < inv.extra_compiler_args.len() {
-        let arg = &inv.extra_compiler_args[i];
-        let next = inv.extra_compiler_args.get(i + 1).map(String::as_str);
-        if arg == "--workspace" || arg == "--all" {
-            i += 1;
-        } else if arg == "--target" || (arg == "-C" && next == Some("instrument-coverage")) {
-            if !is_host {
-                cmd.args(std::iter::once(arg.as_str()).chain(next));
-            }
-            i += 2;
-        } else if arg.starts_with("--target=") || arg == "-Cinstrument-coverage" {
-            if !is_host {
-                cmd.arg(arg);
-            }
-            i += 1;
-        } else if arg == super::types::JSON_DIAGNOSTICS_ARG {
-            // Applies to every unit and is added once, below.
-            i += 1;
-        } else if is_primary_target {
-            cmd.arg(arg);
-            i += 1;
-        } else if matches!(
-            arg.as_str(),
-            "-A" | "-W" | "-D" | "-F" | "-C" | "-Z" | "-L" | "-l" | "--cfg" | "--check-cfg"
-        ) && next.is_some()
-        {
-            i += 2;
-        } else {
-            i += 1;
-        }
-    }
-    if super::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace)
-        || (!inv.unit.is_workspace && !inv.unit.manifest_path.is_file())
-    {
-        cmd.args(["--cap-lints", "allow"]);
-    }
-    let is_pipelined_lib = super::planner_units::is_library_kind(&inv.unit.kind)
-        && inv.mode != BuildMode::Check
-        && inv.mode != BuildMode::Clippy;
-    let json_diagnostics = inv
-        .extra_compiler_args
-        .iter()
-        .any(|arg| arg == super::types::JSON_DIAGNOSTICS_ARG);
-    if is_pipelined_lib {
-        cmd.args(["--error-format=json", "--json=artifacts"]);
-    } else if json_diagnostics {
-        cmd.arg(super::types::JSON_DIAGNOSTICS_ARG);
-    } else {
-        cmd.arg("--color=never");
-    }
+    let is_pipelined_lib = diagnostics::append_extra_and_diagnostic_args(
+        &mut cmd,
+        inv,
+        pkg_dir,
+        is_host,
+        is_primary_target,
+    );
     Ok((cmd, clean_crate, is_pipelined_lib))
 }
 

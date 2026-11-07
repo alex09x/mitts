@@ -229,6 +229,10 @@ pub struct BuildArgs {
     #[arg(short, long)]
     pub quiet: bool,
 
+    /// Diagnostic output format: human, short, json, or Cargo json-* variants
+    #[arg(long, default_value_t = crate::cli::message_format::MessageFormat::Human, value_name = "FMT")]
+    pub message_format: crate::cli::message_format::MessageFormat,
+
     /// Override library crate types (for example, staticlib; use with --lib)
     #[arg(long = "crate-type", action = clap::ArgAction::Append)]
     pub crate_types: Vec<String>,

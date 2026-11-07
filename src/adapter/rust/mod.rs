@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub(crate) mod build_deps;
 pub mod build_script;
 pub mod build_script_cas;
 pub mod build_script_directives;
@@ -95,8 +96,9 @@ pub use lockfile::{CargoLock, CargoLockPackage};
 pub use resolver::NativeResolver;
 pub use sparse_index::SparseIndexClient;
 pub use types::{
-    BuildMode, BuildProgressCallback, BuildProgressEvent, EffectivePlanExplanation,
-    EnvMacroDiscovery, PlannedCompilationUnit, RustAdapterError, RustBuildOptions,
+    BuildMode, BuildProgressCallback, BuildProgressEvent, DiagnosticFormat,
+    EffectivePlanExplanation, EnvMacroDiscovery, PlannedCompilationUnit, RustAdapterError,
+    RustBuildOptions,
 };
 pub use unescape::unescape_rust_string;
 

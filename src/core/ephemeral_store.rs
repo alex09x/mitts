@@ -22,11 +22,14 @@ use super::lock::FileLock;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// Name prefix of the private directories in a cache root.
 pub const PREFIX: &str = "cas-ephemeral-";
 const OWNER_LOCK: &str = ".owner.lock";
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// The owner locks of this process's stores. They are held until the process exits: the
 /// documentation tests of `mitts test` run after the build and use its outputs.
@@ -34,11 +37,13 @@ static HELD: Mutex<Vec<FileLock>> = Mutex::new(Vec::new());
 
 /// Creates a private store directory in `cache_root` owned by this process and returns its path.
 pub fn create(cache_root: &Path) -> Result<PathBuf> {
+    let seq = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let dir = cache_root.join(format!("{PREFIX}{}-{nanos:x}", std::process::id()));
+    let pid = std::process::id();
+    let dir = cache_root.join(format!("{PREFIX}{pid}-{seq}-{nanos:x}"));
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create the private store {}", dir.display()))?;
     let lock = FileLock::acquire_exclusive(&dir.join(OWNER_LOCK))

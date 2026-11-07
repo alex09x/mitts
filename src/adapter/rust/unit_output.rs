@@ -12,21 +12,23 @@
 //! action cache, or produced by Clippy for a build script.
 
 use super::dag_cache::ExecutionContext;
-use super::types::{BuildProgressEvent, PlannedCompilationUnit};
+use super::types::{BuildProgressEvent, DiagnosticFormat, PlannedCompilationUnit};
 
-/// The text shown for `raw`. Human mode shows each diagnostic once per build, like Cargo; JSON
-/// mode wraps every diagnostic in a record for `unit` and keeps the order of the output.
+/// The text shown for `raw`. Human and short modes show each diagnostic once per build, like
+/// Cargo; JSON modes wrap every diagnostic in a record for `unit` and keep the output order.
 pub fn shown_text(ctx: &ExecutionContext, unit: &PlannedCompilationUnit, raw: &str) -> String {
-    if ctx.opt.json_diagnostics {
-        super::diagnostics_json::wrap(unit, raw)
-    } else {
-        super::diagnostic_dedupe::dedupe(raw)
+    match ctx.opt.effective_diagnostic_format() {
+        DiagnosticFormat::Json | DiagnosticFormat::JsonShort | DiagnosticFormat::JsonAnsi => {
+            super::diagnostics_json::wrap(unit, raw)
+        }
+        DiagnosticFormat::Short => super::diagnostic_dedupe::dedupe_short(raw),
+        DiagnosticFormat::Human => super::diagnostic_dedupe::dedupe(raw),
     }
 }
 
 /// Records `raw` as compiler output of `unit` and reports it to the progress callback.
-/// `failed_command` is the command line of a failed unit; it prefixes the human text so the
-/// failing invocation is visible, and is left out of JSON mode, where stdout is a clean stream.
+/// `failed_command` is the command line of a failed unit; it prefixes human text so the
+/// failing invocation is visible, and is left out of JSON and short modes.
 pub fn publish(
     ctx: &ExecutionContext,
     unit: &PlannedCompilationUnit,
@@ -42,8 +44,11 @@ pub fn publish(
     }
     ctx.compiler_messages.lock().unwrap().push(shown.clone());
     if let Some(ref callback) = ctx.opt.progress {
+        let fmt = ctx.opt.effective_diagnostic_format();
         let message = match failed_command {
-            Some(command) if !ctx.opt.json_diagnostics => format!("Command: {command}\n{shown}"),
+            Some(command) if fmt == DiagnosticFormat::Human => {
+                format!("Command: {command}\n{shown}")
+            }
             _ => shown,
         };
         callback.0(BuildProgressEvent::CompilerMessage(message));
