@@ -70,6 +70,17 @@ pub fn compute_build_script_key(
     hasher.update(b":rustc:");
     let verbose_rustc = get_rustc_verbose_version()?;
     hasher.update(verbose_rustc.as_bytes());
+    if super::compiler_wrappers::wrapper_cache_enabled() {
+        let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+        let base_dir = unit.workspace_root.as_deref().unwrap_or(pkg_dir);
+        let config_dir = super::cargo_config::resolve_config_start_dir(base_dir);
+        let ids =
+            super::compiler_wrappers::resolve_wrapper_identities(&config_dir, unit.is_workspace)?;
+        if let Some(stamp) = super::compiler_wrappers::format_wrapper_identities_stamp(&ids) {
+            hasher.update(b":wrapper_id:");
+            hasher.update(stamp.as_bytes());
+        }
+    }
 
     let log_key_inputs = std::env::var_os("MITTS_LOG_COMPILE").is_some();
     let mut key_log = String::new();

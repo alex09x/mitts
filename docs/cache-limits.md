@@ -26,11 +26,30 @@ private store `<cache>/cas-ephemeral-<id>` of its own, removed by the next build
 
 ## Compiler wrappers
 
-A `rustc-wrapper` in the cargo config (or `RUSTC_WRAPPER`, `CARGO_BUILD_RUSTC_WRAPPER`) is an
-input Mitts cannot know: it may change what the compiler produces. A build with a wrapper is
-therefore not cached, and Mitts prints a warning that names the wrapper and says how to clear
-it (set the variables to an empty value, or remove the key from the config).
+A `rustc-wrapper` in the cargo config (or `RUSTC_WRAPPER`, `CARGO_BUILD_RUSTC_WRAPPER`,
+`RUSTC_WORKSPACE_WRAPPER`, `CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER`) is an input Mitts cannot know:
+it may change what the compiler produces or depend on external state. By default, a build with a
+wrapper is therefore not cached, stages its outputs in a private `cas-ephemeral-<id>` store, and
+prints a warning that names the wrapper and says how to clear it (set the variables to an empty
+value, or remove the key from the config).
 
 `sccache` is the exception. It only caches compiler results and does not change them, and many
 users set it globally for every project. Mitts leaves it out: it compiles without it, and the
 units are reused from the Mitts cache.
+
+### Explicit opt-in for deterministic or analysis wrappers
+
+Pass-through, telemetry, or static-analysis wrappers that are deterministic functions of the
+`rustc` invocation can opt into a wrapper-scoped cache namespace:
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `MITTS_RUSTC_WRAPPER_CACHE` | set to `1` or `true` to cache wrapped units and build scripts in a namespace keyed by the wrapper executable's resolved path and SHA-256 content hash | off (`0`) |
+| `MITTS_RUSTC_WRAPPER_SALT` | optional caller-provided string mixed into wrapper-scoped keys when the wrapper's behavior depends on external config, schema version, or environment state | unset |
+
+When `MITTS_RUSTC_WRAPPER_CACHE=1` is set:
+- Every active wrapper executable must resolve on disk (`PATH` or file path) and is hashed by
+  content; editing or replacing the wrapper binary invalidates its namespace automatically.
+- Wrapped cache entries never satisfy an unwrapped build, and unwrapped cache entries never
+  satisfy a wrapped build.
+- Without `MITTS_RUSTC_WRAPPER_CACHE=1`, the default uncached behavior and warning are unchanged.

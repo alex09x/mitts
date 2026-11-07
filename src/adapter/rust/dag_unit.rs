@@ -243,18 +243,22 @@ pub(crate) fn execute_unit(
             } else {
                 None
             };
+            let clean_final = super::dag_unit_publish::strip_unhashable_taint(final_key);
+            let resolved_det = super::dag_unit_publish::resolve_unit_result_key(
+                unit,
+                &clean_final,
+                &staging_dir,
+                ws_root.as_deref(),
+                final_purity.as_ref(),
+                directives.out_dir.as_deref(),
+            );
             let early_rk = if !ctx.is_cache_enabled || final_key.contains(":unhashable:") {
-                super::dag_unit_publish::taint_unhashable_key(final_key)
-            } else {
-                super::dag_unit_publish::resolve_unit_result_key(
-                    unit,
-                    final_key,
-                    &staging_dir,
-                    ws_root.as_deref(),
-                    final_purity.as_ref(),
-                    directives.out_dir.as_deref(),
+                super::dag_unit_publish::taint_unhashable_key(
+                    resolved_det.as_deref().unwrap_or(&clean_final),
                 )
-                .unwrap_or_else(|| super::dag_unit_publish::taint_unhashable_key(final_key))
+            } else {
+                resolved_det
+                    .unwrap_or_else(|| super::dag_unit_publish::taint_unhashable_key(&clean_final))
             };
             let artifact_key =
                 super::dag_unit_publish::artifact_disambiguator(&early_rk, Some(&staging_dir));
