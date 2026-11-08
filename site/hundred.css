@@ -11,6 +11,10 @@
 :root { --c-cargo: #8a929d; --c-scc: #c3c8cf; --c-mitts: #ff3b30; --c-restore: #2f6f47; }
 .accent { color: var(--accent); }
 
+/* one header on every page; it wraps instead of spilling on narrow screens */
+.topbar { flex-wrap: wrap; row-gap: 10px; }
+.nav { flex-wrap: wrap; row-gap: 6px; }
+
 /* tabs: hidden until the script runs, so without JS every panel is simply shown */
 .tabs { display: none; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
 .js .tabs { display: flex; }

@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import aggregate  # noqa: E402
 import build_hundred  # noqa: E402
+import shell  # noqa: E402
 import build_docs  # noqa: E402
 
 SITE = HERE.parent.parent / "site"
@@ -44,9 +45,11 @@ def main():
     (SITE / "hundred" / "index.html").write_text(build_hundred.build(data), encoding="utf-8")
     home = SITE / "index.html"
     text = home.read_text(encoding="utf-8")
-    start, end = "<!-- hundred:start -->", "<!-- hundred:end -->"
-    a, b = text.index(start) + len(start), text.index(end)
-    home.write_text(text[:a] + "\n" + build_hundred.home_block(data) + "\n    " + text[b:], encoding="utf-8")
+    for name, block in (("hundred", build_hundred.home_block(data)), ("header", shell.header(0))):
+        start, end = "<!-- %s:start -->" % name, "<!-- %s:end -->" % name
+        a, b = text.index(start) + len(start), text.index(end)
+        text = text[:a] + "\n" + block + "\n  " + text[b:]
+    home.write_text(text, encoding="utf-8")
     print("wrote docs/index.html, hundred/index.html and the home scoreboard for mitts", version)
 
 
