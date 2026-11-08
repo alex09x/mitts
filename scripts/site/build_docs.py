@@ -56,7 +56,7 @@ def env_table():
 
 INTRO = """
 <section id="install"><h2>Install</h2>
-<p>Mitts is one binary for macOS (Apple Silicon) and Linux (x86_64 and aarch64). The installer downloads the release for your platform and verifies its checksum.</p>""" + pre("curl -fsSL https://mittsbuild.com/install.sh | sh\nmitts --version") + """
+<p>Mitts is one binary for macOS (Apple Silicon) and Linux (x86_64 and aarch64). The installer downloads the release for your platform and verifies its checksum. If GitHub cannot be reached, or your platform has no prebuilt binary (Intel macOS, other architectures), and Cargo is installed, it builds the same version from crates.io instead; set <code>MITTS_NO_SOURCE_FALLBACK=1</code> to fail rather than compile. See the <a href="#environment">environment variables</a>.</p>""" + pre("curl -fsSL https://mittsbuild.com/install.sh | sh\nmitts --version") + """
 <p>From source, or through crates.io, once you already have a Rust toolchain:</p>""" + pre("cargo install mitts --locked        # from crates.io\ncargo install --path .              # from a clone of the repository") + """
 <p>Mitts reads your existing <code>Cargo.toml</code> and <code>Cargo.lock</code>. There is nothing to configure and no second manifest. Cargo, rust-analyzer and Mitts can run side by side, because Mitts never writes into Cargo's <code>target/debug</code> or <code>target/release</code>.</p></section>
 

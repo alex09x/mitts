@@ -41,7 +41,7 @@
 <p class="lede">How to install and use Mitts, how the machine-wide cache decides what to rebuild, and every command, option and environment variable. The option tables are generated from the installed binary, so they match this version.</p></header>
 
 <section id="install"><h2>Install</h2>
-<p>Mitts is one binary for macOS (Apple Silicon) and Linux (x86_64 and aarch64). The installer downloads the release for your platform and verifies its checksum.</p><pre class="term"><code>curl -fsSL https://mittsbuild.com/install.sh | sh
+<p>Mitts is one binary for macOS (Apple Silicon) and Linux (x86_64 and aarch64). The installer downloads the release for your platform and verifies its checksum. If GitHub cannot be reached, or your platform has no prebuilt binary (Intel macOS, other architectures), and Cargo is installed, it builds the same version from crates.io instead; set <code>MITTS_NO_SOURCE_FALLBACK=1</code> to fail rather than compile. See the <a href="#environment">environment variables</a>.</p><pre class="term"><code>curl -fsSL https://mittsbuild.com/install.sh | sh
 mitts --version</code></pre>
 <p>From source, or through crates.io, once you already have a Rust toolchain:</p><pre class="term"><code>cargo install mitts --locked        # from crates.io
 cargo install --path .              # from a clone of the repository</code></pre>
