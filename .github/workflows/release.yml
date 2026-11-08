@@ -321,7 +321,6 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
           TAG: ${{ needs.source.outputs.tag }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
           test -z "$(git -C source status --porcelain --untracked-files=all)"

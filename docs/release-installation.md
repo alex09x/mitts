@@ -14,12 +14,6 @@ linker are needed when building Rust projects; Cargo is not used to install the
 ready binary. Windows and musl Linux are not provided as binary targets. Source
 installation remains available through Cargo.
 
-Downloads are retried on transient errors (5xx, timeouts). If github.com release
-pages fail (for example a 504 while `api.github.com` is healthy), the installer
-falls back to the GitHub API for the latest-tag lookup and for each asset, and the
-SHA-256 check is applied exactly as before. Set `GITHUB_TOKEN` to raise the API
-rate limit on shared CI runners; it is sent only to `api.github.com`.
-
 In GitHub Actions use the setup action, which installs a release and keeps the
 Mitts cache between runs: see [github-action.md](github-action.md).
 

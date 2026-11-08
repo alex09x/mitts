@@ -47,14 +47,6 @@ class InstallerTests(unittest.TestCase):
             "import os, pathlib, shutil, sys\n"
             "args=sys.argv[1:]; out=args[args.index('-o')+1]\n"
             "url=args[args.index('-o')-1]\n"
-            "fx=pathlib.Path(os.environ['FIXTURE_DIR'])\n"
-            "if url.startswith('https://api.github.com/'):\n"
-            " (fx/'api-calls.txt').open('a').write(url+'|'+' '.join(args)+'\\n')\n"
-            " if os.environ.get('FAIL_API'): sys.exit(22)\n"
-            " src=fx/('api-latest.json' if url.endswith('/releases/latest') else 'api-release.json' if '/releases/tags/' in url else 'api-asset-'+url.rsplit('/',1)[-1])\n"
-            " if not src.is_file(): sys.exit(22)\n"
-            " shutil.copyfile(src,out); sys.exit(0)\n"
-            "if os.environ.get('FAIL_GITHUB'): sys.exit(22)\n"
             "if url.endswith('/latest'):\n"
             " print((pathlib.Path(os.environ['FIXTURE_DIR'])/'latest.txt').read_text(),end=''); sys.exit(0)\n"
             "name=url.rsplit('/',1)[-1]\n"
@@ -170,6 +162,10 @@ class InstallerTests(unittest.TestCase):
     def test_missing_asset(self):
         self.run_installer(False)
 
+    def test_unavailable_github_suggests_cargo_install(self):
+        result = self.run_installer(False)
+        self.assertIn("cargo install mitts --locked", result.stderr)
+
     def test_missing_checksum(self):
         self.archive()
         (self.fixtures / "SHA256SUMS").unlink()
@@ -205,61 +201,6 @@ class InstallerTests(unittest.TestCase):
     def test_unsupported_architecture(self):
         self.platform("Linux", "riscv64")
         self.run_installer(False)
-
-    def api_fixtures(self, archive):
-        sums = self.fixtures / "SHA256SUMS"
-        (self.fixtures / "api-asset-101").write_bytes(archive.read_bytes())
-        (self.fixtures / "api-asset-102").write_bytes(sums.read_bytes())
-        base = "https://api.github.com/repos/alex09x/mitts/releases"
-        (self.fixtures / "api-release.json").write_text(
-            '{\n  "url": "%s/900",\n  "name": "%s",\n  "assets": [\n'
-            '    {\n      "url": "%s/assets/101",\n      "id": 101,\n      "name": "%s",\n'
-            '      "uploader": {"login": "x", "url": "https://api.github.com/users/x"}\n    },\n'
-            '    {\n      "url": "%s/assets/102",\n      "id": 102,\n      "name": "SHA256SUMS"\n    }\n  ]\n}\n'
-            % (base, TAG, base, archive.name, base)
-        )
-        (self.fixtures / "api-latest.json").write_text(
-            '{\n  "url": "%s/900",\n  "tag_name": "%s",\n  "name": "%s"\n}\n'
-            % (base, TAG, TAG)
-        )
-
-    def test_api_fallback_when_github_com_fails(self):
-        self.api_fixtures(self.archive())
-        self.env["FAIL_GITHUB"] = "1"
-        result = self.run_installer()
-        self.assertIn("api.github.com", result.stderr)
-        calls = (self.fixtures / "api-calls.txt").read_text()
-        self.assertIn("releases/latest", calls)
-        self.assertIn("application/octet-stream", calls)
-        self.assertNotIn("Authorization", calls)
-
-    def test_api_fallback_with_explicit_version_and_token(self):
-        self.api_fixtures(self.archive())
-        self.env.update(FAIL_GITHUB="1", MITTS_VERSION=TAG, GITHUB_TOKEN="t0ken")
-        self.run_installer()
-        calls = (self.fixtures / "api-calls.txt").read_text()
-        self.assertNotIn("releases/latest", calls)
-        self.assertIn("Authorization: Bearer t0ken", calls)
-
-    def test_api_fallback_still_verifies_checksum(self):
-        self.api_fixtures(self.archive())
-        (self.fixtures / "api-asset-102").write_text(
-            f"{'0' * 64}  mitts-{TAG}-x86_64-unknown-linux-gnu.tar.gz\n"
-        )
-        self.env["FAIL_GITHUB"] = "1"
-        self.run_installer(False)
-        self.assertFalse((self.prefix / "bin/mitts").exists())
-
-    def test_both_hosts_down_fails(self):
-        self.archive()
-        self.env.update(FAIL_GITHUB="1", FAIL_API="1", MITTS_VERSION=TAG)
-        self.run_installer(False)
-
-    def test_retries_are_requested(self):
-        self.api_fixtures(self.archive())
-        self.env.update(FAIL_GITHUB="1", MITTS_VERSION=TAG)
-        self.run_installer()
-        self.assertIn("--retry 3", (self.fixtures / "api-calls.txt").read_text())
 
     def test_script_is_shell_and_headers_are_text(self):
         self.assertTrue(INSTALLER.read_bytes().startswith(b"#!/bin/sh\n"))

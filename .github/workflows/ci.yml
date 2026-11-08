@@ -40,8 +40,6 @@ jobs:
         with:
           toolchain: 1.98.0
       - name: Build Mitts test driver
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           MITTS_INSTALL_ROOT="$RUNNER_TEMP/mitts-bootstrap" sh site/install.sh
@@ -78,7 +76,6 @@ jobs:
       - name: Install latest stable Mitts
         env:
           MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sh site/install.sh
           binary="$MITTS_INSTALL_ROOT/bin/mitts"
@@ -162,7 +159,6 @@ jobs:
       - name: Install latest stable Mitts
         env:
           MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sh site/install.sh
           binary="$MITTS_INSTALL_ROOT/bin/mitts"
