@@ -14,6 +14,16 @@ linker are needed when building Rust projects; Cargo is not used to install the
 ready binary. Windows and musl Linux are not provided as binary targets. Source
 installation remains available through Cargo.
 
+When no verified prebuilt binary can be fetched, the installer builds from
+crates.io instead, if Cargo is on `PATH`: when GitHub does not answer (latest-tag
+lookup, archive or checksums), and on platforms without prebuilt binaries (Intel
+macOS, other CPU architectures). It runs
+`cargo install mitts --locked --force --root <root> [--version =X.Y.Z]`, so the
+binary lands in the same `<root>/bin` as a prebuilt install, and its version is
+checked. This takes minutes and needs Rust and a native linker. Without Cargo the
+installer stops with instructions. Set `MITTS_NO_SOURCE_FALLBACK=1` to fail fast
+instead of compiling (useful in CI). A checksum mismatch never falls back.
+
 In GitHub Actions use the setup action, which installs a release and keeps the
 Mitts cache between runs: see [github-action.md](github-action.md).
 

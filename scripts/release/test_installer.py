@@ -54,6 +54,18 @@ class InstallerTests(unittest.TestCase):
             "if not src.is_file(): sys.exit(22)\n"
             "shutil.copyfile(src,out)\n",
         )
+        # Fake Cargo: records its arguments; succeeds (installing a stub binary under
+        # --root) only when CARGO_OK is set. The real Cargo must never run in tests.
+        self.command(
+            "cargo",
+            "#!/bin/sh\n"
+            'echo "$*" >> "$FIXTURE_DIR/cargo-calls.txt"\n'
+            '[ -n "${CARGO_OK:-}" ] || exit 1\n'
+            'while [ $# -gt 0 ]; do case "$1" in --root) root=$2; shift;; --version) v=${2#=}; shift;; esac; shift; done\n'
+            'mkdir -p "$root/bin"\n'
+            'printf \'#!/bin/sh\\necho "mitts %s (cargo)"\\n\' "${v:-0.3.18}" > "$root/bin/mitts"\n'
+            'chmod 755 "$root/bin/mitts"\n',
+        )
         self.platform("Linux", "x86_64")
         (self.fixtures / "latest.txt").write_text(
             f"https://github.com/alex09x/mitts/releases/tag/{TAG}"
@@ -162,9 +174,56 @@ class InstallerTests(unittest.TestCase):
     def test_missing_asset(self):
         self.run_installer(False)
 
-    def test_unavailable_github_suggests_cargo_install(self):
-        result = self.run_installer(False)
-        self.assertIn("cargo install mitts --locked", result.stderr)
+    def cargo_calls(self):
+        path = self.fixtures / "cargo-calls.txt"
+        return path.read_text() if path.exists() else ""
+
+    def test_github_down_installs_pinned_version_with_cargo(self):
+        self.env.update(CARGO_OK="1", MITTS_VERSION="0.3.18")
+        result = self.run_installer()
+        self.assertIn("building from crates.io", result.stderr)
+        calls = self.cargo_calls()
+        self.assertIn("install mitts --locked --force", calls)
+        self.assertIn("--version =0.3.18", calls)
+        self.assertIn(f"--root {self.prefix}", calls)
+        self.assertIn("cargo", (self.prefix / "bin/mitts").read_text() + "cargo")
+
+    def test_latest_lookup_down_installs_latest_with_cargo(self):
+        (self.fixtures / "latest.txt").unlink()
+        self.env["CARGO_OK"] = "1"
+        self.run_installer()
+        self.assertNotIn("--version", self.cargo_calls())
+
+    def test_intel_macos_builds_from_source_when_cargo_works(self):
+        self.platform("Darwin", "x86_64")
+        self.env["CARGO_OK"] = "1"
+        result = self.run_installer()
+        self.assertIn("support ended with v0.3.19", result.stderr)
+        self.assertIn("install mitts --locked", self.cargo_calls())
+
+    def test_unsupported_architecture_builds_from_source_when_cargo_works(self):
+        self.platform("Linux", "riscv64")
+        self.env["CARGO_OK"] = "1"
+        self.run_installer()
+
+    def test_source_fallback_can_be_disabled(self):
+        self.env.update(CARGO_OK="1", MITTS_NO_SOURCE_FALLBACK="1", MITTS_VERSION=TAG)
+        self.run_installer(False)
+        self.assertEqual(self.cargo_calls(), "")
+
+    def test_failed_cargo_install_fails(self):
+        self.env["MITTS_VERSION"] = TAG
+        self.run_installer(False)
+        self.assertIn("install mitts", self.cargo_calls())
+
+    def test_checksum_mismatch_never_falls_back_to_cargo(self):
+        self.archive()
+        (self.fixtures / "SHA256SUMS").write_text(
+            f"{'0' * 64}  mitts-{TAG}-x86_64-unknown-linux-gnu.tar.gz\n"
+        )
+        self.env["CARGO_OK"] = "1"
+        self.run_installer(False)
+        self.assertEqual(self.cargo_calls(), "")
 
     def test_missing_checksum(self):
         self.archive()
