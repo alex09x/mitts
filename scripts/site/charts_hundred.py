@@ -8,6 +8,7 @@
 """The scoreboard and per-project charts of The Hundred (inline SVG, colours from CSS classes)."""
 import math
 
+from charts import fmt_x
 from shell import esc
 
 ARMS = [("cargo_bare", "Cargo", "c-cargo"), ("cargo_sccache", "Cargo + sccache", "c-scc"), ("mitts_cas", "Mitts", "c-mitts")]
@@ -53,10 +54,6 @@ def axis_label(metric, v):
     """Decade tick labels in the metric's own unit, with thousands separators."""
     unit = {"wall": " s", "cpu": " s", "runs": "", "written": " MB", "disk": " MB"}[metric]
     return format(v, ",g") + unit
-
-
-def fmt_x(v):
-    return ("%.1f" % v).rstrip("0").rstrip(".") + "×" if v < 10 else "%d×" % round(v)
 
 
 def scoreboard(p):
@@ -174,7 +171,7 @@ def method_flow():
         if i:
             out.append('<path class="d-arrow2" d="M%d 100 h24 m-7 -6 l7 6 l-7 6"/>' % (x - 32))
         x += wd + 40
-    out.append('<text class="d-s" x="0" y="196">Worktree 12 carries one deliberately failing test. A tool only counts if it reports that failure and no other.</text>')
+    out.append('<text class="d-s" x="0" y="196">Worktree 12 adds a failing test. Untimed smoke runs after the build check that worktree 12 reports it and a clean worktree does not.</text>')
     out.append('<text class="d-s" x="0" y="218">A shared cache that hides the failure, or leaks it into clean worktrees, is unsound and is not scored.</text>')
     out.append("</svg>")
     return "".join(out)

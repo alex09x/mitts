@@ -130,7 +130,7 @@ ENV = [
     ("MITTS_TIMINGS", "1", "Print sub-millisecond phase timings (<code>[mitts::phases]</code>) and I/O byte and file counters (<code>[mitts::io]</code>) on stderr.", "MITTS_TIMINGS=1 mitts build"),
     ("MITTS_FAST_LOCK", "0 | 1", "The no-op fast path. Default: on only for the default cache root; <code>1</code> forces it with <code>--cache-dir</code>.", "MITTS_FAST_LOCK=1 mitts build --cache-dir /tmp/c"),
     ("MITTS_STORE_HARDLINKS", "0 | 1", "How a store object reaches <code>target/</code>. Default: reflink where possible, else a read-only hardlink. <code>0</code> copies; <code>1</code> prefers links everywhere.", "MITTS_STORE_HARDLINKS=0 mitts build"),
-    ("MITTS_NO_REFLINK", "1", "Disable copy-on-write cloning (<code>FICLONE</code> / <code>clonefile</code>); force byte copies. For measurement.", "MITTS_NO_REFLINK=1 mitts build"),
+    ("MITTS_NO_REFLINK", "1", "Disable copy-on-write cloning (<code>FICLONE</code> / <code>clonefile</code>). Objects then arrive as read-only hardlinks; add <code>MITTS_STORE_HARDLINKS=0</code> to force real byte copies. For measurement.", "MITTS_NO_REFLINK=1 MITTS_STORE_HARDLINKS=0 mitts build"),
     ("MITTS_NO_HARDLINK", "1", "Disable the hardlinks between files inside one workspace (<code>libfoo-&lt;hash&gt;.rlib</code> to <code>libfoo.rlib</code>).", "MITTS_NO_HARDLINK=1 mitts build"),
     ("MITTS_VERIFY_RESTORE", "1", "Re-hash every object before restoring it. One read of every restored byte; for audits and suspect disks.", "MITTS_VERIFY_RESTORE=1 mitts build"),
     ("MITTS_CACHE_IO_BUDGET", "N", "How many workers may read the cache at once. <code>0</code> unbounded. Default 1 on macOS, unbounded elsewhere.", "MITTS_CACHE_IO_BUDGET=4"),

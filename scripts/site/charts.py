@@ -13,8 +13,14 @@ from shell import esc
 PLAT_CLASS = ["p0", "p1", "p2"]
 
 
+def floor1(v):
+    """Truncate to one decimal: a claimed gain is never rounded up."""
+    return math.floor(v * 10 + 1e-9) / 10
+
+
 def fmt_x(v):
-    return ("%.1f" % v).rstrip("0").rstrip(".") + "×" if v < 10 else "%d×" % round(v)
+    """'6.9×', '13.6×', '21×'. Truncated, not rounded, so a figure never claims more than was measured."""
+    return ("%.1f" % floor1(v)).rstrip("0").rstrip(".") + "×" if v < 20 else "%d×" % math.floor(v)
 
 
 def log_x(v, lo, hi, x0, x1):

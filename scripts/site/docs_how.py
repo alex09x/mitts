@@ -56,7 +56,7 @@ def sections():
 <li><b>A cache hit needs a complete key.</b> Every input that can change an output is part of the action key. An input Mitts cannot see is a reason to rebuild, never a reason to reuse.</li>
 <li><b>Shared objects are immutable.</b> A published object is read-only and is verified by hash before it is used. Workspaces get their own copy, reflink or read-only hardlink, never a writable alias.</li>
 <li><b>The language core is neutral.</b> The store, the action cache, the locks and the garbage collector know nothing about Cargo. A Rust adapter turns a Cargo workspace into actions.</li>
-<li><b>Cargo stays the contract.</b> <code>Cargo.toml</code> and <code>Cargo.lock</code> are read as they are. Mitts never writes a lockfile of its own and never writes into Cargo's <code>target/debug</code> or <code>target/release</code>.</li>
+<li><b>Cargo stays the contract.</b> <code>Cargo.toml</code> and <code>Cargo.lock</code> are read as they are. Mitts never writes a lockfile of its own. Outputs go to Cargo's usual <code>target/debug</code> and <code>target/release</code>, and Mitts records the files it put there so <code>mitts clean</code> removes only those.</li>
 </ol>"""))
     S.append(("global-cache", "The global cache in one picture", """
 <p>Cargo keeps its cache in each workspace's <code>target/</code>, so every new clone, worktree or project starts empty. Mitts keeps compiled work in <b>one store per machine</b> and restores it into whichever workspace asks for it.</p>
@@ -158,14 +158,15 @@ deps:      &lt;sorted (dependency unit, dependency action key) pairs&gt;</code><
 <li><code>MITTS_CACHE_MAX_BYTES</code> sets the limit (<code>500M</code>, <code>2G</code>, or <code>off</code> / <code>0</code>); the default is 100&nbsp;GiB. <code>MITTS_GC_INTERVAL_SECS</code> is the least time between checks (default 3600).</li>
 <li>Build-script entries are removed by an atomic rename to <code>.gc.*</code> and then deleted, so a concurrent reader sees the whole entry or none of it. Leftover <code>tmp</code> files older than one hour go too.</li>
 <li><code>mitts gc --max-bytes N --max-age-secs S</code> prunes on demand.</li>
-<li>A build with <code>--no-cache</code> uses a private <code>cas-ephemeral-&lt;id&gt;</code> store, removed afterwards, and adds nothing to the shared one.</li>
+<li>A build with <code>--no-cache</code> uses a private <code>cas-ephemeral-&lt;id&gt;</code> store, removed by the next build or by <code>mitts gc</code> after the process has exited, and adds nothing to the shared one.</li>
 </ul>"""))
     S.append(("wrappers", "Compiler wrappers", """
-<p>A <code>rustc-wrapper</code> in the Cargo config, or <code>RUSTC_WRAPPER</code> / <code>CARGO_BUILD_RUSTC_WRAPPER</code>, is an input Mitts cannot know: it may change what the compiler produces. A build with a wrapper is therefore <b>not cached</b>, and Mitts prints a warning that names the wrapper and how to clear it.</p>
+<p>A <code>rustc-wrapper</code> in the Cargo config, or <code>RUSTC_WRAPPER</code>, <code>CARGO_BUILD_RUSTC_WRAPPER</code>, <code>RUSTC_WORKSPACE_WRAPPER</code> or <code>CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER</code>, is an input Mitts cannot know: it may change what the compiler produces. By default a build with a wrapper is therefore <b>not cached</b>, and Mitts prints a warning that names the wrapper and how to clear it. Its <code>-C metadata</code> and <code>-C extra-filename</code> stay stable from run to run.</p>
+<p><b>Opt in.</b> If your wrapper is deterministic (a pass-through, a launcher, an analysis tool), set <code>MITTS_RUSTC_WRAPPER_CACHE=1</code>. The wrapper's path, canonical path and executable SHA-256 then go into every key, together with <code>MITTS_RUSTC_WRAPPER_SALT</code> if you set one, so a different or changed wrapper never reuses entries made by another. If the wrapper cannot be resolved or hashed, the build is not cached (it fails closed).</p>
 <p><code>sccache</code> is the one exception. It caches compiler results without changing them, so Mitts leaves it out, compiles without it, and reuses units from the Mitts store.</p>"""))
     S.append(("cargo-compat", "Compatibility with Cargo", """
 <ul>
-<li>Mitts never writes into <code>target/debug</code> or <code>target/release</code>. <code>cargo build</code>, rust-analyzer and Mitts can run side by side.</li>
+<li>Mitts writes into the same <code>target/debug</code> and <code>target/release</code> layout as Cargo (honouring <code>CARGO_TARGET_DIR</code> and <code>--target-dir</code>); its own lock and file index live under <code>target/mitts/</code>.</li>
 <li><code>mitts build --cargo</code> delegates execution to Cargo. It is the differential oracle Mitts uses to compare diagnostics, exit codes and program behaviour.</li>
 <li>Unsupported cases are reported as unsupported, not as a successful build.</li>
 </ul>"""))

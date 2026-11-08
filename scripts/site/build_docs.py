@@ -58,7 +58,7 @@ INTRO = """
 <section id="install"><h2>Install</h2>
 <p>Mitts is one binary for macOS (Apple Silicon) and Linux (x86_64 and aarch64). The installer downloads the release for your platform and verifies its checksum. If GitHub cannot be reached, or your platform has no prebuilt binary (Intel macOS, other architectures), and Cargo is installed, it builds the same version from crates.io instead; set <code>MITTS_NO_SOURCE_FALLBACK=1</code> to fail rather than compile. See the <a href="#environment">environment variables</a>.</p>""" + pre("curl -fsSL https://mittsbuild.com/install.sh | sh\nmitts --version") + """
 <p>From source, or through crates.io, once you already have a Rust toolchain:</p>""" + pre("cargo install mitts --locked        # from crates.io\ncargo install --path .              # from a clone of the repository") + """
-<p>Mitts reads your existing <code>Cargo.toml</code> and <code>Cargo.lock</code>. There is nothing to configure and no second manifest. Cargo, rust-analyzer and Mitts can run side by side, because Mitts never writes into Cargo's <code>target/debug</code> or <code>target/release</code>.</p></section>
+<p>Mitts reads your existing <code>Cargo.toml</code> and <code>Cargo.lock</code>. There is nothing to configure and no second manifest. Outputs go to Cargo's usual <code>target/debug</code> and <code>target/release</code> (or the root chosen by <code>CARGO_TARGET_DIR</code> or <code>--target-dir</code>); Mitts keeps its own build lock and file index under <code>target/mitts/</code>.</p></section>
 
 <section id="quick-start"><h2>Quick start</h2>
 <ol class="steps">
@@ -103,13 +103,34 @@ CONFIG = """
 """
 
 
+CI = """
+<section id="github-actions"><h2>GitHub Actions</h2>
+<p>Two small composite actions install a verified release and keep the build cache between runs.</p>""" + pre("steps:\n  - uses: actions/checkout@v4\n  - uses: dtolnay/rust-toolchain@stable\n  - uses: alex09x/mitts@v0.3.30\n  - run: mitts test\n  - uses: alex09x/mitts/save@v0.3.30\n    if: always()") + """
+<p>Pin the action to a release tag or a full commit SHA. The setup action installs the release you ask for with the installer that ships in the same ref, and the installer checks the archive against the published SHA-256 sums.</p>
+<h4>What gets cached</h4>
+<p>The whole Mitts cache directory (store and action cache, by default <code>~/.cache/mitts</code>), and nothing else: the Cargo registry and <code>target/</code> do not need restoring. The key is <code>mitts-v1</code>, the runner OS and architecture, the Mitts version, your <code>cache-key</code> text and a hash of every <code>Cargo.lock</code>. On a miss the newest cache with the same prefix is restored, so a changed dependency set rebuilds only what changed.</p>
+<h4>Setup action: <code>alex09x/mitts</code></h4>
+<table class="ref"><thead><tr><th>Input</th><th>Default</th><th>Meaning</th></tr></thead><tbody>
+<tr><td class="flag"><code>version</code></td><td>latest stable</td><td>Release to install, <code>vX.Y.Z</code> or <code>X.Y.Z</code>.</td></tr>
+<tr><td class="flag"><code>cache</code></td><td><code>true</code></td><td>Restore the cache. <code>false</code> only installs.</td></tr>
+<tr><td class="flag"><code>cache-key</code></td><td>empty</td><td>Extra text in the key, for example a job name, when jobs build different things.</td></tr>
+<tr><td class="flag"><code>cache-dir</code></td><td>platform default</td><td>Cache root. When empty: <code>MITTS_CACHE_DIR</code>, <code>XDG_CACHE_HOME/mitts</code>, <code>~/.cache/mitts</code>.</td></tr>
+</tbody></table>
+<p>Outputs: <code>version</code>, <code>cache-dir</code> (also exported as <code>MITTS_CACHE_DIR</code> for the rest of the job) and <code>cache-hit</code> (<code>true</code> when the exact key was restored).</p>
+<h4>Save action: <code>alex09x/mitts/save</code></h4>
+<p>Runs <code>mitts gc</code> to bound the store, then saves it; nothing is saved after an exact hit. <code>max-bytes</code> (default 2&nbsp;GiB) is the size the store is pruned to first, oldest objects first. Use <code>if: always()</code> to keep the work of a failed build, and run it after the setup action in the same job.</p>
+<p class="hint">Runners: Linux x86-64 and ARM64, macOS on Apple Silicon. A Rust toolchain and a native linker must already be present. GitHub keeps 10&nbsp;GB of caches per repository; lower <code>max-bytes</code> when workflows share that budget.</p>
+</section>
+"""
+
+
 def build(binary, version):
     how = docs_how.sections()
     cmds = [command_section(binary, n) for n in C.COMMANDS]
     toc = [("Start", [("install", "Install"), ("quick-start", "Quick start")]),
            ("How it works", [("how-it-works", "Overview")] + [(i, t) for i, t, _ in how]),
            ("Commands", [("commands", "Overview")] + [("cmd-" + n, "mitts " + n) for n in C.COMMANDS]),
-           ("Reference", [("environment", "Environment variables"), ("output-formats", "Output formats"), ("configuration", "Configuration")])]
+           ("Reference", [("environment", "Environment variables"), ("output-formats", "Output formats"), ("configuration", "Configuration"), ("github-actions", "GitHub Actions")])]
     side = "".join("<p class=\"toc-h\">%s</p><ul>%s</ul>" % (g, "".join("<li><a href=\"#%s\">%s</a></li>" % (i, esc(t)) for i, t in items)) for g, items in toc)
     how_html = "".join("<section id=\"%s\"><h3>%s</h3>%s</section>" % (i, esc(t), h) for i, t, h in how)
     by_group = ""
@@ -130,7 +151,7 @@ def build(binary, version):
 %(cmds)s</section>
 <section id="environment"><h2>Environment variables</h2>
 <p>Flags always win over variables. The diagnostic variables change how the work is done, never what is cached.</p>%(env)s</section>
-%(out)s%(conf)s
+%(out)s%(conf)s%(ci)s
 </article>
-</main>""" % {"side": side, "v": version, "intro": INTRO, "how": how_html, "cmds": by_group, "env": env_table(), "out": OUTPUT, "conf": CONFIG}
+</main>""" % {"side": side, "v": version, "intro": INTRO, "how": how_html, "cmds": by_group, "env": env_table(), "out": OUTPUT, "conf": CONFIG, "ci": CI}
     return page("Mitts documentation", "Install Mitts, understand the machine-wide build cache, and look up every command, option and environment variable.", body, 1, active="Docs")
