@@ -48,6 +48,7 @@ jobs:
         env:
           TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source-sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$(git -C source rev-parse HEAD)" == "$SOURCE_SHA" ]]
