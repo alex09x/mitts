@@ -92,7 +92,6 @@ jobs:
       - name: Install latest stable Mitts builder
         env:
           MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sh site/install.sh
           binary="$MITTS_INSTALL_ROOT/bin/mitts"
