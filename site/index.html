@@ -24,7 +24,7 @@
   <meta name="theme-color" content="#121315">
   <meta name="description" content="Mitts is a Rust-first build system with a machine-wide, content-addressed artifact cache and explicit input tracking. It reads your existing Cargo.toml and Cargo.lock.">
   <meta name="author" content="Alexander Panasenko">
-  <title>Mitts — build work, accounted for</title>
+  <title>Mitts — stop rebuilding, build Rust 3.6–7× faster</title>
   <link rel="icon" href="favicon.ico?v=3" sizes="any">
   <link rel="icon" href="logo.svg?v=3" type="image/svg+xml">
   <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
@@ -59,7 +59,8 @@
     <section class="shell hero" aria-labelledby="hero-title">
       <div class="hero-text">
         <p class="kicker"><span class="dot"></span>Rust first · reads your existing Cargo.toml</p>
-        <h1 id="hero-title">Build work,<br><span class="accent">accounted for.</span></h1>
+        <h1 id="hero-title">Stop rebuilding.<br><span class="accent">Build 3.6–7× faster.</span></h1>
+        <p class="lede"><b>12 worktrees of one project: 76 min with Cargo, 13 min with Mitts.</b> 90,961 compiler runs down to 6,905. Measured on 100 Rust projects, three machines: <a href="hundred/">The Hundred</a>.</p>
         <p class="lede">Mitts plans a Cargo workspace itself and calls <code>rustc</code> directly. Every compile action is keyed by its full set of inputs, stored once in a machine-wide immutable store, and restored into every workspace that needs it — across projects, worktrees and branches. If an input can't be accounted for, the action is rebuilt, not guessed.</p>
         <div class="actions">
           <a class="button" href="#how">How it works</a>
