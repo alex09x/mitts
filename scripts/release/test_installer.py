@@ -162,6 +162,10 @@ class InstallerTests(unittest.TestCase):
     def test_missing_asset(self):
         self.run_installer(False)
 
+    def test_unavailable_github_suggests_cargo_install(self):
+        result = self.run_installer(False)
+        self.assertIn("cargo install mitts --locked", result.stderr)
+
     def test_missing_checksum(self):
         self.archive()
         (self.fixtures / "SHA256SUMS").unlink()

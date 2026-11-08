@@ -26,6 +26,7 @@ if [ "$target" = x86_64-apple-darwin ]; then
     fail 'macOS Intel prebuilt support ended with v0.3.19. Use its archived release assets; current macOS builds require Apple Silicon.'
 fi
 repository=https://github.com/alex09x/mitts
+cargo_hint='install from crates.io instead: cargo install mitts --locked'
 download() { curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" -o "$2"; }
 temporary=$(mktemp -d) || fail 'Could not create a temporary directory.'
 pending=
@@ -36,7 +37,7 @@ version=${MITTS_VERSION:-}
 if [ -z "$version" ]; then
     latest=$(curl --head --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
         "$repository/releases/latest" -o /dev/null --write-out '%{url_effective}') ||
-        fail 'Cannot resolve the latest stable release. Retry, or set MITTS_VERSION=vX.Y.Z.'
+        fail "Cannot resolve the latest stable release. Retry, set MITTS_VERSION=vX.Y.Z, or $cargo_hint"
     case "$latest" in
         "$repository/releases/tag/"*) version=${latest##*/} ;;
         *) fail 'Latest release did not resolve to a GitHub release tag.' ;;
@@ -47,8 +48,8 @@ printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || fail 'Release
 asset=mitts-$version-$target.tar.gz
 base=$repository/releases/download/$version
 printf 'Installing Mitts %s for %s…\n' "$version" "$target"
-download "$base/$asset" "$temporary/$asset" || fail "Release $version has no downloadable $target archive."
-download "$base/SHA256SUMS" "$temporary/SHA256SUMS" || fail 'Cannot download release checksums.'
+download "$base/$asset" "$temporary/$asset" || fail "Release $version has no downloadable $target archive. If GitHub is unavailable, $cargo_hint"
+download "$base/SHA256SUMS" "$temporary/SHA256SUMS" || fail "Cannot download release checksums. If GitHub is unavailable, $cargo_hint"
 expected=$(awk -v name="$asset" 'NF == 2 && $2 == name {print $1}' "$temporary/SHA256SUMS")
 printf '%s\n' "$expected" | grep -Eq '^[a-f0-9]{64}$' || fail 'Missing or ambiguous archive checksum.'
 if command -v sha256sum >/dev/null 2>&1; then
