@@ -170,6 +170,8 @@ HEAD = """
 <li><b>Totals favour big projects.</b> A sum is dominated by the slowest projects. The per-project chart and the geometric means show the spread.</li>
 <li><b>Three repeats.</b> Medians of three runs are stable for these workloads but not a confidence interval. The quartiles are in the data.</li>
 <li><b>Desktop noise.</b> The Mac Studio carried resident agent sessions during its run. The idle check records and bounds this; it does not remove it.</li>
+<li><b>No-op rebuild.</b> &ldquo;Build again, nothing changed&rdquo; is Mitts with its fast lock on, as a plain <code>mitts build</code> runs it. The harness passes an explicit <code>--cache-dir</code>, which turns the fast lock off; with it off the same step is about four times faster than Cargo instead of ten to nineteen (the figure is in the raw data as <code>noop_cache_dir_ms</code>).</li>
+<li><b>Memory.</b> Memory is the peak resident size of the heaviest compiler or linker process in a worktree, and its sum over the 12 worktrees. A detached <code>sccache</code> server is outside the measured processes.</li>
 <li><b>Disk figures.</b> Device bytes written are whole-device counters and compare tools within one run, not across machines.</li>
 <li><b>Not covered.</b> Windows, cross-compilation and a remote or team cache are not supported yet and not measured.</li>
 </ul></section>
