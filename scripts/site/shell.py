@@ -8,7 +8,7 @@
 """Page shell shared by the generated site pages."""
 import html
 
-NAV = [("Docs", "docs/"), ("How it works", "docs/#how-it-works"), ("Benchmarks", "benchmarks/"),
+NAV = [("Docs", "docs/"), ("How it works", "docs/#how-it-works"), ("The Hundred", "hundred/"),
        ("GitHub", "https://github.com/alex09x/mitts")]
 
 
@@ -47,8 +47,10 @@ def page(title, description, body, depth, extra_head="", active=""):
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="%(up)sstyles.css">
   <link rel="stylesheet" href="%(up)spages.css">
+  <link rel="stylesheet" href="%(up)shundred.css">
 %(extra)s</head>
 <body>
+  <script>document.documentElement.classList.add("js")</script>
   <header class="shell topbar">
     <a class="brand" href="%(home)s" aria-label="Mitts home">
       <img class="mark" src="%(up)slogo.svg?v=3" alt="" width="20" height="20">

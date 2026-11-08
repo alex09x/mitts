@@ -5,7 +5,7 @@
 # Author: https://prod.codes/about/
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Generate site/docs/index.html and site/benchmarks/index.html.
+"""Generate site/docs/index.html and site/hundred/index.html, and fill the scoreboard block of site/index.html.
 
     python3 scripts/site/build.py [--mitts PATH] [--bench-dir DIR]
 
@@ -22,7 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import aggregate  # noqa: E402
-import build_benchmarks  # noqa: E402
+import build_hundred  # noqa: E402
 import build_docs  # noqa: E402
 
 SITE = HERE.parent.parent / "site"
@@ -39,9 +39,15 @@ def main():
     version = subprocess.run([args.mitts, "--version"], capture_output=True, text=True, check=True).stdout.split()[1]
     (SITE / "docs").mkdir(parents=True, exist_ok=True)
     (SITE / "docs" / "index.html").write_text(build_docs.build(args.mitts, version), encoding="utf-8")
-    (SITE / "benchmarks").mkdir(parents=True, exist_ok=True)
-    (SITE / "benchmarks" / "index.html").write_text(build_benchmarks.build(json.loads(data_file.read_text())), encoding="utf-8")
-    print("wrote docs/index.html and benchmarks/index.html for mitts", version)
+    data = json.loads(data_file.read_text())
+    (SITE / "hundred").mkdir(parents=True, exist_ok=True)
+    (SITE / "hundred" / "index.html").write_text(build_hundred.build(data), encoding="utf-8")
+    home = SITE / "index.html"
+    text = home.read_text(encoding="utf-8")
+    start, end = "<!-- hundred:start -->", "<!-- hundred:end -->"
+    a, b = text.index(start) + len(start), text.index(end)
+    home.write_text(text[:a] + "\n" + build_hundred.home_block(data) + "\n    " + text[b:], encoding="utf-8")
+    print("wrote docs/index.html, hundred/index.html and the home scoreboard for mitts", version)
 
 
 if __name__ == "__main__":

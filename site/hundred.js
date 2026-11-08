@@ -8,6 +8,34 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 (function () {
+  document.documentElement.classList.add("js");
+  // Tab groups: <div class="tabs" data-key="pl"> buttons switch every .panel that carries data-pl.
+  var state = {};
+  var groups = document.querySelectorAll(".tabs");
+  function show() {
+    document.querySelectorAll(".panel").forEach(function (p) {
+      var ok = true;
+      Object.keys(state).forEach(function (k) {
+        var v = p.getAttribute("data-" + k);
+        if (v !== null && v !== state[k]) ok = false;
+      });
+      p.hidden = !ok;
+    });
+  }
+  groups.forEach(function (g) {
+    var key = g.getAttribute("data-key");
+    var first = g.querySelector("button");
+    if (first) state[key] = first.getAttribute("data-v");
+    g.addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b) return;
+      g.querySelectorAll("button").forEach(function (x) { x.classList.toggle("on", x === b); });
+      state[key] = b.getAttribute("data-v");
+      show();
+    });
+  });
+  show();
+
   var node = document.getElementById("bench-data");
   if (!node) return;
   var data = JSON.parse(node.textContent);
@@ -50,7 +78,7 @@
     body.innerHTML = "";
     rows().forEach(function (r) {
       var tr = document.createElement("tr");
-      if (r.status !== "OK") tr.className = "noisy";
+      r.status = r.status === "OK" ? "steady" : "wide spread";
       [r.name, r.units == null ? "–" : r.units, num(r.swarm, 2), num(r.swarm_sc, 2),
        r.swarm_x ? r.swarm_x.toFixed(2) + "×" : "–", num(r.cold, 2), num(r.cold_c, 2), num(r.noop, 1), r.status]
         .forEach(function (t, i) {

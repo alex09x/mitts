@@ -1,0 +1,66 @@
+/*
+ * Mitts Build — The Hundred: scoreboard, per-project and method charts
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+:root { --c-cargo: #8a929d; --c-scc: #c3c8cf; --c-mitts: #ff3b30; --c-restore: #2f6f47; }
+.accent { color: var(--accent); }
+
+/* tabs: hidden until the script runs, so without JS every panel is simply shown */
+.tabs { display: none; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.js .tabs { display: flex; }
+.tabs button { background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 7px 16px; font: 500 13.5px var(--sans); cursor: pointer; }
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.js .panel[hidden] { display: none; }
+
+/* charts */
+.chart text, .diagram text { font-family: var(--mono); }
+.chart .ax { fill: var(--muted); font-size: 12px; }
+.chart .grid { stroke: var(--line); }
+.chart .lab-big { fill: var(--ink); font: 700 24px var(--display); }
+.chart .val { fill: var(--ink); font-size: 14px; }
+.chart .val.mitts { fill: var(--c-mitts); font-weight: 600; }
+.chart .big { fill: var(--c-mitts); font: 800 44px var(--display); }
+.c-cargo { fill: var(--c-cargo); background: var(--c-cargo); }
+.c-scc { fill: var(--c-scc); background: var(--c-scc); }
+.c-mitts { fill: var(--c-mitts); background: var(--c-mitts); }
+.chart.board { margin: 8px 0 4px; }
+.chart.dumb { margin: 8px 0; }
+.dumb .nm { fill: var(--muted); font-size: 9.5px; }
+.dumb .link { stroke: var(--c-mitts); stroke-width: 1.4; opacity: .45; }
+.dumb .d-cargo { fill: var(--c-cargo); }
+.dumb .d-mitts { fill: var(--c-mitts); }
+.dumb g:hover .nm { fill: var(--ink); }
+.dumb g:hover .link { opacity: 1; }
+
+/* illustration and method flow */
+.b-compile { fill: var(--c-mitts); opacity: .85; }
+.b-restore { fill: var(--c-restore); opacity: .9; }
+.diagram.swarm .d-t, .diagram.flow .d-t { fill: var(--ink); font: 700 17px var(--display); }
+.diagram .d-s { fill: var(--muted); font: 12.5px var(--sans); }
+.diagram .d-box { fill: var(--panel); stroke: var(--line); }
+.diagram.swarm .ax { font-size: 11px; }
+.d-arrow2 { stroke: var(--muted); stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+/* headline numbers */
+.callouts.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.small { font-size: 14px; margin: -14px 0 24px; }
+
+/* home page block */
+.hundred-home { padding-bottom: 8px; }
+.hundred-home .more { margin: 18px 0 0; }
+
+@media (max-width: 900px) {
+  .callouts.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .callouts.four { grid-template-columns: minmax(0, 1fr); }
+  .chart.board, .chart.dumb, .diagram { min-width: 640px; }
+  .panel, .hundred-home figure, main section { overflow-x: auto; }
+}
