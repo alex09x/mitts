@@ -1,5 +1,5 @@
 /*
- * Mitts Build — benchmark project table (sorting, filtering, machine picker)
+ * Mitts Build — machine and measure tabs for The Hundred page and the landing scoreboard
  * Copyright (c) 2026 Alexander Panasenko
  *
  * Contact: alex@prod.codes
@@ -10,6 +10,7 @@
 (function () {
   document.documentElement.classList.add("js");
   // Tab groups: <div class="tabs" data-key="pl"> buttons switch every .panel that carries data-pl.
+  // Without this script every panel is simply shown; the pages are complete static HTML.
   var state = {};
   var groups = document.querySelectorAll(".tabs");
   function show() {
@@ -35,73 +36,4 @@
     });
   });
   show();
-
-  var node = document.getElementById("bench-data");
-  if (!node) return;
-  var data = JSON.parse(node.textContent);
-  var sel = document.getElementById("plat");
-  var flt = document.getElementById("flt");
-  var body = document.querySelector("#ptable tbody");
-  var head = document.querySelectorAll("#ptable th");
-  var key = "name", dir = 1;
-
-  data.forEach(function (p, i) {
-    var o = document.createElement("option");
-    o.value = i;
-    o.textContent = p.label;
-    sel.appendChild(o);
-  });
-
-  function num(v, d) {
-    return v == null ? "–" : v.toFixed(d);
-  }
-
-  function rows() {
-    var q = flt.value.trim().toLowerCase();
-    return data[sel.value].rows
-      .filter(function (r) { return !q || r.n.toLowerCase().indexOf(q) >= 0; })
-      .map(function (r) {
-        return {
-          name: r.n, units: r.u, swarm: r.sw, swarm_c: r.sc, swarm_sc: r.ss,
-          swarm_xc: r.sw && r.sc ? r.sc / r.sw : null, swarm_x: r.sw && r.ss ? r.ss / r.sw : null,
-          cold: r.cm, cold_c: r.cc, noop: r.no, status: r.s === "OK" ? "steady" : "wide spread"
-        };
-      })
-      .sort(function (a, b) {
-        var x = a[key], y = b[key];
-        if (x == null) return 1;
-        if (y == null) return -1;
-        return (x < y ? -1 : x > y ? 1 : 0) * dir;
-      });
-  }
-
-  function draw() {
-    body.innerHTML = "";
-    rows().forEach(function (r) {
-      var tr = document.createElement("tr");
-      [r.name, r.units == null ? "–" : r.units, num(r.swarm, 2), num(r.swarm_c, 2), num(r.swarm_sc, 2),
-       r.swarm_xc ? r.swarm_xc.toFixed(2) + "×" : "–", r.swarm_x ? r.swarm_x.toFixed(2) + "×" : "–",
-       num(r.cold, 2), num(r.cold_c, 2), num(r.noop, 1), r.status]
-        .forEach(function (t, i) {
-          var td = document.createElement("td");
-          td.textContent = t;
-          var x = i === 5 ? r.swarm_xc : i === 6 ? r.swarm_x : null;
-          if (x) td.className = x >= 1 ? "good" : "bad";
-          tr.appendChild(td);
-        });
-      body.appendChild(tr);
-    });
-  }
-
-  head.forEach(function (th) {
-    th.addEventListener("click", function () {
-      var k = th.getAttribute("data-k");
-      dir = k === key ? -dir : (k === "name" ? 1 : -1);
-      key = k;
-      draw();
-    });
-  });
-  sel.addEventListener("change", draw);
-  flt.addEventListener("input", draw);
-  draw();
 })();

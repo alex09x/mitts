@@ -10,7 +10,7 @@
     python3 scripts/site/build.py [--mitts PATH] [--bench-dir DIR]
 
 Docs come from the installed binary's --help (so the option tables match its version) and from
-docs_how.py / docs_commands.py. Benchmarks come from site/data/benchmarks.json; pass --bench-dir
+docs_how.py / docs_commands.py. Benchmarks come from docs/data/benchmarks.json; pass --bench-dir
 (the directory holding the three platform reports) to regenerate that file first.
 """
 import argparse
@@ -34,7 +34,7 @@ def main():
     ap.add_argument("--mitts", default="mitts")
     ap.add_argument("--bench-dir")
     args = ap.parse_args()
-    data_file = SITE / "data" / "benchmarks.json"
+    data_file = HERE.parent.parent / "docs" / "data" / "benchmarks.json"
     if args.bench_dir:
         aggregate.main(args.bench_dir, str(data_file))
     version = subprocess.run([args.mitts, "--version"], capture_output=True, text=True, check=True).stdout.split()[1]

@@ -5,8 +5,8 @@
 # Author: https://prod.codes/about/
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Render site/hundred/index.html (The Hundred) from site/data/benchmarks.json (made by aggregate.py)."""
-import json
+"""Render site/hundred/index.html (The Hundred) from docs/data/benchmarks.json (made by aggregate.py).
+The page is plain static HTML: every table and chart is rendered here; no data file is served."""
 import math
 
 import charts
@@ -93,15 +93,28 @@ def spread(data, metric):
     return rng(xs)
 
 
-def slim(data):
-    """Only what the project table needs, so the page stays small."""
+def project_tables(data):
+    """One static HTML table per machine, every project a row. No script and no data file needed."""
+    def num(v, d):
+        return "–" if v is None else "%.*f" % (d, v)
+
+    def gain(a, b):
+        if not a or not b:
+            return '<td>–</td>'
+        x = a / b
+        return '<td class="%s">%s</td>' % ("good" if x >= 1 else "bad", "%.2f×" % x)
+
     out = []
     for p in data["platforms"]:
-        rows = [{"n": r["name"], "u": r["units"], "s": r["status"], "sw": r["swarm_s"].get("mitts_cas"), "ss": r["swarm_s"].get("cargo_sccache"), "sc": r["swarm_s"].get("cargo_bare"),
-                 "cm": r["cold_s"].get("mitts_cas"), "cc": r["cold_s"].get("cargo_bare"), "no": r["noop_ms"].get("mitts_cas")}
-                for r in p["projects"]]
-        out.append({"label": p["label"], "rows": rows})
-    return out
+        rows = []
+        for r in sorted(p["projects"], key=lambda r: r["name"]):
+            sw, sc, ss = (r["swarm_s"].get(a) for a in ("mitts_cas", "cargo_bare", "cargo_sccache"))
+            rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s%s<td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                esc(r["name"]), "–" if r["units"] is None else r["units"], num(sw, 2), num(sc, 2), num(ss, 2), gain(sc, sw), gain(ss, sw),
+                num(r["cold_s"].get("mitts_cas"), 2), num(r["cold_s"].get("cargo_bare"), 2), num(r["noop_ms"].get("mitts_cas"), 1),
+                "steady" if r["status"] == "OK" else "wide spread"))
+        out.append('<div class="panel tablewrap" data-ap="%s"><table class="ref nums"><thead><tr><th>Project</th><th>Units</th><th>Swarm Mitts</th><th>Swarm Cargo</th><th>Swarm sccache</th><th>vs Cargo</th><th>vs sccache</th><th>Cold Mitts</th><th>Cold Cargo</th><th>No-op ms</th><th>Repeats</th></tr></thead><tbody>%s</tbody></table></div>' % (p["id"], "".join(rows)))
+    return tabs("ap", [(p["id"], p["label"]) for p in data["platforms"]], "Machine") + "".join(out)
 
 
 HEAD = """
@@ -144,7 +157,7 @@ HEAD = """
 <dt>Soundness</dt><dd>Worktree 12 gets one deliberately failing test. A tool counts only if all 12 worktrees compile with <code>test --no-run</code> and produce the same number of test binaries as plain Cargo. After the timed build, an untimed smoke run filtered to that test checks that worktree 12 fails on it and that a clean worktree runs its test binaries with no failure. A shared target directory fails this check.</dd>
 <dt>A quiet machine</dt><dd>Before each run the machine must be idle: CPU busy fraction and load under a threshold and no foreign compiler process. File systems are synced before disk readings.</dd>
 <dt>Totals and ratios</dt><dd>The scoreboard sums each reading over the projects of one machine; the ratio is the sum for Cargo divided by the sum for Mitts. The tables further down use the geometric mean of per-project ratios, because ratios multiply. <b>Every measured project is in the scoreboard and in the geometric means.</b> The harness flagged %(wide)d project runs as noisy (the %(repeats)d repeats of a swarm differed by more than 15%%); they are marked &ldquo;wide spread&rdquo; in the project table and kept. A scenario row can cover fewer projects than the swarm: the edit probe fails to compile on crates that deny missing docs, and a few projects fail <code>check</code> or <code>clippy</code> on lints already present upstream, under every tool. Each row lists its project count.</dd>
-<dt>Provenance</dt><dd>Every result file records the binary hash, the hash of each script, the commit, the toolchain, the file systems and the load before each run. The reduced data, with absolute paths and device names removed, is published as <a href="../data/benchmarks.json">benchmarks.json</a>.</dd>
+<dt>Provenance</dt><dd>Every result file records the binary hash, the hash of each script, the commit, the toolchain, the file systems and the load before each run. The reduced data, with absolute paths and device names removed, is in the repository: <a href="https://github.com/alex09x/mitts/blob/main/docs/data/benchmarks.json">docs/data/benchmarks.json</a>.</dd>
 </dl>
 %(rig)s</section>
 
@@ -158,10 +171,8 @@ HEAD = """
 %(tables)s</section>
 
 <section id="all"><h2>All projects</h2>
-<p>Seconds (milliseconds for the no-op column) for Mitts against the two baselines. Pick a machine, sort a column, filter by name.</p>
-<div class="controls"><label>Machine <select id="plat"></select></label><label>Filter <input id="flt" type="search" placeholder="project name"></label></div>
-<div class="tablewrap"><table class="ref nums" id="ptable"><thead><tr><th data-k="name">Project</th><th data-k="units">Units</th><th data-k="swarm">Swarm Mitts</th><th data-k="swarm_c">Swarm Cargo</th><th data-k="swarm_sc">Swarm sccache</th><th data-k="swarm_xc">vs Cargo</th><th data-k="swarm_x">vs sccache</th><th data-k="cold">Cold Mitts</th><th data-k="cold_c">Cold Cargo</th><th data-k="noop">No-op ms</th><th data-k="status">Repeats</th></tr></thead><tbody></tbody></table></div>
-<noscript><p>The table needs JavaScript. The same data is in <a href="../data/benchmarks.json">benchmarks.json</a>.</p></noscript></section>
+<p>Seconds (milliseconds for the no-op column) for Mitts against the two baselines, one row per project, alphabetical. Pick a machine.</p>
+%(ptables)s</section>
 
 <section id="limits"><h2>What these numbers do and do not say</h2>
 <ul>
@@ -176,7 +187,6 @@ HEAD = """
 <li><b>Not covered.</b> Windows, cross-compilation and a remote or team cache are not supported yet and not measured.</li>
 </ul></section>
 </main>
-<script id="bench-data" type="application/json">%(json)s</script>
 <script src="../hundred.js"></script>
 """
 
@@ -217,7 +227,7 @@ def build(data):
         "repeats": par["repeats"], "wide": wide, "rig": rig_table(data), "tables": table_rows(data),
         "leg": charts.legend(data), "bars_s": charts.ratio_bars(data, "cargo_sccache", HEADLINE, "Speed-up of Mitts over sccache"),
         "bars_c": charts.ratio_bars(data, "cargo_bare", HEADLINE, "Speed-up of Mitts over plain Cargo"),
-        "json": json.dumps(slim(data), separators=(",", ":")).replace("</", "<\\/"),
+        "ptables": project_tables(data),
     }
     return page("The Hundred: Mitts against Cargo on 100 Rust projects",
                 "Mitts against plain Cargo and sccache on 100 Rust projects, three machines: time, CPU, compiler runs and disk for 12 worktrees at once.",
