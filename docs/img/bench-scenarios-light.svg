@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 596" width="920" height="596" role="img" aria-label="Average build time per project · Cargo vs Mitts">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 596" width="920" height="596" role="img" aria-label="Build time of a median project · Cargo vs Mitts">
 <rect x="0.5" y="0.5" width="919" height="595" rx="10" fill="#ffffff" stroke="#d0d7de"/>
-<text x="24" y="31" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15.5" font-weight="700">Average build time per project · Cargo vs Mitts</text>
+<text x="24" y="31" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15.5" font-weight="700">Build time of a median project · Cargo vs Mitts</text>
 <text x="24" y="50" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">macOS · APFS · Apple M2 Ultra · Mitts 0.3.17 · linear scale per row (shorter is faster)</text>
 <rect x="568" y="21" width="12" height="12" rx="2.5" fill="#656d76"/>
 <text x="586" y="31" fill="#59636e" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12" font-weight="500">Cargo</text>
@@ -10,79 +10,73 @@
 <text x="834" y="31" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12" font-weight="500">Mitts</text>
 <line x1="24" x2="896" y1="64" y2="64" stroke="#d0d7de"/>
 <text x="24" y="97" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700">12 worktrees</text>
-<text x="24" y="115" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">parallel tests · n=100</text>
-<rect x="216" y="80" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 45.8 s</title></rect>
-<text x="576.0" y="91.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">45.8 s</text>
-<rect x="216" y="100" width="335.6" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 44.1 s</title></rect>
-<text x="563.6" y="111.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">44.1 s</text>
-<rect x="216" y="120" width="59.1" height="15" rx="3" fill="#ff3b30"><title>Mitts: 7.77 s</title></rect>
-<text x="287.1" y="131.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">7.77 s</text>
-<text x="664" y="95" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">5.8× <tspan fill="#59636e" font-size="11.5" font-weight="500">mean vs Cargo</tspan></text>
-<text x="664" y="113" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">geomean 7.1× · 100/100 faster</text>
-<text x="664" y="128" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">vs sccache: 6.8× geomean</text>
+<text x="24" y="115" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">parallel tests · n=100</text>
+<rect x="216" y="80" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 32 s</title></rect>
+<text x="576.0" y="91.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">32 s</text>
+<rect x="216" y="100" width="338.1" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 31 s</title></rect>
+<text x="566.1" y="111.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">31 s</text>
+<rect x="216" y="120" width="40.3" height="15" rx="3" fill="#ff3b30"><title>Mitts: 3.7 s</title></rect>
+<text x="268.3" y="131.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">3.7 s</text>
+<text x="664" y="95" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">100 of 100 <tspan fill="#59636e" font-size="11.5" font-weight="500">Mitts first vs Cargo</tspan></text>
+<text x="664" y="115" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">100 of 100 first vs sccache</text>
 <line x1="24" x2="896" y1="146" y2="146" stroke="#eaeef2"/>
 <text x="24" y="175" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700">2nd worktree</text>
-<text x="24" y="193" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">clean checkout · n=71</text>
-<rect x="216" y="158" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 3.70 s</title></rect>
-<text x="576.0" y="169.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">3.70 s</text>
-<rect x="216" y="178" width="324.8" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 3.45 s</title></rect>
-<text x="552.8" y="189.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">3.45 s</text>
-<rect x="216" y="198" width="32.1" height="15" rx="3" fill="#ff3b30"><title>Mitts: 0.34 s</title></rect>
-<text x="260.1" y="209.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">0.34 s</text>
-<text x="664" y="173" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">10.8× <tspan fill="#59636e" font-size="11.5" font-weight="500">mean vs Cargo</tspan></text>
-<text x="664" y="191" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">geomean 21× · 71/71 faster</text>
-<text x="664" y="206" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">vs sccache: 20× geomean</text>
+<text x="24" y="193" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">clean checkout · n=71</text>
+<rect x="216" y="158" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 1.7 s</title></rect>
+<text x="576.0" y="169.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">1.7 s</text>
+<rect x="216" y="178" width="326.2" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 1.6 s</title></rect>
+<text x="554.2" y="189.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">1.6 s</text>
+<rect x="216" y="198" width="15.2" height="15" rx="3" fill="#ff3b30"><title>Mitts: 78 ms</title></rect>
+<text x="243.2" y="209.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">78 ms</text>
+<text x="664" y="173" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">71 of 71 <tspan fill="#59636e" font-size="11.5" font-weight="500">Mitts first vs Cargo</tspan></text>
+<text x="664" y="193" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">71 of 71 first vs sccache</text>
 <line x1="24" x2="896" y1="224" y2="224" stroke="#eaeef2"/>
 <text x="24" y="253" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700">branch hop</text>
-<text x="24" y="271" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">switch + build · n=100</text>
-<rect x="216" y="236" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 0.93 s</title></rect>
-<text x="576.0" y="247.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">0.93 s</text>
-<rect x="216" y="256" width="195.4" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 0.52 s</title></rect>
-<text x="423.4" y="267.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">0.52 s</text>
-<rect x="216" y="276" width="39.0" height="15" rx="3" fill="#ff3b30"><title>Mitts: 0.10 s</title></rect>
-<text x="267.0" y="287.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">0.10 s</text>
-<text x="664" y="251" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">8.9× <tspan fill="#59636e" font-size="11.5" font-weight="500">mean vs Cargo</tspan></text>
-<text x="664" y="269" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">geomean 17.3× · 99/100 faster</text>
-<text x="664" y="284" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">vs sccache: 8.1× geomean</text>
+<text x="24" y="271" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">switch + build · n=100</text>
+<rect x="216" y="236" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 627 ms</title></rect>
+<text x="576.0" y="247.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">627 ms</text>
+<rect x="216" y="256" width="115.9" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 209 ms</title></rect>
+<text x="343.9" y="267.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">209 ms</text>
+<rect x="216" y="276" width="15.0" height="15" rx="3" fill="#ff3b30"><title>Mitts: 27 ms</title></rect>
+<text x="243.0" y="287.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">27 ms</text>
+<text x="664" y="251" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">99 of 100 <tspan fill="#59636e" font-size="11.5" font-weight="500">Mitts first vs Cargo</tspan></text>
+<text x="664" y="271" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">99 of 100 first vs sccache</text>
 <line x1="24" x2="896" y1="302" y2="302" stroke="#eaeef2"/>
 <text x="24" y="331" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700">no-op</text>
-<text x="24" y="349" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">no changes · n=100</text>
-<rect x="216" y="314" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 142 ms</title></rect>
-<text x="576.0" y="325.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">142 ms</text>
-<rect x="216" y="334" width="177.6" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 72 ms</title></rect>
-<text x="405.6" y="345.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">72 ms</text>
-<rect x="216" y="354" width="33.8" height="15" rx="3" fill="#ff3b30"><title>Mitts: 14 ms</title></rect>
-<text x="261.8" y="365.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">14 ms</text>
-<text x="664" y="329" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">10.3× <tspan fill="#59636e" font-size="11.5" font-weight="500">mean vs Cargo</tspan></text>
-<text x="664" y="347" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">geomean 11.6× · 100/100 faster</text>
-<text x="664" y="362" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">vs sccache: 5.1× geomean</text>
+<text x="24" y="349" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">no changes · n=100</text>
+<rect x="216" y="314" width="348.0" height="15" rx="3" fill="#656d76"><title>Cargo: 100 ms</title></rect>
+<text x="576.0" y="325.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">100 ms</text>
+<rect x="216" y="334" width="141.9" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 41 ms</title></rect>
+<text x="369.9" y="345.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">41 ms</text>
+<rect x="216" y="354" width="28.9" height="15" rx="3" fill="#ff3b30"><title>Mitts: 8 ms</title></rect>
+<text x="256.9" y="365.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">8 ms</text>
+<text x="664" y="329" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">100 of 100 <tspan fill="#59636e" font-size="11.5" font-weight="500">Mitts first vs Cargo</tspan></text>
+<text x="664" y="349" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">99 of 100 first vs sccache</text>
 <line x1="24" x2="896" y1="380" y2="380" stroke="#eaeef2"/>
 <text x="24" y="409" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700">edit + rebuild</text>
-<text x="24" y="427" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">1 file edited · n=71</text>
-<rect x="216" y="392" width="258.3" height="15" rx="3" fill="#656d76"><title>Cargo: 0.70 s</title></rect>
-<text x="486.3" y="403.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">0.70 s</text>
-<rect x="216" y="412" width="348.0" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 0.94 s</title></rect>
-<text x="576.0" y="423.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">0.94 s</text>
-<rect x="216" y="432" width="331.8" height="15" rx="3" fill="#ff3b30"><title>Mitts: 0.90 s</title></rect>
-<text x="559.8" y="443.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">0.90 s</text>
-<text x="664" y="407" fill="#59636e" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">0.7× <tspan fill="#59636e" font-size="11.5" font-weight="500">mean vs Cargo</tspan></text>
-<text x="664" y="425" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">geomean 1.1× · 49/71 faster</text>
-<text x="664" y="440" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">vs sccache: 1.7× geomean</text>
+<text x="24" y="427" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">1 file edited · n=71</text>
+<rect x="216" y="392" width="212.8" height="15" rx="3" fill="#656d76"><title>Cargo: 364 ms</title></rect>
+<text x="440.8" y="403.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">364 ms</text>
+<rect x="216" y="412" width="348.0" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 596 ms</title></rect>
+<text x="576.0" y="423.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">596 ms</text>
+<rect x="216" y="432" width="183.5" height="15" rx="3" fill="#ff3b30"><title>Mitts: 314 ms</title></rect>
+<text x="411.5" y="443.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">314 ms</text>
+<text x="664" y="407" fill="#cf2217" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">49 of 71 <tspan fill="#59636e" font-size="11.5" font-weight="500">Mitts first vs Cargo</tspan></text>
+<text x="664" y="427" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">56 of 71 first vs sccache</text>
 <line x1="24" x2="896" y1="458" y2="458" stroke="#eaeef2"/>
 <text x="24" y="487" fill="#1f2328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700">cold build</text>
-<text x="24" y="505" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">empty cache · n=100</text>
-<rect x="216" y="470" width="259.7" height="15" rx="3" fill="#656d76"><title>Cargo: 3.28 s</title></rect>
-<text x="487.7" y="481.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">3.28 s</text>
-<rect x="216" y="490" width="348.0" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 4.40 s</title></rect>
-<text x="576.0" y="501.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">4.40 s</text>
-<rect x="216" y="510" width="301.0" height="15" rx="3" fill="#ff3b30"><title>Mitts: 3.80 s</title></rect>
-<text x="529.0" y="521.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">3.80 s</text>
-<text x="664" y="485" fill="#59636e" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">0.8× <tspan fill="#59636e" font-size="11.5" font-weight="500">mean vs Cargo</tspan></text>
-<text x="664" y="503" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">geomean 0.9× · 28/100 faster</text>
-<text x="664" y="518" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11">vs sccache: 1.4× geomean</text>
+<text x="24" y="505" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">empty cache · n=100</text>
+<rect x="216" y="470" width="248.8" height="15" rx="3" fill="#656d76"><title>Cargo: 1.7 s</title></rect>
+<text x="476.8" y="481.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">1.7 s</text>
+<rect x="216" y="490" width="348.0" height="15" rx="3" fill="#9ba3ad"><title>Cargo + sccache: 2.4 s</title></rect>
+<text x="576.0" y="501.5" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="400">2.4 s</text>
+<rect x="216" y="510" width="269.6" height="15" rx="3" fill="#ff3b30"><title>Mitts: 1.9 s</title></rect>
+<text x="497.6" y="521.5" fill="#cf2217" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5" font-weight="700">1.9 s</text>
+<text x="664" y="485" fill="#59636e" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="20" font-weight="800">28 of 100 <tspan fill="#59636e" font-size="11.5" font-weight="500">Mitts first vs Cargo</tspan></text>
+<text x="664" y="505" fill="#59636e" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">86 of 100 first vs sccache</text>
 <rect x="24" y="552" width="872" height="30" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-<text x="38" y="571" fill="#59636e" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11.5" font-weight="600">12-wt swarm vs Cargo:</text>
-<text x="216" y="571" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">macOS M2 Ultra <tspan fill="#cf2217" font-weight="700">5.8×</tspan> <tspan fill="#59636e">(n=100)</tspan></text>
-<text x="446" y="571" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">Linux Ryzen 9 9950X <tspan fill="#cf2217" font-weight="700">7×</tspan> <tspan fill="#59636e">(n=90)</tspan></text>
-<text x="706" y="571" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">Linux ARM64 <tspan fill="#cf2217" font-weight="700">3.6×</tspan> <tspan fill="#59636e">(n=100)</tspan></text>
+<text x="38" y="571" fill="#59636e" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11.5" font-weight="600">12-worktree total time:</text>
+<text x="216" y="571" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">macOS <tspan fill="#cf2217" font-weight="700">76 min → 13 min</tspan> <tspan fill="#59636e">(n=100)</tspan></text>
+<text x="420" y="571" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">Linux x86 <tspan fill="#cf2217" font-weight="700">60 min → 9 min</tspan> <tspan fill="#59636e">(n=90)</tspan></text>
+<text x="630" y="571" fill="#1f2328" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">Linux ARM <tspan fill="#cf2217" font-weight="700">78 min → 22 min</tspan> <tspan fill="#59636e">(n=100)</tspan></text>
 </svg>

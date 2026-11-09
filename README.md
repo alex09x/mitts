@@ -43,6 +43,18 @@
 
 ---
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/bench-hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/bench-hero-light.svg">
+    <img src="docs/img/bench-hero-light.svg" width="920" alt="Building 12 worktrees of 100 Rust projects on a Mac takes 13 minutes with Mitts and 76 minutes with Cargo; compiler runs drop from 90,961 to 6,905 and disk writes from 641 GB to 112 GB">
+  </picture>
+</p>
+
+<p align="center">
+  <sub>The same 100 open-source projects, 12 worktrees each, built at once. Three machines, Cargo and Cargo + sccache as baselines, the cases where Mitts is not faster included: <a href="#performance">Performance</a> · <a href="https://mittsbuild.com/the-hundred/">The Hundred</a></sub>
+</p>
+
 Mitts plans the workspace itself and invokes `rustc` directly. Every
 compile action gets a key derived from all of its inputs. The output is stored
 once in a machine-wide immutable store and restored into every workspace that
@@ -374,7 +386,7 @@ a stable release. Cargo, optionally with sccache, is the safe choice there.
 
 ## Performance
 
-Measured with Mitts `0.3.17` across **100 open-source Rust projects** on macOS (Apple M2 Ultra, APFS) and Linux ARM64 (XFS), and **90** on Linux x86_64 (AMD Ryzen 9 9950X, XFS), against plain `cargo` and `cargo` with `sccache` (`0.17.0`). Every reading is the median of 3 repeats with diagnostic, exit-code and test-result parity checked; all measured projects stay in the totals (`0`, `7` and `0` runs flagged noisy), and speed-up ratios are truncated rather than rounded up ([ROADMAP M8](ROADMAP.md)).
+Measured with Mitts `0.3.17` across **100 open-source Rust projects** on macOS (Apple M2 Ultra, APFS) and Linux ARM64 (XFS), and **90** on Linux x86_64 (AMD Ryzen 9 9950X, XFS), against plain `cargo` and `cargo` with `sccache` (`0.17.0`). Every reading is the median of 3 repeats with diagnostic, exit-code and test-result parity checked; all measured projects stay in the totals (`0`, `7` and `0` runs flagged noisy), and no figure exceeds the measurement: baselines are truncated and Mitts is rounded up ([ROADMAP M8](ROADMAP.md)). The full study, every project and the method are on [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/).
 
 <p align="center">
   <picture>
@@ -384,7 +396,9 @@ Measured with Mitts `0.3.17` across **100 open-source Rust projects** on macOS (
   </picture>
 </p>
 
-Bar lengths show the arithmetic mean of per-project medians (proportional to total corpus wall time), with per-project geometric means alongside each row. On multi-worktree, branch-hop and default no-op runs, Mitts cuts mean build time by **5.8–10.8×** on macOS. On **edit + rebuild** (`n = 71` on macOS and Linux ARM64, `64` on Linux x86_64), Mitts is faster by geometric mean (**1.1×** on macOS and Linux ARM64, **1×** on Linux x86_64; `49/71`, `42/71` and `43/64` projects faster), while its arithmetic mean is slower (**0.7–0.8×**) because a few large single-crate binaries use `rustc` intra-crate incremental compilation under `cargo` whereas Mitts caches whole crate units. A **single cold build** with an empty cache is **0.8–1×** against plain `cargo` and **1.4×** faster by geometric mean than `cargo` with a cold `sccache`.
+Each row is the build time of the median project (every tool's own median over the projects, linear scale per row), with the number of projects on which Mitts finished first beside it. On macOS the median project builds its 12 worktrees in **32 s** with `cargo`, **31 s** with `cargo` + `sccache` and **3.7 s** with Mitts; a second clean worktree takes **1.7 s**, **1.6 s** and **78 ms**; a branch hop **627 ms**, **209 ms** and **27 ms**; a build with nothing changed **100 ms**, **41 ms** and **8 ms**. Mitts is first on 99–100 of 100 projects in those four scenarios (71 of 71 for the second worktree).
+
+Where Mitts does not win: after **editing one file** the median project takes **364 ms** with `cargo`, **596 ms** with `sccache` and **314 ms** with Mitts, and Mitts is first on only 49 of 71 projects against `cargo` (56 of 71 against `sccache`), because `cargo` reuses `rustc` incremental compilation inside a crate while Mitts caches whole crate units. A **single cold build** with an empty cache is a wash against plain `cargo` (**1.7 s** against **1.9 s** for the median project; Mitts is first on only 28 of 100) and ahead of `sccache` (**2.4 s**, Mitts first on 86 of 100). The other two machines show the same pattern; see the page above for each of them.
 
 <p align="center">
   <picture>
@@ -394,7 +408,15 @@ Bar lengths show the arithmetic mean of per-project medians (proportional to tot
   </picture>
 </p>
 
-Building **12 parallel worktrees** on 4 commits across the 100 macOS projects takes **76 min** with `cargo`, **74 min** with `cargo` + `sccache` and **13 min** with Mitts (**5.8×** less wall time; **7×** on Linux x86_64, **3.6×** on Linux ARM64), cutting `rustc` runs from **90,961** to **6,905** (**13.1×**) and disk writes from **641 GB** to **111 GB** (**5.7×**). Summed over the 12 worktrees, peak child RSS (`ru_maxrss`) averages **2.4–3.4 GB** per project with Mitts versus **6.1–6.5 GB** with plain `cargo` (**1.8–2.5×** less) because cached worktrees do not spawn `rustc`; within a single worktree, the heaviest child process averages **451–520 MB** with Mitts versus **539–582 MB** with plain `cargo` (`cargo` + `sccache` records **443–483 MB** inside `wait4` because its detached `sccache` server runs outside the measured process tree).
+Building **12 parallel worktrees** on 4 commits across all projects, totals per machine:
+
+| Machine | Time: `cargo` / `sccache` / Mitts | `rustc` runs: `cargo` / Mitts | Disk written: `cargo` / Mitts |
+|---|---|---|---|
+| macOS, APFS, M2 Ultra (100 projects) | 76 min / 73 min / **13 min** | 90,961 / **6,905** | 641 GB / **112 GB** |
+| Linux x86_64, XFS, Ryzen 9 9950X (90 projects) | 60 min / 52 min / **9 min** | 75,049 / **6,162** | 651 GB / **106 GB** |
+| Linux aarch64, XFS (100 projects) | 78 min / 76 min / **22 min** | 90,544 / **7,348** | 743 GB / **121 GB** |
+
+CPU time on macOS drops from **20.3 h** (`cargo`) and **8.0 h** (`sccache`) to **2.7 h**. The x86_64 machine measured 90 projects, not 100: ten projects are missing from that run (similar, smallvec, smol, syntect, tealdeer, tera, textwrap, tokei, tower-http, xh), and the cause is not recorded.
 
 ## Status
 

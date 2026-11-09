@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 244" width="920" height="244" role="img" aria-label="Mitts versus Cargo and sccache on 100 Rust projects built in 12 worktrees at once">
+<rect x="0.5" y="0.5" width="919" height="243" rx="10" fill="#121315" stroke="#2e3136"/>
+<text x="24" y="31" fill="#f2f3f4" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15.5" font-weight="700">100 Rust projects · 12 worktrees built at once</text>
+<text x="24" y="50" fill="#9aa0a8" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11.5">macOS · APFS · Apple M2 Ultra · Mitts 0.3.17 · totals over all projects</text>
+<rect x="568" y="21" width="12" height="12" rx="2.5" fill="#7a828e"/>
+<text x="586" y="31" fill="#9aa0a8" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12" font-weight="500">Cargo</text>
+<rect x="654" y="21" width="12" height="12" rx="2.5" fill="#b7bec7"/>
+<text x="672" y="31" fill="#9aa0a8" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12" font-weight="500">Cargo + sccache</text>
+<rect x="816" y="21" width="12" height="12" rx="2.5" fill="#ff3b30"/>
+<text x="834" y="31" fill="#f2f3f4" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12" font-weight="500">Mitts</text>
+<line x1="24" x2="896" y1="64" y2="64" stroke="#2e3136"/>
+<text x="24" y="92" fill="#9aa0a8" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">TIME</text>
+<text x="24" y="134" fill="#ff5449" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="34" font-weight="800">13 min</text>
+<text x="24" y="156" fill="#9aa0a8" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">Cargo 76 min · sccache 73 min</text>
+<rect x="24" y="168" width="200.0" height="9" rx="3" fill="#7a828e"/>
+<rect x="24" y="182" width="192.9" height="9" rx="3" fill="#b7bec7"/>
+<rect x="24" y="196" width="34.0" height="9" rx="3" fill="#ff3b30"/>
+<text x="24" y="226" fill="#f2f3f4" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">63 min less than Cargo</text>
+<text x="248" y="92" fill="#9aa0a8" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">CPU</text>
+<text x="248" y="134" fill="#ff5449" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="34" font-weight="800">2.7 h</text>
+<text x="248" y="156" fill="#9aa0a8" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">Cargo 20.3 h · sccache 8.0 h</text>
+<rect x="248" y="168" width="200.0" height="9" rx="3" fill="#7a828e"/>
+<rect x="248" y="182" width="79.3" height="9" rx="3" fill="#b7bec7"/>
+<rect x="248" y="196" width="25.6" height="9" rx="3" fill="#ff3b30"/>
+<text x="248" y="226" fill="#f2f3f4" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">17.6 h less than Cargo</text>
+<text x="472" y="92" fill="#9aa0a8" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">COMPILER RUNS</text>
+<text x="472" y="134" fill="#ff5449" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="34" font-weight="800">6,905</text>
+<text x="472" y="156" fill="#9aa0a8" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">Cargo 90,961 · sccache 90,961</text>
+<rect x="472" y="168" width="200.0" height="9" rx="3" fill="#7a828e"/>
+<rect x="472" y="182" width="200.0" height="9" rx="3" fill="#b7bec7"/>
+<rect x="472" y="196" width="15.2" height="9" rx="3" fill="#ff3b30"/>
+<text x="472" y="226" fill="#f2f3f4" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">84,056 less than Cargo</text>
+<text x="696" y="92" fill="#9aa0a8" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">DISK WRITTEN</text>
+<text x="696" y="134" fill="#ff5449" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="34" font-weight="800">112 GB</text>
+<text x="696" y="156" fill="#9aa0a8" font-family='ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace' font-size="11" font-weight="400">Cargo 641 GB · sccache 556 GB</text>
+<rect x="696" y="168" width="200.0" height="9" rx="3" fill="#7a828e"/>
+<rect x="696" y="182" width="173.5" height="9" rx="3" fill="#b7bec7"/>
+<rect x="696" y="196" width="34.7" height="9" rx="3" fill="#ff3b30"/>
+<text x="696" y="226" fill="#f2f3f4" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600">529 GB less than Cargo</text>
+</svg>
