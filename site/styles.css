@@ -180,10 +180,10 @@ h3 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
 .term .c { color: var(--muted); }
 .cli dd code { font-size: 13px; color: var(--ink); }
 
-.author { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 24px; padding: 72px 0; border-top: 1px solid var(--line); }
+.author { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 24px; padding: 40px 0; border-top: 1px solid var(--line); }
 .author p { display: flex; gap: 24px; margin: 0; font-family: var(--mono); font-size: 14px; }
-
-footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.author h2 { font: 600 17px/1.4 var(--sans); letter-spacing: 0; margin-top: 6px; }
+.author .tag { margin-bottom: 0; }footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 footer .shell { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 24px 0; }
 footer a { color: var(--muted); }
 
