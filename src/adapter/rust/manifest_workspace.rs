@@ -177,7 +177,8 @@ impl CargoToml {
                     let rel = Path::new(pattern);
                     let is_excluded = ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
                     if !is_excluded {
-                        let member_dir = root_dir.join(pattern);
+                        let member_dir =
+                            super::planner_paths::normalize_lexically(&root_dir.join(pattern));
                         let candidate_manifest = member_dir.join("Cargo.toml");
                         if candidate_manifest.is_file() {
                             let toml =

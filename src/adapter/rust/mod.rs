@@ -126,7 +126,9 @@ impl RustAdapter {
             if !path.exists() {
                 return Err(RustAdapterError::ManifestNotFound(path).into());
             }
-            Ok(path)
+            // `--manifest-path sub/../Cargo.toml` and `./Cargo.toml` name the same project:
+            // directories derived from this path reach unit sources and keys.
+            Ok(planner_paths::normalize_lexically(&path))
         } else {
             let default_path = std::env::current_dir()?.join("Cargo.toml");
             if !default_path.exists() {
