@@ -6,7 +6,7 @@
 # Author: https://prod.codes/about/
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Generate light and dark benchmark SVGs in docs/img/ from site/data/benchmarks.json."""
+"""Generate light and dark benchmark SVGs in docs/img/ from docs/data/benchmarks.json."""
 
 import argparse
 from html import escape
@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA_FILE = ROOT / "site" / "data" / "benchmarks.json"
+DATA_FILE = ROOT / "docs" / "data" / "benchmarks.json"
 OUT_DIR = ROOT / "docs" / "img"
 
 SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'

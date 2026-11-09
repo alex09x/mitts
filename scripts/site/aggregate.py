@@ -8,7 +8,7 @@
 """Reduce the raw corpus reports to the public benchmark data set.
 
 Reads the three platform reports of one measured Mitts version and writes
-site/data/benchmarks.json: per-project medians for the headline scenarios,
+docs/data/benchmarks.json: per-project medians for the headline scenarios,
 the per-platform geometric means, and the facts the page states (rig, version,
 parameters). Absolute paths, host names and device identifiers never enter the
 output. Projects the harness flagged NOISY stay in every aggregate and are
