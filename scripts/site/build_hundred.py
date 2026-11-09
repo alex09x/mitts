@@ -32,7 +32,7 @@ def counts(data):
     """'100 on macOS and Linux aarch64, 90 on Linux x86_64' from the measured project counts."""
     by = {}
     for p in data["platforms"]:
-        by.setdefault(p["projects_ok"], []).append(p["label"].split(" · ")[0] + (" " + p["label"].split(" · ")[1].split()[0] if p["label"].startswith("Linux") else ""))
+        by.setdefault(p["projects_ok"], []).append(p["label"].split(" · ")[0])
     return ", ".join("%d on %s" % (n, " and ".join(v)) for n, v in sorted(by.items(), reverse=True))
 
 
@@ -140,11 +140,11 @@ HEAD = """
 
 <section id="projects"><h2>Every project, one row</h2>
 <p>Every measured project, slowest with Cargo first. Grey is plain Cargo, red is Mitts, both from zero on the same linear scale, and the measured value is written at the end of each row. Pick a machine and a measure. Short rows are small projects with little work to do; the numbers at the right still tell them apart.</p>
-%(dumb)s
+%(pbars)s
 <p class="note">Cargo with a warm <code>sccache</code> cuts CPU but wall time only a little: <code>sccache</code> still starts a wrapper for every <code>rustc</code> call, does not cache linking, and Cargo still runs every build script. Both are in the scoreboard and the project tables.</p></section>
 
 <section id="method"><h2>What was tested, and how</h2>
-%(flow)s
+<div class="scroll">%(flow)s</div>
 <dl class="params">
 <dt>The Hundred</dt><dd>100 open-source Rust projects from crates.io and GitHub, fixed in <code>scripts/corpus_100.json</code>. Measured projects per machine: %(counts)s; every total and median is computed per machine over that machine&rsquo;s own set. <code>nushell</code> is excluded. Projects Cargo itself cannot build are replaced so the corpus stays at 100.</dd>
 <dt>The scenario</dt><dd>Twelve git worktrees of one project, on 4 different commits, all build the project&rsquo;s tests at the same moment. That is what parallel branches, a review queue or a team of coding agents does. Test <i>execution</i> is the same for every tool and is not timed; the build uses <code>test --no-run</code>.</dd>
@@ -152,7 +152,7 @@ HEAD = """
 <dt>The five readings</dt><dd>Wall-clock time of the swarm; CPU time (user + system of all processes); compiler runs; bytes written to the device; peak disk in use. Each is the <b>median of %(repeats)d repeats</b>; quartiles are in the raw data.</dd>
 <dt>Soundness</dt><dd>Worktree 12 gets one deliberately failing test. A tool counts only if all 12 worktrees compile with <code>test --no-run</code> and produce the same number of test binaries as plain Cargo. After the timed build, an untimed smoke run filtered to that test checks that worktree 12 fails on it and that a clean worktree runs its test binaries with no failure. A shared target directory fails this check.</dd>
 <dt>A quiet machine</dt><dd>Before each run the machine must be idle: CPU busy fraction and load under a threshold and no foreign compiler process. File systems are synced before disk readings.</dd>
-<dt>Totals and typical projects</dt><dd>The scoreboard sums each reading over the projects of one machine. The &ldquo;median project&rdquo; rows are each tool&rsquo;s own median over the projects. <b>Every measured project is in the scoreboard and in the medians.</b> The harness flagged %(wide)d project runs as noisy (the %(repeats)d repeats of a swarm differed by more than 15%%); they are marked &ldquo;wide spread&rdquo; in the project table and kept. A scenario row can cover fewer projects than the swarm: the edit probe fails to compile on crates that deny missing docs, and a few projects fail <code>check</code> or <code>clippy</code> on lints already present upstream, under every tool. Each row lists its project count.</dd>
+<dt>Totals and median projects</dt><dd>The scoreboard sums each reading over the projects of one machine. The &ldquo;median project&rdquo; rows are each tool&rsquo;s own median over the projects. <b>Every measured project is in the scoreboard and in the medians.</b> The harness flagged %(wide)d project runs as noisy (the %(repeats)d repeats of a swarm differed by more than 15%%); they are marked &ldquo;wide spread&rdquo; in the project table and kept. A scenario row can cover fewer projects than the swarm: the edit probe fails to compile on crates that deny missing docs, and a few projects fail <code>check</code> or <code>clippy</code> on lints already present upstream, under every tool. Each row lists its project count.</dd>
 <dt>Provenance</dt><dd>Every result file records the binary hash, the hash of each script, the commit, the toolchain, the file systems and the load before each run. The reduced data, with absolute paths and device names removed, is in the repository: <a href="https://github.com/alex09x/mitts/blob/main/docs/data/benchmarks.json">docs/data/benchmarks.json</a>.</dd>
 </dl>
 %(rig)s</section>
@@ -175,7 +175,7 @@ HEAD = """
 <ul>
 <li><b>One version.</b> All three machines ran %(ver)s. Mitts has changed since; each series stands on its own and numbers from different versions are not compared.</li>
 <li><b>Reuse is the point.</b> The swarm and second-worktree scenarios measure what a shared store buys when the same code is built many times. They are not the cost of a single first build, which the cold-build rows show.</li>
-<li><b>Totals favour big projects.</b> A sum is dominated by the slowest projects. The per-project chart and the typical-project rows show the spread.</li>
+<li><b>Totals favour big projects.</b> A sum is dominated by the slowest projects. The per-project chart and the median-project rows show the spread.</li>
 <li><b>Three repeats.</b> Medians of three runs are stable for these workloads but not a confidence interval. The quartiles are in the data.</li>
 <li><b>Desktop noise.</b> The Mac Studio carried resident agent sessions during its run. The idle check records and bounds this; it does not remove it.</li>
 <li><b>No-op rebuild.</b> &ldquo;Build again, nothing changed&rdquo; is Mitts with its fast lock on, as a plain <code>mitts build</code> runs it. The harness passes an explicit <code>--cache-dir</code>, which turns the fast lock off; with it off the same step is still faster than Cargo, but only by four to five times (the figure is in the raw data as <code>noop_cache_dir_ms</code>).</li>
@@ -211,7 +211,7 @@ def build(data):
         "ver": esc(p0["mitts_version"].replace("mitts ", "")), "commit": esc(p0["commit"][:12]),
         "scc": esc(p0.get("sccache") or "sccache"),
         "board": scoreboards(data),
-        "dumb": project_bars(data), "flow": ch.method_flow(), "times": project_times(data),
+        "pbars": project_bars(data), "flow": ch.method_flow(), "times": project_times(data),
         "tm": absolute(p0, "wall", "mitts_cas"), "tc": absolute(p0, "wall", "cargo_bare"),
         "cm": absolute(p0, "cpu", "mitts_cas"), "cc": absolute(p0, "cpu", "cargo_bare"),
         "rm": absolute(p0, "runs", "mitts_cas"), "rc": absolute(p0, "runs", "cargo_bare"),

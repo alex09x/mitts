@@ -21,14 +21,14 @@ SHARED_STORE_SVG = """<svg class="diagram" viewBox="0 0 860 330" role="img" aria
 </svg>"""
 
 KEY_SVG = """<svg class="diagram" viewBox="0 0 860 300" role="img" aria-label="Inputs of a compilation unit are hashed into one action key">
-<g class="d-in"><rect x="20" y="14" width="300" height="34" rx="4"/><text x="34" y="36">toolchain: rustc -vV</text>
-<rect x="20" y="56" width="300" height="34" rx="4"/><text x="34" y="78">target triple · profile</text>
-<rect x="20" y="98" width="300" height="34" rx="4"/><text x="34" y="120">flags (in invocation order)</text>
-<rect x="20" y="140" width="300" height="34" rx="4"/><text x="34" y="162">features (sorted)</text>
-<rect x="20" y="182" width="300" height="34" rx="4"/><text x="34" y="204">sources: (path, content hash)</text>
-<rect x="20" y="224" width="300" height="34" rx="4"/><text x="34" y="246">dependency action keys</text>
-<rect x="20" y="266" width="300" height="28" rx="4"/><text x="34" y="285">tracked env: CARGO_*, RUSTFLAGS, env!()</text></g>
-<path class="d-arrow" d="M320 154 H430"/>
+<g class="d-in"><rect x="20" y="14" width="360" height="34" rx="4"/><text x="34" y="36">toolchain: rustc -vV</text>
+<rect x="20" y="56" width="360" height="34" rx="4"/><text x="34" y="78">target triple · profile</text>
+<rect x="20" y="98" width="360" height="34" rx="4"/><text x="34" y="120">flags (in invocation order)</text>
+<rect x="20" y="140" width="360" height="34" rx="4"/><text x="34" y="162">features (sorted)</text>
+<rect x="20" y="182" width="360" height="34" rx="4"/><text x="34" y="204">sources: (path, content hash)</text>
+<rect x="20" y="224" width="360" height="34" rx="4"/><text x="34" y="246">dependency action keys</text>
+<rect x="20" y="266" width="360" height="28" rx="4"/><text x="34" y="285">tracked env: CARGO_*, RUSTFLAGS, env!()</text></g>
+<path class="d-arrow" d="M380 154 H430"/>
 <rect class="d-store" x="430" y="104" width="170" height="100" rx="8"/><text class="d-t" x="515" y="148" text-anchor="middle">SHA-256</text><text class="d-s" x="515" y="172" text-anchor="middle">canonical text</text>
 <path class="d-arrow" d="M600 154 H680"/>
 <rect class="d-box" x="680" y="114" width="160" height="80" rx="6"/><text class="d-t" x="760" y="148" text-anchor="middle">action key</text><text class="d-s" x="760" y="172" text-anchor="middle">one per unit</text>
@@ -37,13 +37,13 @@ KEY_SVG = """<svg class="diagram" viewBox="0 0 860 300" role="img" aria-label="I
 FLOW_SVG = """<svg class="diagram" viewBox="0 0 860 300" role="img" aria-label="Unit execution: lookup, hit restore, or miss lock, compile, publish">
 <rect class="d-box" x="20" y="120" width="150" height="60" rx="6"/><text class="d-t" x="95" y="156" text-anchor="middle">look up key</text>
 <path class="d-arrow" d="M170 150 H250"/>
-<rect class="d-hit" x="250" y="30" width="250" height="70" rx="6"/><text class="d-t" x="375" y="58" text-anchor="middle">hit</text><text class="d-s" x="375" y="82" text-anchor="middle">verify, restore to target/</text>
+<rect class="d-hit" x="250" y="30" width="250" height="70" rx="6"/><text class="d-t" x="375" y="58" text-anchor="middle">hit</text><text class="d-s" x="375" y="82" text-anchor="middle">restore to target/</text>
 <rect class="d-box" x="250" y="200" width="250" height="70" rx="6"/><text class="d-t" x="375" y="228" text-anchor="middle">miss</text><text class="d-s" x="375" y="252" text-anchor="middle">take the key lock, look again</text>
 <path class="d-arrow" d="M210 140 L250 65"/><path class="d-arrow" d="M210 160 L250 235"/>
 <path class="d-arrow" d="M500 235 H560"/>
 <rect class="d-box" x="560" y="200" width="130" height="70" rx="6"/><text class="d-t" x="625" y="240" text-anchor="middle">rustc</text>
-<path class="d-arrow" d="M690 235 H730"/>
-<rect class="d-box" x="730" y="200" width="110" height="70" rx="6"/><text class="d-t" x="785" y="228" text-anchor="middle">publish</text><text class="d-s" x="785" y="250" text-anchor="middle">tmp, 0444, rename</text>
+<path class="d-arrow" d="M690 235 H722"/>
+<rect class="d-box" x="722" y="200" width="128" height="70" rx="6"/><text class="d-t" x="786" y="228" text-anchor="middle">publish</text><text class="d-s" x="786" y="250" text-anchor="middle">tmp, 0444, rename</text>
 </svg>"""
 
 
@@ -54,13 +54,13 @@ def sections():
 <p>The cache follows four rules. Everything else on this page is their consequence.</p>
 <ol>
 <li><b>A cache hit needs a complete key.</b> Every input that can change an output is part of the action key. An input Mitts cannot see is a reason to rebuild, never a reason to reuse.</li>
-<li><b>Shared objects are immutable.</b> A published object is read-only and is verified by hash before it is used. Workspaces get their own copy, reflink or read-only hardlink, never a writable alias.</li>
+<li><b>Shared objects are immutable.</b> A published object is read-only and is hashed when it is published (an optional re-hash on restore is described below). Workspaces get their own copy, reflink or read-only hardlink, never a writable alias.</li>
 <li><b>The language core is neutral.</b> The store, the action cache, the locks and the garbage collector know nothing about Cargo. A Rust adapter turns a Cargo workspace into actions.</li>
 <li><b>Cargo stays the contract.</b> <code>Cargo.toml</code> and <code>Cargo.lock</code> are read as they are. Mitts never writes a lockfile of its own. Outputs go to Cargo's usual <code>target/debug</code> and <code>target/release</code>, and Mitts records the files it put there so <code>mitts clean</code> removes only those.</li>
 </ol>"""))
     S.append(("global-cache", "The global cache in one picture", """
 <p>Cargo keeps its cache in each workspace's <code>target/</code>, so every new clone, worktree or project starts empty. Mitts keeps compiled work in <b>one store per machine</b> and restores it into whichever workspace asks for it.</p>
-""" + SHARED_STORE_SVG + """
+<div class="scroll">""" + SHARED_STORE_SVG + """</div>
 <ul>
 <li>The <b>action cache</b> (<code>ac/manifests</code>) maps an action key to the list of objects that unit produced.</li>
 <li>The <b>content-addressed store</b> (<code>cas/objects/&lt;sha256&gt;</code>) holds those objects. Two units that produce identical bytes share one object.</li>
@@ -80,7 +80,7 @@ def sections():
 <p><code>mitts explain</code> prints the plan and the key of every unit without compiling anything. <code>mitts fetch</code> runs only the first two phases.</p>"""))
     S.append(("action-keys", "Action keys: what decides a hit", """
 <p>An action key is the SHA-256 of a canonical text made of everything that can change the output of a unit.</p>
-""" + KEY_SVG + """
+<div class="scroll">""" + KEY_SVG + """</div>
 <pre><code>toolchain: &lt;rustc -vV&gt;
 target:    &lt;target triple&gt;
 profile:   &lt;dev | release | ...&gt;
@@ -123,10 +123,10 @@ deps:      &lt;sorted (dependency unit, dependency action key) pairs&gt;</code><
 &boxur;&boxh;&boxh; index/                        cached sparse-index entries</code></pre>
 <p>The <b>workspace output</b> is Cargo's <code>target/</code>, or <code>$CARGO_TARGET_DIR</code>, or <code>--target-dir</code> (which wins). Mitts creates <code>CACHEDIR.TAG</code> and a <code>.gitignore</code> there. <code>mitts clean</code> removes only the indexed outputs that still match their recorded metadata, so unrelated files in a shared target directory are left alone.</p>"""))
     S.append(("executing", "Executing a unit: hit, miss, publish", """
-""" + FLOW_SVG + """
+<div class="scroll">""" + FLOW_SVG + """</div>
 <ol>
 <li><b>Look up</b> the action key in the action cache.</li>
-<li><b>Hit.</b> Verify the objects, then restore them into the workspace: a reflink where the filesystem supports it (APFS, XFS with reflink, Btrfs), otherwise a read-only hardlink to the immutable object, otherwise a copy. A corrupt object is discarded and the unit is rebuilt.</li>
+<li><b>Hit.</b> Restore the objects into the workspace: a reflink where the filesystem supports it (APFS, XFS with reflink, Btrfs), otherwise a read-only hardlink to the immutable object, otherwise a copy. A corrupt object is discarded and the unit is rebuilt.</li>
 <li><b>Miss.</b> Take the per-key lock, then look the key up <i>again</i>. Another process may have finished the unit while this one waited (double-checked locking). If it is still missing, compile.</li>
 <li><b>Publish.</b> Copy each output into <code>cas/tmp/</code>, mark it read-only, then <code>rename</code> it into <code>objects/</code>. The action cache entry is written only after every output is stored, so an interrupted build never leaves a partial object or an entry pointing at one.</li>
 </ol>

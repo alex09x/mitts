@@ -98,7 +98,7 @@ CONFIG = """
 <dt>Registries and mirrors</dt><dd><code>[registries.&lt;name&gt;] index</code>, <code>[source.&lt;name&gt;] registry | directory | git</code> and <code>replace-with</code> are read from Cargo's config chain, as are vendored directories and <code>[patch]</code>. Tokens come from Cargo's credential providers: <code>cargo:token</code> (<code>CARGO_REGISTRIES_&lt;NAME&gt;_TOKEN</code> or <code>credentials.toml</code>), <code>cargo:macos-keychain</code>, <code>cargo:libsecret</code>, <code>cargo:token-from-stdout</code>, and plugins.</dd>
 <dt><code>[env]</code> tables</dt><dd>Merged over the config chain (the closer file wins). <code>force = false</code> keeps a variable the environment already has; <code>relative = true</code> joins the value to the parent of the config's <code>.cargo</code>. Applied to compiler runs, build scripts and programs started by <code>mitts run</code> and <code>mitts test</code>. Config files are part of the package inputs, so a change invalidates the units that read it.</dd>
 <dt>Git dependencies</dt><dd>Cloned with the system <code>git</code> (<code>MITTS_GIT</code>) into <code>&lt;cache&gt;/git</code>: a bare mirror under <code>db/</code> and one checkout per locked commit. Authentication is git's own (SSH agent, credential helpers).</dd>
-<dt>Compiler wrappers</dt><dd>See <a href="#wrappers">Compiler wrappers</a>: any wrapper except <code>sccache</code> disables caching for that build.</dd>
+<dt>Compiler wrappers</dt><dd>See <a href="#wrappers">Compiler wrappers</a>: any wrapper except <code>sccache</code> disables caching by default, unless <code>MITTS_RUSTC_WRAPPER_CACHE=1</code> is set.</dd>
 </dl></section>
 """
 

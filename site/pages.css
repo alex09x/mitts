@@ -99,3 +99,12 @@ figcaption { font: 12px var(--mono); color: var(--muted); }
   .callouts { grid-template-columns: minmax(0, 1fr); }
   .ref { display: block; overflow-x: auto; }
 }
+
+/* narrow screens: option and environment tables stack instead of crushing the description column */
+@media (max-width: 640px) {
+  .ref:not(.nums) thead { display: none; }
+  .ref:not(.nums), .ref:not(.nums) tbody, .ref:not(.nums) tr, .ref:not(.nums) td { display: block; width: auto; }
+  .ref:not(.nums) tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .ref:not(.nums) td { border: 0; padding: 3px 0; }
+  .ref:not(.nums) td.flag { white-space: normal; width: auto; }
+}
