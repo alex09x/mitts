@@ -29,7 +29,6 @@ THEMES = {
         "border": "#d0d7de",
         "strip": "#f6f8fa",
         "grid": "#eaeef2",
-        "track": "#f3f5f7",
         "ink": "#1f2328",
         "muted": "#59636e",
         "cargo": "#656d76",
@@ -42,7 +41,6 @@ THEMES = {
         "border": "#2e3136",
         "strip": "#1b1d20",
         "grid": "#24272b",
-        "track": "#1c1f23",
         "ink": "#f2f3f4",
         "muted": "#9aa0a8",
         "cargo": "#7a828e",
@@ -140,28 +138,34 @@ def card_header(out, w, h, title, subtitle, t):
     out.append('<line x1="24" x2="%d" y1="64" y2="64" stroke="%s"/>' % (w - 24, t["border"]))
 
 
+def fmt_mitts_ver(raw):
+    v = raw.strip()
+    if v.lower().startswith("mitts "):
+        v = v[6:].strip()
+    return "Mitts %s" % v
+
+
 def draw_bars(out, left, span, y0, vals, fmt_fn, t):
     top = max(vals.values()) or 1.0
     for k, (arm, name, ckey) in enumerate(ARMS):
         v = vals[arm]
         by = y0 + 8 + k * 20
         bw = max(3.0, (v / top) * span)
-        out.append('<rect x="%d" y="%d" width="%d" height="15" rx="3" fill="%s"/>' % (left, by, span, t["track"]))
         out.append(
             '<rect x="%d" y="%d" width="%.1f" height="15" rx="3" fill="%s"><title>%s: %s</title></rect>'
             % (left, by, bw, t[ckey], escape(name), escape(fmt_fn(v)))
         )
         is_m = arm == "mitts_cas"
         out.append(
-            '<text x="%.1f" y="%d" fill="%s" font-family=\'%s\' font-size="11.5" font-weight="%s">%s</text>'
-            % (left + bw + 8, by + 11.5, t["mitts_txt"] if is_m else t["ink"], MONO, "700" if is_m else "400", escape(fmt_fn(v)))
+            '<text x="%.1f" y="%.1f" fill="%s" font-family=\'%s\' font-size="11.5" font-weight="%s">%s</text>'
+            % (left + bw + 12, by + 11.5, t["mitts_txt"] if is_m else t["ink"], MONO, "700" if is_m else "400", escape(fmt_fn(v)))
         )
 
 
 def render_scenarios(data, theme_name):
     t = THEMES[theme_name]
     mac = data["platforms"][0]
-    w, left, span, rx, row_h = 920, 216, 356, 664, 78
+    w, left, span, rx, row_h = 920, 216, 348, 664, 78
     h = 74 + row_h * len(SCENARIOS) + 54
     out = []
     card_header(
@@ -169,7 +173,7 @@ def render_scenarios(data, theme_name):
         w,
         h,
         "Average build time per project · Cargo vs Mitts",
-        "%s · Mitts %s · linear scale per row (shorter is faster)" % (mac["label"], mac["mitts_version"]),
+        "%s · %s · linear scale per row (shorter is faster)" % (mac["label"], fmt_mitts_ver(mac["mitts_version"])),
         t,
     )
     for idx, (key, title, sub, unit) in enumerate(SCENARIOS):
@@ -230,7 +234,7 @@ def render_scoreboard(data, theme_name):
     t = THEMES[theme_name]
     mac = data["platforms"][0]
     n_proj = mac["totals_n"]
-    w, left, span, rx, row_h = 920, 216, 356, 664, 78
+    w, left, span, rx, row_h = 920, 216, 348, 664, 78
     h = 74 + row_h * len(SCORE_ROWS) + 54
     out = []
     card_header(
@@ -238,7 +242,7 @@ def render_scoreboard(data, theme_name):
         w,
         h,
         "12-worktree build scoreboard · %d Rust projects" % n_proj,
-        "%s · Mitts %s · linear scale per row (shorter is better)" % (mac["label"], mac["mitts_version"]),
+        "%s · %s · linear scale per row (shorter is better)" % (mac["label"], fmt_mitts_ver(mac["mitts_version"])),
         t,
     )
     for idx, (key, title, sub, per_project) in enumerate(SCORE_ROWS):
