@@ -16,13 +16,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CHARTS = ROOT / "scripts" / "site" / "readme_charts.py"
 CHECKER = ROOT / "scripts" / "check_readme_translations.py"
-BENCH_DATA = ROOT / "site" / "data" / "benchmarks.json"
+BENCH_DATA = ROOT / "docs" / "data" / "benchmarks.json"
 
 
 class ReadmeChartsAndTranslationsTests(unittest.TestCase):
     def _require_bench_data(self):
         if not BENCH_DATA.is_file() and os.environ.get("CI") != "true":
-            self.skipTest("site/data/benchmarks.json omitted from remote sync mirror")
+            self.skipTest("docs/data/benchmarks.json omitted from remote sync mirror")
 
     def test_committed_readme_charts_match_generator(self):
         self._require_bench_data()
