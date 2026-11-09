@@ -80,7 +80,7 @@ def floor1(v):
 
 
 def fmt_x(v):
-    """Truncated multiplier matching site/charts.py ('5.8×', '7×', '21×')."""
+    """Truncated multiplier ('5.8×', '7×', '21×')."""
     if v >= 20:
         return "%d×" % math.floor(v + 1e-9)
     return ("%.1f" % floor1(v)).rstrip("0").rstrip(".") + "×"

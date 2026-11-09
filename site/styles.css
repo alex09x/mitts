@@ -123,6 +123,8 @@ h3 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
 .milestones .plan::after { content: "planned"; color: var(--muted); }
 .milestones .wip { border-left-color: var(--accent); }
 .milestones .plan { border-left-color: var(--line); }
+.milestones .exp::after { content: "experimental"; color: var(--muted); }
+.milestones .exp { border-left-color: var(--muted); }
 .checklist code { font-size: 14px; color: var(--ink); }
 
 .lede code, .section-head p code, .card p code { font-size: .92em; color: var(--ink); }
@@ -192,7 +194,6 @@ footer a { color: var(--muted); }
   .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pipeline { grid-template-columns: 1fr; }
   .milestones { grid-template-columns: 1fr; }
-  .nav { display: none; }
 }
 
 @media (max-width: 560px) {

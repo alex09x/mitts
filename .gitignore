@@ -10,7 +10,7 @@ target/
 __pycache__/
 *.pyc
 reports/
-benchmarks/
+/benchmarks/
 reports/*.html
 docs/*.html
 *.profraw

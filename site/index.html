@@ -24,7 +24,7 @@
   <meta name="theme-color" content="#121315">
   <meta name="description" content="Mitts is a Rust-first build system with a machine-wide, content-addressed artifact cache and explicit input tracking. It reads your existing Cargo.toml and Cargo.lock.">
   <meta name="author" content="Alexander Panasenko">
-  <title>Mitts — build work, accounted for</title>
+  <title>Mitts — build Rust 3.6–7× faster across worktrees</title>
   <link rel="icon" href="favicon.ico?v=3" sizes="any">
   <link rel="icon" href="logo.svg?v=3" type="image/svg+xml">
   <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
@@ -35,28 +35,25 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="hundred.css">
 </head>
 <body>
-  <header class="shell topbar">
-    <a class="brand" href="#top" aria-label="Mitts home">
+  <!-- header:start -->
+<header class="shell topbar">
+    <a class="brand" href="./" aria-label="Mitts home">
       <img class="mark" src="logo.svg?v=3" alt="" width="20" height="20">
       <span>mitts<span class="dim">/build</span></span>
     </a>
-    <nav class="nav" aria-label="Main navigation">
-      <a href="#problem">Problem</a>
-      <a href="#how">How it works</a>
-      <a href="#architecture">Architecture</a>
-      <a href="#compare">Compare</a>
-      <a href="#limits">Limits</a>
-      <a href="#start">Start</a>
-    </nav>
+    <nav class="nav" aria-label="Main navigation"><a href="docs/">Docs</a><a href="docs/#how-it-works">How it works</a><a href="the-hundred/">The Hundred</a><a href="https://github.com/alex09x/mitts">GitHub</a></nav>
   </header>
+  <!-- header:end -->
 
   <main id="top">
     <section class="shell hero" aria-labelledby="hero-title">
       <div class="hero-text">
         <p class="kicker"><span class="dot"></span>Rust first · reads your existing Cargo.toml</p>
-        <h1 id="hero-title">Build work,<br><span class="accent">accounted for.</span></h1>
+        <h1 id="hero-title">Stop rebuilding.<br><span class="accent">Build 3.6–7× faster across worktrees.</span></h1>
+        <p class="lede"><b>100 Rust projects × 12 worktrees each: 76 min with Cargo, 13 min with Mitts.</b> 90,961 compiler runs down to 6,905, on one machine. Measured on three platforms in <a href="the-hundred/">The Hundred</a>.</p>
         <p class="lede">Mitts plans a Cargo workspace itself and calls <code>rustc</code> directly. Every compile action is keyed by its full set of inputs, stored once in a machine-wide immutable store, and restored into every workspace that needs it — across projects, worktrees and branches. If an input can't be accounted for, the action is rebuilt, not guessed.</p>
         <div class="actions">
           <a class="button" href="#how">How it works</a>
@@ -77,10 +74,24 @@
         <div class="ledger-flow">
           <div><small>shared store</small><code>cas/ab/3f…</code><em>immutable</em></div>
           <span class="arrow" aria-hidden="true">→</span>
-          <div><small>workspace</small><code>target/mitts/</code><em>isolated</em></div>
+          <div><small>workspace</small><code>target/debug</code><em>your workspace</em></div>
         </div>
       </figure>
     </section>
+
+<!-- hundred:start -->
+    <section class="shell section hundred-home" id="hundred" aria-labelledby="hundred-title">
+      <header class="section-head">
+        <span class="num">&#9733;</span>
+        <div>
+          <h2 id="hundred-title">The Hundred: 3.6–7.0× less time, 12.1–13.1× fewer compiler runs.</h2>
+          <p>100 open-source Rust projects (100 on macOS and Linux aarch64, 90 on Linux x86_64 measured), each built as 12 worktrees at once, on three machines. Plain Cargo against Cargo with sccache against Mitts: time, CPU, compiler runs and disk. Totals over every project measured, none dropped for variance.</p>
+        </div>
+      </header>
+      <div class="tabs" role="group" aria-label="Machine" data-key="sb"><button type="button" data-v="macos-apfs" class="on">macOS · APFS · Apple M2 Ultra</button><button type="button" data-v="linux-xfs-x86">Linux x86_64 · XFS · AMD Ryzen 9 9950X</button><button type="button" data-v="linux-xfs-arm">Linux aarch64 · XFS</button></div><div class="panel" data-sb="macos-apfs"><svg class="chart board" viewBox="0 0 1000 534" role="img" aria-label="macOS · APFS · Apple M2 Ultra: Cargo, Cargo with sccache and Mitts, totals over 100 projects"><rect class="c-cargo" x="250" y="10" width="14" height="14" rx="3"/><text class="ax" x="272" y="22">Cargo</text><rect class="c-scc" x="400" y="10" width="14" height="14" rx="3"/><text class="ax" x="422" y="22">Cargo + sccache</text><rect class="c-mitts" x="590" y="10" width="14" height="14" rx="3"/><text class="ax" x="612" y="22">Mitts</text><text class="lab-big" x="0" y="66">Time</text><text class="ax" x="0" y="86">12 worktrees building at once</text><rect class="c-cargo" x="250" y="46" width="400.0" height="20" rx="3"><title>Cargo: 76 min</title></rect><text class="val" x="658.0" y="61">76 min</text><rect class="c-scc" x="250" y="72" width="385.7" height="20" rx="3"><title>Cargo + sccache: 73 min</title></rect><text class="val" x="643.7" y="87">73 min</text><rect class="c-mitts" x="250" y="98" width="68.0" height="20" rx="3"><title>Mitts: 13 min</title></rect><text class="val mitts" x="326.0" y="113">13 min</text><text class="big" x="790" y="84">63 min</text><text class="ax" x="790" y="102">less than Cargo</text><text class="ax" x="790" y="118">60 min less than sccache</text><text class="lab-big" x="0" y="162">CPU</text><text class="ax" x="0" y="182">processor time, user + system</text><rect class="c-cargo" x="250" y="142" width="400.0" height="20" rx="3"><title>Cargo: 20.3 h</title></rect><text class="val" x="658.0" y="157">20.3 h</text><rect class="c-scc" x="250" y="168" width="158.7" height="20" rx="3"><title>Cargo + sccache: 8.0 h</title></rect><text class="val" x="416.7" y="183">8.0 h</text><rect class="c-mitts" x="250" y="194" width="51.1" height="20" rx="3"><title>Mitts: 2.7 h</title></rect><text class="val mitts" x="309.1" y="209">2.7 h</text><text class="big" x="790" y="180">17.6 h</text><text class="ax" x="790" y="198">less than Cargo</text><text class="ax" x="790" y="214">5.3 h less than sccache</text><text class="lab-big" x="0" y="258">Compiler runs</text><text class="ax" x="0" y="278">rustc invocations</text><rect class="c-cargo" x="250" y="238" width="400.0" height="20" rx="3"><title>Cargo: 90,961</title></rect><text class="val" x="658.0" y="253">90,961</text><rect class="c-scc" x="250" y="264" width="400.0" height="20" rx="3"><title>Cargo + sccache: 90,961</title></rect><text class="val" x="658.0" y="279">90,961</text><rect class="c-mitts" x="250" y="290" width="30.4" height="20" rx="3"><title>Mitts: 6,905</title></rect><text class="val mitts" x="288.4" y="305">6,905</text><text class="big" x="790" y="276">84,056</text><text class="ax" x="790" y="294">less than Cargo</text><text class="ax" x="790" y="310">84,056 less than sccache</text><text class="lab-big" x="0" y="354">Disk written</text><text class="ax" x="0" y="374">bytes reaching the device</text><rect class="c-cargo" x="250" y="334" width="400.0" height="20" rx="3"><title>Cargo: 641 GB</title></rect><text class="val" x="658.0" y="349">641 GB</text><rect class="c-scc" x="250" y="360" width="346.9" height="20" rx="3"><title>Cargo + sccache: 556 GB</title></rect><text class="val" x="604.9" y="375">556 GB</text><rect class="c-mitts" x="250" y="386" width="69.4" height="20" rx="3"><title>Mitts: 112 GB</title></rect><text class="val mitts" x="327.4" y="401">112 GB</text><text class="big" x="790" y="372">529 GB</text><text class="ax" x="790" y="390">less than Cargo</text><text class="ax" x="790" y="406">444 GB less than sccache</text><text class="lab-big" x="0" y="450">Disk in use</text><text class="ax" x="0" y="470">peak, worktrees plus stores</text><rect class="c-cargo" x="250" y="430" width="400.0" height="20" rx="3"><title>Cargo: 486 GB</title></rect><text class="val" x="658.0" y="445">486 GB</text><rect class="c-scc" x="250" y="456" width="378.4" height="20" rx="3"><title>Cargo + sccache: 459 GB</title></rect><text class="val" x="636.4" y="471">459 GB</text><rect class="c-mitts" x="250" y="482" width="120.2" height="20" rx="3"><title>Mitts: 147 GB</title></rect><text class="val mitts" x="378.2" y="497">147 GB</text><text class="big" x="790" y="468">339 GB</text><text class="ax" x="790" y="486">less than Cargo</text><text class="ax" x="790" y="502">312 GB less than sccache</text></svg></div><div class="panel" data-sb="linux-xfs-x86"><svg class="chart board" viewBox="0 0 1000 534" role="img" aria-label="Linux x86_64 · XFS · AMD Ryzen 9 9950X: Cargo, Cargo with sccache and Mitts, totals over 90 projects"><rect class="c-cargo" x="250" y="10" width="14" height="14" rx="3"/><text class="ax" x="272" y="22">Cargo</text><rect class="c-scc" x="400" y="10" width="14" height="14" rx="3"/><text class="ax" x="422" y="22">Cargo + sccache</text><rect class="c-mitts" x="590" y="10" width="14" height="14" rx="3"/><text class="ax" x="612" y="22">Mitts</text><text class="lab-big" x="0" y="66">Time</text><text class="ax" x="0" y="86">12 worktrees building at once</text><rect class="c-cargo" x="250" y="46" width="400.0" height="20" rx="3"><title>Cargo: 60 min</title></rect><text class="val" x="658.0" y="61">60 min</text><rect class="c-scc" x="250" y="72" width="346.7" height="20" rx="3"><title>Cargo + sccache: 52 min</title></rect><text class="val" x="604.7" y="87">52 min</text><rect class="c-mitts" x="250" y="98" width="56.8" height="20" rx="3"><title>Mitts: 9 min</title></rect><text class="val mitts" x="314.8" y="113">9 min</text><text class="big" x="790" y="84">51 min</text><text class="ax" x="790" y="102">less than Cargo</text><text class="ax" x="790" y="118">43 min less than sccache</text><text class="lab-big" x="0" y="162">CPU</text><text class="ax" x="0" y="182">processor time, user + system</text><rect class="c-cargo" x="250" y="142" width="400.0" height="20" rx="3"><title>Cargo: 28.5 h</title></rect><text class="val" x="658.0" y="157">28.5 h</text><rect class="c-scc" x="250" y="168" width="138.8" height="20" rx="3"><title>Cargo + sccache: 9.8 h</title></rect><text class="val" x="396.8" y="183">9.8 h</text><rect class="c-mitts" x="250" y="194" width="32.0" height="20" rx="3"><title>Mitts: 2.3 h</title></rect><text class="val mitts" x="290.0" y="209">2.3 h</text><text class="big" x="790" y="180">26.2 h</text><text class="ax" x="790" y="198">less than Cargo</text><text class="ax" x="790" y="214">7.5 h less than sccache</text><text class="lab-big" x="0" y="258">Compiler runs</text><text class="ax" x="0" y="278">rustc invocations</text><rect class="c-cargo" x="250" y="238" width="400.0" height="20" rx="3"><title>Cargo: 75,049</title></rect><text class="val" x="658.0" y="253">75,049</text><rect class="c-scc" x="250" y="264" width="400.0" height="20" rx="3"><title>Cargo + sccache: 75,049</title></rect><text class="val" x="658.0" y="279">75,049</text><rect class="c-mitts" x="250" y="290" width="32.8" height="20" rx="3"><title>Mitts: 6,162</title></rect><text class="val mitts" x="290.8" y="305">6,162</text><text class="big" x="790" y="276">68,887</text><text class="ax" x="790" y="294">less than Cargo</text><text class="ax" x="790" y="310">68,887 less than sccache</text><text class="lab-big" x="0" y="354">Disk written</text><text class="ax" x="0" y="374">bytes reaching the device</text><rect class="c-cargo" x="250" y="334" width="390.5" height="20" rx="3"><title>Cargo: 651 GB</title></rect><text class="val" x="648.5" y="349">651 GB</text><rect class="c-scc" x="250" y="360" width="400.0" height="20" rx="3"><title>Cargo + sccache: 667 GB</title></rect><text class="val" x="658.0" y="375">667 GB</text><rect class="c-mitts" x="250" y="386" width="63.0" height="20" rx="3"><title>Mitts: 106 GB</title></rect><text class="val mitts" x="321.0" y="401">106 GB</text><text class="big" x="790" y="372">545 GB</text><text class="ax" x="790" y="390">less than Cargo</text><text class="ax" x="790" y="406">561 GB less than sccache</text><text class="lab-big" x="0" y="450">Disk in use</text><text class="ax" x="0" y="470">peak, worktrees plus stores</text><rect class="c-cargo" x="250" y="430" width="392.9" height="20" rx="3"><title>Cargo: 641 GB</title></rect><text class="val" x="650.9" y="445">641 GB</text><rect class="c-scc" x="250" y="456" width="400.0" height="20" rx="3"><title>Cargo + sccache: 653 GB</title></rect><text class="val" x="658.0" y="471">653 GB</text><rect class="c-mitts" x="250" y="482" width="295.9" height="20" rx="3"><title>Mitts: 484 GB</title></rect><text class="val mitts" x="553.9" y="497">484 GB</text><text class="big" x="790" y="468">157 GB</text><text class="ax" x="790" y="486">less than Cargo</text><text class="ax" x="790" y="502">169 GB less than sccache</text></svg></div><div class="panel" data-sb="linux-xfs-arm"><svg class="chart board" viewBox="0 0 1000 534" role="img" aria-label="Linux aarch64 · XFS: Cargo, Cargo with sccache and Mitts, totals over 100 projects"><rect class="c-cargo" x="250" y="10" width="14" height="14" rx="3"/><text class="ax" x="272" y="22">Cargo</text><rect class="c-scc" x="400" y="10" width="14" height="14" rx="3"/><text class="ax" x="422" y="22">Cargo + sccache</text><rect class="c-mitts" x="590" y="10" width="14" height="14" rx="3"/><text class="ax" x="612" y="22">Mitts</text><text class="lab-big" x="0" y="66">Time</text><text class="ax" x="0" y="86">12 worktrees building at once</text><rect class="c-cargo" x="250" y="46" width="400.0" height="20" rx="3"><title>Cargo: 78 min</title></rect><text class="val" x="658.0" y="61">78 min</text><rect class="c-scc" x="250" y="72" width="387.7" height="20" rx="3"><title>Cargo + sccache: 76 min</title></rect><text class="val" x="645.7" y="87">76 min</text><rect class="c-mitts" x="250" y="98" width="110.5" height="20" rx="3"><title>Mitts: 22 min</title></rect><text class="val mitts" x="368.5" y="113">22 min</text><text class="big" x="790" y="84">56 min</text><text class="ax" x="790" y="102">less than Cargo</text><text class="ax" x="790" y="118">54 min less than sccache</text><text class="lab-big" x="0" y="162">CPU</text><text class="ax" x="0" y="182">processor time, user + system</text><rect class="c-cargo" x="250" y="142" width="400.0" height="20" rx="3"><title>Cargo: 111.5 h</title></rect><text class="val" x="658.0" y="157">111.5 h</text><rect class="c-scc" x="250" y="168" width="127.2" height="20" rx="3"><title>Cargo + sccache: 35.4 h</title></rect><text class="val" x="385.2" y="183">35.4 h</text><rect class="c-mitts" x="250" y="194" width="29.3" height="20" rx="3"><title>Mitts: 8.2 h</title></rect><text class="val mitts" x="287.3" y="209">8.2 h</text><text class="big" x="790" y="180">103.3 h</text><text class="ax" x="790" y="198">less than Cargo</text><text class="ax" x="790" y="214">27.2 h less than sccache</text><text class="lab-big" x="0" y="258">Compiler runs</text><text class="ax" x="0" y="278">rustc invocations</text><rect class="c-cargo" x="250" y="238" width="400.0" height="20" rx="3"><title>Cargo: 90,544</title></rect><text class="val" x="658.0" y="253">90,544</text><rect class="c-scc" x="250" y="264" width="400.0" height="20" rx="3"><title>Cargo + sccache: 90,544</title></rect><text class="val" x="658.0" y="279">90,544</text><rect class="c-mitts" x="250" y="290" width="32.5" height="20" rx="3"><title>Mitts: 7,348</title></rect><text class="val mitts" x="290.5" y="305">7,348</text><text class="big" x="790" y="276">83,196</text><text class="ax" x="790" y="294">less than Cargo</text><text class="ax" x="790" y="310">83,196 less than sccache</text><text class="lab-big" x="0" y="354">Disk written</text><text class="ax" x="0" y="374">bytes reaching the device</text><rect class="c-cargo" x="250" y="334" width="397.0" height="20" rx="3"><title>Cargo: 743 GB</title></rect><text class="val" x="655.0" y="349">743 GB</text><rect class="c-scc" x="250" y="360" width="400.0" height="20" rx="3"><title>Cargo + sccache: 749 GB</title></rect><text class="val" x="658.0" y="375">749 GB</text><rect class="c-mitts" x="250" y="386" width="64.5" height="20" rx="3"><title>Mitts: 121 GB</title></rect><text class="val mitts" x="322.5" y="401">121 GB</text><text class="big" x="790" y="372">622 GB</text><text class="ax" x="790" y="390">less than Cargo</text><text class="ax" x="790" y="406">628 GB less than sccache</text><text class="lab-big" x="0" y="450">Disk in use</text><text class="ax" x="0" y="470">peak, worktrees plus stores</text><rect class="c-cargo" x="250" y="430" width="391.3" height="20" rx="3"><title>Cargo: 720 GB</title></rect><text class="val" x="649.3" y="445">720 GB</text><rect class="c-scc" x="250" y="456" width="400.0" height="20" rx="3"><title>Cargo + sccache: 736 GB</title></rect><text class="val" x="658.0" y="471">736 GB</text><rect class="c-mitts" x="250" y="482" width="277.7" height="20" rx="3"><title>Mitts: 512 GB</title></rect><text class="val mitts" x="535.7" y="497">512 GB</text><text class="big" x="790" y="468">208 GB</text><text class="ax" x="790" y="486">less than Cargo</text><text class="ax" x="790" y="502">224 GB less than sccache</text></svg></div>
+      <p class="more"><a class="button" href="the-hundred/">Method, every project and the other scenarios</a></p>
+    </section>
+  <!-- hundred:end -->
 
     <section class="shell section" id="problem" aria-labelledby="problem-title">
       <header class="section-head">
@@ -118,7 +129,7 @@
         <li><b>fetch</b><span>Download <code>.crate</code> archives in parallel, verify, unpack once per machine.</span></li>
         <li><b>plan</b><span>Units — lib, bin, test, build script, proc macro — with features and edges, by Cargo's resolver rules.</span></li>
         <li><b>key</b><span>SHA-256 over toolchain, target, profile, flags, features, sources, dependency keys and environment.</span></li>
-        <li><b>execute</b><span>Parallel DAG of direct <code>rustc</code> calls, pipelined on <code>.rmeta</code>. Hit: verify and restore. Miss: lock the key, compile, publish atomically.</span></li>
+        <li><b>execute</b><span>Parallel DAG of direct <code>rustc</code> calls, pipelined on <code>.rmeta</code>. Hit: restore. Miss: lock the key, compile, publish atomically.</span></li>
       </ol>
       <div class="grid3">
         <article class="card">
@@ -157,7 +168,7 @@
         <div class="arch-layer core"><small>core</small><code>content-addressed store · action cache · key locks · jobserver · fast path · GC · reflinks</code></div>
       </div>
       <ul class="facts">
-        <li><b>Immutable objects.</b> Published read-only, verified by hash before use, restored by reflink or copy. Never hardlinked into a writable workspace.</li>
+        <li><b>Immutable objects.</b> Hashed when published, stored read-only, restored by reflink, read-only hardlink or copy. Never writable through the workspace.</li>
         <li><b>Atomic publish.</b> Outputs are staged, then renamed into the store. An interrupted build never leaves a partial object.</li>
         <li><b>Cooperating builds.</b> Per-key locks with double-checked lookup: two builds that need the same unit compile it once.</li>
         <li><b>One jobserver.</b> Parallelism is bounded across every Mitts process on the machine.</li>
@@ -195,7 +206,7 @@
         <span class="num">05</span>
         <div>
           <h2 id="compare-title">Where it sits.</h2>
-          <p>How each tool reuses work. A qualitative comparison, not a performance claim.</p>
+          <p>How each tool reuses work. A qualitative comparison; the measured one, on 100 Rust projects, is on <a href="the-hundred/">The Hundred page</a>.</p>
         </div>
       </header>
       <div class="table-wrap">
@@ -206,7 +217,7 @@
             <tr><td>Reads <code>Cargo.toml</code> / <code>Cargo.lock</code> as is</td><td data-label="Cargo">yes</td><td data-label="Cargo + sccache">yes</td><td data-label="Mitts" class="hl">yes</td></tr>
             <tr><td>Reuse across workspaces and worktrees</td><td data-label="Cargo">no, per <code>target/</code></td><td data-label="Cargo + sccache">yes, per <code>rustc</code> call</td><td data-label="Mitts" class="hl">yes, per unit</td></tr>
             <tr><td>Key depends on the checkout path</td><td data-label="Cargo">—</td><td data-label="Cargo + sccache">yes, unless normalized</td><td data-label="Mitts" class="hl">no for registry crates; workspace crates when not eligible</td></tr>
-            <tr><td>Caches <code>bin</code>, test and <code>proc-macro</code> units</td><td data-label="Cargo">—</td><td data-label="Cargo + sccache">no</td><td data-label="Mitts" class="hl">yes</td></tr>
+            <tr><td>Caches <code>bin</code> and test targets</td><td data-label="Cargo">—</td><td data-label="Cargo + sccache">no</td><td data-label="Mitts" class="hl">yes</td></tr>
             <tr><td>Caches build-script runs</td><td data-label="Cargo">no</td><td data-label="Cargo + sccache">no</td><td data-label="Mitts" class="hl">yes</td></tr>
             <tr><td>Concurrent builds of one dependency</td><td data-label="Cargo">wait on the <code>target/</code> lock</td><td data-label="Cargo + sccache">both may compile on a miss</td><td data-label="Mitts" class="hl">one compiles, the other reuses</td></tr>
             <tr><td>Remote / team cache</td><td data-label="Cargo">no</td><td data-label="Cargo + sccache">yes</td><td data-label="Mitts" class="hl">planned</td></tr>
@@ -244,14 +255,15 @@
         <span class="num">07</span>
         <div>
           <h2 id="start-title">A small CLI.</h2>
-          <p>No new manifest and no second lockfile. Build from source, then point it at a Cargo workspace. Cargo and rust-analyzer keep working next to it.</p>
+          <p>No new manifest and no second lockfile. Install the binary (or build from source), then point it at a Cargo workspace. Cargo and rust-analyzer keep working next to it.</p>
         </div>
       </header>
-      <pre class="term"><code><span class="p">$</span> cargo install --path .   <span class="c"># from a clone of the repository</span>
+      <pre class="term"><code><span class="p">$</span> curl -fsSL https://mittsbuild.com/install.sh | sh   <span class="c"># prebuilt binary, checksum verified</span>
+<span class="p">$</span> cargo install --path .   <span class="c"># or from a clone of the repository</span>
 <span class="p">$</span> cd your-workspace
 <span class="p">$</span> mitts build</code></pre>
       <dl class="cli">
-        <div><dt>mitts build</dt><dd>Compile the package and its dependencies into <code>target/mitts/</code></dd></div>
+        <div><dt>mitts build</dt><dd>Compile the package and its dependencies into <code>target/debug</code>, like Cargo</dd></div>
         <div><dt>mitts run</dt><dd>Build and run a binary of the local package</dd></div>
         <div><dt>mitts check · clippy · fmt</dt><dd>Type-check, lint and format without producing binaries</dd></div>
         <div><dt>mitts test · coverage</dt><dd>Unit, integration and doc tests with Cargo-style target selection; LLVM source-based coverage</dd></div>
@@ -267,7 +279,7 @@
         <span class="num">08</span>
         <div>
           <h2 id="status-title">Where it stands.</h2>
-          <p>Pre-release. Milestones M0–M6 are complete; hardening for real projects and a reproducible benchmark study are in progress. No performance numbers are published until that study is — with fixed hardware, cold, warm and changed-input runs, and the stronger of Cargo and sccache as the baseline.</p>
+          <p>Pre-release; hardening for real projects continues. The benchmark study is published: <a href="the-hundred/">The Hundred: 100 Rust projects on three machines</a>, with plain Cargo and sccache as baselines, cold, warm and changed-input runs, and the cases where Mitts is not faster. The <a href="docs/">documentation</a> covers every command and how the cache works.</p>
         </div>
       </header>
       <ol class="milestones">
@@ -276,9 +288,9 @@
         <li><b>M3</b>Parallel fetcher &amp; lockfile resolution</li>
         <li><b>M4</b>Native parallel DAG runner</li>
         <li><b>M5</b>Pilot, deduplication &amp; conservative GC</li>
-        <li><b>M6</b>Second adapter: C/C++</li>
+        <li class="exp"><b>M6</b>Second adapter: C/C++</li>
         <li class="wip"><b>M7</b>Hardening for real projects</li>
-        <li class="wip"><b>M8</b>Reproducible benchmarks</li>
+        <li><b>M8</b>Reproducible benchmarks</li>
         <li class="plan"><b>M9</b>Remote &amp; team cache</li>
       </ol>
     </section>
@@ -295,5 +307,7 @@
   <footer>
     <div class="shell"><span>© 2026 Alexander Panasenko</span><span>MIT OR Apache-2.0</span><a href="https://mittsbuild.com">mittsbuild.com</a></div>
   </footer>
+  <script>document.documentElement.classList.add("js")</script>
+  <script src="hundred.js"></script>
 </body>
 </html>

@@ -1,0 +1,68 @@
+/*
+ * Mitts Build — The Hundred: scoreboard, per-project and method charts
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+:root { --c-cargo: #8a929d; --c-scc: #c3c8cf; --c-mitts: #ff3b30; }
+.accent { color: var(--accent); }
+
+/* one header on every page; it wraps instead of spilling on narrow screens */
+.topbar { flex-wrap: wrap; row-gap: 10px; }
+.nav { flex-wrap: wrap; row-gap: 6px; }
+
+/* tabs: hidden until the script runs, so without JS every panel is simply shown */
+.tabs { display: none; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.js .tabs { display: flex; }
+.tabs button { background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 7px 16px; font: 500 13.5px var(--sans); cursor: pointer; }
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.js .panel[hidden] { display: none; }
+
+/* charts */
+.chart text, .diagram text { font-family: var(--mono); }
+.chart .ax { fill: var(--muted); font-size: 12px; }
+.chart .grid { stroke: var(--line); }
+.chart .lab-big { fill: var(--ink); font: 700 24px var(--display); }
+.chart .val { fill: var(--ink); font-size: 14px; }
+.chart .val.mitts { fill: var(--c-mitts); font-weight: 600; }
+.chart .big { fill: var(--c-mitts); font: 800 44px var(--display); }
+.c-cargo { fill: var(--c-cargo); background: var(--c-cargo); }
+.c-scc { fill: var(--c-scc); background: var(--c-scc); }
+.c-mitts { fill: var(--c-mitts); background: var(--c-mitts); }
+.chart.board { margin: 8px 0 4px; }
+.chart.bars { margin: 8px 0; }
+.bars .nm { fill: var(--ink); font-size: 12.5px; }
+.bars .val { font-size: 13px; }
+.bars g:hover rect { opacity: .8; }
+
+/* illustration and method flow */
+.diagram.flow .d-t { fill: var(--ink); font: 700 17px var(--display); }
+.diagram .d-s { fill: var(--muted); font: 12.5px var(--sans); }
+.diagram .d-box { fill: var(--panel); stroke: var(--line); }
+.d-arrow2 { stroke: var(--muted); stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+/* headline numbers */
+.callouts.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.callout b.was { display: inline; font-family: inherit; font-size: 15px; font-weight: 700; line-height: 1.4; color: inherit; margin: 0; }
+.small { font-size: 14px; margin: -14px 0 24px; }
+
+/* home page block */
+.hundred-home { padding-bottom: 8px; }
+.hundred-home .more { margin: 18px 0 0; }
+
+@media (max-width: 900px) {
+  .callouts.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .callouts.four { grid-template-columns: minmax(0, 1fr); }
+  .chart.board, .chart.bars, .chart.times, .diagram { min-width: 720px; }
+  .panel, .scroll { overflow-x: auto; }
+}
+.times .lab-big { font-size: 20px; }
+.bars .stripe { fill: var(--ink); opacity: .05; }
+@media (max-width: 560px) { main section { scroll-margin-top: 96px; } }
