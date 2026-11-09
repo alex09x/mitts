@@ -36,12 +36,10 @@
 .c-mitts { fill: var(--c-mitts); background: var(--c-mitts); }
 .chart.board { margin: 8px 0 4px; }
 .chart.dumb { margin: 8px 0; }
-.dumb .nm { fill: var(--muted); font-size: 9.5px; }
-.dumb .link { stroke: var(--c-mitts); stroke-width: 1.4; opacity: .45; }
-.dumb .d-cargo { fill: var(--c-cargo); }
-.dumb .d-mitts { fill: var(--c-mitts); }
-.dumb g:hover .nm { fill: var(--ink); }
-.dumb g:hover .link { opacity: 1; }
+.chart.bars { margin: 8px 0; }
+.bars .nm { fill: var(--ink); font-size: 12.5px; }
+.bars .val { font-size: 13px; }
+.bars g:hover rect { opacity: .8; }
 
 /* illustration and method flow */
 .b-compile { fill: var(--c-mitts); opacity: .85; }
@@ -54,6 +52,7 @@
 
 /* headline numbers */
 .callouts.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.callout b.was { display: inline; font-family: inherit; font-size: 15px; font-weight: 700; line-height: 1.4; color: inherit; margin: 0; }
 .small { font-size: 14px; margin: -14px 0 24px; }
 
 /* home page block */
@@ -65,6 +64,7 @@
 }
 @media (max-width: 560px) {
   .callouts.four { grid-template-columns: minmax(0, 1fr); }
-  .chart.board, .chart.dumb, .diagram { min-width: 640px; }
+  .chart.board, .chart.bars, .chart.times, .diagram { min-width: 640px; }
   .panel, .hundred-home figure, main section { overflow-x: auto; }
 }
+.times .lab-big { font-size: 20px; }

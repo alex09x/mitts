@@ -8,7 +8,6 @@
 """The scoreboard and per-project charts of The Hundred (inline SVG, colours from CSS classes)."""
 import math
 
-from charts import fmt_x
 from shell import esc
 
 ARMS = [("cargo_bare", "Cargo", "c-cargo"), ("cargo_sccache", "Cargo + sccache", "c-scc"), ("mitts_cas", "Mitts", "c-mitts")]
@@ -31,6 +30,12 @@ def f_time(s):
     return "%.1f h" % (s / 3600)
 
 
+def f_exact(s):
+    """'34 s', '5 min 12 s': per-project times keep the seconds so close bars stay distinguishable."""
+    s = int(s)
+    return "%d s" % s if s < 120 else "%d min %02d s" % (s // 60, s % 60)
+
+
 def f_cpu(s):
     return "%.0f h" % (s / 3600) if s >= 7200 else f_time(s)
 
@@ -48,12 +53,6 @@ def f_n(n):
 
 
 FORMAT = {"wall": f_time, "cpu": f_cpu, "runs": f_n, "written": f_mb, "disk": f_mb}
-
-
-def axis_label(metric, v):
-    """Decade tick labels in the metric's own unit, with thousands separators."""
-    unit = {"wall": " s", "cpu": " s", "runs": "", "written": " MB", "disk": " MB"}[metric]
-    return format(v, ",g") + unit
 
 
 def scoreboard(p):
@@ -78,80 +77,119 @@ def scoreboard(p):
             by = y0 + k * 26
             out.append('<rect class="%s" x="%d" y="%d" width="%.1f" height="20" rx="3"><title>%s: %s</title></rect>' % (cls, left, by, bw, esc(name), fmt(v)))
             out.append('<text class="val%s" x="%.1f" y="%d">%s</text>' % (" mitts" if a == "mitts_cas" else "", left + bw + 8, by + 15, fmt(v)))
-        m = vals["mitts_cas"] or 1
-        out.append('<text class="big" x="%d" y="%d">%s</text>' % (rx, y0 + 38, fmt_x(vals["cargo_bare"] / m)))
+        out.append('<text class="big" x="%d" y="%d">%s</text>' % (rx, y0 + 38, saved(key, vals["cargo_bare"] - vals["mitts_cas"])))
         out.append('<text class="ax" x="%d" y="%d">less than Cargo</text>' % (rx, y0 + 56))
-        out.append('<text class="ax" x="%d" y="%d">%s less than sccache</text>' % (rx, y0 + 72, fmt_x(vals["cargo_sccache"] / m)))
+        out.append('<text class="ax" x="%d" y="%d">%s less than sccache</text>' % (rx, y0 + 72, saved(key, vals["cargo_sccache"] - vals["mitts_cas"])))
     out.append("</svg>")
     return "".join(out)
 
 
-def dumbbell(p, metric, unit):
-    """One row per project, sorted by the gain: a grey dot for Cargo, a red dot for Mitts, a log axis."""
-    pts = []
-    for r in p["projects"]:
-        c, m = r["swarm_m"]["cargo_bare"][metric], r["swarm_m"]["mitts_cas"][metric]
-        if c and c > 0 and m is not None:
-            pts.append((r["name"], c, m, r["status"]))
-    if not pts:
-        return ""
-    pts.sort(key=lambda t: -(t[1] / max(t[2], 1e-9)))
-    vals = [v for _, c, m, _ in pts for v in (c, m) if v > 0]
-    lo = 10 ** math.floor(math.log10(min(vals)))
-    hi = 10 ** math.ceil(math.log10(max(vals)))
-    left, right, top, row = 138, 972, 38, 11
-    h = top + row * len(pts) + 36
+def saved(key, d):
+    """The absolute saving in the metric's own unit, truncated: '63 min', '84,056', '530 GB'."""
+    if key in ("wall", "cpu"):
+        if d < 120:
+            return "%d s" % math.floor(d)
+        if d < 7200:
+            return "%d min" % math.floor(d / 60)
+        return "%.1f h" % (math.floor(d / 360) / 10)
+    if key == "runs":
+        return f_n(math.floor(d))
+    if d >= 1e6:
+        return "%.1f TB" % (math.floor(d / 1e5) / 10)
+    return "%d GB" % math.floor(d / 1000) if d >= 1000 else "%d MB" % math.floor(d)
 
-    def X(v):
-        v = max(v, lo)
-        return left + (math.log(v) - math.log(lo)) / (math.log(hi) - math.log(lo)) * (right - left)
 
-    fmt = FORMAT[metric]
-    out = ['<svg class="chart dumb" viewBox="0 0 1000 %d" role="img" aria-label="Per project: Cargo against Mitts, %s">' % (h, esc(metric))]
-    d = lo
-    while d <= hi * 1.0001:
-        out.append('<line class="grid" x1="%.1f" x2="%.1f" y1="%d" y2="%d"/>' % (X(d), X(d), top - 8, h - 30))
-        label = axis_label(metric, d)
-        out.append('<text class="ax" x="%.1f" y="%d" text-anchor="middle">%s</text>' % (X(d), top - 14, esc(label)))
-        out.append('<text class="ax" x="%.1f" y="%d" text-anchor="middle">%s</text>' % (X(d), h - 12, esc(label)))
-        d *= 10
-    for i, (n, c, m, st) in enumerate(pts):
-        y = top + i * row + row / 2
-        gain = c / m if m > 0 else float("inf")
-        tip = "%s: Cargo %s, Mitts %s%s" % (n, fmt(c), fmt(m), "" if gain == float("inf") else " (%s)" % fmt_x(gain))
-        out.append('<g><title>%s</title><text class="nm" x="%d" y="%.1f" text-anchor="end">%s</text>' % (esc(tip), left - 8, y + 3, esc(n)))
-        out.append('<line class="link" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>' % (X(m), X(c), y, y))
-        out.append('<circle class="d-cargo" cx="%.1f" cy="%.1f" r="3.2"/><circle class="d-mitts" cx="%.1f" cy="%.1f" r="3.6"/></g>' % (X(c), y, X(m), y))
+def median(xs):
+    xs = sorted(x for x in xs if x is not None)
+    return xs[len(xs) // 2] if xs else None
+
+def f_dur(s):
+    """A duration in seconds, truncated: '20 ms', '3.4 s', '56 s', '5 min 22 s'."""
+    if s < 1:
+        return "%d ms" % math.floor(s * 1000)
+    if s < 10:
+        return "%.1f s" % (math.floor(s * 10) / 10)
+    return f_exact(s)
+
+
+def legend_row(out, x=270, y=8):
+    for _, name, cls in ARMS:
+        out.append('<rect class="%s" x="%d" y="%d" width="14" height="14" rx="3"/><text class="ax" x="%d" y="%d">%s</text>' % (cls, x, y, x + 22, y + 12, esc(name)))
+        x += 150 if name != "Cargo + sccache" else 190
+
+
+def groups(label, rows, left=270, span=520):
+    """Rows of (title, note, {arm: value}, formatter): three bars per row, zero-based, linear, each row on its own scale,
+    the measured value written at the end of every bar."""
+    bar, gap, top = 15, 4, 36
+    row = 3 * (bar + gap) + 14
+    out = ['<svg class="chart times" viewBox="0 0 1000 %d" role="img" aria-label="%s">' % (top + row * len(rows), esc(label))]
+    legend_row(out, left)
+    for i, (name, note, vals, fmt) in enumerate(rows):
+        y0 = top + i * row
+        top_v = max(vals.values()) or 1
+        out.append('<text class="lab-big" x="0" y="%d">%s</text>' % (y0 + 17, esc(name)))
+        if note:
+            out.append('<text class="ax" x="0" y="%d">%s</text>' % (y0 + 36, esc(note)))
+        for k, (a, aname, cls) in enumerate(ARMS):
+            v = vals[a]
+            bw = max(3.0, v / top_v * span)
+            by = y0 + k * (bar + gap)
+            out.append('<rect class="%s" x="%d" y="%d" width="%.1f" height="%d" rx="3"><title>%s: %s</title></rect>' % (cls, left, by, bw, bar, esc(aname), fmt(v)))
+            out.append('<text class="val%s" x="%.1f" y="%d">%s</text>' % (" mitts" if a == "mitts_cas" else "", left + bw + 8, by + 12, fmt(v)))
     out.append("</svg>")
     return "".join(out)
 
 
-def swarm_picture(avg_cargo_runs, avg_mitts_runs):
-    """An illustration, not a measurement: twelve worktrees, one lane each. Cargo compiles in every lane;
-    Mitts compiles once and restores the rest. The two numbers are the measured per-project means."""
-    w, left, lane, gap = 1000, 120, 14, 5
-    blocks = 46
-    cell = (w - left - 20) / blocks
-    out = ['<svg class="diagram swarm" viewBox="0 0 1000 610" role="img" aria-label="Twelve worktrees: Cargo compiles in all of them, Mitts compiles once and restores the rest">']
-    for panel, (title, sub, y0) in enumerate([
-        ("Cargo", "every worktree has its own target/, so every worktree compiles everything: %s compiler runs on average" % f_n(avg_cargo_runs), 8),
-        ("Mitts", "the first worktree compiles; the others restore the same objects from the shared store: %s compiler runs on average" % f_n(avg_mitts_runs), 300),
-    ]):
-        out.append('<text class="d-t" x="0" y="%d">%s</text><text class="d-s" x="%d" y="%d">%s</text>' % (y0 + 14, title, 70, y0 + 14, esc(sub)))
-        for k in range(12):
-            y = y0 + 34 + k * (lane + gap)
-            out.append('<text class="ax" x="%d" y="%d" text-anchor="end">worktree %d</text>' % (left - 10, y + 11, k + 1))
-            for b in range(blocks):
-                x = left + b * cell
-                if panel == 0:
-                    cls = "b-compile"
-                else:
-                    cls = "b-compile" if k == 0 else "b-restore"
-                    if k > 0 and b == (k * 4 + 3) % blocks:
-                        cls = "b-compile"
-                out.append('<rect class="%s" x="%.1f" y="%d" width="%.1f" height="%d" rx="1.5"/>' % (cls, x, y, cell - 1.5, lane))
-    out.append('<rect class="b-compile" x="120" y="584" width="14" height="14" rx="2"/><text class="ax" x="142" y="596">compiled</text>')
-    out.append('<rect class="b-restore" x="240" y="584" width="14" height="14" rx="2"/><text class="ax" x="262" y="596">restored from the store</text>')
+def project_times(p, count=8):
+    """How long one project takes to build 12 worktrees: a typical project (median over the machine's
+    projects) and the slowest ones."""
+    rows = []
+    typ = {a: median([r["swarm_s"].get(a) for r in p["projects"]]) for a, _, _ in ARMS}
+    if all(typ.values()):
+        rows.append(("A typical project", "median of %d" % p["projects_ok"], typ, f_dur))
+    slow = sorted((r for r in p["projects"] if all(r["swarm_s"].get(a) for a, _, _ in ARMS)), key=lambda r: -r["swarm_s"]["cargo_bare"])[:count]
+    rows += [(r["name"], "slowest by Cargo" if i == 0 else "", {a: r["swarm_s"][a] for a, _, _ in ARMS}, f_dur) for i, r in enumerate(slow)]
+    return groups("%s: time to build 12 worktrees, Cargo, Cargo with sccache and Mitts" % p["label"], rows)
+
+
+# scenario key, title, what it is, unit divisor to seconds
+SCENARIOS = [
+    ("swarm_s", "12 worktrees at once", "build the tests", 1), ("other_worktree_s", "Second worktree", "after the first", 1),
+    ("hop_s", "Switch branch", "and build", 1), ("check_s", "12 worktrees: check", "", 1), ("clippy_s", "12 worktrees: clippy", "", 1),
+    ("noop_ms", "Rebuild, no changes", "nothing to do", 1000), ("edit_s", "Edit one file, rebuild", "", 1),
+    ("history_s", "Replay 10 commits", "in one directory", 1), ("cold_s", "One cold build", "empty store", 1),
+]
+
+
+def scenario_times(p):
+    """Every scenario for a typical project (the median over the projects that have all three tools), in real time."""
+    rows = []
+    for key, title, note, div in SCENARIOS:
+        have = [r for r in p["projects"] if all(r[key].get(a) for a, _, _ in ARMS)]
+        if not have:
+            continue
+        vals = {a: median([r[key][a] / div for r in have]) for a, _, _ in ARMS}
+        rows.append((title, ("%s, " % note if note else "") + "median of %d" % len(have), vals, f_dur))
+    return groups("%s: typical project, time per scenario" % p["label"], rows)
+
+
+def project_bars(p, metric):
+    """One row per project, longest Cargo first: a Cargo bar and a Mitts bar from zero, with the values written out."""
+    fmt = f_dur if metric == "wall" else FORMAT[metric]
+    pts = [(r["name"], r["swarm_m"]["cargo_bare"][metric], r["swarm_m"]["mitts_cas"][metric]) for r in p["projects"]
+           if r["swarm_m"]["cargo_bare"][metric] and r["swarm_m"]["mitts_cas"][metric] is not None]
+    pts.sort(key=lambda t: -t[1])
+    top_v = pts[0][1] if pts else 1
+    left, span, top, row = 150, 560, 40, 22
+    out = ['<svg class="chart bars" viewBox="0 0 1000 %d" role="img" aria-label="Per project, Cargo and Mitts, %s">' % (top + row * len(pts), esc(metric))]
+    out.append('<rect class="c-cargo" x="%d" y="8" width="14" height="14" rx="3"/><text class="ax" x="%d" y="20">Cargo</text><rect class="c-mitts" x="%d" y="8" width="14" height="14" rx="3"/><text class="ax" x="%d" y="20">Mitts</text>' % (left, left + 22, left + 110, left + 132))
+    out.append('<text class="ax" x="%d" y="20" text-anchor="end">Cargo</text><text class="ax" x="990" y="20" text-anchor="end">Mitts</text>' % 880)
+    for i, (n, c, m) in enumerate(pts):
+        y = top + i * row
+        out.append('<g><title>%s: Cargo %s, Mitts %s</title><text class="nm" x="%d" y="%d" text-anchor="end">%s</text>' % (esc(n), fmt(c), fmt(m), left - 10, y + 12, esc(n)))
+        out.append('<rect class="c-cargo" x="%d" y="%d" width="%.1f" height="8" rx="2"/><rect class="c-mitts" x="%d" y="%d" width="%.1f" height="8" rx="2"/>' % (left, y, max(1.5, c / top_v * span), left, y + 9, max(1.5, m / top_v * span)))
+        out.append('<text class="val" x="880" y="%d" text-anchor="end">%s</text><text class="val mitts" x="990" y="%d" text-anchor="end">%s</text></g>' % (y + 12, fmt(c), y + 12, fmt(m)))
     out.append("</svg>")
     return "".join(out)
 

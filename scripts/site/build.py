@@ -5,7 +5,7 @@
 # Author: https://prod.codes/about/
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Generate site/docs/index.html and site/hundred/index.html, and fill the scoreboard block of site/index.html.
+"""Generate site/docs/index.html and site/the-hundred/index.html, and fill the scoreboard block of site/index.html.
 
     python3 scripts/site/build.py [--mitts PATH] [--bench-dir DIR]
 
@@ -41,8 +41,8 @@ def main():
     (SITE / "docs").mkdir(parents=True, exist_ok=True)
     (SITE / "docs" / "index.html").write_text(build_docs.build(args.mitts, version), encoding="utf-8")
     data = json.loads(data_file.read_text())
-    (SITE / "hundred").mkdir(parents=True, exist_ok=True)
-    (SITE / "hundred" / "index.html").write_text(build_hundred.build(data), encoding="utf-8")
+    (SITE / "the-hundred").mkdir(parents=True, exist_ok=True)
+    (SITE / "the-hundred" / "index.html").write_text(build_hundred.build(data), encoding="utf-8")
     home = SITE / "index.html"
     text = home.read_text(encoding="utf-8")
     for name, block in (("hundred", build_hundred.home_block(data)), ("header", shell.header(0))):
@@ -50,7 +50,7 @@ def main():
         a, b = text.index(start) + len(start), text.index(end)
         text = text[:a] + "\n" + block + "\n  " + text[b:]
     home.write_text(text, encoding="utf-8")
-    print("wrote docs/index.html, hundred/index.html and the home scoreboard for mitts", version)
+    print("wrote docs/index.html, the-hundred/index.html and the home scoreboard for mitts", version)
 
 
 if __name__ == "__main__":

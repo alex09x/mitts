@@ -8,7 +8,7 @@
 """Page shell shared by the generated site pages."""
 import html
 
-NAV = [("Docs", "docs/"), ("How it works", "docs/#how-it-works"), ("The Hundred", "hundred/"),
+NAV = [("Docs", "docs/"), ("How it works", "docs/#how-it-works"), ("The Hundred", "the-hundred/"),
        ("GitHub", "https://github.com/alex09x/mitts")]
 
 
