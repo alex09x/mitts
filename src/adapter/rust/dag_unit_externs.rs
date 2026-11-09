@@ -207,8 +207,16 @@ pub fn resolve_extern_crates_with_target(
                 .and_then(|l| l.path.as_ref())
                 .map(|p| pkg_dir.join(p))
                 .unwrap_or_else(|| pkg_dir.join("src").join("lib.rs"));
-            let is_self_lib =
-                unit.kind == "lib" || unit.kind == "proc-macro" || unit.src_path == lib_src_path;
+            // The unit tests of a package that lists itself under [dev-dependencies] name the
+            // crate from outside and do link the library; the planner gave them that dependency.
+            let dev_depends_on_itself = super::planner_deps::dev_depends_on_itself(
+                &pkg_toml,
+                &unit.manifest_path,
+                &unit.package_name,
+            );
+            let is_self_lib = unit.kind == "lib"
+                || unit.kind == "proc-macro"
+                || (unit.src_path == lib_src_path && !dev_depends_on_itself);
 
             let mut add_extern = |name: &str, path: &PathBuf| {
                 let clean = name.replace('-', "_");

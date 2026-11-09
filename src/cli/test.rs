@@ -247,6 +247,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         doc_only: args.doc,
         exclude: args.exclude.clone(),
         example_targets: Vec::new(),
+        keep_going: false,
         crate_types: Vec::new(),
         quiet: args.quiet,
         json_diagnostics: args.message_format.is_json(),

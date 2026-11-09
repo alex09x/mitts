@@ -109,7 +109,7 @@ pub fn prune_plan_root_units(
         let bin_matches = !opt.doc_only
             && !only_tests_sel
             && if opt.bin_targets.is_empty() {
-                (!selecting_examples || opt.all_examples)
+                (!selecting_examples || opt.all_bins)
                     && (is_test_mode || (opt.all_bins || !opt.lib_only))
             } else {
                 opt.bin_targets.iter().any(|b| {

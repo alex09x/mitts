@@ -225,6 +225,14 @@ pub struct BuildArgs {
     #[arg(long = "example", action = clap::ArgAction::Append)]
     pub example: Vec<String>,
 
+    /// Build all example targets
+    #[arg(long)]
+    pub examples: bool,
+
+    /// Do not stop at the first failed unit: skip what depends on it, build the rest, fail at the end
+    #[arg(long)]
+    pub keep_going: bool,
+
     /// Suppress Mitts progress and success summaries; keep errors and program output
     #[arg(short, long)]
     pub quiet: bool,

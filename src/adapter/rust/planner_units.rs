@@ -60,7 +60,7 @@ pub fn build_planned_units(
         } else {
             targets.retain(|target| {
                 target.kind != "example"
-                    || (*is_workspace
+                    || ((is_primary || is_target_pkg)
                         && opt.example_targets.iter().any(|name| name == &target.name))
             });
         }

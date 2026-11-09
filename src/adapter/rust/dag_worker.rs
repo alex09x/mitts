@@ -45,6 +45,22 @@ pub(crate) struct WorkerShared<'a> {
     pub deriver: &'a super::key::UnitKeyDeriver,
 }
 
+/// Every unit that depends on `unit_id`, directly or through other units.
+fn transitive_dependents(dag: &CompilationDag, unit_id: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut stack = vec![unit_id.to_string()];
+    while let Some(id) = stack.pop() {
+        if let Some(node) = dag.get_node(&id) {
+            for dep in &node.dependents {
+                if seen.insert(dep.clone()) {
+                    stack.push(dep.clone());
+                }
+            }
+        }
+    }
+    seen.into_iter().collect()
+}
+
 /// Worker thread execution loop consuming compilation units from the work queue.
 pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<'_>) -> Result<()> {
     while let Some((unit_id, lock_mode)) = shared.work_queue.pop_work() {
@@ -139,6 +155,13 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             }
             Ok(Err(err)) => {
                 guard.resolved = true;
+                if shared.work_queue.keeps_going() {
+                    shared.work_queue.mark_failed_keep_going(
+                        format!("{:#}", err),
+                        &transitive_dependents(shared.dag, &unit_id),
+                    );
+                    continue;
+                }
                 shared.work_queue.mark_failed(format!("{:#}", err));
                 break;
             }

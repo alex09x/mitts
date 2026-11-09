@@ -57,6 +57,8 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         bin_targets: args.bin.clone(),
         all_bins: args.bins,
         lib_only: args.lib,
+        all_examples: args.examples,
+        keep_going: args.keep_going,
         ..Default::default()
     }
 }

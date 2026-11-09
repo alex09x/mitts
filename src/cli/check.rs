@@ -127,9 +127,29 @@ pub struct CheckArgs {
     #[arg(long)]
     pub tests: bool,
 
+    /// Check the named example target (repeatable; combines with other target selectors)
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub example: Vec<String>,
+
+    /// Check all examples
+    #[arg(long)]
+    pub examples: bool,
+
+    /// Check the named benchmark target (repeatable; combines with other target selectors)
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub bench: Vec<String>,
+
+    /// Check all benchmarks
+    #[arg(long)]
+    pub benches: bool,
+
     /// Check all targets
     #[arg(long)]
     pub all_targets: bool,
+
+    /// Do not stop at the first failed unit: skip what depends on it, check the rest, fail at the end
+    #[arg(long)]
+    pub keep_going: bool,
 
     /// Additional arguments passed to the compiler
     #[arg(last = true)]
@@ -188,8 +208,11 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         all_bins: args.bins || args.all_targets,
         test_targets: args.test.clone(),
         all_tests: args.tests || args.all_targets,
-        all_benches: args.all_targets,
-        all_examples: args.all_targets,
+        all_benches: args.benches || args.all_targets,
+        bench_targets: args.bench.clone(),
+        all_examples: args.examples || args.all_targets,
+        example_targets: args.example.clone(),
+        keep_going: args.keep_going,
         quiet: args.quiet,
         ..Default::default()
     };
