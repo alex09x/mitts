@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Condvar, Mutex};
 use std::time::SystemTime;
 
@@ -80,6 +80,13 @@ struct QueueState {
     total_count: usize,
     fatal_error: Option<String>,
     has_failed: bool,
+    /// Units handed to a worker at least once. A dispatched unit finishes by itself and is never skipped.
+    dispatched: HashSet<String>,
+    /// Units that will not run because a unit they depend on failed (`--keep-going`).
+    skipped: HashSet<String>,
+    /// Errors of failed units that did not stop the build (`--keep-going`).
+    unit_errors: Vec<String>,
+    keep_going: bool,
 }
 
 impl WaveWorkQueue {
@@ -98,9 +105,19 @@ impl WaveWorkQueue {
                 total_count,
                 fatal_error: None,
                 has_failed: false,
+                dispatched: HashSet::new(),
+                skipped: HashSet::new(),
+                unit_errors: Vec::new(),
+                keep_going: false,
             }),
             cvar: Condvar::new(),
         }
+    }
+
+    /// Makes a failed unit skip only the units that depend on it instead of stopping the build.
+    pub fn keep_going(self, enabled: bool) -> Self {
+        self.state_lock().keep_going = enabled;
+        self
     }
 
     /// Creates a new queue for a topological wave, randomizing unit order for cross-process concurrency.
@@ -112,7 +129,7 @@ impl WaveWorkQueue {
     /// Dynamically pushes a newly unlocked unit whose dependencies are satisfied into the ready queue.
     pub fn push_ready(&self, unit_id: String) {
         let mut state = self.state_lock();
-        if !state.has_failed && state.fatal_error.is_none() {
+        if !state.has_failed && state.fatal_error.is_none() && !state.skipped.contains(&unit_id) {
             state.pending.push_back(unit_id);
             self.cvar.notify_one();
         }
@@ -136,6 +153,7 @@ impl WaveWorkQueue {
 
             // 1. Fresh unattempted units: TryLock mode to avoid blocking if another process holds it
             if let Some(unit_id) = state.pending.pop_front() {
+                state.dispatched.insert(unit_id.clone());
                 state.in_flight += 1;
                 return Some((unit_id, LockMode::TryLock));
             }
@@ -189,6 +207,45 @@ impl WaveWorkQueue {
             state.fatal_error = Some(err);
         }
         self.cvar.notify_all();
+    }
+
+    /// Whether a failed unit skips its dependents instead of stopping the build.
+    pub fn keeps_going(&self) -> bool {
+        self.state_lock().keep_going
+    }
+
+    /// Records a unit that failed without stopping the build. `dependents` are all units that depend
+    /// on it, directly or through others: those not handed to a worker yet are skipped and counted as
+    /// finished, so the queue still drains. A dependent that is already running finishes by itself.
+    pub fn mark_failed_keep_going(&self, err: String, dependents: &[String]) {
+        let mut state = self.state_lock();
+        state.in_flight = state.in_flight.saturating_sub(1);
+        state.completed_count += 1;
+        state.unit_errors.push(err);
+        for id in dependents {
+            if !state.dispatched.contains(id) && state.skipped.insert(id.clone()) {
+                state.completed_count += 1;
+            }
+        }
+        let QueueState {
+            pending, skipped, ..
+        } = &mut *state;
+        pending.retain(|id| !skipped.contains(id));
+        if state.completed_count >= state.total_count || state.in_flight == 0 {
+            self.cvar.notify_all();
+        }
+    }
+
+    /// Takes the errors of the units that failed under `--keep-going`.
+    pub fn take_unit_errors(&self) -> Vec<String> {
+        std::mem::take(&mut self.state_lock().unit_errors)
+    }
+
+    /// The units skipped because a unit they depend on failed, sorted.
+    pub fn skipped_units(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.state_lock().skipped.iter().cloned().collect();
+        ids.sort();
+        ids
     }
 
     /// Takes the fatal error message if any occurred.
@@ -251,6 +308,10 @@ mod tests {
                 total_count: 2,
                 fatal_error: None,
                 has_failed: false,
+                dispatched: HashSet::new(),
+                skipped: HashSet::new(),
+                unit_errors: Vec::new(),
+                keep_going: false,
             }),
             cvar: Condvar::new(),
         };

@@ -309,7 +309,16 @@ pub fn resolve_unit_dependencies_with_manifests(
                 });
             if let Some((uid, lib_src_path)) = self_lib_entry {
                 let is_self_lib_unit_test = unit.src_path == *lib_src_path;
-                if !is_self_lib_unit_test {
+                // A package may list itself under [dev-dependencies] (to turn on features for its
+                // tests). Its unit tests then name the crate from outside, so they need the library.
+                let self_name = unit.package_name.replace('-', "_");
+                let dev_depends_on_itself = pkg_toml_opt.is_some_and(|t| {
+                    t.dev_dependencies
+                        .keys()
+                        .chain(t.target.values().flat_map(|ts| ts.dev_dependencies.keys()))
+                        .any(|k| k.replace('-', "_") == self_name)
+                });
+                if !is_self_lib_unit_test || dev_depends_on_itself {
                     unit_deps.push(uid.clone());
                 }
             }

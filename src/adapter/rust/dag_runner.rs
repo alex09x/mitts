@@ -105,7 +105,8 @@ pub fn run_native_dag_build(
 
     let total_units = dag.len();
     let initial_leaves = dag.leaf_ids().to_vec();
-    let work_queue = Arc::new(WaveWorkQueue::with_total(initial_leaves, total_units));
+    let work_queue =
+        Arc::new(WaveWorkQueue::with_total(initial_leaves, total_units).keep_going(opt.keep_going));
 
     let in_degrees: Arc<HashMap<String, std::sync::atomic::AtomicUsize>> = Arc::new(
         dag.node_ids()
@@ -268,6 +269,19 @@ pub fn run_native_dag_build(
         if !compile_errors.contains(&err) {
             compile_errors.push(err);
         }
+    }
+    for err in work_queue.take_unit_errors() {
+        if !compile_errors.contains(&err) {
+            compile_errors.push(err);
+        }
+    }
+    let skipped = work_queue.skipped_units();
+    if !skipped.is_empty() {
+        eprintln!(
+            "[mitts] --keep-going: skipped {} unit(s) that depend on a failed unit: {}",
+            skipped.len(),
+            skipped.join(", ")
+        );
     }
     if compile_errors.is_empty() {
         let (done, total) = work_queue.completed_and_total();
