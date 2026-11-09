@@ -1,6 +1,6 @@
-<!-- translation-source: 14af5288ee88aaea67a7ddcecde6b8a45f2f63ea -->
+<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
 > [!NOTE]
-> Esta é uma tradução da documentação oficial em inglês no commit [14af528](https://github.com/alex09x/mitts/blob/14af5288ee88aaea67a7ddcecde6b8a45f2f63ea/README.md). A versão canônica e mais atualizada é o [README em inglês](https://github.com/alex09x/mitts/blob/main/README.md).
+> Esta é uma tradução da documentação oficial em inglês no commit [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md). A versão canônica e mais atualizada é o [README em inglês](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -382,7 +382,7 @@ uma versão estável. O Cargo, opcionalmente com sccache, é a escolha segura ne
 
 ## Desempenho
 
-Medido com o Mitts `0.3.17` em **100 projetos Rust de código aberto** no macOS (Apple M2 Ultra, APFS) e Linux ARM64 (XFS), e **90** no Linux x86_64 (AMD Ryzen 9 9950X, XFS), contra o `cargo` puro e `cargo` com `sccache` (`0.14.0`). Cada leitura é a mediana de 3 repetições com verificação de paridade de diagnósticos, códigos de saída e resultados de testes; todos os projetos medidos permanecem nos totais (`0`, `7` e `0` execuções sinalizadas com ruído), e as taxas de aceleração são truncadas em vez de arredondadas para cima ([ROADMAP M8](../ROADMAP.md)).
+Medido com o Mitts `0.3.17` em **100 projetos Rust de código aberto** no macOS (Apple M2 Ultra, APFS) e Linux ARM64 (XFS), e **90** no Linux x86_64 (AMD Ryzen 9 9950X, XFS), contra o `cargo` puro e `cargo` com `sccache` (`0.17.0`). Cada leitura é a mediana de 3 repetições com verificação de paridade de diagnósticos, códigos de saída e resultados de testes; todos os projetos medidos permanecem nos totais (`0`, `7` e `0` execuções sinalizadas com ruído), e as taxas de aceleração são truncadas em vez de arredondadas para cima ([ROADMAP M8](../ROADMAP.md)).
 
 <p align="center">
   <picture>
@@ -392,7 +392,7 @@ Medido com o Mitts `0.3.17` em **100 projetos Rust de código aberto** no macOS 
   </picture>
 </p>
 
-O comprimento das barras mostra a média aritmética das medianas por projeto (proporcional ao tempo total do corpus), com as médias geométricas por projeto ao lado de cada linha. Em execuções com múltiplas worktrees, troca de branch e reconstrução sem alterações (no-op padrão), o Mitts reduz o tempo médio de compilação em **5.8–10.8×** no macOS (**3.6–41×** considerando as três máquinas). Em **editar e recompilar** (`n = 71` no macOS e Linux ARM64, `64` no Linux x86_64), o Mitts é mais rápido pela média geométrica (**1.1×** no macOS e Linux ARM64, **1×** no Linux x86_64; mais rápido em `49/71`, `42/71` e `43/64` projetos), enquanto sua média aritmética é mais lenta (**0.7–0.8×**) porque alguns binários grandes de crate único usam a compilação incremental intracrate do `rustc` sob o `cargo`, ao passo que o Mitts armazena unidades inteiras de crate em cache. Uma **única compilação a frio** com cache vazio fica em **0.8–1×** contra o `cargo` puro e é **1.4×** mais rápida pela média geométrica do que `cargo` com `sccache` a frio.
+O comprimento das barras mostra a média aritmética das medianas por projeto (proporcional ao tempo total do corpus), com as médias geométricas por projeto ao lado de cada linha. Em execuções com múltiplas worktrees, troca de branch e reconstrução sem alterações (no-op padrão), o Mitts reduz o tempo médio de compilação em **5.8–10.8×** no macOS. Em **editar e recompilar** (`n = 71` no macOS e Linux ARM64, `64` no Linux x86_64), o Mitts é mais rápido pela média geométrica (**1.1×** no macOS e Linux ARM64, **1×** no Linux x86_64; mais rápido em `49/71`, `42/71` e `43/64` projetos), enquanto sua média aritmética é mais lenta (**0.7–0.8×**) porque alguns binários grandes de crate único usam a compilação incremental intracrate do `rustc` sob o `cargo`, ao passo que o Mitts armazena unidades inteiras de crate em cache. Uma **única compilação a frio** com cache vazio fica em **0.8–1×** contra o `cargo` puro e é **1.4×** mais rápida pela média geométrica do que `cargo` com `sccache` a frio.
 
 <p align="center">
   <picture>
@@ -419,7 +419,7 @@ Compilar **12 worktrees paralelas** em 4 commits nos 100 projetos do macOS leva 
 | GC conservador com cotas | concluído |
 | Adaptador C/C++ no mesmo armazenamento | experimental |
 | Chaves independentes de caminho para crates do workspace | parcial |
-| Estudo de benchmark reproduzível | em andamento |
+| Estudo de benchmark reproduzível | concluído |
 | Cache remoto / de equipe | planejado |
 | Windows, compilação cruzada | não suportado |
 

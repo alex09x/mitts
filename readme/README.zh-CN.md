@@ -1,7 +1,7 @@
-<!-- translation-source: 14af5288ee88aaea67a7ddcecde6b8a45f2f63ea -->
+<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
 
 > [!NOTE]
-> 本文是官方英文文档在提交 [14af528](https://github.com/alex09x/mitts/blob/14af5288ee88aaea67a7ddcecde6b8a45f2f63ea/README.md) 处的简体中文翻译。权威且最新的版本请参阅[英文 README](https://github.com/alex09x/mitts/blob/main/README.md)。
+> 本文是官方英文文档在提交 [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md) 处的简体中文翻译。权威且最新的版本请参阅[英文 README](https://github.com/alex09x/mitts/blob/main/README.md)。
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -268,7 +268,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 
 ## 性能
 
-基于 Mitts `0.3.17` 在 macOS（Apple M2 Ultra，APFS）与 Linux ARM64（XFS）上的 **100 个开源 Rust 项目**，以及 Linux x86_64（AMD Ryzen 9 9950X，XFS）上的 **90 个项目**实测，对比原生 `cargo` 与 `cargo` + `sccache`（`0.14.0`）。每项读数均为 3 次重复运行的中位数，并校验诊断信息、退出码与测试结果等价性；全部受测项目均计入汇总（分别有 `0`、`7`、`0` 个运行被标记为波动），且加速比一律向下截断、绝不向上进位（[ROADMAP M8](../ROADMAP.md)）。
+基于 Mitts `0.3.17` 在 macOS（Apple M2 Ultra，APFS）与 Linux ARM64（XFS）上的 **100 个开源 Rust 项目**，以及 Linux x86_64（AMD Ryzen 9 9950X，XFS）上的 **90 个项目**实测，对比原生 `cargo` 与 `cargo` + `sccache`（`0.17.0`）。每项读数均为 3 次重复运行的中位数，并校验诊断信息、退出码与测试结果等价性；全部受测项目均计入汇总（分别有 `0`、`7`、`0` 个运行被标记为波动），且加速比一律向下截断、绝不向上进位（[ROADMAP M8](../ROADMAP.md)）。
 
 <p align="center">
   <picture>
@@ -278,7 +278,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
   </picture>
 </p>
 
-条形长度表示各项目中位数的算术平均值（与语料库总挂钟时间成正比），每行右侧同时列出逐项目几何平均加速比。在多 worktree、分支切换及默认空操作（no-op）场景下，Mitts 在 macOS 上将平均构建耗时缩短 **5.8–10.8×**（三台机器整体为 **3.6–41×**）。在**修改单文件后重编**场景（macOS 与 Linux ARM64 上 `n = 71`，Linux x86_64 上 `64`）中，按几何平均计 Mitts 更快（macOS 与 Linux ARM64 为 **1.1×**，Linux x86_64 为 **1×**；分别在 `49/71`、`42/71` 与 `43/64` 个项目上胜出），但算术平均值较慢（**0.7–0.8×**），原因是少数大型单 crate 二进制项目在 `cargo` 下可利用 `rustc` 的 crate 内增量编译，而 Mitts 以整个 crate 编译单元为粒度缓存。空缓存下的**单次冷构建**相对原生 `cargo` 为 **0.8–1×**，按几何平均计比冷缓存 `cargo` + `sccache` 快 **1.4×**。
+条形长度表示各项目中位数的算术平均值（与语料库总挂钟时间成正比），每行右侧同时列出逐项目几何平均加速比。在多 worktree、分支切换及默认空操作（no-op）场景下，Mitts 在 macOS 上将平均构建耗时缩短 **5.8–10.8×**。在**修改单文件后重编**场景（macOS 与 Linux ARM64 上 `n = 71`，Linux x86_64 上 `64`）中，按几何平均计 Mitts 更快（macOS 与 Linux ARM64 为 **1.1×**，Linux x86_64 为 **1×**；分别在 `49/71`、`42/71` 与 `43/64` 个项目上胜出），但算术平均值较慢（**0.7–0.8×**），原因是少数大型单 crate 二进制项目在 `cargo` 下可利用 `rustc` 的 crate 内增量编译，而 Mitts 以整个 crate 编译单元为粒度缓存。空缓存下的**单次冷构建**相对原生 `cargo` 为 **0.8–1×**，按几何平均计比冷缓存 `cargo` + `sccache` 快 **1.4×**。
 
 <p align="center">
   <picture>
@@ -305,7 +305,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 | 具配额的保守 GC | 完成 |
 | 基于同一存储的 C/C++ 适配器 | 实验性 |
 | 工作区 crate 路径无关的键 | 部分支持 |
-| 可复现基准测试研究 | 进行中 |
+| 可复现基准测试研究 | 完成 |
 | 远程 / 团队缓存 | 计划中 |
 | Windows、交叉编译 | 不支持 |
 

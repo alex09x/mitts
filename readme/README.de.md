@@ -1,7 +1,7 @@
-<!-- translation-source: 14af5288ee88aaea67a7ddcecde6b8a45f2f63ea -->
+<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
 
 > [!NOTE]
-> Dies ist eine Übersetzung der offiziellen englischsprachigen Dokumentation für Commit [14af528](https://github.com/alex09x/mitts/blob/14af5288ee88aaea67a7ddcecde6b8a45f2f63ea/README.md).
+> Dies ist eine Übersetzung der offiziellen englischsprachigen Dokumentation für Commit [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md).
 > Die kanonische und aktuellste Version ist die [englische README](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
@@ -383,7 +383,7 @@ ein stabiles Release benötigen. Cargo (optional mit sccache) ist in diesen Fäl
 
 ## Leistung
 
-Gemessen mit Mitts `0.3.17` über **100 Open-Source-Rust-Projekte** unter macOS (Apple M2 Ultra, APFS) und Linux ARM64 (XFS) sowie **90** unter Linux x86_64 (AMD Ryzen 9 9950X, XFS) im Vergleich zu reinem `cargo` und `cargo` mit `sccache` (`0.14.0`). Jeder Messwert ist der Median aus 3 Durchläufen mit geprüfter Parität von Diagnosen, Exit-Codes und Testergebnissen; alle gemessenen Projekte bleiben in den Gesamtsummen enthalten (`0`, `7` und `0` als verrauscht markierte Läufe), und Beschleunigungsfaktoren werden abgeschnitten statt aufgerundet ([ROADMAP M8](../ROADMAP.md)).
+Gemessen mit Mitts `0.3.17` über **100 Open-Source-Rust-Projekte** unter macOS (Apple M2 Ultra, APFS) und Linux ARM64 (XFS) sowie **90** unter Linux x86_64 (AMD Ryzen 9 9950X, XFS) im Vergleich zu reinem `cargo` und `cargo` mit `sccache` (`0.17.0`). Jeder Messwert ist der Median aus 3 Durchläufen mit geprüfter Parität von Diagnosen, Exit-Codes und Testergebnissen; alle gemessenen Projekte bleiben in den Gesamtsummen enthalten (`0`, `7` und `0` als verrauscht markierte Läufe), und Beschleunigungsfaktoren werden abgeschnitten statt aufgerundet ([ROADMAP M8](../ROADMAP.md)).
 
 <p align="center">
   <picture>
@@ -393,7 +393,7 @@ Gemessen mit Mitts `0.3.17` über **100 Open-Source-Rust-Projekte** unter macOS 
   </picture>
 </p>
 
-Die Balkenlängen zeigen das arithmetische Mittel der Projektmediane (proportional zur gesamten Laufzeit über den Korpus), ergänzt um das geometrische Mittel pro Projekt neben jeder Zeile. Bei mehreren Worktrees, Branch-Wechseln und unveränderten Wiederholungsläufen (Standard-No-op) senkt Mitts die mittlere Build-Zeit unter macOS um **5.8–10.8×** (**3.6–41×** über alle drei Maschinen). Beim **Bearbeiten einer Datei mit anschließendem Neubau** (`n = 71` auf macOS und Linux ARM64, `64` auf Linux x86_64) ist Mitts im geometrischen Mittel schneller (**1.1×** auf macOS und Linux ARM64, **1×** auf Linux x86_64; schneller bei `49/71`, `42/71` und `43/64` Projekten), im arithmetischen Mittel jedoch langsamer (**0.7–0.8×**), weil einige große Einzel-Crate-Binaries unter `cargo` die crate-interne inkrementelle Kompilierung von `rustc` nutzen, während Mitts ganze Crate-Einheiten cacht. Ein **einzelner Kaltstart-Build** mit leerem Cache liegt bei **0.8–1×** gegenüber reinem `cargo` und ist im geometrischen Mittel **1.4×** schneller als `cargo` mit kaltem `sccache`.
+Die Balkenlängen zeigen das arithmetische Mittel der Projektmediane (proportional zur gesamten Laufzeit über den Korpus), ergänzt um das geometrische Mittel pro Projekt neben jeder Zeile. Bei mehreren Worktrees, Branch-Wechseln und unveränderten Wiederholungsläufen (Standard-No-op) senkt Mitts die mittlere Build-Zeit unter macOS um **5.8–10.8×**. Beim **Bearbeiten einer Datei mit anschließendem Neubau** (`n = 71` auf macOS und Linux ARM64, `64` auf Linux x86_64) ist Mitts im geometrischen Mittel schneller (**1.1×** auf macOS und Linux ARM64, **1×** auf Linux x86_64; schneller bei `49/71`, `42/71` und `43/64` Projekten), im arithmetischen Mittel jedoch langsamer (**0.7–0.8×**), weil einige große Einzel-Crate-Binaries unter `cargo` die crate-interne inkrementelle Kompilierung von `rustc` nutzen, während Mitts ganze Crate-Einheiten cacht. Ein **einzelner Kaltstart-Build** mit leerem Cache liegt bei **0.8–1×** gegenüber reinem `cargo` und ist im geometrischen Mittel **1.4×** schneller als `cargo` mit kaltem `sccache`.
 
 <p align="center">
   <picture>
@@ -420,7 +420,7 @@ Das parallele Bauen von **12 Worktrees** auf 4 Commits über die 100 macOS-Proje
 | Konservative GC mit Quoten | erledigt |
 | C/C++-Adapter auf demselben Speicher | experimentell |
 | Pfadunabhängige Schlüssel für Workspace-Crates | teilweise |
-| Reproduzierbare Benchmark-Studie | in Arbeit |
+| Reproduzierbare Benchmark-Studie | erledigt |
 | Remote- / Team-Cache | geplant |
 | Windows, Cross-Kompilierung | nicht unterstützt |
 
