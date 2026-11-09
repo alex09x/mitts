@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-:root { --c-cargo: #8a929d; --c-scc: #c3c8cf; --c-mitts: #ff3b30; --c-restore: #2f6f47; }
+:root { --c-cargo: #8a929d; --c-scc: #c3c8cf; --c-mitts: #ff3b30; }
 .accent { color: var(--accent); }
 
 /* one header on every page; it wraps instead of spilling on narrow screens */
@@ -35,19 +35,15 @@
 .c-scc { fill: var(--c-scc); background: var(--c-scc); }
 .c-mitts { fill: var(--c-mitts); background: var(--c-mitts); }
 .chart.board { margin: 8px 0 4px; }
-.chart.dumb { margin: 8px 0; }
 .chart.bars { margin: 8px 0; }
 .bars .nm { fill: var(--ink); font-size: 12.5px; }
 .bars .val { font-size: 13px; }
 .bars g:hover rect { opacity: .8; }
 
 /* illustration and method flow */
-.b-compile { fill: var(--c-mitts); opacity: .85; }
-.b-restore { fill: var(--c-restore); opacity: .9; }
-.diagram.swarm .d-t, .diagram.flow .d-t { fill: var(--ink); font: 700 17px var(--display); }
+.diagram.flow .d-t { fill: var(--ink); font: 700 17px var(--display); }
 .diagram .d-s { fill: var(--muted); font: 12.5px var(--sans); }
 .diagram .d-box { fill: var(--panel); stroke: var(--line); }
-.diagram.swarm .ax { font-size: 11px; }
 .d-arrow2 { stroke: var(--muted); stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 
 /* headline numbers */
@@ -62,9 +58,11 @@
 @media (max-width: 900px) {
   .callouts.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 560px) {
+@media (max-width: 720px) {
   .callouts.four { grid-template-columns: minmax(0, 1fr); }
-  .chart.board, .chart.bars, .chart.times, .diagram { min-width: 640px; }
-  .panel, .hundred-home figure, main section { overflow-x: auto; }
+  .chart.board, .chart.bars, .chart.times, .diagram { min-width: 720px; }
+  .panel, .scroll { overflow-x: auto; }
 }
 .times .lab-big { font-size: 20px; }
+.bars .stripe { fill: var(--ink); opacity: .05; }
+@media (max-width: 560px) { main section { scroll-margin-top: 96px; } }
