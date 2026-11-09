@@ -10,7 +10,7 @@
 
 use super::manifest::CargoToml;
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 /// Removes `.` and resolves `..` against the preceding component without touching the
@@ -41,6 +41,13 @@ pub(super) fn normalize_lexically(path: &Path) -> PathBuf {
     out
 }
 
+/// The values of a map in key order.
+fn sorted_values<V>(map: &HashMap<String, V>) -> Vec<&V> {
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries.into_iter().map(|(_, v)| v).collect()
+}
+
 pub(super) fn discover_path_dependencies(
     project_dir: &Path,
     root_toml: &CargoToml,
@@ -50,9 +57,12 @@ pub(super) fn discover_path_dependencies(
     let mut seen_dirs: HashSet<PathBuf> = HashSet::new();
     let mut scan_deps = |base_dir: &Path,
                          deps: &HashMap<String, super::manifest::TomlDependency>,
-                         pending: &mut Vec<(PathBuf, CargoToml)>|
+                         pending: &mut VecDeque<(PathBuf, CargoToml)>|
      -> Result<()> {
-        for (dep_name, dep_val) in deps {
+        // Sorted: which spelling of a directory is met first must not depend on map order.
+        let mut sorted: Vec<_> = deps.iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+        for (dep_name, dep_val) in sorted {
             if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
                 if let Some(ref rel_p) = d.path {
                     // The same package is reached through different `path = "../.."` spellings
@@ -75,37 +85,39 @@ pub(super) fn discover_path_dependencies(
                         .entry(name)
                         .or_default()
                         .push((dep_dir.clone(), dep_toml.clone()));
-                    pending.push((dep_dir, dep_toml));
+                    pending.push_back((dep_dir, dep_toml));
                 }
             }
         }
         Ok(())
     };
-    let mut pending: Vec<(PathBuf, CargoToml)> = Vec::new();
+    let mut pending: VecDeque<(PathBuf, CargoToml)> = VecDeque::new();
     if let Some(ref ws) = root_toml.workspace {
         scan_deps(project_dir, &ws.dependencies, &mut pending)?;
     }
+    let mut members: Vec<_> = workspace_manifests.iter().collect();
+    members.sort_by(|a, b| a.0.cmp(b.0));
     let tomls_to_scan: Vec<(&Path, &CargoToml)> = std::iter::once((project_dir, root_toml))
-        .chain(workspace_manifests.values().map(|(p, t)| (p.as_path(), t)))
+        .chain(members.into_iter().map(|(_, (p, t))| (p.as_path(), t)))
         .collect();
     // Lockfiles include workspace dev-dependencies even for builds that do not use them.
     for (base, toml) in tomls_to_scan {
         scan_deps(base, &toml.dependencies, &mut pending)?;
         scan_deps(base, &toml.build_dependencies, &mut pending)?;
         scan_deps(base, &toml.dev_dependencies, &mut pending)?;
-        for t in toml.target.values() {
+        for t in sorted_values(&toml.target) {
             scan_deps(base, &t.dependencies, &mut pending)?;
             scan_deps(base, &t.build_dependencies, &mut pending)?;
             scan_deps(base, &t.dev_dependencies, &mut pending)?;
         }
     }
-    for table in root_toml.patch.values() {
+    for table in sorted_values(&root_toml.patch) {
         scan_deps(project_dir, table, &mut pending)?;
     }
-    while let Some((dir, toml)) = pending.pop() {
+    while let Some((dir, toml)) = pending.pop_front() {
         scan_deps(&dir, &toml.dependencies, &mut pending)?;
         scan_deps(&dir, &toml.build_dependencies, &mut pending)?;
-        for t in toml.target.values() {
+        for t in sorted_values(&toml.target) {
             scan_deps(&dir, &t.dependencies, &mut pending)?;
             scan_deps(&dir, &t.build_dependencies, &mut pending)?;
         }
