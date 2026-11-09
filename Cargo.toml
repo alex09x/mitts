@@ -7,6 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Rust-first build and package tooling with a shared artifact cache"
 repository = "https://github.com/alex09x/mitts"
 homepage = "https://mittsbuild.com"
+exclude = ["/site/", "/benchmark-results/", "/readme/", "/scripts/", "/.github/"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
