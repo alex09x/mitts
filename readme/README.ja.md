@@ -1,7 +1,7 @@
-<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
+<!-- translation-source: 1a926080b49fae712d44fdae44fb6f96b80d3499 -->
 
 > [!NOTE]
-> この文書はコミット [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md) 時点の公式英語ドキュメントの翻訳です。最新の正式な内容は[英語版README](https://github.com/alex09x/mitts/blob/main/README.md)を参照してください。
+> この文書はコミット [1a92608](https://github.com/alex09x/mitts/blob/1a926080b49fae712d44fdae44fb6f96b80d3499/README.md) 時点の公式英語ドキュメントの翻訳です。最新の正式な内容は[英語版README](https://github.com/alex09x/mitts/blob/main/README.md)を参照してください。
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -47,6 +47,18 @@
 </p>
 
 ---
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-hero-light.svg">
+    <img src="../docs/img/bench-hero-light.svg" width="920" alt="Mac上で100個のRustプロジェクトの12ワークツリーを同時ビルドすると、Cargoの76分に対しMittsは13分で完了し、コンパイラ実行回数は90,961回から6,905回へ、ディスク書き込み量は641 GBから112 GBへ減少します">
+  </picture>
+</p>
+
+<p align="center">
+  <sub>100個のオープンソースプロジェクト（Linux x86_64では90個）、各12ワークツリーを3台のマシンで同時にビルド。CargoとCargo + sccacheをベースラインとし、Mittsが速くならないケースも含めて掲載：<a href="#performance">パフォーマンス</a> · <a href="https://mittsbuild.com/the-hundred/">The Hundred</a></sub>
+</p>
 
 Mittsはワークスペース自体を独自に計画し、`rustc`を直接呼び出します。すべての
 コンパイルアクションは、そのすべての入力から導出されたキーを取得します。出力は
@@ -270,29 +282,45 @@ Mittsはプレリリース段階です。依存する前に以下を把握して
 
 Windows、クロスコンパイル、チームキャッシュ、または安定版リリースが必要な場合は、**まだMittsを使用しないでください**。その場合は、必要に応じてsccacheを組み合わせたCargoが安全な選択肢です。
 
+<a id="performance"></a>
 ## パフォーマンス
 
-Mitts `0.3.17` を用い、macOS（Apple M2 Ultra、APFS）およびLinux ARM64（XFS）上の **100個のオープンソースRustプロジェクト**、ならびにLinux x86_64（AMD Ryzen 9 9950X、XFS）上の **90プロジェクト**で、プレーンな `cargo` および `cargo` + `sccache`（`0.17.0`）と比較測定しました。すべての数値は3回実行の中央値であり、診断メッセージ・終了コード・テスト結果の同等性を検証しています。測定された全プロジェクトが集計に含まれ（ノイズと判定された `0`、`7`、`0` 件も除外せず保持）、高速化倍率は切り上げではなく切り捨てで表記しています（[ROADMAP M8](../ROADMAP.md)）。
+Mitts `0.3.17` を用い、macOS（Apple M2 Ultra、APFS）およびLinux ARM64（XFS）上の **100個のオープンソースRustプロジェクト**、ならびにLinux x86_64（AMD Ryzen 9 9950X、XFS）上の **90プロジェクト**で、プレーンな `cargo` および `cargo` + `sccache`（`0.17.0`）と比較測定しました。すべての数値は3回実行の中央値であり、診断メッセージ・終了コード・テスト結果の同等性を検証しています。測定された全プロジェクトが集計に含まれ（ノイズと判定された `0`、`7`、`0` 件も除外せず保持）、どの数値も実測を超えて有利にならないよう、ベースラインは切り捨て、Mittsは切り上げています（[ROADMAP M8](../ROADMAP.md)）。調査の全文、全プロジェクトの結果、および測定手法は [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/) で公開しています。
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
-    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="6つのシナリオにおけるプロジェクトあたりの平均ビルド時間：Cargo、Cargo + sccache、Mitts">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="6つのシナリオにおける中央値プロジェクトのビルド時間：Cargo、Cargo + sccache、Mitts">
   </picture>
 </p>
 
-バーの長さはプロジェクトごとの中央値の算術平均（コーパス全体の実時間に比例）を示し、各行の右側にプロジェクトごとの幾何平均倍率を併記しています。複数ワークツリー、ブランチ切り替え、およびデフォルトのno-op実行において、Mittsは平均ビルド時間をmacOSで **5.8–10.8×** 短縮します。**ファイル編集後の再ビルド**（macOS・Linux ARM64で `n = 71`、Linux x86_64で `64`）では、幾何平均ではMittsの方が高速（macOS・Linux ARM64で **1.1×**、Linux x86_64で **1×**；それぞれ `49/71`、`42/71`、`43/64` プロジェクトで高速）ですが、算術平均では遅くなります（**0.7–0.8×**）。これは、いくつかの大規模な単一クレートバイナリが `cargo` 下で `rustc` のクレート内インクリメンタルコンパイルを活用するのに対し、Mittsはクレート単位全体でキャッシュするためです。空キャッシュからの **単一コールドビルド** はプレーンな `cargo` 比で **0.8–1×**、コールドな `sccache` を併用した `cargo` 比では幾何平均で **1.4×** 高速です。
+各行は中央値プロジェクトのビルド時間（プロジェクト群に対する各ツール自身の中央値、行ごとの線形スケール）を示し、その横にMittsが最初に完了したプロジェクト数を併記しています。macOSでは、中央値プロジェクトの12ワークツリービルドは `cargo` で **32 s**、`cargo` + `sccache` で **31 s**、Mittsで **3.8 s** です。ローカルストアがウォームな状態では、2つ目のクリーンなワークツリーは **1.7 s**、**1.6 s**、**79 ms**、ブランチ切り替えは **627 ms**、**209 ms**、**27 ms**、変更なしの再ビルドは **100 ms**、**41 ms**、**9 ms** となります。これら4つのシナリオでは、100プロジェクト中99–100件でMittsが最初に完了します（2つ目のワークツリーは71件中71件）。
+
+Mittsが勝たないケース：
+
+- **コールドビルド（空キャッシュ）。** Mittsは入力をハッシュ化して空のストアへ書き込むため、macOSでは100プロジェクト中71件（Linux x86_64では90件中60件、Linux aarch64では100件中77件）でプレーンな `cargo` が先に完了し、最大プロジェクトでは最大 6.2 s の差がつきます。中央値プロジェクトは `cargo` が **1.7 s**、Mittsが **2.0 s** です。コールドな `sccache`（**2.4 s**、100件中86件でMittsが先着）に対してはMittsが上回ります。
+- **1ファイルの編集。** 中央値プロジェクトは `cargo` が **364 ms**、`sccache` が **596 ms**、Mittsが **315 ms** で、`cargo` に対してMittsが先に完了するのは71プロジェクト中49件です。残りの22件（x86_64では64件中21件、aarch64では71件中29件）では `cargo` が先に完了し、macOSで最大 2.6 s、x86_64で最大 8.6 s 速くなります。これは `cargo` が大規模クレート内で `rustc` のインクリメンタルコンパイルを再利用するのに対し、Mittsはクレート単位全体でキャッシュするためです。
+- **10コミットの連続再生**（グラフ外）：結果は拮抗しており、macOSでは100プロジェクト中58件でMittsが先に完了し、中央値も僅差です（`cargo` **5.6 s**、Mitts **5.8 s**）。
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
-    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100個のRustプロジェクトにおける12並列ワークツリービルドのスコアボード：時間、CPU、コンパイラ実行回数、ディスク書き込み量、ピークRSS">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100個のRustプロジェクトにおける12並列ワークツリービルドのスコアボード：時間、CPU、コンパイラ実行回数、ディスク書き込み量">
   </picture>
 </p>
 
-macOS上の100プロジェクトにわたり4コミット上の **12並列ワークツリー** をビルドすると、`cargo` では **76分**、`cargo` + `sccache` では **74分** かかるのに対し、Mittsでは **13分** で完了し（実時間を **5.8×** 短縮；Linux x86_64で **7×**、Linux ARM64で **3.6×**）、`rustc` の起動回数を **90,961** 回から **6,905** 回へ（**13.1×**）、ディスク書き込み量を **641 GB** から **111 GB** へ（**5.7×**）削減します。12ワークツリーにわたる子プロセスのピークRSS（`ru_maxrss`）の合計は、キャッシュヒットしたワークツリーが `rustc` を起動しないため、プレーンな `cargo` のプロジェクト平均 **6.1–6.5 GB** に対してMittsでは **2.4–3.4 GB**（**1.8–2.5×** 削減）となります。単一ワークツリー内での最大子プロセスRSSは、プレーンな `cargo` の平均 **539–582 MB** に対してMittsでは **451–520 MB** です（`cargo` + `sccache` は分離された `sccache` デーモンが計測対象プロセスツリーの外で動作するため、`wait4` 内では **443–483 MB** と記録されます）。
+全プロジェクトにわたる4コミット上の **12並列ワークツリー** ビルド、マシン別の合計値：
+
+| マシン | 時間: `cargo` / `sccache` / Mitts | `rustc` 実行回数: `cargo` / Mitts | ディスク書き込み量: `cargo` / Mitts |
+|---|---|---|---|
+| macOS, APFS, M2 Ultra (100プロジェクト) | 76 min / 73 min / **13 min** | 90,961 / **6,905** | 641 GB / **112 GB** |
+| Linux x86_64, XFS, Ryzen 9 9950X (90プロジェクト) | 60 min / 52 min / **9 min** | 75,049 / **6,162** | 651 GB / **106 GB** |
+| Linux aarch64, XFS (100プロジェクト) | 78 min / 76 min / **22 min** | 90,544 / **7,348** | 743 GB / **121 GB** |
+
+macOSでのCPU時間は **20.3 h**（`cargo`）および **8.0 h**（`sccache`）から **2.7 h** に減少します。x86_64マシンで測定されたのは100プロジェクトではなく90プロジェクトです。その実行では10プロジェクト（similar, smallvec, smol, syntect, tealdeer, tera, textwrap, tokei, tower-http, xh）が欠落しており、原因は記録されていません。
+
 
 ## 状況
 
