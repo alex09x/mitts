@@ -34,6 +34,48 @@ def external_urls(text):
     return set(re.findall(r'''https?://[^\s<>"')`]+''', FENCES.sub("", text)))
 
 
+def srcset_urls(prose):
+    urls = []
+    for raw in re.findall(r"\bsrcset=[\"']([^\"']+)[\"']", prose):
+        for candidate in raw.split(","):
+            tokens = candidate.strip().split()
+            if tokens:
+                urls.append(tokens[0])
+    return urls
+
+
+def image_filenames(text):
+    prose = FENCES.sub("", text)
+    raw = re.findall(r"!\[[^\]]*\]\(([^\s)]+)\)", prose)
+    raw += re.findall(r"\bsrc=[\"']([^\"']+)[\"']", prose)
+    raw += srcset_urls(prose)
+    names = []
+    for item in raw:
+        parts = urlsplit(item)
+        if not parts.scheme and not parts.netloc and parts.path:
+            names.append(Path(unquote(parts.path)).name)
+    return names
+
+
+def local_link_errors(base_dir, prose, check_anchors=True):
+    errors = []
+    targets = re.findall(r"\]\(([^\s)]+)\)", prose)
+    targets += re.findall(r"\b(?:href|src)=[\"']([^\"']+)[\"']", prose)
+    targets += srcset_urls(prose)
+    anchors = set(re.findall(r"<a\s+(?:name|id)=[\"']([^\"']+)[\"']", prose))
+    for target in targets:
+        parts = urlsplit(target)
+        if parts.scheme or parts.netloc:
+            continue
+        if parts.path:
+            local = (base_dir / unquote(parts.path)).resolve()
+            if not local.is_relative_to(ROOT) or not local.exists():
+                errors.append("broken local link/image: " + target)
+        elif check_anchors and parts.fragment and unquote(parts.fragment) not in anchors:
+            errors.append("missing explicit navigation anchor: " + parts.fragment)
+    return errors
+
+
 def nested_alerts(text):
     prose = re.sub(r"`[^`\n]*`", "", FENCES.sub("", text))
     tokens = re.finditer(
@@ -82,19 +124,9 @@ def check(path, canonical):
     errors += ["GitHub alert inside HTML div: " + kind for kind in nested_alerts(text)]
 
     prose = FENCES.sub("", text)
-    targets = re.findall(r"\]\(([^\s)]+)\)", prose)
-    targets += re.findall(r"\b(?:href|src)=[\"']([^\"']+)[\"']", prose)
-    anchors = set(re.findall(r"<a\s+(?:name|id)=[\"']([^\"']+)[\"']", prose))
-    for target in targets:
-        parts = urlsplit(target)
-        if parts.scheme or parts.netloc:
-            continue
-        if parts.path:
-            local = (path.parent / unquote(parts.path)).resolve()
-            if not local.is_relative_to(ROOT) or not local.exists():
-                errors.append("broken local link/image: " + target)
-        elif parts.fragment and unquote(parts.fragment) not in anchors:
-            errors.append("missing explicit navigation anchor: " + parts.fragment)
+    if image_filenames(text) != image_filenames(canonical):
+        errors.append("local image filenames differ from English")
+    errors += local_link_errors(path.parent, prose)
     return errors
 
 
@@ -106,14 +138,18 @@ def main():
     canonical = (ROOT / "README.md").read_text(encoding="utf-8")
     if not FENCES.findall(canonical) or not headings(canonical):
         parser.error("English README has no fenced examples or sections")
+    source_errors = local_link_errors(ROOT, FENCES.sub("", canonical), check_anchors=False)
+    for error in source_errors:
+        print(f"README.md: {error}", file=sys.stderr)
     if args.source_only:
-        print(f"English source: {len(headings(canonical))} sections, {len(FENCES.findall(canonical))} fenced blocks")
-        return 0
+        if not source_errors:
+            print(f"English source: {len(headings(canonical))} sections, {len(FENCES.findall(canonical))} fenced blocks")
+        return int(bool(source_errors))
 
     paths = [Path(p).resolve() for p in args.paths] if args.paths else [
         ROOT / "readme" / f"README.{loc}.md" for loc in LOCALES
     ]
-    failed = False
+    failed = bool(source_errors)
     for path in paths:
         try:
             errors = check(path, canonical)

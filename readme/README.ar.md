@@ -1,7 +1,7 @@
-<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
+<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
 
 > [!NOTE]
-> هذه ترجمة عربية للتوثيق الرسمي باللغة الإنجليزية عند الإيداع [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md). النسخة المعتمدة والأحدث هي [README باللغة الإنجليزية](https://github.com/alex09x/mitts/blob/main/README.md).
+> هذه ترجمة عربية للتوثيق الرسمي باللغة الإنجليزية عند الإيداع [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md). النسخة المعتمدة والأحدث هي [README باللغة الإنجليزية](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -302,7 +302,27 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 <a id="performance"></a>
 ## الأداء
 
-لا تُنشر أرقام الأداء إلا وفق منهجية قابلة للتكرار: عتاد ثابت، وتشغيل في حالات باردة ودافئة ومع مدخلات متغيرة، وعدة شجرات عمل، واعتماد الأقوى بين Cargo العادي و sccache كخط أساس، مع مطابقة تامة في الرسائل التشخيصية ورموز الخروج ونتائج الاختبارات. الدراسة جارية حالياً ([ROADMAP M8](../ROADMAP.md)). وإلى أن يتم نشرها، لا يقدم Mitts أي ادعاءات بشأن زيادة السرعة أو توفير مساحة القرص.
+قِيسَ الأداء باستخدام Mitts <bdi>`0.3.17`</bdi> عبر **100 مشروع Rust مفتوح المصدر** على macOS (Apple M2 Ultra، بنظام APFS) وLinux ARM64 (بنظام XFS)، و**90 مشروعاً** على Linux x86_64 (AMD Ryzen 9 9950X، بنظام XFS)، في مقابل `cargo` العادي و`cargo` مع `sccache` (<bdi>`0.17.0`</bdi>). تمثل كل قراءة الوسيط الحسابي لـ 3 تكرارات مع التحقق من تطابق الرسائل التشخيصية ورموز الخروج ونتائج الاختبارات؛ وتبقى جميع المشاريع المقيسة ضمن الإجماليات (<bdi>`0`</bdi> و<bdi>`7`</bdi> و<bdi>`0`</bdi> تشغيلات موسومة بالضوضاء)، كما تُقتطع نسب التسريع دون تقريب إلى الأعلى ([ROADMAP M8](../ROADMAP.md)).
+
+<div dir="ltr" align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="متوسط زمن البناء لكل مشروع عبر ستة سيناريوهات: Cargo وCargo + sccache وMitts">
+  </picture>
+</div>
+
+يُظهر طول الأشرطة المتوسط الحسابي لوسائط المشاريع (بما يتناسب مع الزمن الكلي للمجموعة)، مع عرض المتوسط الهندسي لكل مشروع بجانب كل صف. في تشغيلات شجرات العمل المتعددة وتبديل الفروع وإعادة البناء دون تغييرات (no-op الافتراضي)، يخفض Mitts متوسط زمن البناء بمقدار <bdi>**5.8–10.8×**</bdi> على macOS. وعند **تعديل ملف واحد وإعادة البناء** (<bdi>`n = 71`</bdi> على macOS وLinux ARM64، و<bdi>`64`</bdi> على Linux x86_64)، يكون Mitts أسرع وفق المتوسط الهندسي (<bdi>**1.1×**</bdi> على macOS وLinux ARM64، و<bdi>**1×**</bdi> على Linux x86_64؛ أسرع في <bdi>`49/71`</bdi> و<bdi>`42/71`</bdi> و<bdi>`43/64`</bdi> مشروعاً)، بينما يكون متوسطه الحسابي أبطأ (<bdi>**0.7–0.8×**</bdi>) لأن عدداً قليلاً من الملفات الثنائية الكبيرة أحادية الحزمة تستفيد من الترجمة التزايدية داخل الحزمة لـ `rustc` تحت `cargo`، في حين يخزن Mitts وحدات الحزم كاملةً في الذاكرة المؤقتة. ويبلغ **البناء البارد المنفرد** بذاكرة مؤقتة فارغة <bdi>**0.8–1×**</bdi> مقارنةً بـ `cargo` العادي، وهو أسرع بمقدار <bdi>**1.4×**</bdi> في المتوسط الهندسي من `cargo` مع `sccache` بارد.
+
+<div dir="ltr" align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="لوحة نتائج بناء 12 شجرة عمل متوازية عبر 100 مشروع Rust: الزمن والمعالج وتشغيلات المترجم والكتابة على القرص وذروة RSS">
+  </picture>
+</div>
+
+يستغرق بناء **12 شجرة عمل متوازية** عبر 4 إيداعات في مشاريع macOS الـ 100 **76 دقيقة** مع `cargo`، و**74 دقيقة** مع `cargo` + `sccache`، و**13 دقيقة** مع Mitts (زمن كلي أقل بمقدار <bdi>**5.8×**</bdi>؛ و<bdi>**7×**</bdi> على Linux x86_64، و<bdi>**3.6×**</bdi> على Linux ARM64)، خافضاً استدعاءات `rustc` من <bdi>**90,961**</bdi> إلى <bdi>**6,905**</bdi> (<bdi>**13.1×**</bdi>) والكتابة على القرص من <bdi>**641 GB**</bdi> إلى <bdi>**111 GB**</bdi> (<bdi>**5.7×**</bdi>). وبجمع ذروة الذاكرة المقيمة للعمليات الفرعية (<bdi>`ru_maxrss`</bdi>) عبر شجرات العمل الـ 12، يبلغ المتوسط <bdi>**2.4–3.4 GB**</bdi> لكل مشروع مع Mitts مقابل <bdi>**6.1–6.5 GB**</bdi> مع `cargo` العادي (أقل بمقدار <bdi>**1.8–2.5×**</bdi>) لأن شجرات العمل المخزنة مؤقتاً لا تُطلِق `rustc`؛ وداخل شجرة عمل واحدة يبلغ متوسط أثقل عملية فرعية <bdi>**451–520 MB**</bdi> مع Mitts مقابل <bdi>**539–582 MB**</bdi> مع `cargo` العادي (بينما يسجل `cargo` + `sccache` ما بين <bdi>**443–483 MB**</bdi> داخل <bdi>`wait4`</bdi> لأن خادم `sccache` المنفصل يعمل خارج شجرة العمليات المقيسة).
 
 <a id="status"></a>
 ## الحالة
@@ -320,7 +340,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 | جمع المهملات التحفظي مع الحصص النسبية | مكتمل |
 | محول C/C++ تجريبي على نفس المستودع | تجريبي |
 | مفاتيح مستقلة عن المسار لحزم مساحة العمل | جزئي |
-| دراسة قياس الأداء القابلة للتكرار | قيد التنفيذ |
+| دراسة قياس الأداء القابلة للتكرار | مكتمل |
 | ذاكرة مؤقتة عن بُعد / للفريق | مخطط له |
 | نظام Windows، والترجمة المتقاطعة | غير مدعوم |
 

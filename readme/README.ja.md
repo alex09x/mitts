@@ -1,7 +1,7 @@
-<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
+<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
 
 > [!NOTE]
-> この文書はコミット [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md) 時点の公式英語ドキュメントの翻訳です。最新の正式な内容は[英語版README](https://github.com/alex09x/mitts/blob/main/README.md)を参照してください。
+> この文書はコミット [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md) 時点の公式英語ドキュメントの翻訳です。最新の正式な内容は[英語版README](https://github.com/alex09x/mitts/blob/main/README.md)を参照してください。
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -272,7 +272,27 @@ Windows、クロスコンパイル、チームキャッシュ、または安定�
 
 ## パフォーマンス
 
-パフォーマンス測定値は、再現可能な方法論（固定されたハードウェア、コールド／ウォーム／入力変更時の実行、複数のワークツリー、ベースラインとしてのプレーンなCargoまたはsccacheのうちより強力な方、ならびに診断・終了コード・テスト結果の同等性確認）が整った場合にのみ公開されます。この検証は現在進行中です（[ROADMAP M8](../ROADMAP.md)）。それが公開されるまで、Mittsは高速化やディスク容量節約に関するいかなる主張も行いません。
+Mitts `0.3.17` を用い、macOS（Apple M2 Ultra、APFS）およびLinux ARM64（XFS）上の **100個のオープンソースRustプロジェクト**、ならびにLinux x86_64（AMD Ryzen 9 9950X、XFS）上の **90プロジェクト**で、プレーンな `cargo` および `cargo` + `sccache`（`0.17.0`）と比較測定しました。すべての数値は3回実行の中央値であり、診断メッセージ・終了コード・テスト結果の同等性を検証しています。測定された全プロジェクトが集計に含まれ（ノイズと判定された `0`、`7`、`0` 件も除外せず保持）、高速化倍率は切り上げではなく切り捨てで表記しています（[ROADMAP M8](../ROADMAP.md)）。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="6つのシナリオにおけるプロジェクトあたりの平均ビルド時間：Cargo、Cargo + sccache、Mitts">
+  </picture>
+</p>
+
+バーの長さはプロジェクトごとの中央値の算術平均（コーパス全体の実時間に比例）を示し、各行の右側にプロジェクトごとの幾何平均倍率を併記しています。複数ワークツリー、ブランチ切り替え、およびデフォルトのno-op実行において、Mittsは平均ビルド時間をmacOSで **5.8–10.8×** 短縮します。**ファイル編集後の再ビルド**（macOS・Linux ARM64で `n = 71`、Linux x86_64で `64`）では、幾何平均ではMittsの方が高速（macOS・Linux ARM64で **1.1×**、Linux x86_64で **1×**；それぞれ `49/71`、`42/71`、`43/64` プロジェクトで高速）ですが、算術平均では遅くなります（**0.7–0.8×**）。これは、いくつかの大規模な単一クレートバイナリが `cargo` 下で `rustc` のクレート内インクリメンタルコンパイルを活用するのに対し、Mittsはクレート単位全体でキャッシュするためです。空キャッシュからの **単一コールドビルド** はプレーンな `cargo` 比で **0.8–1×**、コールドな `sccache` を併用した `cargo` 比では幾何平均で **1.4×** 高速です。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100個のRustプロジェクトにおける12並列ワークツリービルドのスコアボード：時間、CPU、コンパイラ実行回数、ディスク書き込み量、ピークRSS">
+  </picture>
+</p>
+
+macOS上の100プロジェクトにわたり4コミット上の **12並列ワークツリー** をビルドすると、`cargo` では **76分**、`cargo` + `sccache` では **74分** かかるのに対し、Mittsでは **13分** で完了し（実時間を **5.8×** 短縮；Linux x86_64で **7×**、Linux ARM64で **3.6×**）、`rustc` の起動回数を **90,961** 回から **6,905** 回へ（**13.1×**）、ディスク書き込み量を **641 GB** から **111 GB** へ（**5.7×**）削減します。12ワークツリーにわたる子プロセスのピークRSS（`ru_maxrss`）の合計は、キャッシュヒットしたワークツリーが `rustc` を起動しないため、プレーンな `cargo` のプロジェクト平均 **6.1–6.5 GB** に対してMittsでは **2.4–3.4 GB**（**1.8–2.5×** 削減）となります。単一ワークツリー内での最大子プロセスRSSは、プレーンな `cargo` の平均 **539–582 MB** に対してMittsでは **451–520 MB** です（`cargo` + `sccache` は分離された `sccache` デーモンが計測対象プロセスツリーの外で動作するため、`wait4` 内では **443–483 MB** と記録されます）。
 
 ## 状況
 
@@ -289,7 +309,7 @@ Windows、クロスコンパイル、チームキャッシュ、または安定�
 | クォータ付きの保守的GC | 完了 |
 | 同じストアを利用するC/C++アダプター | 実験的 |
 | ワークスペースクレートのパス非依存キー | 部分的 |
-| 再現可能なベンチマーク検証 | 進行中 |
+| 再現可能なベンチマーク検証 | 完了 |
 | リモート / チームキャッシュ | 計画中 |
 | Windows、クロスコンパイル | 未サポート |
 

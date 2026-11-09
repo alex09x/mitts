@@ -374,12 +374,27 @@ a stable release. Cargo, optionally with sccache, is the safe choice there.
 
 ## Performance
 
-Performance numbers are published only with a reproducible methodology: fixed
-hardware, cold, warm and changed-input runs, several worktrees, the stronger of
-plain Cargo and sccache as the baseline, and parity checks on diagnostics,
-exit codes and test results. The study is in progress
-([ROADMAP M8](ROADMAP.md)). Until it is published, Mitts makes no speedup or
-disk-saving claims.
+Measured with Mitts `0.3.17` across **100 open-source Rust projects** on macOS (Apple M2 Ultra, APFS) and Linux ARM64 (XFS), and **90** on Linux x86_64 (AMD Ryzen 9 9950X, XFS), against plain `cargo` and `cargo` with `sccache` (`0.17.0`). Every reading is the median of 3 repeats with diagnostic, exit-code and test-result parity checked; all measured projects stay in the totals (`0`, `7` and `0` runs flagged noisy), and speed-up ratios are truncated rather than rounded up ([ROADMAP M8](ROADMAP.md)).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/bench-scenarios-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/bench-scenarios-light.svg">
+    <img src="docs/img/bench-scenarios-light.svg" width="920" alt="Average build time per project across six scenarios: Cargo, Cargo + sccache, and Mitts">
+  </picture>
+</p>
+
+Bar lengths show the arithmetic mean of per-project medians (proportional to total corpus wall time), with per-project geometric means alongside each row. On multi-worktree, branch-hop and default no-op runs, Mitts cuts mean build time by **5.8–10.8×** on macOS. On **edit + rebuild** (`n = 71` on macOS and Linux ARM64, `64` on Linux x86_64), Mitts is faster by geometric mean (**1.1×** on macOS and Linux ARM64, **1×** on Linux x86_64; `49/71`, `42/71` and `43/64` projects faster), while its arithmetic mean is slower (**0.7–0.8×**) because a few large single-crate binaries use `rustc` intra-crate incremental compilation under `cargo` whereas Mitts caches whole crate units. A **single cold build** with an empty cache is **0.8–1×** against plain `cargo` and **1.4×** faster by geometric mean than `cargo` with a cold `sccache`.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/bench-swarm-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/bench-swarm-light.svg">
+    <img src="docs/img/bench-swarm-light.svg" width="920" alt="12-worktree build scoreboard across 100 Rust projects: time, CPU, compiler runs, disk written, and peak RSS">
+  </picture>
+</p>
+
+Building **12 parallel worktrees** on 4 commits across the 100 macOS projects takes **76 min** with `cargo`, **74 min** with `cargo` + `sccache` and **13 min** with Mitts (**5.8×** less wall time; **7×** on Linux x86_64, **3.6×** on Linux ARM64), cutting `rustc` runs from **90,961** to **6,905** (**13.1×**) and disk writes from **641 GB** to **111 GB** (**5.7×**). Summed over the 12 worktrees, peak child RSS (`ru_maxrss`) averages **2.4–3.4 GB** per project with Mitts versus **6.1–6.5 GB** with plain `cargo` (**1.8–2.5×** less) because cached worktrees do not spawn `rustc`; within a single worktree, the heaviest child process averages **451–520 MB** with Mitts versus **539–582 MB** with plain `cargo` (`cargo` + `sccache` records **443–483 MB** inside `wait4` because its detached `sccache` server runs outside the measured process tree).
 
 ## Status
 
@@ -396,7 +411,7 @@ disk-saving claims.
 | Conservative GC with quotas | done |
 | C/C++ adapter on the same store | experimental |
 | Path-independent keys for workspace crates | partial |
-| Reproducible benchmark study | in progress |
+| Reproducible benchmark study | done |
 | Remote / team cache | planned |
 | Windows, cross-compilation | not supported |
 

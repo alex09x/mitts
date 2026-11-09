@@ -1,7 +1,7 @@
-<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
+<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
 
 > [!NOTE]
-> 이 문서는 커밋 [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md) 기준 공식 영문 문서를 번역한 것입니다.
+> 이 문서는 커밋 [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md) 기준 공식 영문 문서를 번역한 것입니다.
 > 기준이 되는 최신 문서는 [영문 README](https://github.com/alex09x/mitts/blob/main/README.md)입니다.
 
 <p align="center">
@@ -269,7 +269,27 @@ Windows, 크로스 컴파일, 팀 캐시 또는 안정적인 릴리스가 필요
 
 ## 성능
 
-성능 수치는 엄격하게 재현 가능한 방법론(고정된 하드웨어, 콜드/웜/입력 변경 실행, 다중 워크트리, 일반 Cargo와 sccache 중 더 우수한 쪽을 베이스라인으로 설정, 진단, 종료 코드 및 테스트 결과에 대한 동등성 검증)을 기반으로만 공개됩니다. 관련 연구가 현재 진행 중입니다([ROADMAP M8](../ROADMAP.md)). 해당 연구가 발표되기 전까지 Mitts는 속도 향상이나 디스크 절약에 대한 어떠한 주장도 하지 않습니다.
+Mitts `0.3.17`을 사용하여 macOS(Apple M2 Ultra, APFS) 및 Linux ARM64(XFS)의 **오픈소스 Rust 프로젝트 100개**, Linux x86_64(AMD Ryzen 9 9950X, XFS)의 **90개 프로젝트**를 대상으로 일반 `cargo` 및 `cargo` + `sccache`(`0.17.0`)와 비교 측정했습니다. 모든 수치는 진단 메시지, 종료 코드, 테스트 결과 동등성을 검증한 3회 반복 측정의 중앙값이며, 측정된 모든 프로젝트가 합계에 포함되고(노이즈로 표시된 `0`, `7`, `0`건 포함) 속도 향상 배율은 반올림 없이 버림 처리합니다([ROADMAP M8](../ROADMAP.md)).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="6가지 시나리오에서 프로젝트당 평균 빌드 시간: Cargo, Cargo + sccache, Mitts">
+  </picture>
+</p>
+
+막대 길이는 프로젝트별 중앙값의 산술 평균(전체 코퍼스 총 소요 시간에 비례)을 나타내며, 각 행 오른쪽에는 프로젝트별 기하 평균 배율을 함께 표시합니다. 다중 워크트리, 브랜치 전환 및 기본 no-op 실행에서 Mitts는 평균 빌드 시간을 macOS 기준 **5.8–10.8×** 단축합니다. **단일 파일 수정 후 재빌드**(macOS 및 Linux ARM64 `n = 71`, Linux x86_64 `64`)에서는 기하 평균 기준 Mitts가 더 빠르지만(macOS 및 Linux ARM64 **1.1×**, Linux x86_64 **1×**; 각각 `49/71`, `42/71`, `43/64`개 프로젝트에서 우세), 소수의 대형 단일 크레이트 바이너리가 `cargo`에서는 `rustc`의 크레이트 내부 증분 컴파일을 활용하는 반면 Mitts는 전체 크레이트 단위로 캐싱하기 때문에 산술 평균은 더 느립니다(**0.7–0.8×**). 빈 캐시 상태의 **단일 콜드 빌드**는 일반 `cargo` 대비 **0.8–1×**이며, 콜드 `sccache`를 사용한 `cargo` 대비 기하 평균으로 **1.4×** 빠릅니다.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100개 Rust 프로젝트의 12개 병렬 워크트리 빌드 스코어보드: 시간, CPU, 컴파일러 실행 횟수, 디스크 쓰기 용량, 피크 RSS">
+  </picture>
+</p>
+
+macOS의 100개 프로젝트에서 4개 커밋에 걸친 **12개 병렬 워크트리**를 빌드할 때 `cargo`는 **76분**, `cargo` + `sccache`는 **74분**, Mitts는 **13분**이 소요되며(실제 소요 시간 **5.8×** 단축; Linux x86_64 **7×**, Linux ARM64 **3.6×**), `rustc` 실행 횟수를 **90,961**회에서 **6,905**회로(**13.1×**), 디스크 쓰기 용량을 **641 GB**에서 **111 GB**로(**5.7×**) 줄입니다. 12개 워크트리에 걸친 자식 프로세스 피크 RSS(`ru_maxrss`) 합계는 캐시된 워크트리가 `rustc`를 실행하지 않으므로 일반 `cargo`의 프로젝트당 평균 **6.1–6.5 GB** 대비 Mitts는 **2.4–3.4 GB**(**1.8–2.5×** 감소)입니다. 단일 워크트리 내 가장 무거운 자식 프로세스의 평균은 일반 `cargo` **539–582 MB** 대비 Mitts **451–520 MB**입니다(`cargo` + `sccache`는 분리된 `sccache` 서버가 측정 프로세스 트리 외부에서 실행되므로 `wait4` 기준 **443–483 MB**로 기록됩니다).
 
 ## 진행 현황
 
@@ -286,7 +306,7 @@ Windows, 크로스 컴파일, 팀 캐시 또는 안정적인 릴리스가 필요
 | 쿼터 기반 보수적 GC | 완료 |
 | 동일 저장소 기반 C/C++ 어댑터 | 실험적 |
 | 워크스페이스 크레이트의 경로 독립적 키 | 부분 지원 |
-| 재현 가능한 벤치마크 연구 | 진행 중 |
+| 재현 가능한 벤치마크 연구 | 완료 |
 | 원격 / 팀 캐시 | 계획됨 |
 | Windows, 크로스 컴파일 | 지원 안 됨 |
 

@@ -1,7 +1,7 @@
-<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
+<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
 
 > [!NOTE]
-> 本文是官方英文文档在提交 [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md) 处的简体中文翻译。权威且最新的版本请参阅[英文 README](https://github.com/alex09x/mitts/blob/main/README.md)。
+> 本文是官方英文文档在提交 [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md) 处的简体中文翻译。权威且最新的版本请参阅[英文 README](https://github.com/alex09x/mitts/blob/main/README.md)。
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -268,7 +268,27 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 
 ## 性能
 
-性能数据仅在具备可复现方法的情况下公布：固定硬件、冷构建、热构建以及输入变更运行、多个 worktree、取原生 Cargo 与 sccache 中较强者作为基准，并对诊断信息、退出码及测试结果进行等价性校验。该研究正在进行中（[ROADMAP M8](../ROADMAP.md)）。在该研究公布之前，Mitts 不做任何关于提速或节省磁盘空间的宣称。
+基于 Mitts `0.3.17` 在 macOS（Apple M2 Ultra，APFS）与 Linux ARM64（XFS）上的 **100 个开源 Rust 项目**，以及 Linux x86_64（AMD Ryzen 9 9950X，XFS）上的 **90 个项目**实测，对比原生 `cargo` 与 `cargo` + `sccache`（`0.17.0`）。每项读数均为 3 次重复运行的中位数，并校验诊断信息、退出码与测试结果等价性；全部受测项目均计入汇总（分别有 `0`、`7`、`0` 个运行被标记为波动），且加速比一律向下截断、绝不向上进位（[ROADMAP M8](../ROADMAP.md)）。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="六种场景下每个项目的平均构建耗时：Cargo、Cargo + sccache 与 Mitts">
+  </picture>
+</p>
+
+条形长度表示各项目中位数的算术平均值（与语料库总挂钟时间成正比），每行右侧同时列出逐项目几何平均加速比。在多 worktree、分支切换及默认空操作（no-op）场景下，Mitts 在 macOS 上将平均构建耗时缩短 **5.8–10.8×**。在**修改单文件后重编**场景（macOS 与 Linux ARM64 上 `n = 71`，Linux x86_64 上 `64`）中，按几何平均计 Mitts 更快（macOS 与 Linux ARM64 为 **1.1×**，Linux x86_64 为 **1×**；分别在 `49/71`、`42/71` 与 `43/64` 个项目上胜出），但算术平均值较慢（**0.7–0.8×**），原因是少数大型单 crate 二进制项目在 `cargo` 下可利用 `rustc` 的 crate 内增量编译，而 Mitts 以整个 crate 编译单元为粒度缓存。空缓存下的**单次冷构建**相对原生 `cargo` 为 **0.8–1×**，按几何平均计比冷缓存 `cargo` + `sccache` 快 **1.4×**。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100 个 Rust 项目上 12 个并行 worktree 构建计分板：耗时、CPU、编译器调用次数、磁盘写入量与峰值 RSS">
+  </picture>
+</p>
+
+在 macOS 的 100 个项目上同时构建横跨 4 个提交的 **12 个并行 worktree**，`cargo` 耗时 **76 分钟**，`cargo` + `sccache` 耗时 **74 分钟**，而 Mitts 仅需 **13 分钟**（挂钟时间减少 **5.8×**；Linux x86_64 为 **7×**，Linux ARM64 为 **3.6×**），将 `rustc` 调用次数从 **90,961** 次降至 **6,905** 次（**13.1×**），磁盘写入量从 **641 GB** 降至 **111 GB**（**5.7×**）。将 12 个 worktree 的子进程峰值常驻内存（`ru_maxrss`）相加，Mitts 平均每个项目为 **2.4–3.4 GB**，而原生 `cargo` 为 **6.1–6.5 GB**（减少 **1.8–2.5×**），因为命中缓存的 worktree 无需启动 `rustc`；在单个 worktree 内，最重子进程峰值在 Mitts 下平均为 **451–520 MB**，原生 `cargo` 为 **539–582 MB**（`cargo` + `sccache` 在 `wait4` 中记录为 **443–483 MB**，原因是独立后台运行的 `sccache` 守护进程位于受测进程树之外）。
 
 ## 现状
 
@@ -285,7 +305,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 | 具配额的保守 GC | 完成 |
 | 基于同一存储的 C/C++ 适配器 | 实验性 |
 | 工作区 crate 路径无关的键 | 部分支持 |
-| 可复现基准测试研究 | 进行中 |
+| 可复现基准测试研究 | 完成 |
 | 远程 / 团队缓存 | 计划中 |
 | Windows、交叉编译 | 不支持 |
 
