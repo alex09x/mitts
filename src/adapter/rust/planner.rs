@@ -315,6 +315,15 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             );
         }
     }
+    for bench in &opt.bench_targets {
+        if !units.iter().any(|unit| {
+            matches!(unit.kind.as_str(), "test" | "custom-test") && &unit.target_name == bench
+        }) {
+            anyhow::bail!(
+                "no bench target named `{bench}` is available with the selected package and features"
+            );
+        }
+    }
     let t_deps = std::time::Instant::now();
     let s_deps = super::compiler_resolve::rustc_subproc_stats();
 

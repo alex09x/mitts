@@ -270,6 +270,7 @@ pub fn run_native_dag_build(
             compile_errors.push(err);
         }
     }
+    let aborted = !compile_errors.is_empty();
     for err in work_queue.take_unit_errors() {
         if !compile_errors.contains(&err) {
             compile_errors.push(err);
@@ -283,7 +284,7 @@ pub fn run_native_dag_build(
             skipped.join(", ")
         );
     }
-    if compile_errors.is_empty() {
+    if !aborted {
         let (done, total) = work_queue.completed_and_total();
         if done < total {
             compile_errors.push(format!(

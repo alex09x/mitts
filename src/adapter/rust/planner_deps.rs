@@ -311,12 +311,8 @@ pub fn resolve_unit_dependencies_with_manifests(
                 let is_self_lib_unit_test = unit.src_path == *lib_src_path;
                 // A package may list itself under [dev-dependencies] (to turn on features for its
                 // tests). Its unit tests then name the crate from outside, so they need the library.
-                let self_name = unit.package_name.replace('-', "_");
                 let dev_depends_on_itself = pkg_toml_opt.is_some_and(|t| {
-                    t.dev_dependencies
-                        .keys()
-                        .chain(t.target.values().flat_map(|ts| ts.dev_dependencies.keys()))
-                        .any(|k| k.replace('-', "_") == self_name)
+                    dev_depends_on_itself(t, &unit.manifest_path, &unit.package_name)
                 });
                 if !is_self_lib_unit_test || dev_depends_on_itself {
                     unit_deps.push(uid.clone());
@@ -329,6 +325,39 @@ pub fn resolve_unit_dependencies_with_manifests(
         unit.dependencies = unit_deps;
     }
     Ok(())
+}
+
+/// Whether the package lists its own library under `[dev-dependencies]`: an entry whose package
+/// is this package and whose `path` is the package directory. A same-named entry that points
+/// elsewhere (another version from a registry, another package through `package = "..."`) is not.
+pub(crate) fn dev_depends_on_itself(
+    toml: &CargoToml,
+    manifest_path: &std::path::Path,
+    package_name: &str,
+) -> bool {
+    let pkg_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
+    let own = package_name.replace('-', "_");
+    let same_dir = |rel: &str| {
+        let target = pkg_dir.join(rel);
+        match (target.canonicalize(), pkg_dir.canonicalize()) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => matches!(rel, "." | "./" | ""),
+        }
+    };
+    toml.dev_dependencies
+        .iter()
+        .chain(
+            toml.target
+                .values()
+                .flat_map(|ts| ts.dev_dependencies.iter()),
+        )
+        .any(|(key, dep)| match dep {
+            super::manifest_models::TomlDependency::Detailed(d) => {
+                d.package_name.as_deref().unwrap_or(key).replace('-', "_") == own
+                    && d.path.as_deref().is_some_and(same_dir)
+            }
+            _ => false,
+        })
 }
 
 /// Prunes compilation units that are not reachable from root targets.

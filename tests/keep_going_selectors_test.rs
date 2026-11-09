@@ -205,6 +205,48 @@ fn check_selects_examples_and_benches_by_name_and_as_a_group() {
         "an unknown example name is an error"
     );
 
+    let output = run(&["check", "--bench", "no-such-bench"]);
+    assert!(
+        !output.status.success(),
+        "an unknown bench name is an error"
+    );
+    assert!(
+        stderr(&output).contains("no bench target named"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = run(&["clippy", "--example", "e1"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    // A broken binary is not part of --examples or --example NAME.
+    write(
+        &root,
+        "src/main.rs",
+        "compile_error!(\"SEL_MAIN\");\nfn main() {}\n",
+    );
+    for args in [
+        &["check", "--example", "e1"][..],
+        &["build", "--example", "e1"][..],
+    ] {
+        let output = run(args);
+        assert!(output.status.success(), "{args:?}: {}", stderr(&output));
+    }
+    for command in ["check", "build"] {
+        let output = run(&[command, "--examples"]);
+        assert!(
+            !stderr(&output).contains("SEL_MAIN"),
+            "{command}: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).contains("SEL_EXAMPLE_TWO"),
+            "{command}: {}",
+            stderr(&output)
+        );
+    }
+    std::fs::remove_file(root.join("src/main.rs")).unwrap();
+
     let output = run(&["check", "--example", "rf", "--features", "x"]);
     assert!(output.status.success(), "{}", stderr(&output));
 

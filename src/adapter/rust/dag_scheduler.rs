@@ -84,6 +84,8 @@ struct QueueState {
     dispatched: HashSet<String>,
     /// Units that will not run because a unit they depend on failed (`--keep-going`).
     skipped: HashSet<String>,
+    /// Every unit that depends on a failed unit, whether or not it was skipped yet.
+    failed_dependents: HashSet<String>,
     /// Errors of failed units that did not stop the build (`--keep-going`).
     unit_errors: Vec<String>,
     keep_going: bool,
@@ -107,6 +109,7 @@ impl WaveWorkQueue {
                 has_failed: false,
                 dispatched: HashSet::new(),
                 skipped: HashSet::new(),
+                failed_dependents: HashSet::new(),
                 unit_errors: Vec::new(),
                 keep_going: false,
             }),
@@ -190,6 +193,14 @@ impl WaveWorkQueue {
     pub fn mark_contested(&self, unit_id: String) {
         let mut state = self.state_lock();
         state.in_flight = state.in_flight.saturating_sub(1);
+        if state.failed_dependents.contains(&unit_id) {
+            // Its dependency failed while it waited for the lock: it must not be compiled later.
+            if state.skipped.insert(unit_id) {
+                state.completed_count += 1;
+            }
+            self.cvar.notify_all();
+            return;
+        }
         state.contested.push_back(unit_id);
         if state.in_flight == 0 {
             self.cvar.notify_all();
@@ -223,14 +234,21 @@ impl WaveWorkQueue {
         state.completed_count += 1;
         state.unit_errors.push(err);
         for id in dependents {
-            if !state.dispatched.contains(id) && state.skipped.insert(id.clone()) {
+            state.failed_dependents.insert(id.clone());
+            // Waiting in `contested` means it has not compiled: it is skipped like an unstarted unit.
+            let waiting = state.contested.contains(id);
+            if (waiting || !state.dispatched.contains(id)) && state.skipped.insert(id.clone()) {
                 state.completed_count += 1;
             }
         }
         let QueueState {
-            pending, skipped, ..
+            pending,
+            contested,
+            skipped,
+            ..
         } = &mut *state;
         pending.retain(|id| !skipped.contains(id));
+        contested.retain(|id| !skipped.contains(id));
         if state.completed_count >= state.total_count || state.in_flight == 0 {
             self.cvar.notify_all();
         }
@@ -310,6 +328,7 @@ mod tests {
                 has_failed: false,
                 dispatched: HashSet::new(),
                 skipped: HashSet::new(),
+                failed_dependents: HashSet::new(),
                 unit_errors: Vec::new(),
                 keep_going: false,
             }),
@@ -405,5 +424,58 @@ mod tests {
             queue.take_error(),
             Some("synthetic rustc failure".to_string())
         );
+    }
+
+    fn ids(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn keep_going_counts_a_shared_dependent_once_and_drains() {
+        // a and b fail, d depends on both, c is independent: 4 units in total.
+        let queue = WaveWorkQueue::with_total(ids(&["a"]), 4).keep_going(true);
+        let (a, _) = queue.pop_work().unwrap();
+        queue.push_ready("b".to_string());
+        queue.push_ready("c".to_string());
+        queue.mark_failed_keep_going("a failed".to_string(), &ids(&["d"]));
+        let (b, _) = queue.pop_work().unwrap();
+        assert_eq!((a.as_str(), b.as_str()), ("a", "b"));
+        queue.mark_failed_keep_going("b failed".to_string(), &ids(&["d"]));
+        queue.push_ready("d".to_string());
+        let (c, _) = queue.pop_work().unwrap();
+        assert_eq!(c, "c");
+        queue.mark_completed(&c);
+        assert!(queue.pop_work().is_none());
+        assert_eq!(queue.completed_and_total(), (4, 4));
+        assert_eq!(queue.skipped_units(), ids(&["d"]));
+        assert_eq!(queue.take_unit_errors().len(), 2);
+        assert!(queue.take_error().is_none());
+    }
+
+    #[test]
+    fn keep_going_skips_a_dependent_that_waits_for_a_contested_lock() {
+        // d became ready early (pipelining), was contested, then its dependency u failed.
+        let queue = WaveWorkQueue::with_total(ids(&["u"]), 3).keep_going(true);
+        let (u, _) = queue.pop_work().unwrap();
+        queue.push_ready("d".to_string());
+        let (d, _) = queue.pop_work().unwrap();
+        queue.mark_contested(d);
+        queue.mark_failed_keep_going("u failed".to_string(), &ids(&["d", "e"]));
+        assert_eq!(u, "u");
+        assert!(queue.pop_work().is_none(), "d must not be compiled later");
+        assert_eq!(queue.completed_and_total(), (3, 3));
+        assert_eq!(queue.skipped_units(), ids(&["d", "e"]));
+    }
+
+    #[test]
+    fn keep_going_skips_a_dependent_contested_after_the_failure() {
+        let queue = WaveWorkQueue::with_total(ids(&["u"]), 2).keep_going(true);
+        let (_u, _) = queue.pop_work().unwrap();
+        queue.push_ready("d".to_string());
+        let (d, _) = queue.pop_work().unwrap();
+        queue.mark_failed_keep_going("u failed".to_string(), &ids(&["d"]));
+        queue.mark_contested(d);
+        assert!(queue.pop_work().is_none());
+        assert_eq!(queue.completed_and_total(), (2, 2));
     }
 }

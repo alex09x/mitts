@@ -209,17 +209,11 @@ pub fn resolve_extern_crates_with_target(
                 .unwrap_or_else(|| pkg_dir.join("src").join("lib.rs"));
             // The unit tests of a package that lists itself under [dev-dependencies] name the
             // crate from outside and do link the library; the planner gave them that dependency.
-            let own_name = unit.package_name.replace('-', "_");
-            let dev_depends_on_itself = pkg_toml
-                .dev_dependencies
-                .keys()
-                .chain(
-                    pkg_toml
-                        .target
-                        .values()
-                        .flat_map(|ts| ts.dev_dependencies.keys()),
-                )
-                .any(|k| k.replace('-', "_") == own_name);
+            let dev_depends_on_itself = super::planner_deps::dev_depends_on_itself(
+                &pkg_toml,
+                &unit.manifest_path,
+                &unit.package_name,
+            );
             let is_self_lib = unit.kind == "lib"
                 || unit.kind == "proc-macro"
                 || (unit.src_path == lib_src_path && !dev_depends_on_itself);
