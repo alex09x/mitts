@@ -48,6 +48,11 @@ jobs:
           printf 'MITTS_CI_BIN=%s\n' "$RUNNER_TEMP/mitts-test-driver/debug/mitts" >> "$GITHUB_ENV"
       - name: Workflow and installer regressions
         run: python -m unittest discover -s scripts/release -p 'test_*.py' -v
+      - name: README charts and translations
+        run: |
+          set -euo pipefail
+          python scripts/site/readme_charts.py --check
+          python scripts/check_readme_translations.py
       - name: Validate GitHub Actions syntax
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
   native:

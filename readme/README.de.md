@@ -1,7 +1,7 @@
-<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
+<!-- translation-source: 14af5288ee88aaea67a7ddcecde6b8a45f2f63ea -->
 
 > [!NOTE]
-> Dies ist eine Übersetzung der offiziellen englischsprachigen Dokumentation für Commit [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md).
+> Dies ist eine Übersetzung der offiziellen englischsprachigen Dokumentation für Commit [14af528](https://github.com/alex09x/mitts/blob/14af5288ee88aaea67a7ddcecde6b8a45f2f63ea/README.md).
 > Die kanonische und aktuellste Version ist die [englische README](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
@@ -383,12 +383,27 @@ ein stabiles Release benötigen. Cargo (optional mit sccache) ist in diesen Fäl
 
 ## Leistung
 
-Leistungsdaten werden ausschließlich auf Basis einer reproduzierbaren Methodik veröffentlicht: feste
-Hardware, Kalt-, Warm- und Geänderte-Eingaben-Läufe, mehrere Worktrees, das stärkere von
-reinem Cargo und sccache als Baseline sowie Paritätsprüfungen von Diagnosen,
-Exit-Codes und Testergebnissen. Die Studie ist in Arbeit
-([ROADMAP M8](../ROADMAP.md)). Bis zu ihrer Veröffentlichung stellt Mitts keine Behauptungen über
-Beschleunigung oder Speicherplatzersparnis auf.
+Gemessen mit Mitts `0.3.17` über **100 Open-Source-Rust-Projekte** unter macOS (Apple M2 Ultra, APFS) und Linux ARM64 (XFS) sowie **90** unter Linux x86_64 (AMD Ryzen 9 9950X, XFS) im Vergleich zu reinem `cargo` und `cargo` mit `sccache` (`0.14.0`). Jeder Messwert ist der Median aus 3 Durchläufen mit geprüfter Parität von Diagnosen, Exit-Codes und Testergebnissen; alle gemessenen Projekte bleiben in den Gesamtsummen enthalten (`0`, `7` und `0` als verrauscht markierte Läufe), und Beschleunigungsfaktoren werden abgeschnitten statt aufgerundet ([ROADMAP M8](../ROADMAP.md)).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="Durchschnittliche Build-Zeit pro Projekt über sechs Szenarien: Cargo, Cargo + sccache und Mitts">
+  </picture>
+</p>
+
+Die Balkenlängen zeigen das arithmetische Mittel der Projektmediane (proportional zur gesamten Laufzeit über den Korpus), ergänzt um das geometrische Mittel pro Projekt neben jeder Zeile. Bei mehreren Worktrees, Branch-Wechseln und unveränderten Wiederholungsläufen (Standard-No-op) senkt Mitts die mittlere Build-Zeit unter macOS um **5.8–10.8×** (**3.6–41×** über alle drei Maschinen). Beim **Bearbeiten einer Datei mit anschließendem Neubau** (`n = 71` auf macOS und Linux ARM64, `64` auf Linux x86_64) ist Mitts im geometrischen Mittel schneller (**1.1×** auf macOS und Linux ARM64, **1×** auf Linux x86_64; schneller bei `49/71`, `42/71` und `43/64` Projekten), im arithmetischen Mittel jedoch langsamer (**0.7–0.8×**), weil einige große Einzel-Crate-Binaries unter `cargo` die crate-interne inkrementelle Kompilierung von `rustc` nutzen, während Mitts ganze Crate-Einheiten cacht. Ein **einzelner Kaltstart-Build** mit leerem Cache liegt bei **0.8–1×** gegenüber reinem `cargo` und ist im geometrischen Mittel **1.4×** schneller als `cargo` mit kaltem `sccache`.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="12-Worktree-Build-Scoreboard über 100 Rust-Projekte: Zeit, CPU, Compiler-Läufe, geschriebene Datenmenge und Spitzen-RSS">
+  </picture>
+</p>
+
+Das parallele Bauen von **12 Worktrees** auf 4 Commits über die 100 macOS-Projekte benötigt **76 min** mit `cargo`, **74 min** mit `cargo` + `sccache` und **13 min** mit Mitts (**5.8×** weniger Gesamtlaufzeit; **7×** unter Linux x86_64, **3.6×** unter Linux ARM64), reduziert die `rustc`-Aufrufe von **90.961** auf **6.905** (**13.1×**) und die geschriebene Datenmenge von **641 GB** auf **111 GB** (**5.7×**). Über alle 12 Worktrees summiert liegt der Spitzen-RSS der Kindprozesse (`ru_maxrss`) mit Mitts im Schnitt bei **2.4–3.4 GB** pro Projekt gegenüber **6.1–6.5 GB** mit reinem `cargo` (**1.8–2.5×** weniger), da gecachte Worktrees kein `rustc` starten; innerhalb eines einzelnen Worktrees liegt der schwerste Kindprozess im Schnitt bei **451–520 MB** mit Mitts gegenüber **539–582 MB** mit reinem `cargo` (`cargo` + `sccache` erfasst **443–483 MB** in `wait4`, weil der abgekoppelte `sccache`-Server außerhalb des gemessenen Prozessbaums läuft).
 
 ## Status
 

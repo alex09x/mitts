@@ -1,6 +1,6 @@
-<!-- translation-source: 98c7f5b4914b082c9def6e66afe473bc4be47b76 -->
+<!-- translation-source: 14af5288ee88aaea67a7ddcecde6b8a45f2f63ea -->
 > [!NOTE]
-> Esta é uma tradução da documentação oficial em inglês no commit [98c7f5b](https://github.com/alex09x/mitts/blob/98c7f5b4914b082c9def6e66afe473bc4be47b76/README.md). A versão canônica e mais atualizada é o [README em inglês](https://github.com/alex09x/mitts/blob/main/README.md).
+> Esta é uma tradução da documentação oficial em inglês no commit [14af528](https://github.com/alex09x/mitts/blob/14af5288ee88aaea67a7ddcecde6b8a45f2f63ea/README.md). A versão canônica e mais atualizada é o [README em inglês](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -382,12 +382,27 @@ uma versão estável. O Cargo, opcionalmente com sccache, é a escolha segura ne
 
 ## Desempenho
 
-Números de desempenho são publicados apenas com uma metodologia reproduzível: hardware
-fixo, execuções a frio, a quente e com entradas alteradas, várias worktrees, o mais forte entre
-o Cargo puro e o sccache como linha de base, e verificações de paridade em diagnósticos,
-códigos de saída e resultados de testes. O estudo está em andamento
-([ROADMAP M8](../ROADMAP.md)). Até que seja publicado, o Mitts não faz alegações de aceleração ou
-economia de disco.
+Medido com o Mitts `0.3.17` em **100 projetos Rust de código aberto** no macOS (Apple M2 Ultra, APFS) e Linux ARM64 (XFS), e **90** no Linux x86_64 (AMD Ryzen 9 9950X, XFS), contra o `cargo` puro e `cargo` com `sccache` (`0.14.0`). Cada leitura é a mediana de 3 repetições com verificação de paridade de diagnósticos, códigos de saída e resultados de testes; todos os projetos medidos permanecem nos totais (`0`, `7` e `0` execuções sinalizadas com ruído), e as taxas de aceleração são truncadas em vez de arredondadas para cima ([ROADMAP M8](../ROADMAP.md)).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="Tempo médio de compilação por projeto em seis cenários: Cargo, Cargo + sccache e Mitts">
+  </picture>
+</p>
+
+O comprimento das barras mostra a média aritmética das medianas por projeto (proporcional ao tempo total do corpus), com as médias geométricas por projeto ao lado de cada linha. Em execuções com múltiplas worktrees, troca de branch e reconstrução sem alterações (no-op padrão), o Mitts reduz o tempo médio de compilação em **5.8–10.8×** no macOS (**3.6–41×** considerando as três máquinas). Em **editar e recompilar** (`n = 71` no macOS e Linux ARM64, `64` no Linux x86_64), o Mitts é mais rápido pela média geométrica (**1.1×** no macOS e Linux ARM64, **1×** no Linux x86_64; mais rápido em `49/71`, `42/71` e `43/64` projetos), enquanto sua média aritmética é mais lenta (**0.7–0.8×**) porque alguns binários grandes de crate único usam a compilação incremental intracrate do `rustc` sob o `cargo`, ao passo que o Mitts armazena unidades inteiras de crate em cache. Uma **única compilação a frio** com cache vazio fica em **0.8–1×** contra o `cargo` puro e é **1.4×** mais rápida pela média geométrica do que `cargo` com `sccache` a frio.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="Placar de compilação de 12 worktrees em 100 projetos Rust: tempo, CPU, execuções do compilador, escrita em disco e RSS de pico">
+  </picture>
+</p>
+
+Compilar **12 worktrees paralelas** em 4 commits nos 100 projetos do macOS leva **76 min** com `cargo`, **74 min** com `cargo` + `sccache` e **13 min** com o Mitts (**5.8×** menos tempo total; **7×** no Linux x86_64, **3.6×** no Linux ARM64), reduzindo as invocações do `rustc` de **90,961** para **6,905** (**13.1×**) e a escrita em disco de **641 GB** para **111 GB** (**5.7×**). Somado nas 12 worktrees, o RSS de pico dos processos filhos (`ru_maxrss`) tem média de **2.4–3.4 GB** por projeto com o Mitts contra **6.1–6.5 GB** com o `cargo` puro (**1.8–2.5×** menos), pois worktrees atendidas pelo cache não iniciam o `rustc`; em uma única worktree, o processo filho mais pesado tem média de **451–520 MB** com o Mitts contra **539–582 MB** com o `cargo` puro (`cargo` + `sccache` registra **443–483 MB** em `wait4` porque o servidor destacado do `sccache` roda fora da árvore de processos medida).
 
 ## Status
 
