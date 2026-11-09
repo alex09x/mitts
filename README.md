@@ -52,7 +52,7 @@
 </p>
 
 <p align="center">
-  <sub>The same 100 open-source projects, 12 worktrees each, built at once. Three machines, Cargo and Cargo + sccache as baselines, the cases where Mitts is not faster included: <a href="#performance">Performance</a> · <a href="https://mittsbuild.com/the-hundred/">The Hundred</a></sub>
+  <sub>100 open-source projects (90 on Linux x86_64), 12 worktrees each, built at once, on three machines. Cargo and Cargo + sccache as baselines, the cases where Mitts is not faster included: <a href="#performance">Performance</a> · <a href="https://mittsbuild.com/the-hundred/">The Hundred</a></sub>
 </p>
 
 Mitts plans the workspace itself and invokes `rustc` directly. Every
@@ -392,19 +392,23 @@ Measured with Mitts `0.3.17` across **100 open-source Rust projects** on macOS (
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/img/bench-scenarios-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/img/bench-scenarios-light.svg">
-    <img src="docs/img/bench-scenarios-light.svg" width="920" alt="Average build time per project across six scenarios: Cargo, Cargo + sccache, and Mitts">
+    <img src="docs/img/bench-scenarios-light.svg" width="920" alt="Build time of the median project across six scenarios: Cargo, Cargo + sccache, and Mitts">
   </picture>
 </p>
 
-Each row is the build time of the median project (every tool's own median over the projects, linear scale per row), with the number of projects on which Mitts finished first beside it. On macOS the median project builds its 12 worktrees in **32 s** with `cargo`, **31 s** with `cargo` + `sccache` and **3.7 s** with Mitts; a second clean worktree takes **1.7 s**, **1.6 s** and **78 ms**; a branch hop **627 ms**, **209 ms** and **27 ms**; a build with nothing changed **100 ms**, **41 ms** and **8 ms**. Mitts is first on 99–100 of 100 projects in those four scenarios (71 of 71 for the second worktree).
+Each row is the build time of the median project (every tool's own median over the projects, linear scale per row), with the number of projects on which Mitts finished first beside it. On macOS the median project builds its 12 worktrees in **32 s** with `cargo`, **31 s** with `cargo` + `sccache` and **3.8 s** with Mitts. With a warm local store, a second clean worktree takes **1.7 s**, **1.6 s** and **79 ms**; a branch hop **627 ms**, **209 ms** and **27 ms**; a build with nothing changed **100 ms**, **41 ms** and **9 ms**. Mitts is first on 99–100 of 100 projects in those four scenarios (71 of 71 for the second worktree).
 
-Where Mitts does not win: after **editing one file** the median project takes **364 ms** with `cargo`, **596 ms** with `sccache` and **314 ms** with Mitts, and Mitts is first on only 49 of 71 projects against `cargo` (56 of 71 against `sccache`), because `cargo` reuses `rustc` incremental compilation inside a crate while Mitts caches whole crate units. A **single cold build** with an empty cache is a wash against plain `cargo` (**1.7 s** against **1.9 s** for the median project; Mitts is first on only 28 of 100) and ahead of `sccache` (**2.4 s**, Mitts first on 86 of 100). The other two machines show the same pattern; see the page above for each of them.
+Where Mitts does not win:
+
+- **Cold build, empty cache.** Plain `cargo` finishes first on 71 of 100 macOS projects (60 of 90 on Linux x86_64, 77 of 100 on Linux aarch64), by up to 6.2 s on the largest ones, because Mitts hashes inputs and fills an empty store. The median project takes **1.7 s** with `cargo` and **2.0 s** with Mitts. Mitts is ahead of a cold `sccache` (**2.4 s**, Mitts first on 86 of 100).
+- **Edit one file.** The median project takes **364 ms** with `cargo`, **596 ms** with `sccache` and **315 ms** with Mitts, and Mitts is first on 49 of 71 projects against `cargo`. `cargo` is first on the other 22 (21 of 64 on x86_64, 29 of 71 on aarch64), by up to 2.6 s on macOS and 8.6 s on x86_64, because it reuses `rustc` incremental compilation inside a large crate while Mitts caches whole crate units.
+- **Replay of 10 commits** (not in the chart): split, Mitts first on 58 of 100 projects on macOS with close medians (**5.6 s** with `cargo`, **5.8 s** with Mitts).
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/img/bench-swarm-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/img/bench-swarm-light.svg">
-    <img src="docs/img/bench-swarm-light.svg" width="920" alt="12-worktree build scoreboard across 100 Rust projects: time, CPU, compiler runs, disk written, and peak RSS">
+    <img src="docs/img/bench-swarm-light.svg" width="920" alt="12-worktree build scoreboard across 100 Rust projects: time, CPU, compiler runs, and disk written">
   </picture>
 </p>
 

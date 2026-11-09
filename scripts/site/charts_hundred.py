@@ -55,6 +55,37 @@ def f_n(n):
 
 FORMAT = {"wall": f_dur, "cpu": f_dur, "runs": f_n, "written": f_mb, "disk": f_mb}
 
+
+def up_dur(s):
+    """The same precision as f_dur, rounded up: Mitts is never shown faster than it was measured."""
+    if s >= 120:
+        return "%d min %02d s" % divmod(math.ceil(s - 1e-9), 60) if s < 7200 else "%.1f h" % (math.ceil(s / 360 - 1e-9) / 10)
+    if s < 1:
+        ms = math.ceil(s * 1000 - 1e-9)
+        return "%d ms" % ms if ms < 1000 else "1.0 s"
+    if s < 10:
+        tenths = math.ceil(s * 10 - 1e-9)
+        return "%.1f s" % (tenths / 10) if tenths < 100 else "10 s"
+    return "%d s" % math.ceil(s - 1e-9)
+
+
+def up_mb(mb):
+    if mb >= 1e6:
+        return "%.1f TB" % (math.ceil(mb / 1e5 - 1e-9) / 10)
+    if mb >= 1e4:
+        return "%d GB" % math.ceil(mb / 1000 - 1e-9)
+    if mb >= 1000:
+        return "%.1f GB" % (math.ceil(mb / 100 - 1e-9) / 10)
+    return "%d MB" % math.ceil(mb - 1e-9)
+
+
+UP = {"wall": up_dur, "cpu": up_dur, "runs": lambda n: "{:,.0f}".format(math.ceil(n - 1e-9)), "written": up_mb, "disk": up_mb}
+
+
+def fmt_arm(metric, arm, v):
+    """One value as printed: baselines truncated, Mitts rounded up, so a printed claim never exceeds the measurement."""
+    return (UP if arm == "mitts_cas" else FORMAT)[metric](v)
+
 # per measure: (threshold, size of one unit, suffix, decimals), the first row whose threshold the largest value reaches
 UNITS = {
     "wall": [(7200, 3600.0, " h", 1), (120, 60.0, " min", 0), (0, 1.0, " s", 0)],
@@ -133,8 +164,8 @@ def groups(label, rows, left=270, span=520):
             v = vals[a]
             bw = max(3.0, v / top_v * span)
             by = y0 + k * (bar + gap)
-            out.append('<rect class="%s" x="%d" y="%d" width="%.1f" height="%d" rx="3"><title>%s: %s</title></rect>' % (cls, left, by, bw, bar, esc(aname), f_dur(v)))
-            out.append('<text class="val%s" x="%.1f" y="%d">%s</text>' % (" mitts" if a == "mitts_cas" else "", left + bw + 8, by + 12, f_dur(v)))
+            out.append('<rect class="%s" x="%d" y="%d" width="%.1f" height="%d" rx="3"><title>%s: %s</title></rect>' % (cls, left, by, bw, bar, esc(aname), fmt_arm("wall", a, v)))
+            out.append('<text class="val%s" x="%.1f" y="%d">%s</text>' % (" mitts" if a == "mitts_cas" else "", left + bw + 8, by + 12, fmt_arm("wall", a, v)))
     out.append("</svg>")
     return "".join(out)
 
@@ -176,8 +207,7 @@ def scenario_times(p):
 
 def project_bars(p, metric):
     """One row per project, longest Cargo first: a Cargo bar and a Mitts bar from zero, with the values written out."""
-    fmt = FORMAT[metric]
-    pts = [(r["name"], r["swarm_m"]["cargo_bare"][metric], r["swarm_m"]["mitts_cas"][metric]) for r in p["projects"]
+    pts =[(r["name"], r["swarm_m"]["cargo_bare"][metric], r["swarm_m"]["mitts_cas"][metric]) for r in p["projects"]
            if r["swarm_m"]["cargo_bare"][metric] is not None and r["swarm_m"]["mitts_cas"][metric] is not None]
     pts.sort(key=lambda t: -t[1])
     top_v = max([max(c, m) for _, c, m in pts] or [1]) or 1
@@ -189,9 +219,9 @@ def project_bars(p, metric):
         y = top + i * row
         if i % 2:
             out.append('<rect class="stripe" x="0" y="%d" width="1000" height="%d"/>' % (y - 5, row))
-        out.append('<g><title>%s: Cargo %s, Mitts %s</title><text class="nm" x="%d" y="%d" text-anchor="end">%s</text>' % (esc(n), fmt(c), fmt(m), left - 10, y + 12, esc(n)))
+        out.append('<g><title>%s: Cargo %s, Mitts %s</title><text class="nm" x="%d" y="%d" text-anchor="end">%s</text>' % (esc(n), fmt_arm(metric, "cargo_bare", c), fmt_arm(metric, "mitts_cas", m), left - 10, y + 12, esc(n)))
         out.append('<rect class="c-cargo" x="%d" y="%d" width="%.1f" height="8" rx="2"/><rect class="c-mitts" x="%d" y="%d" width="%.1f" height="8" rx="2"/>' % (left, y, max(1.5, c / top_v * span), left, y + 9, max(1.5, m / top_v * span)))
-        out.append('<text class="val" x="880" y="%d" text-anchor="end">%s</text><text class="val mitts" x="990" y="%d" text-anchor="end">%s</text></g>' % (y + 12, fmt(c), y + 12, fmt(m)))
+        out.append('<text class="val" x="880" y="%d" text-anchor="end">%s</text><text class="val mitts" x="990" y="%d" text-anchor="end">%s</text></g>' % (y + 12, fmt_arm(metric, "cargo_bare", c), y + 12, fmt_arm(metric, "mitts_cas", m)))
     out.append("</svg>")
     return "".join(out)
 

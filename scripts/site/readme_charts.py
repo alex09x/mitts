@@ -9,7 +9,8 @@
 """Generate light and dark benchmark SVGs in docs/img/ from docs/data/benchmarks.json.
 
 Values are shown as real time, counts and gigabytes, formatted by the same rules as the site
-(scripts/site/charts_hundred.py): baselines truncated, Mitts rounded up, one common unit per row.
+(scripts/site/charts_hundred.py): baselines truncated and Mitts rounded up, so no figure exceeds the measurement.
+Scoreboard rows share one unit; scenario medians are written in their own natural unit.
 """
 
 import argparse
@@ -143,6 +144,11 @@ def text(out, x, y, fill, family, size, weight, body):
     )
 
 
+def dur(arm, seconds):
+    """A duration for a scenario median: truncated for the baselines, rounded up for Mitts, at the precision of ch.f_dur."""
+    return ch.fmt_arm("wall", arm, seconds)
+
+
 def totals(p, key):
     return {a: p["totals"][key][a] for a, _, _ in ARMS}
 
@@ -210,7 +216,7 @@ def render_scenarios(data, theme_name):
         rows = [r for r in mac["projects"] if all(r[key].get(a) is not None for a, _, _ in ARMS)]
         k = 0.001 if unit == "ms" else 1.0
         meds = {a: statistics.median(r[key][a] for r in rows) * k for a, _, _ in ARMS}
-        texts = {a: ch.f_dur(v) for a, v in meds.items()}
+        texts = {a: dur(a, v) for a, v in meds.items()}
         text(out, 24, y0 + 25, t["ink"], SANS, 14, 700, title)
         text(out, 24, y0 + 43, t["muted"], MONO, 11, 400, "%s · n=%d" % (sub, len(rows)))
         draw_bars(out, left, span, y0, meds, texts, t)
@@ -225,7 +231,7 @@ def render_scenarios(data, theme_name):
     sy = h - 44
     out.append('<rect x="24" y="%d" width="%d" height="30" rx="6" fill="%s" stroke="%s"/>' % (sy, w - 48, t["strip"], t["border"]))
     text(out, 38, sy + 19, t["muted"], SANS, 11.5, 600, "12-worktree total time:")
-    for name, pl, hx in zip(HOSTS, data["platforms"], (216, 420, 630)):
+    for name, pl, hx in zip(HOSTS, data["platforms"], (212, 428, 654)):
         txt = ch.board_row("wall", totals(pl, "wall"))[0]
         out.append(
             '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11.5">%s <tspan fill="%s" font-weight="700">%s → %s</tspan> <tspan fill="%s">(n=%d)</tspan></text>'
@@ -266,7 +272,7 @@ def render_scoreboard(data, theme_name):
     sy = h - 44
     out.append('<rect x="24" y="%d" width="%d" height="30" rx="6" fill="%s" stroke="%s"/>' % (sy, w - 48, t["strip"], t["border"]))
     text(out, 38, sy + 19, t["muted"], SANS, 11.5, 600, "Compiler runs, all machines:")
-    for name, pl, hx in zip(HOSTS, data["platforms"], (216, 420, 630)):
+    for name, pl, hx in zip(HOSTS, data["platforms"], (212, 428, 654)):
         txt = ch.board_row("runs", totals(pl, "runs"))[0]
         out.append(
             '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11.5">%s <tspan fill="%s" font-weight="700">%s → %s</tspan> <tspan fill="%s">(n=%d)</tspan></text>'
