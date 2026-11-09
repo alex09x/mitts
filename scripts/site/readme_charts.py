@@ -6,12 +6,17 @@
 # Author: https://prod.codes/about/
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Generate light and dark benchmark SVGs in docs/img/ from docs/data/benchmarks.json."""
+"""Generate light and dark benchmark SVGs in docs/img/ from docs/data/benchmarks.json.
+
+Values are shown as real time, counts and gigabytes, formatted by the same rules as the site
+(scripts/site/charts_hundred.py): baselines truncated and Mitts rounded up, so no figure exceeds the measurement.
+Scoreboard rows share one unit; scenario medians are written in their own natural unit.
+"""
 
 import argparse
 from html import escape
 import json
-import math
+import statistics
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,6 +24,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DATA_FILE = ROOT / "docs" / "data" / "benchmarks.json"
 OUT_DIR = ROOT / "docs" / "img"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import charts_hundred as ch  # noqa: E402
 
 SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
 MONO = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace'
@@ -66,76 +74,13 @@ SCENARIOS = [
 ]
 
 SCORE_ROWS = [
-    ("wall", "Time", "12 worktrees · total", False),
-    ("cpu", "CPU", "user + sys · total", False),
-    ("runs", "Compiler runs", "rustc runs · total", False),
-    ("written", "Disk written", "bytes written · total", False),
-    ("rss_sum", "Peak RSS (12 wt)", "12-wt sum · mean/proj", True),
+    ("wall", "Time", "12 worktrees · total"),
+    ("cpu", "CPU", "user + sys · total"),
+    ("runs", "Compiler runs", "rustc runs · total"),
+    ("written", "Disk written", "bytes written · total"),
 ]
 
-
-def floor1(v):
-    """Truncate to one decimal: a claimed gain is never rounded up."""
-    return math.floor(v * 10 + 1e-9) / 10
-
-
-def fmt_x(v):
-    """Truncated multiplier ('5.8×', '7×', '21×')."""
-    if v >= 20:
-        return "%d×" % math.floor(v + 1e-9)
-    return ("%.1f" % floor1(v)).rstrip("0").rstrip(".") + "×"
-
-
-def fmt_rng(vals):
-    lo, hi = floor1(min(vals)), floor1(max(vals))
-    a = ("%.1f" % lo).rstrip("0").rstrip(".")
-    b = ("%.1f" % hi).rstrip("0").rstrip(".")
-    return a + "×" if a == b else "%s–%s×" % (a, b)
-
-
-def fmt_scen_val(v, unit):
-    if unit == "ms":
-        return "%.0f ms" % v
-    return "%.1f s" % v if v >= 10 else "%.2f s" % v
-
-
-def fmt_score_val(key, v):
-    if key == "wall":
-        return "%.0f s" % v if v < 120 else "%.0f min" % (v / 60.0)
-    if key == "cpu":
-        return "%.1f h" % (v / 3600.0) if v >= 3600 else "%.0f min" % (v / 60.0)
-    if key == "runs":
-        return "{:,.0f}".format(v)
-    if v >= 1000:
-        return "%.0f GB" % (v / 1000.0) if v >= 1e4 else "%.1f GB" % (v / 1000.0)
-    return "%.0f MB" % v
-
-
-def card_header(out, w, h, title, subtitle, t):
-    out.append(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s">'
-        % (w, h, w, h, escape(title))
-    )
-    out.append(
-        '<rect x="0.5" y="0.5" width="%d" height="%d" rx="10" fill="%s" stroke="%s"/>'
-        % (w - 1, h - 1, t["bg"], t["border"])
-    )
-    out.append(
-        '<text x="24" y="31" fill="%s" font-family=\'%s\' font-size="15.5" font-weight="700">%s</text>'
-        % (t["ink"], SANS, escape(title))
-    )
-    out.append(
-        '<text x="24" y="50" fill="%s" font-family=\'%s\' font-size="11.5">%s</text>'
-        % (t["muted"], MONO, escape(subtitle))
-    )
-    lx = [568, 654, 816]
-    for ( _, label, ckey), x in zip(ARMS, lx):
-        out.append('<rect x="%d" y="21" width="12" height="12" rx="2.5" fill="%s"/>' % (x, t[ckey]))
-        out.append(
-            '<text x="%d" y="31" fill="%s" font-family=\'%s\' font-size="12" font-weight="500">%s</text>'
-            % (x + 18, t["ink"] if ckey == "mitts_bar" else t["muted"], SANS, escape(label))
-        )
-    out.append('<line x1="24" x2="%d" y1="64" y2="64" stroke="%s"/>' % (w - 24, t["border"]))
+HOSTS = ["macOS", "Linux x86", "Linux ARM"]
 
 
 def fmt_mitts_ver(raw):
@@ -145,21 +90,109 @@ def fmt_mitts_ver(raw):
     return "Mitts %s" % v
 
 
-def draw_bars(out, left, span, y0, vals, fmt_fn, t):
+def svg_open(out, w, h, title, t):
+    out.append(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s">'
+        % (w, h, w, h, escape(title))
+    )
+    out.append(
+        '<rect x="0.5" y="0.5" width="%d" height="%d" rx="10" fill="%s" stroke="%s"/>'
+        % (w - 1, h - 1, t["bg"], t["border"])
+    )
+
+
+def card_header(out, w, h, title, subtitle, t, aria=None):
+    svg_open(out, w, h, aria or title, t)
+    out.append(
+        '<text x="24" y="31" fill="%s" font-family=\'%s\' font-size="15.5" font-weight="700">%s</text>'
+        % (t["ink"], SANS, escape(title))
+    )
+    out.append(
+        '<text x="24" y="50" fill="%s" font-family=\'%s\' font-size="11.5">%s</text>'
+        % (t["muted"], MONO, escape(subtitle))
+    )
+    lx = [568, 654, 816]
+    for (_, label, ckey), x in zip(ARMS, lx):
+        out.append('<rect x="%d" y="21" width="12" height="12" rx="2.5" fill="%s"/>' % (x, t[ckey]))
+        out.append(
+            '<text x="%d" y="31" fill="%s" font-family=\'%s\' font-size="12" font-weight="500">%s</text>'
+            % (x + 18, t["ink"] if ckey == "mitts_bar" else t["muted"], SANS, escape(label))
+        )
+    out.append('<line x1="24" x2="%d" y1="64" y2="64" stroke="%s"/>' % (w - 24, t["border"]))
+
+
+def draw_bars(out, left, span, y0, vals, texts, t):
     top = max(vals.values()) or 1.0
     for k, (arm, name, ckey) in enumerate(ARMS):
-        v = vals[arm]
         by = y0 + 8 + k * 20
-        bw = max(3.0, (v / top) * span)
+        bw = max(3.0, (vals[arm] / top) * span)
         out.append(
             '<rect x="%d" y="%d" width="%.1f" height="15" rx="3" fill="%s"><title>%s: %s</title></rect>'
-            % (left, by, bw, t[ckey], escape(name), escape(fmt_fn(v)))
+            % (left, by, bw, t[ckey], escape(name), escape(texts[arm]))
         )
         is_m = arm == "mitts_cas"
         out.append(
             '<text x="%.1f" y="%.1f" fill="%s" font-family=\'%s\' font-size="11.5" font-weight="%s">%s</text>'
-            % (left + bw + 12, by + 11.5, t["mitts_txt"] if is_m else t["ink"], MONO, "700" if is_m else "400", escape(fmt_fn(v)))
+            % (left + bw + 12, by + 11.5, t["mitts_txt"] if is_m else t["ink"], MONO, "700" if is_m else "400", escape(texts[arm]))
         )
+
+
+def text(out, x, y, fill, family, size, weight, body):
+    out.append(
+        '<text x="%s" y="%s" fill="%s" font-family=\'%s\' font-size="%s" font-weight="%s">%s</text>'
+        % (x, y, fill, family, size, weight, escape(body))
+    )
+
+
+def dur(arm, seconds):
+    """A duration for a scenario median: truncated for the baselines, rounded up for Mitts, at the precision of ch.f_dur."""
+    return ch.fmt_arm("wall", arm, seconds)
+
+
+def totals(p, key):
+    return {a: p["totals"][key][a] for a, _, _ in ARMS}
+
+
+def first_counts(rows, key):
+    """On how many projects Mitts finished strictly before Cargo and before Cargo + sccache."""
+    n = len(rows)
+    vc = sum(1 for r in rows if r[key]["mitts_cas"] < r[key]["cargo_bare"])
+    vs = sum(1 for r in rows if r[key]["mitts_cas"] < r[key]["cargo_sccache"])
+    return vc, vs, n
+
+
+def render_hero(data, theme_name):
+    """The picture at the top of the README: four totals of the 12-worktree run, Mitts big, Cargo beside it."""
+    t = THEMES[theme_name]
+    mac = data["platforms"][0]
+    w, h = 920, 244
+    out = []
+    card_header(
+        out,
+        w,
+        h,
+        "%d Rust projects · 12 worktrees built at once" % mac["totals_n"],
+        "%s · %s · totals over all projects" % (mac["label"], fmt_mitts_ver(mac["mitts_version"])),
+        t,
+        aria="Mitts versus Cargo and sccache on %d Rust projects built in 12 worktrees at once" % mac["totals_n"],
+    )
+    col_w, gap = 208, 16
+    for i, (key, title, _sub) in enumerate(SCORE_ROWS):
+        x = 24 + i * (col_w + gap)
+        raw = totals(mac, key)
+        txt, save_c, _save_s = ch.board_row(key, raw)
+        text(out, x, 92, t["muted"], SANS, 12.5, 600, title.upper())
+        text(out, x, 134, t["mitts_txt"], SANS, 34, 800, txt["mitts_cas"])
+        text(out, x, 156, t["muted"], MONO, 11, 400, "Cargo %s · sccache %s" % (txt["cargo_bare"], txt["cargo_sccache"]))
+        top = max(raw.values())
+        for k, (arm, _name, ckey) in enumerate(ARMS):
+            bw = max(3.0, raw[arm] / top * (col_w - 8))
+            out.append(
+                '<rect x="%d" y="%d" width="%.1f" height="9" rx="3" fill="%s"/>' % (x, 168 + k * 14, bw, t[ckey])
+            )
+        text(out, x, 226, t["ink"], SANS, 12.5, 600, "%s less than Cargo" % save_c)
+    out.append("</svg>\n")
+    return "\n".join(out)
 
 
 def render_scenarios(data, theme_name):
@@ -172,7 +205,7 @@ def render_scenarios(data, theme_name):
         out,
         w,
         h,
-        "Average build time per project · Cargo vs Mitts",
+        "Build time of a median project · Cargo vs Mitts",
         "%s · %s · linear scale per row (shorter is faster)" % (mac["label"], fmt_mitts_ver(mac["mitts_version"])),
         t,
     )
@@ -181,50 +214,28 @@ def render_scenarios(data, theme_name):
         if idx:
             out.append('<line x1="24" x2="%d" y1="%d" y2="%d" stroke="%s"/>' % (w - 24, y0 - 4, y0 - 4, t["grid"]))
         rows = [r for r in mac["projects"] if all(r[key].get(a) is not None for a, _, _ in ARMS)]
-        n = len(rows)
-        means = {a: sum(r[key][a] for r in rows) / n for a, _, _ in ARMS}
+        k = 0.001 if unit == "ms" else 1.0
+        meds = {a: statistics.median(r[key][a] for r in rows) * k for a, _, _ in ARMS}
+        texts = {a: dur(a, v) for a, v in meds.items()}
+        text(out, 24, y0 + 25, t["ink"], SANS, 14, 700, title)
+        text(out, 24, y0 + 43, t["muted"], MONO, 11, 400, "%s · n=%d" % (sub, len(rows)))
+        draw_bars(out, left, span, y0, meds, texts, t)
+        vc, vs, n = first_counts(rows, key)
+        big = t["mitts_txt"] if vc * 2 > n else t["muted"]
         out.append(
-            '<text x="24" y="%d" fill="%s" font-family=\'%s\' font-size="14" font-weight="700">%s</text>'
-            % (y0 + 25, t["ink"], SANS, escape(title))
+            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="20" font-weight="800">%d of %d <tspan fill="%s" font-size="11.5" font-weight="500">Mitts first vs Cargo</tspan></text>'
+            % (rx, y0 + 23, big, SANS, vc, n, t["muted"])
         )
-        out.append(
-            '<text x="24" y="%d" fill="%s" font-family=\'%s\' font-size="11">%s · n=%d</text>'
-            % (y0 + 43, t["muted"], MONO, escape(sub), n)
-        )
-        draw_bars(out, left, span, y0, means, lambda v, u=unit: fmt_scen_val(v, u), t)
-        mean_ratio = means["cargo_bare"] / means["mitts_cas"]
-        sb = mac["summary"][key]["cargo_bare"]
-        ss = mac["summary"][key]["cargo_sccache"]
-        big_col = t["mitts_txt"] if mean_ratio >= 1.0 else t["muted"]
-        out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="20" font-weight="800">%s <tspan fill="%s" font-size="11.5" font-weight="500">mean vs Cargo</tspan></text>'
-            % (rx, y0 + 23, big_col, SANS, escape(fmt_x(mean_ratio)), t["muted"])
-        )
-        out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11">geomean %s · %d/%d faster</text>'
-            % (rx, y0 + 41, t["muted"], MONO, escape(fmt_x(sb["geomean"])), sb["faster"], sb["n"])
-        )
-        out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11">vs sccache: %s geomean</text>'
-            % (rx, y0 + 56, t["muted"], MONO, escape(fmt_x(ss["geomean"])))
-        )
+        text(out, rx, y0 + 43, t["muted"], MONO, 11, 400, "%d of %d first vs sccache" % (vs, n))
 
     sy = h - 44
     out.append('<rect x="24" y="%d" width="%d" height="30" rx="6" fill="%s" stroke="%s"/>' % (sy, w - 48, t["strip"], t["border"]))
-    out.append(
-        '<text x="38" y="%d" fill="%s" font-family=\'%s\' font-size="11.5" font-weight="600">12-wt swarm vs Cargo:</text>'
-        % (sy + 19, t["muted"], SANS)
-    )
-    hosts = [
-        ("macOS M2 Ultra", data["platforms"][0], 216),
-        ("Linux Ryzen 9 9950X", data["platforms"][1], 446),
-        ("Linux ARM64", data["platforms"][2], 706),
-    ]
-    for hname, pl, hx in hosts:
-        ratio = pl["totals"]["wall"]["cargo_bare"] / pl["totals"]["wall"]["mitts_cas"]
+    text(out, 38, sy + 19, t["muted"], SANS, 11.5, 600, "12-worktree total time:")
+    for name, pl, hx in zip(HOSTS, data["platforms"], (212, 428, 654)):
+        txt = ch.board_row("wall", totals(pl, "wall"))[0]
         out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11.5">%s <tspan fill="%s" font-weight="700">%s</tspan> <tspan fill="%s">(n=%d)</tspan></text>'
-            % (hx, sy + 19, t["ink"], MONO, escape(hname), t["mitts_txt"], escape(fmt_x(ratio)), t["muted"], pl["totals_n"])
+            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11.5">%s <tspan fill="%s" font-weight="700">%s → %s</tspan> <tspan fill="%s">(n=%d)</tspan></text>'
+            % (hx, sy + 19, t["ink"], MONO, escape(name), t["mitts_txt"], escape(txt["cargo_bare"]), escape(txt["mitts_cas"]), t["muted"], pl["totals_n"])
         )
     out.append("</svg>\n")
     return "\n".join(out)
@@ -245,49 +256,27 @@ def render_scoreboard(data, theme_name):
         "%s · %s · linear scale per row (shorter is better)" % (mac["label"], fmt_mitts_ver(mac["mitts_version"])),
         t,
     )
-    for idx, (key, title, sub, per_project) in enumerate(SCORE_ROWS):
+    for idx, (key, title, sub) in enumerate(SCORE_ROWS):
         y0 = 72 + idx * row_h
         if idx:
             out.append('<line x1="24" x2="%d" y1="%d" y2="%d" stroke="%s"/>' % (w - 24, y0 - 4, y0 - 4, t["grid"]))
-        raw = mac["totals"][key]
-        scale = float(n_proj) if per_project else 1.0
-        vals = {a: raw[a] / scale for a, _, _ in ARMS}
-        out.append(
-            '<text x="24" y="%d" fill="%s" font-family=\'%s\' font-size="14" font-weight="700">%s</text>'
-            % (y0 + 25, t["ink"], SANS, escape(title))
-        )
-        out.append(
-            '<text x="24" y="%d" fill="%s" font-family=\'%s\' font-size="11">%s</text>'
-            % (y0 + 43, t["muted"], MONO, escape(sub))
-        )
-        draw_bars(out, left, span, y0, vals, lambda v, k=key: fmt_score_val(k, v), t)
-        vs_c = raw["cargo_bare"] / raw["mitts_cas"]
-        vs_s = raw["cargo_sccache"] / raw["mitts_cas"]
-        out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="22" font-weight="800">%s</text>'
-            % (rx, y0 + 24, t["mitts_txt"], SANS, escape(fmt_x(vs_c)))
-        )
-        out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11">less than Cargo</text>'
-            % (rx, y0 + 41, t["muted"], MONO)
-        )
-        out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11">%s less than sccache</text>'
-            % (rx, y0 + 56, t["muted"], MONO, escape(fmt_x(vs_s)))
-        )
+        raw = totals(mac, key)
+        texts, save_c, save_s = ch.board_row(key, raw)
+        text(out, 24, y0 + 25, t["ink"], SANS, 14, 700, title)
+        text(out, 24, y0 + 43, t["muted"], MONO, 11, 400, sub)
+        draw_bars(out, left, span, y0, raw, texts, t)
+        text(out, rx, y0 + 24, t["mitts_txt"], SANS, 22, 800, save_c)
+        text(out, rx, y0 + 41, t["muted"], MONO, 11, 400, "less than Cargo")
+        text(out, rx, y0 + 56, t["muted"], MONO, 11, 400, "%s less than sccache" % save_s)
 
     sy = h - 44
     out.append('<rect x="24" y="%d" width="%d" height="30" rx="6" fill="%s" stroke="%s"/>' % (sy, w - 48, t["strip"], t["border"]))
-    out.append(
-        '<text x="38" y="%d" fill="%s" font-family=\'%s\' font-size="11.5" font-weight="600">3-host range vs Cargo:</text>'
-        % (sy + 19, t["muted"], SANS)
-    )
-    items = [("wall", "Time", 212), ("cpu", "CPU", 334), ("runs", "Runs", 474), ("written", "Written", 616), ("rss_sum", "12-wt RSS", 754)]
-    for mkey, mlabel, mx in items:
-        ratios = [p["totals"][mkey]["cargo_bare"] / p["totals"][mkey]["mitts_cas"] for p in data["platforms"]]
+    text(out, 38, sy + 19, t["muted"], SANS, 11.5, 600, "Compiler runs, all machines:")
+    for name, pl, hx in zip(HOSTS, data["platforms"], (212, 428, 654)):
+        txt = ch.board_row("runs", totals(pl, "runs"))[0]
         out.append(
-            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11">%s <tspan fill="%s" font-weight="700">%s</tspan></text>'
-            % (mx, sy + 19, t["ink"], MONO, escape(mlabel), t["mitts_txt"], escape(fmt_rng(ratios)))
+            '<text x="%d" y="%d" fill="%s" font-family=\'%s\' font-size="11.5">%s <tspan fill="%s" font-weight="700">%s → %s</tspan> <tspan fill="%s">(n=%d)</tspan></text>'
+            % (hx, sy + 19, t["ink"], MONO, escape(name), t["mitts_txt"], escape(txt["cargo_bare"]), escape(txt["mitts_cas"]), t["muted"], pl["totals_n"])
         )
     out.append("</svg>\n")
     return "\n".join(out)
@@ -296,6 +285,7 @@ def render_scoreboard(data, theme_name):
 def expected_outputs(data):
     out = {}
     for theme in ("light", "dark"):
+        out["bench-hero-%s.svg" % theme] = render_hero(data, theme)
         out["bench-scenarios-%s.svg" % theme] = render_scenarios(data, theme)
         out["bench-swarm-%s.svg" % theme] = render_scoreboard(data, theme)
     for name, svg in out.items():

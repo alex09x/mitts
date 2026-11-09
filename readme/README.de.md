@@ -1,7 +1,7 @@
-<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
+<!-- translation-source: 1a926080b49fae712d44fdae44fb6f96b80d3499 -->
 
 > [!NOTE]
-> Dies ist eine Übersetzung der offiziellen englischsprachigen Dokumentation für Commit [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md).
+> Dies ist eine Übersetzung der offiziellen englischsprachigen Dokumentation für Commit [1a92608](https://github.com/alex09x/mitts/blob/1a926080b49fae712d44fdae44fb6f96b80d3499/README.md).
 > Die kanonische und aktuellste Version ist die [englische README](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
@@ -48,6 +48,18 @@
 </p>
 
 ---
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-hero-light.svg">
+    <img src="../docs/img/bench-hero-light.svg" width="920" alt="Das Bauen von 12 Worktrees von 100 Rust-Projekten auf einem Mac dauert 13 Minuten mit Mitts und 76 Minuten mit Cargo; die Compiler-Läufe sinken von 90,961 auf 6,905 und die geschriebene Datenmenge von 641 GB auf 112 GB">
+  </picture>
+</p>
+
+<p align="center">
+  <sub>100 Open-Source-Projekte (90 unter Linux x86_64), jeweils 12 Worktrees gleichzeitig gebaut, auf drei Maschinen. Cargo und Cargo + sccache als Vergleichsbasis, einschließlich der Fälle, in denen Mitts nicht schneller ist: <a href="#performance">Leistung</a> · <a href="https://mittsbuild.com/the-hundred/">The Hundred</a></sub>
+</p>
 
 Mitts plant den Workspace eigenständig und ruft `rustc` direkt auf. Jede
 Kompilieraktion erhält einen Schlüssel, der aus all ihren Eingaben abgeleitet wird. Die Ausgabe wird
@@ -381,29 +393,45 @@ Mitts befindet sich im Pre-Release-Stadium. Beachten Sie Folgendes, bevor Sie da
 **Verwenden Sie Mitts noch nicht**, wenn Sie Windows, Cross-Kompilierung, einen Team-Cache oder
 ein stabiles Release benötigen. Cargo (optional mit sccache) ist in diesen Fällen die sichere Wahl.
 
+<a id="performance"></a>
 ## Leistung
 
-Gemessen mit Mitts `0.3.17` über **100 Open-Source-Rust-Projekte** unter macOS (Apple M2 Ultra, APFS) und Linux ARM64 (XFS) sowie **90** unter Linux x86_64 (AMD Ryzen 9 9950X, XFS) im Vergleich zu reinem `cargo` und `cargo` mit `sccache` (`0.17.0`). Jeder Messwert ist der Median aus 3 Durchläufen mit geprüfter Parität von Diagnosen, Exit-Codes und Testergebnissen; alle gemessenen Projekte bleiben in den Gesamtsummen enthalten (`0`, `7` und `0` als verrauscht markierte Läufe), und Beschleunigungsfaktoren werden abgeschnitten statt aufgerundet ([ROADMAP M8](../ROADMAP.md)).
+Gemessen mit Mitts `0.3.17` über **100 Open-Source-Rust-Projekte** unter macOS (Apple M2 Ultra, APFS) und Linux ARM64 (XFS) sowie **90** unter Linux x86_64 (AMD Ryzen 9 9950X, XFS) im Vergleich zu reinem `cargo` und `cargo` mit `sccache` (`0.17.0`). Jeder Messwert ist der Median aus 3 Durchläufen mit geprüfter Parität von Diagnosen, Exit-Codes und Testergebnissen; alle gemessenen Projekte bleiben in den Gesamtsummen enthalten (`0`, `7` und `0` als verrauscht markierte Läufe), und kein Zahlenwert übertrifft die Messung: Vergleichswerte werden abgeschnitten und Mitts wird aufgerundet ([ROADMAP M8](../ROADMAP.md)). Die vollständige Studie, jedes einzelne Projekt und die Methodik finden sich unter [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/).
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
-    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="Durchschnittliche Build-Zeit pro Projekt über sechs Szenarien: Cargo, Cargo + sccache und Mitts">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="Build-Zeit des Medianprojekts über sechs Szenarien: Cargo, Cargo + sccache und Mitts">
   </picture>
 </p>
 
-Die Balkenlängen zeigen das arithmetische Mittel der Projektmediane (proportional zur gesamten Laufzeit über den Korpus), ergänzt um das geometrische Mittel pro Projekt neben jeder Zeile. Bei mehreren Worktrees, Branch-Wechseln und unveränderten Wiederholungsläufen (Standard-No-op) senkt Mitts die mittlere Build-Zeit unter macOS um **5.8–10.8×**. Beim **Bearbeiten einer Datei mit anschließendem Neubau** (`n = 71` auf macOS und Linux ARM64, `64` auf Linux x86_64) ist Mitts im geometrischen Mittel schneller (**1.1×** auf macOS und Linux ARM64, **1×** auf Linux x86_64; schneller bei `49/71`, `42/71` und `43/64` Projekten), im arithmetischen Mittel jedoch langsamer (**0.7–0.8×**), weil einige große Einzel-Crate-Binaries unter `cargo` die crate-interne inkrementelle Kompilierung von `rustc` nutzen, während Mitts ganze Crate-Einheiten cacht. Ein **einzelner Kaltstart-Build** mit leerem Cache liegt bei **0.8–1×** gegenüber reinem `cargo` und ist im geometrischen Mittel **1.4×** schneller als `cargo` mit kaltem `sccache`.
+Jede Zeile zeigt die Build-Zeit des Medianprojekts (der jeweils eigene Median jedes Werkzeugs über die Projekte, lineare Skala pro Zeile), daneben die Anzahl der Projekte, bei denen Mitts als Erstes fertig war. Unter macOS baut das Medianprojekt seine 12 Worktrees in **32 s** mit `cargo`, **31 s** mit `cargo` + `sccache` und **3.8 s** mit Mitts. Mit warmem lokalem Store benötigt ein zweiter sauberer Worktree **1.7 s**, **1.6 s** und **79 ms**; ein Branch-Wechsel **627 ms**, **209 ms** und **27 ms**; ein Build ohne Änderungen **100 ms**, **41 ms** und **9 ms**. Mitts ist in diesen vier Szenarien bei 99–100 von 100 Projekten als Erstes fertig (71 von 71 beim zweiten Worktree).
+
+Wo Mitts nicht gewinnt:
+
+- **Kaltstart-Build, leerer Cache.** Reines `cargo` ist bei 71 von 100 macOS-Projekten als Erstes fertig (60 von 90 unter Linux x86_64, 77 von 100 unter Linux aarch64), bei den größten um bis zu 6.2 s, weil Mitts die Eingaben hasht und einen leeren Store befüllt. Das Medianprojekt benötigt **1.7 s** mit `cargo` und **2.0 s** mit Mitts. Gegenüber einem kalten `sccache` liegt Mitts vorn (**2.4 s**, Mitts bei 86 von 100 vorn).
+- **Eine Datei bearbeiten.** Das Medianprojekt benötigt **364 ms** mit `cargo`, **596 ms** mit `sccache` und **315 ms** mit Mitts, wobei Mitts bei 49 von 71 Projekten vor `cargo` liegt. Bei den übrigen 22 Projekten (21 von 64 auf x86_64, 29 von 71 auf aarch64) ist `cargo` um bis zu 2.6 s unter macOS und 8.6 s auf x86_64 schneller, weil es die inkrementelle Kompilierung von `rustc` innerhalb eines großen Crates wiederverwendet, während Mitts ganze Crate-Einheiten cacht.
+- **Abspielen von 10 Commits** (nicht im Diagramm): geteiltes Bild, Mitts liegt unter macOS bei 58 von 100 Projekten vorn, bei nahe beieinanderliegenden Medianen (**5.6 s** mit `cargo`, **5.8 s** mit Mitts).
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
-    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="12-Worktree-Build-Scoreboard über 100 Rust-Projekte: Zeit, CPU, Compiler-Läufe, geschriebene Datenmenge und Spitzen-RSS">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="12-Worktree-Build-Scoreboard über 100 Rust-Projekte: Zeit, CPU, Compiler-Läufe und geschriebene Datenmenge">
   </picture>
 </p>
 
-Das parallele Bauen von **12 Worktrees** auf 4 Commits über die 100 macOS-Projekte benötigt **76 min** mit `cargo`, **74 min** mit `cargo` + `sccache` und **13 min** mit Mitts (**5.8×** weniger Gesamtlaufzeit; **7×** unter Linux x86_64, **3.6×** unter Linux ARM64), reduziert die `rustc`-Aufrufe von **90.961** auf **6.905** (**13.1×**) und die geschriebene Datenmenge von **641 GB** auf **111 GB** (**5.7×**). Über alle 12 Worktrees summiert liegt der Spitzen-RSS der Kindprozesse (`ru_maxrss`) mit Mitts im Schnitt bei **2.4–3.4 GB** pro Projekt gegenüber **6.1–6.5 GB** mit reinem `cargo` (**1.8–2.5×** weniger), da gecachte Worktrees kein `rustc` starten; innerhalb eines einzelnen Worktrees liegt der schwerste Kindprozess im Schnitt bei **451–520 MB** mit Mitts gegenüber **539–582 MB** mit reinem `cargo` (`cargo` + `sccache` erfasst **443–483 MB** in `wait4`, weil der abgekoppelte `sccache`-Server außerhalb des gemessenen Prozessbaums läuft).
+Paralleles Bauen von **12 Worktrees** auf 4 Commits über alle Projekte, Gesamtsummen pro Maschine:
+
+| Maschine | Zeit: `cargo` / `sccache` / Mitts | `rustc`-Läufe: `cargo` / Mitts | Geschriebene Daten: `cargo` / Mitts |
+|---|---|---|---|
+| macOS, APFS, M2 Ultra (100 Projekte) | 76 min / 73 min / **13 min** | 90,961 / **6,905** | 641 GB / **112 GB** |
+| Linux x86_64, XFS, Ryzen 9 9950X (90 Projekte) | 60 min / 52 min / **9 min** | 75,049 / **6,162** | 651 GB / **106 GB** |
+| Linux aarch64, XFS (100 Projekte) | 78 min / 76 min / **22 min** | 90,544 / **7,348** | 743 GB / **121 GB** |
+
+Die CPU-Zeit unter macOS sinkt von **20.3 h** (`cargo`) und **8.0 h** (`sccache`) auf **2.7 h**. Auf der x86_64-Maschine wurden 90 statt 100 Projekte gemessen: Zehn Projekte fehlen in diesem Durchlauf (similar, smallvec, smol, syntect, tealdeer, tera, textwrap, tokei, tower-http, xh), und die Ursache ist nicht dokumentiert.
+
 
 ## Status
 

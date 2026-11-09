@@ -1,7 +1,7 @@
-<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
+<!-- translation-source: 1a926080b49fae712d44fdae44fb6f96b80d3499 -->
 
 > [!NOTE]
-> 本文是官方英文文档在提交 [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md) 处的简体中文翻译。权威且最新的版本请参阅[英文 README](https://github.com/alex09x/mitts/blob/main/README.md)。
+> 本文是官方英文文档在提交 [1a92608](https://github.com/alex09x/mitts/blob/1a926080b49fae712d44fdae44fb6f96b80d3499/README.md) 处的简体中文翻译。权威且最新的版本请参阅[英文 README](https://github.com/alex09x/mitts/blob/main/README.md)。
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -47,6 +47,18 @@
 </p>
 
 ---
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-hero-light.svg">
+    <img src="../docs/img/bench-hero-light.svg" width="920" alt="在 Mac 上同时构建 100 个 Rust 项目的 12 个 worktree，Mitts 耗时 13 分钟而 Cargo 耗时 76 分钟；编译器调用次数从 90,961 次降至 6,905 次，磁盘写入量从 641 GB 降至 112 GB">
+  </picture>
+</p>
+
+<p align="center">
+  <sub>100 个开源项目（Linux x86_64 上为 90 个），每个项目 12 个 worktree 同时构建，在三台机器上实测。以 Cargo 和 Cargo + sccache 为基线，包含 Mitts 未占优的场景：<a href="#performance">性能</a> · <a href="https://mittsbuild.com/the-hundred/">The Hundred</a></sub>
+</p>
 
 Mitts 自行规划工作区并直接调用 `rustc`。每个编译动作都会获得一个派生自其全部输入的键（key）。输出仅在机器范围内的不可变存储中保存一次，并复原到需要它的每个工作区中，跨越不同项目、worktree 与分支。
 
@@ -266,29 +278,45 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 
 如果您需要 Windows、交叉编译、团队缓存或稳定版本，**请暂勿使用 Mitts**。在这些场景下，Cargo（可选用 sccache）是稳妥之选。
 
+<a id="performance"></a>
 ## 性能
 
-基于 Mitts `0.3.17` 在 macOS（Apple M2 Ultra，APFS）与 Linux ARM64（XFS）上的 **100 个开源 Rust 项目**，以及 Linux x86_64（AMD Ryzen 9 9950X，XFS）上的 **90 个项目**实测，对比原生 `cargo` 与 `cargo` + `sccache`（`0.17.0`）。每项读数均为 3 次重复运行的中位数，并校验诊断信息、退出码与测试结果等价性；全部受测项目均计入汇总（分别有 `0`、`7`、`0` 个运行被标记为波动），且加速比一律向下截断、绝不向上进位（[ROADMAP M8](../ROADMAP.md)）。
+基于 Mitts `0.3.17` 在 macOS（Apple M2 Ultra，APFS）与 Linux ARM64（XFS）上的 **100 个开源 Rust 项目**，以及 Linux x86_64（AMD Ryzen 9 9950X，XFS）上的 **90 个项目**实测，对比原生 `cargo` 与 `cargo` + `sccache`（`0.17.0`）。每项读数均为 3 次重复运行的中位数，并校验诊断信息、退出码与测试结果等价性；全部受测项目均计入汇总（分别有 `0`、`7`、`0` 个运行被标记为波动），且所有数字均不夸大实测优势：基线数据向下截断，Mitts 数据向上进位（[ROADMAP M8](../ROADMAP.md)）。完整研究报告、逐项目数据与测试方法见 [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/)。
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
-    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="六种场景下每个项目的平均构建耗时：Cargo、Cargo + sccache 与 Mitts">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="六种场景下中位数项目的构建耗时：Cargo、Cargo + sccache 与 Mitts">
   </picture>
 </p>
 
-条形长度表示各项目中位数的算术平均值（与语料库总挂钟时间成正比），每行右侧同时列出逐项目几何平均加速比。在多 worktree、分支切换及默认空操作（no-op）场景下，Mitts 在 macOS 上将平均构建耗时缩短 **5.8–10.8×**。在**修改单文件后重编**场景（macOS 与 Linux ARM64 上 `n = 71`，Linux x86_64 上 `64`）中，按几何平均计 Mitts 更快（macOS 与 Linux ARM64 为 **1.1×**，Linux x86_64 为 **1×**；分别在 `49/71`、`42/71` 与 `43/64` 个项目上胜出），但算术平均值较慢（**0.7–0.8×**），原因是少数大型单 crate 二进制项目在 `cargo` 下可利用 `rustc` 的 crate 内增量编译，而 Mitts 以整个 crate 编译单元为粒度缓存。空缓存下的**单次冷构建**相对原生 `cargo` 为 **0.8–1×**，按几何平均计比冷缓存 `cargo` + `sccache` 快 **1.4×**。
+每一行展示中位数项目的构建耗时（各工具在受测项目上的自身中位数，每行采用独立线性刻度），右侧同时列出 Mitts 最先完成的项目数量。在 macOS 上，中位数项目构建 12 个 worktree 在 `cargo` 下耗时 **32 s**，`cargo` + `sccache` 下耗时 **31 s**，Mitts 下耗时 **3.8 s**。在本地存储已预热的情况下，第二个干净 worktree 分别耗时 **1.7 s**、**1.6 s** 与 **79 ms**；分支切换耗时 **627 ms**、**209 ms** 与 **27 ms**；无改动构建耗时 **100 ms**、**41 ms** 与 **9 ms**。在这四种场景中，Mitts 在 100 个项目中的 99–100 个上最先完成（第二个 worktree 为 71 个中的 71 个）。
+
+Mitts 未占优的场景：
+
+- **冷构建，空缓存。** 原生 `cargo` 在 macOS 的 100 个项目中于 71 个上最先完成（Linux x86_64 为 90 个中的 60 个，Linux aarch64 为 100 个中的 77 个），在最大项目上最多快 6.2 s，原因是 Mitts 需要对输入计算哈希并填充空存储。中位数项目在 `cargo` 下耗时 **1.7 s**，在 Mitts 下耗时 **2.0 s**。Mitts 仍快于冷缓存的 `sccache`（**2.4 s**，Mitts 在 100 个中的 86 个上最先完成）。
+- **修改单个文件。** 中位数项目在 `cargo` 下耗时 **364 ms**，`sccache` 下耗时 **596 ms**，Mitts 下耗时 **315 ms**，相对 `cargo` 时 Mitts 在 71 个项目中的 49 个上最先完成。其余 22 个项目（x86_64 为 64 个中的 21 个，aarch64 为 71 个中的 29 个）由 `cargo` 最先完成，在 macOS 上最多快 2.6 s，在 x86_64 上最多快 8.6 s，原因是 `cargo` 在大型 crate 内部复用了 `rustc` 增量编译，而 Mitts 以整个 crate 编译单元为粒度缓存。
+- **重放 10 个提交**（未列入图表）：互有胜负，macOS 上 Mitts 在 100 个项目中的 58 个上最先完成，两者中位数接近（`cargo` 为 **5.6 s**，Mitts 为 **5.8 s**）。
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
-    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100 个 Rust 项目上 12 个并行 worktree 构建计分板：耗时、CPU、编译器调用次数、磁盘写入量与峰值 RSS">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100 个 Rust 项目上 12 个并行 worktree 构建计分板：耗时、CPU、编译器调用次数与磁盘写入量">
   </picture>
 </p>
 
-在 macOS 的 100 个项目上同时构建横跨 4 个提交的 **12 个并行 worktree**，`cargo` 耗时 **76 分钟**，`cargo` + `sccache` 耗时 **74 分钟**，而 Mitts 仅需 **13 分钟**（挂钟时间减少 **5.8×**；Linux x86_64 为 **7×**，Linux ARM64 为 **3.6×**），将 `rustc` 调用次数从 **90,961** 次降至 **6,905** 次（**13.1×**），磁盘写入量从 **641 GB** 降至 **111 GB**（**5.7×**）。将 12 个 worktree 的子进程峰值常驻内存（`ru_maxrss`）相加，Mitts 平均每个项目为 **2.4–3.4 GB**，而原生 `cargo` 为 **6.1–6.5 GB**（减少 **1.8–2.5×**），因为命中缓存的 worktree 无需启动 `rustc`；在单个 worktree 内，最重子进程峰值在 Mitts 下平均为 **451–520 MB**，原生 `cargo` 为 **539–582 MB**（`cargo` + `sccache` 在 `wait4` 中记录为 **443–483 MB**，原因是独立后台运行的 `sccache` 守护进程位于受测进程树之外）。
+在全部项目上同时构建横跨 4 个提交的 **12 个并行 worktree**，各机器汇总结果如下：
+
+| 机器 | 耗时：`cargo` / `sccache` / Mitts | `rustc` 调用次数：`cargo` / Mitts | 磁盘写入量：`cargo` / Mitts |
+|---|---|---|---|
+| macOS, APFS, M2 Ultra（100 个项目） | 76 min / 73 min / **13 min** | 90,961 / **6,905** | 641 GB / **112 GB** |
+| Linux x86_64, XFS, Ryzen 9 9950X（90 个项目） | 60 min / 52 min / **9 min** | 75,049 / **6,162** | 651 GB / **106 GB** |
+| Linux aarch64, XFS（100 个项目） | 78 min / 76 min / **22 min** | 90,544 / **7,348** | 743 GB / **121 GB** |
+
+macOS 上的总 CPU 时间从 **20.3 h**（`cargo`）和 **8.0 h**（`sccache`）降至 **2.7 h**。x86_64 机器实测了 90 个项目而非 100 个：该轮运行缺少 10 个项目（similar, smallvec, smol, syntect, tealdeer, tera, textwrap, tokei, tower-http, xh），缺失原因未记录。
+
 
 ## 现状
 

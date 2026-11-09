@@ -1,7 +1,7 @@
-<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
+<!-- translation-source: 1a926080b49fae712d44fdae44fb6f96b80d3499 -->
 
 > [!NOTE]
-> 이 문서는 커밋 [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md) 기준 공식 영문 문서를 번역한 것입니다.
+> 이 문서는 커밋 [1a92608](https://github.com/alex09x/mitts/blob/1a926080b49fae712d44fdae44fb6f96b80d3499/README.md) 기준 공식 영문 문서를 번역한 것입니다.
 > 기준이 되는 최신 문서는 [영문 README](https://github.com/alex09x/mitts/blob/main/README.md)입니다.
 
 <p align="center">
@@ -48,6 +48,18 @@
 </p>
 
 ---
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-hero-light.svg">
+    <img src="../docs/img/bench-hero-light.svg" width="920" alt="Mac에서 Rust 프로젝트 100개의 워크트리 12개를 동시에 빌드하면 Cargo는 76분, Mitts는 13분이 걸리며, 컴파일러 실행 횟수는 90,961회에서 6,905회로, 디스크 쓰기 용량은 641 GB에서 112 GB로 줄어듭니다">
+  </picture>
+</p>
+
+<p align="center">
+  <sub>오픈소스 프로젝트 100개(Linux x86_64는 90개), 각각 12개 워크트리를 세 대의 머신에서 동시에 빌드했습니다. Cargo 및 Cargo + sccache를 기준선으로 삼았으며 Mitts가 더 빠르지 않은 경우도 함께 수록했습니다: <a href="#performance">성능</a> · <a href="https://mittsbuild.com/the-hundred/">The Hundred</a></sub>
+</p>
 
 Mitts는 워크스페이스를 직접 계획하고 `rustc`를 직접 호출합니다. 모든 컴파일 액션은 모든 입력 요소로부터 파생된 고유 키를 부여받습니다. 출력물은 머신 전역의 불변 저장소에 단 한 번 저장되며, 프로젝트, 워크트리(worktree), 브랜치에 걸쳐 해당 아티팩트를 필요로 하는 모든 워크스페이스로 복원됩니다.
 
@@ -267,29 +279,45 @@ Mitts는 프리릴리스 단계입니다. 이에 의존하기 전에 다음 사�
 
 Windows, 크로스 컴파일, 팀 캐시 또는 안정적인 릴리스가 필요한 경우 **아직 Mitts를 사용하지 마십시오**. 그러한 환경에서는 Cargo(필요 시 sccache 병용)가 안전한 선택입니다.
 
+<a id="performance"></a>
 ## 성능
 
-Mitts `0.3.17`을 사용하여 macOS(Apple M2 Ultra, APFS) 및 Linux ARM64(XFS)의 **오픈소스 Rust 프로젝트 100개**, Linux x86_64(AMD Ryzen 9 9950X, XFS)의 **90개 프로젝트**를 대상으로 일반 `cargo` 및 `cargo` + `sccache`(`0.17.0`)와 비교 측정했습니다. 모든 수치는 진단 메시지, 종료 코드, 테스트 결과 동등성을 검증한 3회 반복 측정의 중앙값이며, 측정된 모든 프로젝트가 합계에 포함되고(노이즈로 표시된 `0`, `7`, `0`건 포함) 속도 향상 배율은 반올림 없이 버림 처리합니다([ROADMAP M8](../ROADMAP.md)).
+Mitts `0.3.17`을 사용하여 macOS(Apple M2 Ultra, APFS) 및 Linux ARM64(XFS)의 **오픈소스 Rust 프로젝트 100개**, Linux x86_64(AMD Ryzen 9 9950X, XFS)의 **90개 프로젝트**를 대상으로 일반 `cargo` 및 `cargo` + `sccache`(`0.17.0`)와 비교 측정했습니다. 모든 수치는 진단 메시지, 종료 코드, 테스트 결과 동등성을 검증한 3회 반복 측정의 중앙값이며, 측정된 모든 프로젝트가 합계에 포함되고(노이즈로 표시된 `0`, `7`, `0`건 포함) 어떤 수치도 측정치를 부풀리지 않도록 기준선은 버림하고 Mitts는 올림 처리했습니다([ROADMAP M8](../ROADMAP.md)). 전체 연구 결과, 개별 프로젝트 데이터 및 방법론은 [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/)에 공개되어 있습니다.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
-    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="6가지 시나리오에서 프로젝트당 평균 빌드 시간: Cargo, Cargo + sccache, Mitts">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="6가지 시나리오에서 중앙값 프로젝트의 빌드 시간: Cargo, Cargo + sccache, Mitts">
   </picture>
 </p>
 
-막대 길이는 프로젝트별 중앙값의 산술 평균(전체 코퍼스 총 소요 시간에 비례)을 나타내며, 각 행 오른쪽에는 프로젝트별 기하 평균 배율을 함께 표시합니다. 다중 워크트리, 브랜치 전환 및 기본 no-op 실행에서 Mitts는 평균 빌드 시간을 macOS 기준 **5.8–10.8×** 단축합니다. **단일 파일 수정 후 재빌드**(macOS 및 Linux ARM64 `n = 71`, Linux x86_64 `64`)에서는 기하 평균 기준 Mitts가 더 빠르지만(macOS 및 Linux ARM64 **1.1×**, Linux x86_64 **1×**; 각각 `49/71`, `42/71`, `43/64`개 프로젝트에서 우세), 소수의 대형 단일 크레이트 바이너리가 `cargo`에서는 `rustc`의 크레이트 내부 증분 컴파일을 활용하는 반면 Mitts는 전체 크레이트 단위로 캐싱하기 때문에 산술 평균은 더 느립니다(**0.7–0.8×**). 빈 캐시 상태의 **단일 콜드 빌드**는 일반 `cargo` 대비 **0.8–1×**이며, 콜드 `sccache`를 사용한 `cargo` 대비 기하 평균으로 **1.4×** 빠릅니다.
+각 행은 중앙값 프로젝트의 빌드 시간(프로젝트 전체에 대한 각 도구 자체의 중앙값, 행별 선형 스케일)을 나타내며, 그 옆에 Mitts가 가장 먼저 완료된 프로젝트 수를 표시합니다. macOS에서 중앙값 프로젝트가 12개 워크트리를 빌드하는 데 `cargo`는 **32 s**, `cargo` + `sccache`는 **31 s**, Mitts는 **3.8 s**가 걸립니다. 로컬 저장소가 예열된 상태에서 두 번째 클린 워크트리는 각각 **1.7 s**, **1.6 s**, **79 ms**, 브랜치 전환은 **627 ms**, **209 ms**, **27 ms**, 변경 사항 없는 재빌드는 **100 ms**, **41 ms**, **9 ms**가 소요됩니다. 이 네 가지 시나리오에서 Mitts는 100개 프로젝트 중 99–100개에서 가장 먼저 완료됩니다(두 번째 워크트리는 71개 중 71개).
+
+Mitts가 앞지르지 못하는 경우:
+
+- **콜드 빌드, 빈 캐시.** Mitts는 입력을 해시하고 빈 저장소를 채워야 하므로 일반 `cargo`가 macOS 100개 프로젝트 중 71개(Linux x86_64는 90개 중 60개, Linux aarch64는 100개 중 77개)에서 먼저 완료되며, 가장 큰 프로젝트에서는 최대 6.2 s까지 앞섭니다. 중앙값 프로젝트는 `cargo`가 **1.7 s**, Mitts가 **2.0 s**입니다. 콜드 상태의 `sccache`(**2.4 s**, 100개 중 86개에서 Mitts 우세)보다는 Mitts가 앞섭니다.
+- **파일 하나 수정.** 중앙값 프로젝트는 `cargo` **364 ms**, `sccache` **596 ms**, Mitts **315 ms**이며, `cargo` 대비 71개 프로젝트 중 49개에서 Mitts가 먼저 완료됩니다. 나머지 22개(x86_64는 64개 중 21개, aarch64는 71개 중 29개)에서는 `cargo`가 macOS 기준 최대 2.6 s, x86_64 기준 최대 8.6 s 먼저 완료되는데, 대형 크레이트 내부에서 `rustc` 증분 컴파일을 재사용하는 반면 Mitts는 전체 크레이트 단위로 캐싱하기 때문입니다.
+- **10개 커밋 연속 재생**(차트 미포함): 우열이 나뉘며 macOS 100개 프로젝트 중 58개에서 Mitts가 먼저 완료되고 중앙값도 비슷합니다(`cargo` **5.6 s**, Mitts **5.8 s**).
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
-    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100개 Rust 프로젝트의 12개 병렬 워크트리 빌드 스코어보드: 시간, CPU, 컴파일러 실행 횟수, 디스크 쓰기 용량, 피크 RSS">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="100개 Rust 프로젝트의 12개 병렬 워크트리 빌드 스코어보드: 시간, CPU, 컴파일러 실행 횟수, 디스크 쓰기 용량">
   </picture>
 </p>
 
-macOS의 100개 프로젝트에서 4개 커밋에 걸친 **12개 병렬 워크트리**를 빌드할 때 `cargo`는 **76분**, `cargo` + `sccache`는 **74분**, Mitts는 **13분**이 소요되며(실제 소요 시간 **5.8×** 단축; Linux x86_64 **7×**, Linux ARM64 **3.6×**), `rustc` 실행 횟수를 **90,961**회에서 **6,905**회로(**13.1×**), 디스크 쓰기 용량을 **641 GB**에서 **111 GB**로(**5.7×**) 줄입니다. 12개 워크트리에 걸친 자식 프로세스 피크 RSS(`ru_maxrss`) 합계는 캐시된 워크트리가 `rustc`를 실행하지 않으므로 일반 `cargo`의 프로젝트당 평균 **6.1–6.5 GB** 대비 Mitts는 **2.4–3.4 GB**(**1.8–2.5×** 감소)입니다. 단일 워크트리 내 가장 무거운 자식 프로세스의 평균은 일반 `cargo` **539–582 MB** 대비 Mitts **451–520 MB**입니다(`cargo` + `sccache`는 분리된 `sccache` 서버가 측정 프로세스 트리 외부에서 실행되므로 `wait4` 기준 **443–483 MB**로 기록됩니다).
+전체 프로젝트에서 4개 커밋에 걸친 **12개 병렬 워크트리** 빌드, 머신별 합계:
+
+| 머신 | 시간: `cargo` / `sccache` / Mitts | `rustc` 실행 횟수: `cargo` / Mitts | 디스크 쓰기 용량: `cargo` / Mitts |
+|---|---|---|---|
+| macOS, APFS, M2 Ultra (100개 프로젝트) | 76 min / 73 min / **13 min** | 90,961 / **6,905** | 641 GB / **112 GB** |
+| Linux x86_64, XFS, Ryzen 9 9950X (90개 프로젝트) | 60 min / 52 min / **9 min** | 75,049 / **6,162** | 651 GB / **106 GB** |
+| Linux aarch64, XFS (100개 프로젝트) | 78 min / 76 min / **22 min** | 90,544 / **7,348** | 743 GB / **121 GB** |
+
+macOS의 CPU 시간은 **20.3 h**(`cargo`) 및 **8.0 h**(`sccache`)에서 **2.7 h**로 줄어듭니다. x86_64 머신에서는 100개가 아닌 90개 프로젝트가 측정되었습니다. 해당 실행에서 10개 프로젝트(similar, smallvec, smol, syntect, tealdeer, tera, textwrap, tokei, tower-http, xh)가 누락되었으며 원인은 기록되어 있지 않습니다.
+
 
 ## 진행 현황
 

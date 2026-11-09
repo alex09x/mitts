@@ -1,7 +1,7 @@
-<!-- translation-source: 5326b5270d0104686a854dfcc2bbeb2fa32da1b6 -->
+<!-- translation-source: 1a926080b49fae712d44fdae44fb6f96b80d3499 -->
 
 > [!NOTE]
-> هذه ترجمة عربية للتوثيق الرسمي باللغة الإنجليزية عند الإيداع [5326b52](https://github.com/alex09x/mitts/blob/5326b5270d0104686a854dfcc2bbeb2fa32da1b6/README.md). النسخة المعتمدة والأحدث هي [README باللغة الإنجليزية](https://github.com/alex09x/mitts/blob/main/README.md).
+> هذه ترجمة عربية للتوثيق الرسمي باللغة الإنجليزية عند الإيداع [1a92608](https://github.com/alex09x/mitts/blob/1a926080b49fae712d44fdae44fb6f96b80d3499/README.md). النسخة المعتمدة والأحدث هي [README باللغة الإنجليزية](https://github.com/alex09x/mitts/blob/main/README.md).
 
 <p align="center">
   <img src="../site/logo.svg" width="96" height="96" alt="Mitts Build logo">
@@ -50,6 +50,18 @@
 </p>
 
 ---
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-hero-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-hero-light.svg">
+    <img src="../docs/img/bench-hero-light.svg" width="920" alt="بناء 12 شجرة عمل لـ 100 مشروع Rust على جهاز Mac يستغرق 13 دقيقة مع Mitts و76 دقيقة مع Cargo؛ وتنخفض تشغيلات المترجم من 90,961 إلى 6,905 والكتابة على القرص من 641 GB إلى 112 GB">
+  </picture>
+</p>
+
+<p align="center" dir="rtl">
+  <sub>100 مشروع مفتوح المصدر (90 على Linux x86_64)، 12 شجرة عمل لكل مشروع، تُبنى معاً في آنٍ واحد على ثلاثة أجهزة. Cargo وCargo + sccache كخطي أساس، شاملةً الحالات التي لا يكون فيها Mitts أسرع: <a href="#performance">الأداء</a> · <a href="https://mittsbuild.com/the-hundred/"><bdi>The Hundred</bdi></a></sub>
+</p>
 
 <div dir="rtl">
 
@@ -302,27 +314,42 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 <a id="performance"></a>
 ## الأداء
 
-قِيسَ الأداء باستخدام Mitts <bdi>`0.3.17`</bdi> عبر **100 مشروع Rust مفتوح المصدر** على macOS (Apple M2 Ultra، بنظام APFS) وLinux ARM64 (بنظام XFS)، و**90 مشروعاً** على Linux x86_64 (AMD Ryzen 9 9950X، بنظام XFS)، في مقابل `cargo` العادي و`cargo` مع `sccache` (<bdi>`0.17.0`</bdi>). تمثل كل قراءة الوسيط الحسابي لـ 3 تكرارات مع التحقق من تطابق الرسائل التشخيصية ورموز الخروج ونتائج الاختبارات؛ وتبقى جميع المشاريع المقيسة ضمن الإجماليات (<bdi>`0`</bdi> و<bdi>`7`</bdi> و<bdi>`0`</bdi> تشغيلات موسومة بالضوضاء)، كما تُقتطع نسب التسريع دون تقريب إلى الأعلى ([ROADMAP M8](../ROADMAP.md)).
+قِيسَ الأداء باستخدام Mitts <bdi>`0.3.17`</bdi> عبر **100 مشروع Rust مفتوح المصدر** على macOS (Apple M2 Ultra، بنظام APFS) وLinux ARM64 (بنظام XFS)، و**90 مشروعاً** على Linux x86_64 (AMD Ryzen 9 9950X، بنظام XFS)، في مقابل `cargo` العادي و`cargo` مع `sccache` (<bdi>`0.17.0`</bdi>). تمثل كل قراءة الوسيط لـ 3 تكرارات مع التحقق من تطابق الرسائل التشخيصية ورموز الخروج ونتائج الاختبارات؛ وتبقى جميع المشاريع المقيسة ضمن الإجماليات (<bdi>`0`</bdi> و<bdi>`7`</bdi> و<bdi>`0`</bdi> تشغيلات موسومة بالضوضاء)، ولا يتجاوز أي رقم القيمة المقيسة: إذ تُقتطع قيم خط الأساس إلى الأدنى وتُقرَّب قيم Mitts إلى الأعلى ([ROADMAP M8](../ROADMAP.md)). الدراسة الكاملة وكل مشروع والمنهجية متاحة على [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/).
 
 <div dir="ltr" align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-scenarios-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-scenarios-light.svg">
-    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="متوسط زمن البناء لكل مشروع عبر ستة سيناريوهات: Cargo وCargo + sccache وMitts">
+    <img src="../docs/img/bench-scenarios-light.svg" width="920" alt="زمن بناء المشروع الوسيط عبر ستة سيناريوهات: Cargo وCargo + sccache وMitts">
   </picture>
 </div>
 
-يُظهر طول الأشرطة المتوسط الحسابي لوسائط المشاريع (بما يتناسب مع الزمن الكلي للمجموعة)، مع عرض المتوسط الهندسي لكل مشروع بجانب كل صف. في تشغيلات شجرات العمل المتعددة وتبديل الفروع وإعادة البناء دون تغييرات (no-op الافتراضي)، يخفض Mitts متوسط زمن البناء بمقدار <bdi>**5.8–10.8×**</bdi> على macOS. وعند **تعديل ملف واحد وإعادة البناء** (<bdi>`n = 71`</bdi> على macOS وLinux ARM64، و<bdi>`64`</bdi> على Linux x86_64)، يكون Mitts أسرع وفق المتوسط الهندسي (<bdi>**1.1×**</bdi> على macOS وLinux ARM64، و<bdi>**1×**</bdi> على Linux x86_64؛ أسرع في <bdi>`49/71`</bdi> و<bdi>`42/71`</bdi> و<bdi>`43/64`</bdi> مشروعاً)، بينما يكون متوسطه الحسابي أبطأ (<bdi>**0.7–0.8×**</bdi>) لأن عدداً قليلاً من الملفات الثنائية الكبيرة أحادية الحزمة تستفيد من الترجمة التزايدية داخل الحزمة لـ `rustc` تحت `cargo`، في حين يخزن Mitts وحدات الحزم كاملةً في الذاكرة المؤقتة. ويبلغ **البناء البارد المنفرد** بذاكرة مؤقتة فارغة <bdi>**0.8–1×**</bdi> مقارنةً بـ `cargo` العادي، وهو أسرع بمقدار <bdi>**1.4×**</bdi> في المتوسط الهندسي من `cargo` مع `sccache` بارد.
+يمثل كل صف زمن بناء المشروع الوسيط (الوسيط الخاص بكل أداة عبر المشاريع، بمقياس خطي لكل صف)، وبجانبه عدد المشاريع التي أنهاها Mitts أولاً. على macOS يبني المشروع الوسيط شجرات عمله الـ 12 في <bdi>**32 s**</bdi> مع `cargo`، و<bdi>**31 s**</bdi> مع `cargo` + `sccache`، و<bdi>**3.8 s**</bdi> مع Mitts. ومع مستودع محلي دافئ، تستغرق شجرة عمل ثانية نظيفة <bdi>**1.7 s**</bdi> و<bdi>**1.6 s**</bdi> و<bdi>**79 ms**</bdi>؛ وتبديل الفرع <bdi>**627 ms**</bdi> و<bdi>**209 ms**</bdi> و<bdi>**27 ms**</bdi>؛ وبناء بلا تغييرات <bdi>**100 ms**</bdi> و<bdi>**41 ms**</bdi> و<bdi>**9 ms**</bdi>. ويحل Mitts أولاً في <bdi>99–100</bdi> من أصل 100 مشروع في تلك السيناريوهات الأربعة (71 من 71 لشجرة العمل الثانية).
+
+الحالات التي لا يتفوق فيها Mitts:
+
+- **بناء بارد بذاكرة مؤقتة فارغة.** ينتهي `cargo` العادي أولاً في 71 من أصل 100 مشروع على macOS (60 من 90 على Linux x86_64، و77 من 100 على Linux aarch64)، بفارق يصل إلى <bdi>6.2 s</bdi> في أكبر المشاريع، لأن Mitts يحسب تجزئات المدخلات ويملأ مستودعاً فارغاً. يستغرق المشروع الوسيط <bdi>**1.7 s**</bdi> مع `cargo` و<bdi>**2.0 s**</bdi> مع Mitts. ويتفوق Mitts على `sccache` البارد (<bdi>**2.4 s**</bdi>، وMitts أولاً في 86 من 100).
+- **تعديل ملف واحد.** يستغرق المشروع الوسيط <bdi>**364 ms**</bdi> مع `cargo`، و<bdi>**596 ms**</bdi> مع `sccache`، و<bdi>**315 ms**</bdi> مع Mitts، ويحل Mitts أولاً في 49 من أصل 71 مشروعاً مقابل `cargo`. بينما يحل `cargo` أولاً في المشاريع الـ 22 الأخرى (21 من 64 على x86_64، و29 من 71 على aarch64)، بفارق يصل إلى <bdi>2.6 s</bdi> على macOS و<bdi>8.6 s</bdi> على x86_64، لأنه يعيد استخدام الترجمة التزايدية لـ `rustc` داخل الحزمة الكبيرة، في حين يخزن Mitts وحدات الحزم كاملةً.
+- **إعادة تشغيل 10 إيداعات** (غير معروضة في الرسم): النتيجة منقسمة، إذ يحل Mitts أولاً في 58 من أصل 100 مشروع على macOS مع تقارب الوسائط (<bdi>**5.6 s**</bdi> مع `cargo`، و<bdi>**5.8 s**</bdi> مع Mitts).
 
 <div dir="ltr" align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/img/bench-swarm-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../docs/img/bench-swarm-light.svg">
-    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="لوحة نتائج بناء 12 شجرة عمل متوازية عبر 100 مشروع Rust: الزمن والمعالج وتشغيلات المترجم والكتابة على القرص وذروة RSS">
+    <img src="../docs/img/bench-swarm-light.svg" width="920" alt="لوحة نتائج بناء 12 شجرة عمل متوازية عبر 100 مشروع Rust: الزمن والمعالج وتشغيلات المترجم والكتابة على القرص">
   </picture>
 </div>
 
-يستغرق بناء **12 شجرة عمل متوازية** عبر 4 إيداعات في مشاريع macOS الـ 100 **76 دقيقة** مع `cargo`، و**74 دقيقة** مع `cargo` + `sccache`، و**13 دقيقة** مع Mitts (زمن كلي أقل بمقدار <bdi>**5.8×**</bdi>؛ و<bdi>**7×**</bdi> على Linux x86_64، و<bdi>**3.6×**</bdi> على Linux ARM64)، خافضاً استدعاءات `rustc` من <bdi>**90,961**</bdi> إلى <bdi>**6,905**</bdi> (<bdi>**13.1×**</bdi>) والكتابة على القرص من <bdi>**641 GB**</bdi> إلى <bdi>**111 GB**</bdi> (<bdi>**5.7×**</bdi>). وبجمع ذروة الذاكرة المقيمة للعمليات الفرعية (<bdi>`ru_maxrss`</bdi>) عبر شجرات العمل الـ 12، يبلغ المتوسط <bdi>**2.4–3.4 GB**</bdi> لكل مشروع مع Mitts مقابل <bdi>**6.1–6.5 GB**</bdi> مع `cargo` العادي (أقل بمقدار <bdi>**1.8–2.5×**</bdi>) لأن شجرات العمل المخزنة مؤقتاً لا تُطلِق `rustc`؛ وداخل شجرة عمل واحدة يبلغ متوسط أثقل عملية فرعية <bdi>**451–520 MB**</bdi> مع Mitts مقابل <bdi>**539–582 MB**</bdi> مع `cargo` العادي (بينما يسجل `cargo` + `sccache` ما بين <bdi>**443–483 MB**</bdi> داخل <bdi>`wait4`</bdi> لأن خادم `sccache` المنفصل يعمل خارج شجرة العمليات المقيسة).
+بناء **12 شجرة عمل متوازية** عبر 4 إيداعات في جميع المشاريع، الإجماليات لكل جهاز:
+
+| الجهاز | الزمن: `cargo` / `sccache` / Mitts | تشغيلات `rustc`: `cargo` / Mitts | الكتابة على القرص: `cargo` / Mitts |
+|---|---|---|---|
+| macOS, APFS, M2 Ultra (100 مشروع) | <bdi>76 min / 73 min / **13 min**</bdi> | <bdi>90,961 / **6,905**</bdi> | <bdi>641 GB / **112 GB**</bdi> |
+| Linux x86_64, XFS, Ryzen 9 9950X (90 مشروعاً) | <bdi>60 min / 52 min / **9 min**</bdi> | <bdi>75,049 / **6,162**</bdi> | <bdi>651 GB / **106 GB**</bdi> |
+| Linux aarch64, XFS (100 مشروع) | <bdi>78 min / 76 min / **22 min**</bdi> | <bdi>90,544 / **7,348**</bdi> | <bdi>743 GB / **121 GB**</bdi> |
+
+ينخفض زمن المعالج (CPU) على macOS من <bdi>**20.3 h**</bdi> (`cargo`) و<bdi>**8.0 h**</bdi> (`sccache`) إلى <bdi>**2.7 h**</bdi>. قاس جهاز x86_64 ما مجموعه 90 مشروعاً لا 100: إذ غابت عشرة مشاريع عن ذلك التشغيل (<bdi>similar, smallvec, smol, syntect, tealdeer, tera, textwrap, tokei, tower-http, xh</bdi>)، ولم يُسجَّل السبب.
+
 
 <a id="status"></a>
 ## الحالة
