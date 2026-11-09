@@ -13,6 +13,34 @@ use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+/// Removes `.` and resolves `..` against the preceding component without touching the
+/// filesystem (symbolic links are kept as written), as Cargo does for path dependencies.
+pub(super) fn normalize_lexically(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let can_pop = matches!(out.components().next_back(), Some(Component::Normal(_)));
+                if can_pop {
+                    out.pop();
+                } else if !matches!(
+                    out.components().next_back(),
+                    Some(Component::RootDir | Component::Prefix(_))
+                ) {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out
+}
+
 pub(super) fn discover_path_dependencies(
     project_dir: &Path,
     root_toml: &CargoToml,
@@ -27,7 +55,10 @@ pub(super) fn discover_path_dependencies(
         for (dep_name, dep_val) in deps {
             if let super::manifest::TomlDependency::Detailed(ref d) = dep_val {
                 if let Some(ref rel_p) = d.path {
-                    let dep_dir = base_dir.join(rel_p);
+                    // The same package is reached through different `path = "../.."` spellings
+                    // from different dependents. Unit sources and keys are derived from this
+                    // directory, so it must not depend on which dependent was scanned first.
+                    let dep_dir = normalize_lexically(&base_dir.join(rel_p));
                     let canon = dep_dir.canonicalize().unwrap_or_else(|_| dep_dir.clone());
                     if !seen_dirs.insert(canon) {
                         continue;
@@ -80,4 +111,28 @@ pub(super) fn discover_path_dependencies(
         }
     }
     Ok(path_dependencies)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_lexically;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn parent_components_are_resolved_without_the_filesystem() {
+        for (input, expected) in [
+            ("/ws/crates/a/macros/../../b/logic", "/ws/crates/b/logic"),
+            ("/ws/crates/a/./../b", "/ws/crates/b"),
+            ("crates/a/../b", "crates/b"),
+            ("../shared/../other", "../other"),
+            ("a/..", "."),
+            ("/../x", "/x"),
+        ] {
+            assert_eq!(
+                normalize_lexically(Path::new(input)),
+                PathBuf::from(expected),
+                "{input}"
+            );
+        }
+    }
 }
