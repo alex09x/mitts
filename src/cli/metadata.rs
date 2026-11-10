@@ -54,7 +54,7 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
         );
     }
     let opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args.package.clone(),
         features: args.features.clone(),
         no_default_features: args.no_default_features,

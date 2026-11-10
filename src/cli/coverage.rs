@@ -67,7 +67,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
     }
 
     let opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
             .clone()

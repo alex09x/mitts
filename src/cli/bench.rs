@@ -123,7 +123,7 @@ fn test_args(args: &BenchArgs) -> TestArgs {
     let mut passed = vec!["--bench".to_string()];
     passed.extend(args.bench_args.iter().cloned());
     TestArgs {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         jobs: args.jobs,
         quiet: args.quiet,
         message_format: args.message_format,

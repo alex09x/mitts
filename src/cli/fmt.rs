@@ -147,7 +147,7 @@ fn collect_package_source_files(pkg_dir: &Path, toml: &CargoToml, files: &mut Ve
 pub fn handle_fmt(args: &FmtArgs) -> i32 {
     let start = std::time::Instant::now();
     let opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args.package.clone(),
         verbose: args.verbose,
         ..Default::default()

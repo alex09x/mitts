@@ -18,7 +18,7 @@ use crate::core::ActionKind;
 
 pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
     RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
             .clone()

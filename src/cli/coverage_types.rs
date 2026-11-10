@@ -205,7 +205,7 @@ impl CoverageArgs {
 
     pub fn from_test_args(args: &crate::cli::test::TestArgs) -> Self {
         Self {
-            manifest_path: args.manifest_path.clone(),
+            manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
             package: args.package.clone(),
             packages: args.packages.clone(),
             workspace: args.workspace,

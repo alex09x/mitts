@@ -441,6 +441,7 @@ pub mod coverage_types;
 pub mod diagnostic;
 pub mod fmt;
 pub mod handlers;
+pub mod manifest_discovery;
 pub mod message_format;
 pub mod metadata;
 mod package;

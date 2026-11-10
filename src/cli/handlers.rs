@@ -17,7 +17,7 @@ mod clean_target;
 
 pub fn handle_explain(args: &ExplainArgs) -> i32 {
     let opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
             .clone()
@@ -117,7 +117,7 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
 
 pub fn handle_fetch(args: &FetchArgs) -> i32 {
     let opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         ..Default::default()
     };
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
@@ -243,7 +243,7 @@ pub fn handle_gc(args: &GcArgs) -> i32 {
 
 pub fn handle_clean(args: &CleanArgs) -> i32 {
     let opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         target_dir: args.target_dir.clone(),
         ..Default::default()
     };

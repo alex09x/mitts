@@ -172,7 +172,7 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
     }
 
     let mut opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
             .clone()
