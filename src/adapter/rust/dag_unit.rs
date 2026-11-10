@@ -41,13 +41,10 @@ pub(crate) fn execute_unit(
 
     let has_build_script = super::unit_env::unit_has_build_script(unit);
     let t_bs = std::time::Instant::now();
-    let (current_directives, staging_dir_holder, mut retained_job) =
+    // `_holder_release` owns the build script's staging lock (it may be this unit's stable
+    // directory) and releases it on every return, including a cache hit.
+    let (current_directives, staging_dir_holder, mut retained_job, _holder_release) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
-    // The build script's staging directory may be this unit's stable one: release it on
-    // every return, including a cache hit that never reaches the compile below.
-    let _holder_release = staging_dir_holder
-        .clone()
-        .map(super::compiler_args::incremental::StableStageRelease);
     if retained_job.is_none() {
         crate::core::cache_phase::resume();
     }
@@ -158,12 +155,15 @@ pub(crate) fn execute_unit(
     // Staging directory for build isolation. Incremental units compile in a per-unit
     // stable directory so rustc can reuse its session (the staging path is part of the
     // tracked command line); the guard releases it when this function returns.
-    let staging_dir = match staging_dir_holder {
-        Some(s) => s,
-        None => super::dag_unit_build_script::create_unit_staging_dir(ctx, unit, &clean_crate)?,
+    let (staging_dir, _staging_release) = match staging_dir_holder {
+        Some(s) => (s, None),
+        None => {
+            let dir =
+                super::dag_unit_build_script::create_unit_staging_dir(ctx, unit, &clean_crate)?;
+            let guard = super::compiler_args::incremental::StableStageRelease(dir.clone());
+            (dir, Some(guard))
+        }
     };
-    let _staging_release =
-        super::compiler_args::incremental::StableStageRelease(staging_dir.clone());
 
     // Gather dependencies' CAS artifact paths for --extern, resolving any Cargo package rename aliases
     let extern_crates = super::dag_unit_externs::resolve_extern_crates(
