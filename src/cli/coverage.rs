@@ -66,7 +66,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         extra_args.push("--workspace".to_string());
     }
 
-    let opt = RustBuildOptions {
+    let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
@@ -113,6 +113,7 @@ pub fn handle_coverage(args: &CoverageArgs) -> i32 {
         json_diagnostics: false,
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
         Ok(m) => m,

@@ -342,6 +342,9 @@ pub fn resolve_rustdoc() -> PathBuf {
 
 /// Discovers the root directory of a Cargo workspace by searching upwards for Cargo.toml with [workspace] or Cargo.lock.
 pub fn find_workspace_root(manifest_path: &Path) -> PathBuf {
+    // A relative `./Cargo.toml` has no parents to climb: resolve it against the cwd first.
+    let absolute = std::path::absolute(manifest_path).unwrap_or_else(|_| manifest_path.into());
+    let manifest_path = absolute.as_path();
     let start = if manifest_path.is_dir() {
         manifest_path
     } else {

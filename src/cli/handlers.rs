@@ -16,7 +16,7 @@ use crate::core::{ActionCache, CacheGc, ContentAddressedStore, GcOptions, Source
 mod clean_target;
 
 pub fn handle_explain(args: &ExplainArgs) -> i32 {
-    let opt = RustBuildOptions {
+    let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
@@ -35,6 +35,7 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
         cache_dir: args.cache_dir.clone(),
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, false);
 
     let explanation = match RustAdapter::explain_plan(&opt) {
         Ok(exp) => exp,
@@ -116,10 +117,11 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
 }
 
 pub fn handle_fetch(args: &FetchArgs) -> i32 {
-    let opt = RustBuildOptions {
+    let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, true);
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
         Ok(p) => p,
         Err(err) => {
@@ -242,11 +244,12 @@ pub fn handle_gc(args: &GcArgs) -> i32 {
 }
 
 pub fn handle_clean(args: &CleanArgs) -> i32 {
-    let opt = RustBuildOptions {
+    let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         target_dir: args.target_dir.clone(),
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, true);
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
         Ok(p) => p,
         Err(err) => {

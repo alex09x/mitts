@@ -258,6 +258,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         json_diagnostics: args.message_format.is_json(),
         diagnostic_format: args.message_format.diagnostic_format(),
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
 
     let root_manifest = opt
         .manifest_path

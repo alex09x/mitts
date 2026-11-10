@@ -16,9 +16,9 @@ use super::{package_archive, package_directory, package_lock, registry_metadata,
 
 #[derive(Args, Debug)]
 pub struct PackageArgs {
-    /// Path to the root package manifest
-    #[arg(long, default_value = "Cargo.toml")]
-    pub manifest_path: PathBuf,
+    /// Path to the package manifest (default: the nearest Cargo.toml here or in a parent)
+    #[arg(long)]
+    pub manifest_path: Option<PathBuf>,
     /// Output directory for the crate archive
     #[arg(long)]
     pub target_dir: Option<PathBuf>,
@@ -142,15 +142,39 @@ fn prepared_archive(
     Ok(bytes)
 }
 
+impl PackageArgs {
+    /// The package manifest: `--manifest-path`, else the nearest `Cargo.toml` up the tree.
+    fn manifest(&self) -> Result<PathBuf> {
+        let path = super::manifest_discovery::discover_manifest(&self.manifest_path)
+            .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
+        std::fs::canonicalize(&path)
+            .with_context(|| format!("cannot open manifest {}", path.display()))
+    }
+}
+
+/// The `Cargo.lock` that governs the package: its workspace root's, like Cargo.
+fn lock_path_for(manifest: &Path) -> PathBuf {
+    use crate::adapter::rust::manifest::CargoToml;
+    CargoToml::from_file(manifest)
+        .ok()
+        .and_then(|toml| {
+            CargoToml::find_workspace_root(manifest, &toml)
+                .ok()
+                .flatten()
+        })
+        .map_or_else(|| manifest.to_path_buf(), |(root, _)| root)
+        .with_file_name("Cargo.lock")
+}
+
 fn prepare(args: &PackageArgs) -> Result<(serde_json::Value, Vec<u8>)> {
-    let manifest = std::fs::canonicalize(&args.manifest_path)?;
+    let manifest = args.manifest()?;
     let root = manifest.parent().context("manifest has no parent")?;
     let metadata = registry_metadata::from_manifest(&manifest)?;
     let name = metadata["name"].as_str().context("invalid package name")?;
     let version = metadata["vers"]
         .as_str()
         .context("invalid package version")?;
-    let lock_path = root.join("Cargo.lock");
+    let lock_path = lock_path_for(&manifest);
     let lock = if lock_path.is_file() {
         let lock = crate::adapter::rust::lockfile::CargoLock::from_file(&lock_path)?;
         if !package_lock::compatible(&lock, &manifest, name, version)? {
@@ -163,8 +187,17 @@ fn prepare(args: &PackageArgs) -> Result<(serde_json::Value, Vec<u8>)> {
             .resolve_manifest(&manifest, args.offline || args.frozen)?
             .to_string_formatted()
             .into_bytes()
-        } else {
+        } else if lock_path.parent() == Some(root) {
             std::fs::read(&lock_path)?
+        } else {
+            // A workspace member's archive carries a lock of its own graph, not the
+            // workspace's (which lists sibling path packages the archive does not contain).
+            crate::adapter::rust::resolver::NativeResolver::for_cache_dir(
+                args.cache_dir.as_deref(),
+            )?
+            .resolve_manifest(&manifest, args.offline || args.frozen)?
+            .to_string_formatted()
+            .into_bytes()
         }
     } else if args.locked || args.frozen {
         anyhow::bail!("Cargo.lock is missing and locked resolution was requested");
@@ -190,11 +223,14 @@ fn prepare(args: &PackageArgs) -> Result<(serde_json::Value, Vec<u8>)> {
     if registry_metadata::from_manifest(&manifest)? != metadata {
         anyhow::bail!("package metadata changed during archive creation");
     }
-    let target = args
-        .target_dir
-        .clone()
-        .unwrap_or_else(|| root.join("target"));
-    let directory = Path::new(&target).join("package");
+    let target = crate::adapter::RustAdapter::resolve_target_dir_without_tags(
+        &manifest,
+        &crate::adapter::RustBuildOptions {
+            target_dir: args.target_dir.clone(),
+            ..Default::default()
+        },
+    )?;
+    let directory = target.join("package");
     std::fs::create_dir_all(&directory)?;
     let output = directory.join(format!("{name}-{version}.crate"));
     std::fs::write(&output, &archive)?;
@@ -333,30 +369,26 @@ pub fn handle_package(args: &PackageArgs) -> i32 {
 
 pub fn handle_publish(args: &PublishArgs) -> i32 {
     let result = (|| -> Result<()> {
-        ensure_publish_allowed(&args.package.manifest_path)?;
+        let manifest = args.package.manifest()?;
+        ensure_publish_allowed(&manifest)?;
         if !args.dry_run && (args.package.offline || args.package.frozen) {
             anyhow::bail!("publication requires network access");
         }
         let (metadata, archive) = if let Some(path) = &args.archive {
             if args.package.locked || args.package.frozen {
-                let lock_path = args
-                    .package
-                    .manifest_path
-                    .parent()
-                    .unwrap_or(Path::new("."))
-                    .join("Cargo.lock");
+                let lock_path = lock_path_for(&manifest);
                 let lock = crate::adapter::rust::lockfile::CargoLock::from_file(&lock_path)?;
-                let metadata = registry_metadata::from_manifest(&args.package.manifest_path)?;
+                let metadata = registry_metadata::from_manifest(&manifest)?;
                 let name = metadata["name"].as_str().context("invalid package name")?;
                 let version = metadata["vers"]
                     .as_str()
                     .context("invalid package version")?;
-                if !package_lock::compatible(&lock, &args.package.manifest_path, name, version)? {
+                if !package_lock::compatible(&lock, &manifest, name, version)? {
                     anyhow::bail!("Cargo.lock does not match the package manifest");
                 }
             }
-            let metadata = registry_metadata::from_manifest(&args.package.manifest_path)?;
-            let archive = prepared_archive(path, &args.package.manifest_path, &metadata)?;
+            let metadata = registry_metadata::from_manifest(&manifest)?;
+            let archive = prepared_archive(path, &manifest, &metadata)?;
             (metadata, archive)
         } else {
             prepare(&args.package)?

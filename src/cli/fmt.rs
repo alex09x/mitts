@@ -146,12 +146,13 @@ fn collect_package_source_files(pkg_dir: &Path, toml: &CargoToml, files: &mut Ve
 
 pub fn handle_fmt(args: &FmtArgs) -> i32 {
     let start = std::time::Instant::now();
-    let opt = RustBuildOptions {
+    let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args.package.clone(),
         verbose: args.verbose,
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, false);
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
         Ok(p) => p,

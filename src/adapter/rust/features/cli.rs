@@ -42,6 +42,27 @@ fn declares_feature(ctx: &PackageFeatureContext<'_>, feature: &str) -> bool {
     )
 }
 
+/// Whether the package declares a dependency named `dep` (as its key in any dependency
+/// table), the name a `dep/feature` selector refers to.
+fn declares_dependency(ctx: &PackageFeatureContext<'_>, dep: &str) -> bool {
+    let normalized = dep.replace('-', "_");
+    let mut maps = vec![
+        &ctx.toml.dependencies,
+        &ctx.toml.build_dependencies,
+        &ctx.toml.dev_dependencies,
+    ];
+    for target in ctx.toml.target.values() {
+        maps.extend([
+            &target.dependencies,
+            &target.build_dependencies,
+            &target.dev_dependencies,
+        ]);
+    }
+    maps.into_iter()
+        .flat_map(|map| map.keys())
+        .any(|key| key == dep || key.replace('-', "_") == normalized)
+}
+
 pub(super) fn features_for_root(
     packages: &[PackageFeatureContext<'_>],
     ctx: &PackageFeatureContext<'_>,
@@ -51,23 +72,29 @@ pub(super) fn features_for_root(
     let mut features = Vec::new();
     for feature in &opt.features {
         if let Some((package, name)) = feature.split_once('/') {
-            if roots.iter().any(|root| root.name == package) {
-                if ctx.name == package {
-                    if !declares_feature(ctx, name) {
-                        return Err(RustAdapterError::MetadataFailed(format!(
-                            "package '{package}' has no feature '{name}'"
-                        )));
-                    }
-                    features.push(name.to_string());
+            let dep = package.strip_suffix('?').unwrap_or(package);
+            let names_root = roots.iter().any(|root| root.name == package);
+            // `pkg/feature` names a selected package's own feature...
+            if names_root && ctx.name == package {
+                if !declares_feature(ctx, name) {
+                    return Err(RustAdapterError::MetadataFailed(format!(
+                        "package '{package}' has no feature '{name}'"
+                    )));
                 }
-                continue;
+                features.push(name.to_string());
             }
-            if roots.len() > 1 {
+            // ...and `dep/feature` turns on a dependency's feature in every selected package
+            // that depends on it, even when that dependency is selected too.
+            if declares_dependency(ctx, dep) || (roots.len() <= 1 && !names_root) {
+                features.push(feature.clone());
+            } else if roots.len() > 1
+                && !names_root
+                && !roots.iter().any(|root| declares_dependency(root, dep))
+            {
                 return Err(RustAdapterError::UnsupportedOption(format!(
-                    "feature selector '{feature}' does not name a selected package"
+                    "feature selector '{feature}' names neither a selected package nor a dependency of one"
                 )));
             }
-            features.push(feature.clone());
         } else if roots.len() <= 1 || declares_feature(ctx, feature) {
             features.push(feature.clone());
         } else if !roots.iter().any(|root| declares_feature(root, feature)) {

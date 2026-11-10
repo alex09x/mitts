@@ -83,6 +83,131 @@ fn fixture() -> TempDir {
     temp
 }
 
+fn mitts(dir: &Path, root: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(args)
+        .arg("--cache-dir")
+        .arg(root.join("mitts-cache"))
+        .current_dir(dir)
+        .output()
+        .expect("run Mitts")
+}
+
+fn run_todo(root: &Path) -> String {
+    let run = Command::new(root.join("target/debug/todo"))
+        .output()
+        .expect("run todo");
+    assert!(run.status.success());
+    String::from_utf8(run.stdout).unwrap()
+}
+
+fn assert_ok(output: &std::process::Output) {
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// With several selected packages, `dep/feature` goes to every selected package that
+/// depends on `dep`, also when `dep` is selected itself (review of #105, F1).
+#[test]
+fn dependency_features_with_several_selected_packages() {
+    let temp = fixture();
+    let root = temp.path();
+    let both = mitts(
+        root,
+        root,
+        &[
+            "build",
+            "--quiet",
+            "-p",
+            "todo",
+            "-p",
+            "winit",
+            "--no-default-features",
+            "--features",
+            "slint/backend-winit",
+        ],
+    );
+    assert_ok(&both);
+    assert_eq!(
+        run_todo(root),
+        "slint winit=true software=false default=false\nselector winit=true\nwinit software=false\n"
+    );
+
+    let dependency_selected = mitts(
+        root,
+        root,
+        &[
+            "build",
+            "--quiet",
+            "-p",
+            "todo",
+            "-p",
+            "slint",
+            "--no-default-features",
+            "--features",
+            "slint/backend-winit,slint/renderer-software",
+        ],
+    );
+    assert_ok(&dependency_selected);
+    assert_eq!(
+        run_todo(root),
+        "slint winit=true software=true default=false\nselector winit=true\nwinit software=true\n"
+    );
+
+    let unknown = mitts(
+        root,
+        root,
+        &[
+            "build",
+            "--quiet",
+            "-p",
+            "todo",
+            "-p",
+            "winit",
+            "--features",
+            "nothing/x",
+        ],
+    );
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("names neither"));
+}
+
+/// Inside a member, Mitts builds the enclosing workspace like Cargo: its Cargo.lock (no
+/// stray member lockfile) and its members, so `-p <sibling>` works (review of #105, F2).
+#[test]
+fn member_directory_uses_the_workspace_lock_and_members() {
+    let temp = fixture();
+    let root = temp.path();
+    assert_ok(&mitts(&root.join("todo"), root, &["build", "--quiet"]));
+    assert!(root.join("Cargo.lock").is_file());
+    assert!(!root.join("todo/Cargo.lock").exists());
+
+    let sibling = mitts(
+        &root.join("slint"),
+        root,
+        &["build", "--quiet", "-p", "todo"],
+    );
+    assert_ok(&sibling);
+    assert!(!root.join("slint/Cargo.lock").exists());
+    assert!(!root.join("slint/target").exists());
+    assert!(root.join("target/debug/todo").is_file());
+}
+
+/// `mitts package` started below a member packages that member into the workspace
+/// `target/package` (review of #105, F3).
+#[test]
+fn package_from_a_member_subdirectory() {
+    let temp = fixture();
+    let root = temp.path();
+    let output = mitts(&root.join("winit/src"), root, &["package", "--no-verify"]);
+    assert_ok(&output);
+    assert!(root.join("target/package/winit-0.1.0.crate").is_file());
+    assert!(!root.join("winit/target").exists());
+}
+
 fn build_and_run(root: &Path, args: &[&str]) -> String {
     let cache = root.join("mitts-cache");
     let output = Command::new(env!("CARGO_BIN_EXE_mitts"))

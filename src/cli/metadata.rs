@@ -53,7 +53,7 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
             args.format_version
         );
     }
-    let opt = RustBuildOptions {
+    let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args.package.clone(),
         features: args.features.clone(),
@@ -66,6 +66,7 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
         frozen: args.frozen,
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, true);
     let plan = RustAdapter::explain_plan(&opt)?;
     let mut packages = BTreeMap::<String, PackageEntry>::new();
     let mut unit_packages = HashMap::<String, String>::new();

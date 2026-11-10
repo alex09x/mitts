@@ -216,6 +216,7 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         quiet: args.quiet,
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
 
     if args.message_format != MessageFormat::Human {
         return message_format::run_non_human_build(&mut opt, args.message_format);

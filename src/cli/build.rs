@@ -17,7 +17,7 @@ use crate::cli::BuildArgs;
 use crate::core::ActionKind;
 
 pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
-    RustBuildOptions {
+    let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
@@ -62,7 +62,9 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         all_benches: args.benches,
         keep_going: args.keep_going,
         ..Default::default()
-    }
+    };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, false);
+    opt
 }
 
 pub fn create_progress_callback(progress: Option<indicatif::ProgressBar>) -> BuildProgressCallback {
