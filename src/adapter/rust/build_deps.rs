@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 const DEPS_PREFIX: &str = "deps-";
-const OWNER_LOCK: &str = ".owner.lock";
+use crate::core::owned_dir::OWNER_LOCK;
 
 static TMP_SEQ: AtomicU64 = AtomicU64::new(1);
 static HELD_DEPS_LOCKS: Mutex<Vec<FileLock>> = Mutex::new(Vec::new());
@@ -58,11 +58,11 @@ pub(crate) fn create_session_dir(cas_root: &Path, is_ephemeral_cas: bool) -> Res
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let pid = std::process::id();
-    let dir = tmp_root.join(format!("{DEPS_PREFIX}{pid}-{seq}-{nanos:x}"));
-    fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create build-deps dir {}", dir.display()))?;
-    let lock = FileLock::acquire_exclusive(&dir.join(OWNER_LOCK))
-        .with_context(|| format!("Failed to lock build-deps dir {}", dir.display()))?;
+    let (dir, lock) = crate::core::owned_dir::create_locked(
+        &tmp_root,
+        &format!("{DEPS_PREFIX}{pid}-{seq}-{nanos:x}"),
+    )
+    .context("Failed to create the build-deps dir")?;
     HELD_DEPS_LOCKS.lock().unwrap().push(lock);
     Ok(dir)
 }
@@ -85,6 +85,7 @@ pub(crate) fn sweep_dead_in(tmp_root: &Path) {
         };
         let _ = fs::remove_dir_all(&dir);
     }
+    crate::core::owned_dir::sweep_abandoned_staging(tmp_root, DEPS_PREFIX);
 }
 
 pub(crate) struct BuildDepsScope {
