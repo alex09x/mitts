@@ -124,6 +124,19 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
             }
         }
         let _ = fs::remove_file(TargetArtifactIndex::index_path(target, profile));
+
+        // rustc incremental sessions of Mitts builds live in their own directory (Cargo's
+        // `incremental/` is left alone) and are scratch state: removing them only costs
+        // the next edit a full compile of the crate.
+        let sessions = target.join(profile).join("mitts-incremental");
+        if fs::symlink_metadata(&sessions).is_ok_and(|m| m.is_dir())
+            && sessions
+                .canonicalize()
+                .is_ok_and(|p| p.starts_with(&canonical_root))
+        {
+            fs::remove_dir_all(&sessions)?;
+            removed += 1;
+        }
     }
 
     // Older versions kept all outputs in this dedicated directory. Its lock
