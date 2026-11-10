@@ -69,7 +69,6 @@ pub fn active_toolchain_supports_check_cfg() -> bool {
     active_toolchain().map_or(true, |t| t.supports_check_cfg())
 }
 
-
 type ProbedRustcCacheKey = (PathBuf, Option<OsString>, Option<SystemTime>);
 
 static RESOLVED_RUSTC: OnceLock<PathBuf> = OnceLock::new();

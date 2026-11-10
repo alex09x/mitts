@@ -25,7 +25,8 @@ impl CargoToml {
         // 1. Explicit package.workspace if defined (fail-closed)
         if let Some(ref pkg) = manifest.package {
             if let Some(ref ws_rel) = pkg.workspace {
-                let candidate = pkg_dir.join(ws_rel).join("Cargo.toml");
+                let candidate = super::planner_paths::normalize_lexically(&pkg_dir.join(ws_rel))
+                    .join("Cargo.toml");
                 if !candidate.is_file() {
                     anyhow::bail!(
                         "package.workspace specified at {:?} does not exist or is not a file",
@@ -148,8 +149,11 @@ impl CargoToml {
                         .map(|p| root_dir.join(p))
                         .unwrap_or_else(|| root_dir.to_path_buf());
                     if let Ok(entries) = fs::read_dir(&base_dir) {
-                        for entry in entries.flatten() {
-                            let candidate_dir = entry.path();
+                        // Sorted: `read_dir` order is the filesystem's, and two matched
+                        // directories declaring one package name resolved differently.
+                        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+                        dirs.sort();
+                        for candidate_dir in dirs {
                             if candidate_dir.is_dir() {
                                 if let Ok(rel) = candidate_dir.strip_prefix(root_dir) {
                                     let is_excluded =
@@ -165,7 +169,12 @@ impl CargoToml {
                                                     )
                                                 })?;
                                             if let Some(pkg) = toml.package {
-                                                members.push((pkg.name, candidate_dir));
+                                                members.push((
+                                                    pkg.name,
+                                                    super::planner_paths::normalize_lexically(
+                                                        &candidate_dir,
+                                                    ),
+                                                ));
                                             }
                                         }
                                     }
@@ -212,6 +221,20 @@ impl CargoToml {
             }
         }
 
+        // Cargo refuses a workspace in which two member directories declare one package.
+        let mut seen: std::collections::BTreeMap<&str, &Path> = Default::default();
+        for (name, dir) in &members {
+            if let Some(first) = seen.insert(name.as_str(), dir.as_path()) {
+                let norm = super::planner_paths::normalize_lexically;
+                if norm(first) != norm(dir) {
+                    anyhow::bail!(
+                        "two packages named `{name}` in this workspace:\n- {}\n- {}",
+                        first.join("Cargo.toml").display(),
+                        dir.join("Cargo.toml").display()
+                    );
+                }
+            }
+        }
         Ok(members)
     }
 }

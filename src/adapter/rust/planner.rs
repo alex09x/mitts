@@ -84,10 +84,15 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .flat_map(|(n, v)| v.iter().map(move |(p, t)| (n, p, t)))
         {
             let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-            if canon_path.starts_with(&canon_proj) {
+            if let Ok(rel) = canon_path.strip_prefix(&canon_proj) {
+                // Reached through a symlink from outside, the package is a member by where it
+                // really is: keep it under the workspace path, or its key falls back to the
+                // absolute manifest dir and loses --remap-path-prefix (issue 94).
+                let in_workspace =
+                    super::planner_paths::normalize_lexically(&project_dir.join(rel));
                 workspace_manifests
                     .entry(name.clone())
-                    .or_insert_with(|| (path.clone(), toml.clone()));
+                    .or_insert_with(|| (in_workspace, toml.clone()));
             }
         }
     }
@@ -305,25 +310,12 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     crate::adapter::rust::planner_roots::prune_plan_root_units(&mut units, opt, has_all_ws);
-    for example in &opt.example_targets {
-        if !units
-            .iter()
-            .any(|unit| unit.kind == "example" && &unit.target_name == example)
-        {
-            anyhow::bail!(
-                "no example target named `{example}` is available with the selected package and features"
-            );
-        }
-    }
-    for bench in &opt.bench_targets {
-        if !units.iter().any(|unit| {
-            matches!(unit.kind.as_str(), "test" | "custom-test") && &unit.target_name == bench
-        }) {
-            anyhow::bail!(
-                "no bench target named `{bench}` is available with the selected package and features"
-            );
-        }
-    }
+    let selected: Vec<super::target_validation::SelectedPackage<'_>> = workspace_manifests
+        .iter()
+        .filter(|(name, _)| primary_roots.contains(name.as_str()))
+        .map(|(name, (dir, toml))| super::target_validation::SelectedPackage { name, dir, toml })
+        .collect();
+    super::target_validation::validate_named_targets(opt, &units, &selected)?;
     let t_deps = std::time::Instant::now();
     let s_deps = super::compiler_resolve::rustc_subproc_stats();
 

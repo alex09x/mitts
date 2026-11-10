@@ -51,13 +51,15 @@ pub(crate) fn resolve_diagnostic_format(extra_compiler_args: &[String]) -> Diagn
     }
 }
 
-pub(crate) fn append_extra_and_diagnostic_args(
-    cmd: &mut Command,
+/// The extra compiler arguments a unit actually gets: no `--workspace`/`--all` or
+/// diagnostic markers, no `--target` / coverage instrumentation for host units, and the
+/// caller's own flags only for primary targets.
+pub(crate) fn forwarded_extra_args(
     inv: &RustcInvocation,
-    pkg_dir: &Path,
     is_host: bool,
     is_primary_target: bool,
-) -> bool {
+) -> Vec<String> {
+    let mut out = Vec::new();
     let mut i = 0;
     while i < inv.extra_compiler_args.len() {
         let arg = &inv.extra_compiler_args[i];
@@ -66,16 +68,17 @@ pub(crate) fn append_extra_and_diagnostic_args(
             i += 1;
         } else if arg == "--target" || (arg == "-C" && next == Some("instrument-coverage")) {
             if !is_host {
-                cmd.args(std::iter::once(arg.as_str()).chain(next));
+                out.push(arg.clone());
+                out.extend(next.map(String::from));
             }
             i += 2;
         } else if arg.starts_with("--target=") || arg == "-Cinstrument-coverage" {
             if !is_host {
-                cmd.arg(arg);
+                out.push(arg.clone());
             }
             i += 1;
         } else if is_primary_target {
-            cmd.arg(arg);
+            out.push(arg.clone());
             i += 1;
         } else if matches!(
             arg.as_str(),
@@ -87,6 +90,17 @@ pub(crate) fn append_extra_and_diagnostic_args(
             i += 1;
         }
     }
+    out
+}
+
+pub(crate) fn append_extra_and_diagnostic_args(
+    cmd: &mut Command,
+    inv: &RustcInvocation,
+    pkg_dir: &Path,
+    is_host: bool,
+    is_primary_target: bool,
+) -> bool {
+    cmd.args(forwarded_extra_args(inv, is_host, is_primary_target));
 
     if crate::adapter::rust::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace)
         || (!inv.unit.is_workspace && !inv.unit.manifest_path.is_file())

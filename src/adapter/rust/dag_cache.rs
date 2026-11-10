@@ -144,10 +144,23 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
     }
 
-    let entry = match matched_entry {
+    let mut entry = match matched_entry {
         Some(e) => e,
         None => return Ok(false),
     };
+    // A rustc wrapper's declared outputs travel with the entry; the rest of the restore
+    // sees rustc's outputs only. They are validated with the entry and placed only once
+    // rustc's outputs were restored, so a rejected entry never writes them.
+    let (rustc_outputs, wrapper_outputs) = super::wrapper_outputs::split(&entry.outputs);
+    entry.outputs = rustc_outputs;
+    let wrapper_outputs_present = (wrapper_outputs.is_empty()
+        || super::wrapper_outputs::declared_dir().is_some())
+        && wrapper_outputs.iter().all(|o| {
+            fs::metadata(ctx.cas.object_path(&o.cas_hash)).is_ok_and(|m| m.len() == o.file_size)
+        });
+    if !wrapper_outputs_present {
+        return Ok(false);
+    }
     let res_key = effective_key
         .split(":ws_leak:")
         .next()
@@ -235,6 +248,9 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                 &artifact_key,
             )
         {
+            return Ok(false);
+        }
+        if !super::wrapper_outputs::restore(ctx.cas, &wrapper_outputs) {
             return Ok(false);
         }
 

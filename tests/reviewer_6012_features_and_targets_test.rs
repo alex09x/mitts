@@ -291,12 +291,13 @@ fn test_lib_test_false_doc_true_doctest_discovery_and_selection() {
         "default test run must not execute lib unit test when test=false"
     );
 
-    // But if --lib is explicitly passed, it IS selected
+    // But if `mitts test --lib` is explicitly passed, it IS selected
     let mut lib_selected = test_targets;
     select_test_targets(
         &mut lib_selected,
         &RustBuildOptions {
             lib_only: true,
+            mode: mitts::adapter::BuildMode::Test,
             ..Default::default()
         },
     );

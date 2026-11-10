@@ -50,6 +50,11 @@ pub fn run_native_dag_build(
     };
     let _gc_lease = crate::core::gc::CacheLease::acquire_for_cas_root(cas.root());
 
+    // Whole seconds, rounded down, like `ActionCacheEntry::created_at_secs`.
+    let build_started_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let dag = CompilationDag::from_explanation(explanation)?;
     let _ = dag.topological_waves()?;
 
@@ -166,6 +171,7 @@ pub fn run_native_dag_build(
     let compiled_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let cached_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
+    let failed_units = Mutex::new(Vec::<String>::new());
     let shared = super::dag_worker::WorkerShared {
         dag: &dag,
         work_queue: &work_queue,
@@ -174,6 +180,7 @@ pub fn run_native_dag_build(
         resolved_keys: &resolved_keys,
         unit_keys,
         deriver,
+        failed_units: &failed_units,
     };
 
     let cache_budget = crate::core::cache_phase::CachePhaseBudget::for_platform();
@@ -260,6 +267,15 @@ pub fn run_native_dag_build(
                 Ok(Ok(())) => {}
             }
         }
+    });
+
+    super::dag_retract::retract_failed_pipelined_units(&super::dag_retract::RetractScope {
+        dag: &dag,
+        failed: &failed_units.lock().unwrap(),
+        metadata_signaled: &metadata_signaled.lock().unwrap(),
+        resolved_keys: &resolved_keys.lock().unwrap(),
+        ac: &ac,
+        build_started_secs,
     });
 
     explanation.manifest_snapshot.verify_fresh()?;

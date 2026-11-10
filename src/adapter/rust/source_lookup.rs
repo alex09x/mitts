@@ -171,7 +171,10 @@ pub(crate) type ResolvedPackageManifest<'a> = (
 pub(crate) fn resolve_selected_package_manifests<'a>(
     selected_packages: &[(&'a super::lockfile::CargoLockPackage, bool)],
     workspace_manifests: &std::collections::HashMap<String, (PathBuf, super::manifest::CargoToml)>,
-    path_dependencies: &std::collections::HashMap<String, Vec<(PathBuf, super::manifest::CargoToml)>>,
+    path_dependencies: &std::collections::HashMap<
+        String,
+        Vec<(PathBuf, super::manifest::CargoToml)>,
+    >,
     project_dir: &Path,
     cache_dir: Option<&Path>,
     lockfile_version: u32,

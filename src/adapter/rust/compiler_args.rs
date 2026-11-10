@@ -320,6 +320,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.release,
     ));
     cmd.env("RUSTC", &compiler_bin);
+    if super::wrapper_outputs::declared_dir().is_some() {
+        let wrapper_out = super::wrapper_outputs::unit_out_dir(inv.out_dir);
+        fs::create_dir_all(&wrapper_out)?;
+        cmd.env(super::wrapper_outputs::OUT_DIR_ENV, wrapper_out);
+    }
     if let Some(tc) = compiler_bin
         .ancestors()
         .nth(2)
@@ -369,10 +374,14 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         } else {
             inv.mode
         };
+        // The arguments rustc really gets for this unit, filtered as the action key is.
+        let unit_is_host = inv.unit.for_host || is_host_kind;
+        let forwarded = diagnostics::forwarded_extra_args(inv, unit_is_host, is_primary_target);
         let stable = incremental::stable_metadata_key(
             inv,
             &profile,
             effective_mode,
+            &forwarded,
             &target_rustflags,
             explicit_target.as_deref(),
         );

@@ -168,11 +168,14 @@ pub(crate) fn session_root(
 /// must not share a session or a crate identity: the unit (package, kind, target name,
 /// host) and its crate root relative to the package (`tests/x.rs` and `benches/x.rs` share
 /// a unit id), its features, the mode the action key uses (`effective_mode`), the
-/// profile, the compiler arguments and target rustflags, the target and the toolchain.
+/// profile, the extra arguments rustc really gets (`forwarded_args`, filtered like the
+/// action key: no `--workspace`, diagnostics markers, or a host unit's `--target` and
+/// coverage flags), the target rustflags, the target and the toolchain.
 pub(crate) fn stable_metadata_key(
     inv: &RustcInvocation,
     profile: &UnitProfileSettings,
     effective_mode: BuildMode,
+    forwarded_args: &[String],
     target_rustflags: &[String],
     explicit_target: Option<&str>,
 ) -> String {
@@ -187,13 +190,19 @@ pub(crate) fn stable_metadata_key(
     let toolchain = crate::adapter::rust::compiler_resolve::active_toolchain()
         .map(|t| t.toolchain.version.clone())
         .unwrap_or_default();
+    // Host units compile for the host whatever `--target` says; their key leaves it out.
+    let is_host = inv.unit.for_host
+        || matches!(
+            inv.unit.kind.as_str(),
+            "proc-macro" | "custom-build" | "build-script"
+        );
+    let explicit_target = explicit_target.filter(|_| !is_host);
     let identity = format!(
         "mitts-incremental-v2\n{}\n{}\n{features:?}\n{effective_mode:?}\nrelease={}\n\
-         {profile:?}\n{:?}\n{target_rustflags:?}\n{explicit_target:?}\n{toolchain}",
+         {profile:?}\n{forwarded_args:?}\n{target_rustflags:?}\n{explicit_target:?}\n{toolchain}",
         inv.unit.unit_id(),
         src_rel.display(),
         inv.release,
-        inv.extra_compiler_args,
     );
     Sha256::digest(identity.as_bytes())[..16].to_string()
 }

@@ -138,7 +138,34 @@ pub fn prune_plan_root_units(
             root_unit_ids.push(u.unit_id());
         }
     }
-    if root_unit_ids.is_empty() {
+    // `--examples` / `--benches` (and their named forms) that select nothing are a no-op,
+    // as in Cargo; only a selection without such a filter falls back to the workspace.
+    let group_filter = (opt.all_examples || opt.all_benches)
+        && !opt.lib_only
+        && !opt.all_bins
+        && !opt.all_tests
+        && opt.bin_targets.is_empty()
+        && opt.test_targets.is_empty()
+        && opt.example_targets.is_empty()
+        && opt.bench_targets.is_empty();
+    // The library is a root of `--examples` too (examples link it), so "nothing matched"
+    // means no example or bench unit was planned, not an empty root list.
+    let group_matched = units.iter().any(|u| {
+        (opt.all_examples && u.kind == "example")
+            || (opt.all_benches && matches!(u.kind.as_str(), "test" | "custom-test"))
+    });
+    if group_filter && !group_matched {
+        let filter = if opt.all_examples {
+            "examples"
+        } else {
+            "benches"
+        };
+        eprintln!(
+            "warning: target filter `{filter}` specified, but no targets matched; this is a no-op"
+        );
+        units.clear();
+        return;
+    } else if root_unit_ids.is_empty() {
         root_unit_ids.extend(
             units
                 .iter()

@@ -20,7 +20,7 @@ use anyhow::{bail, Result};
 pub use context::ExecutionContext;
 pub(crate) use lock::{acquire_unit_job_token, UnitJobReservation};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
 pub(crate) fn execute_unit(
@@ -41,13 +41,10 @@ pub(crate) fn execute_unit(
 
     let has_build_script = super::unit_env::unit_has_build_script(unit);
     let t_bs = std::time::Instant::now();
-    let (current_directives, staging_dir_holder, mut retained_job) =
+    // `_holder_release` owns the build script's staging lock (it may be this unit's stable
+    // directory) and releases it on every return, including a cache hit.
+    let (current_directives, staging_dir_holder, mut retained_job, _holder_release) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
-    // The build script's staging directory may be this unit's stable one: release it on
-    // every return, including a cache hit that never reaches the compile below.
-    let _holder_release = staging_dir_holder
-        .clone()
-        .map(super::compiler_args::incremental::StableStageRelease);
     if retained_job.is_none() {
         crate::core::cache_phase::resume();
     }
@@ -158,12 +155,15 @@ pub(crate) fn execute_unit(
     // Staging directory for build isolation. Incremental units compile in a per-unit
     // stable directory so rustc can reuse its session (the staging path is part of the
     // tracked command line); the guard releases it when this function returns.
-    let staging_dir = match staging_dir_holder {
-        Some(s) => s,
-        None => super::dag_unit_build_script::create_unit_staging_dir(ctx, unit, &clean_crate)?,
+    let (staging_dir, _staging_release) = match staging_dir_holder {
+        Some(s) => (s, None),
+        None => {
+            let dir =
+                super::dag_unit_build_script::create_unit_staging_dir(ctx, unit, &clean_crate)?;
+            let guard = super::compiler_args::incremental::StableStageRelease(dir.clone());
+            (dir, Some(guard))
+        }
     };
-    let _staging_release =
-        super::compiler_args::incremental::StableStageRelease(staging_dir.clone());
 
     // Gather dependencies' CAS artifact paths for --extern, resolving any Cargo package rename aliases
     let extern_crates = super::dag_unit_externs::resolve_extern_crates(
@@ -250,6 +250,7 @@ pub(crate) fn execute_unit(
         })
     };
 
+    let early_metadata_files = std::sync::Mutex::new(Vec::<PathBuf>::new());
     let t_rustc = std::time::Instant::now();
     let output = if let Some(cb) = ctx.on_metadata_ready {
         invocation.execute_pipelined(|rmeta_path| {
@@ -321,6 +322,12 @@ pub(crate) fn execute_unit(
                         &artifact_key,
                         "rmeta",
                     ) {
+                        // The shared alias is named after the result key and may serve a
+                        // concurrent build of the same key: it stays; the per-build copy goes.
+                        early_metadata_files
+                            .lock()
+                            .unwrap()
+                            .extend(bdeps_meta.clone());
                         let published = bdeps_meta.unwrap_or(named);
                         ctx.completed_artifacts
                             .lock()
@@ -333,13 +340,36 @@ pub(crate) fn execute_unit(
                             let _ = fs::create_dir_all(&target_deps_dir);
                             let dep_copy = target_deps_dir.join(fname);
                             let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+                            early_metadata_files.lock().unwrap().push(dep_copy);
                         }
                     }
                 }
             }
-        })?
+        })
     } else {
-        invocation.execute()?
+        invocation.execute()
+    };
+    // A unit that fails after signalling its metadata takes that metadata back (issue 89):
+    // its target/ copy and per-build dependency file, its completed artifact and its
+    // resolved key, so no later reader finds a failed unit's crate and a dependent popped
+    // before the abort is keyed as tainted. The shared alias is named after the result key
+    // and may serve a concurrent compile of that key, so it stays. Dependents' cache entries
+    // are retracted by the runner once every worker has stopped (`dag_retract`).
+    let output = match output {
+        Ok(out) if out.success => out,
+        other => {
+            for path in early_metadata_files.lock().unwrap().drain(..) {
+                let _ = fs::remove_file(path);
+            }
+            ctx.completed_artifacts
+                .lock()
+                .unwrap()
+                .remove(&unit.unit_id());
+            if let Some(rk_map) = ctx.resolved_keys {
+                rk_map.lock().unwrap().remove(&unit.unit_id());
+            }
+            other?
+        }
     };
     crate::core::metrics::record_rustc_duration(t_rustc.elapsed());
     drop(_job_token);

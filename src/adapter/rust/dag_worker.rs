@@ -43,10 +43,12 @@ pub(crate) struct WorkerShared<'a> {
     pub resolved_keys: &'a Mutex<HashMap<String, String>>,
     pub unit_keys: &'a HashMap<String, String>,
     pub deriver: &'a super::key::UnitKeyDeriver,
+    /// Units whose compilation failed (after any metadata they may have signalled).
+    pub failed_units: &'a Mutex<Vec<String>>,
 }
 
 /// Every unit that depends on `unit_id`, directly or through other units.
-fn transitive_dependents(dag: &CompilationDag, unit_id: &str) -> Vec<String> {
+pub(crate) fn transitive_dependents(dag: &CompilationDag, unit_id: &str) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut stack = vec![unit_id.to_string()];
     while let Some(id) = stack.pop() {
@@ -155,6 +157,7 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             }
             Ok(Err(err)) => {
                 guard.resolved = true;
+                shared.failed_units.lock().unwrap().push(unit_id.clone());
                 if shared.work_queue.keeps_going() {
                     shared.work_queue.mark_failed_keep_going(
                         format!("{:#}", err),
@@ -167,6 +170,7 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             }
             Err(panic_err) => {
                 guard.resolved = true;
+                shared.failed_units.lock().unwrap().push(unit_id.clone());
                 let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
                     s.to_string()
                 } else if let Some(s) = panic_err.downcast_ref::<String>() {

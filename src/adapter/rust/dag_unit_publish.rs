@@ -230,6 +230,20 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
         rk_map.lock().unwrap().insert(unit.unit_id(), bound);
     }
 
+    // Declared wrapper outputs travel with the entry (bound above to rustc's outputs only,
+    // as on restore). If they cannot be stored, the entry is not published (fail closed).
+    let mut can_publish_cache = can_publish_cache;
+    match super::wrapper_outputs::collect(ctx.cas, args.staging_dir) {
+        Ok(extra) => cached_outputs.extend(extra),
+        Err(err) => {
+            eprintln!(
+                "[mitts::warn] Unit '{}': storing the rustc wrapper's declared outputs failed: {err:#}. Not caching it.",
+                unit.unit_id()
+            );
+            can_publish_cache = false;
+        }
+    }
+
     // 6. Output byte scanning for workspace root leaks (P2): an artifact that embeds the
     // checkout path is published under a per-checkout key, and a marker lets later misses
     // in other checkouts take a per-checkout lock instead of queueing on the shared one.

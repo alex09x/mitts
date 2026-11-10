@@ -46,6 +46,7 @@ Pass-through, telemetry, or static-analysis wrappers that are deterministic func
 | --- | --- | --- |
 | `MITTS_RUSTC_WRAPPER_CACHE` | set to `1` or `true` to cache wrapped units and build scripts in a namespace keyed by the wrapper executable's resolved path and SHA-256 content hash | off (`0`) |
 | `MITTS_RUSTC_WRAPPER_SALT` | optional caller-provided string mixed into wrapper-scoped keys when the wrapper's behavior depends on external config, schema version, or environment state | unset |
+| `MITTS_RUSTC_WRAPPER_OUTPUTS` | directory where the wrapper's own extra outputs belong (see below) | unset |
 
 When `MITTS_RUSTC_WRAPPER_CACHE=1` is set:
 - Every active wrapper executable must resolve on disk (`PATH` or file path) and is hashed by
@@ -53,3 +54,17 @@ When `MITTS_RUSTC_WRAPPER_CACHE=1` is set:
 - Wrapped cache entries never satisfy an unwrapped build, and unwrapped cache entries never
   satisfy a wrapped build.
 - Without `MITTS_RUSTC_WRAPPER_CACHE=1`, the default uncached behavior and warning are unchanged.
+
+#### Extra outputs of a wrapper
+
+A cache hit does not run the wrapper, so files the wrapper writes besides rustc's outputs would
+be missing after a hit. Declare where they belong with `MITTS_RUSTC_WRAPPER_OUTPUTS=<dir>`
+(together with `MITTS_RUSTC_WRAPPER_CACHE=1`):
+- For each compiled unit, Mitts sets `MITTS_WRAPPER_OUT_DIR` to a private, empty directory.
+  The wrapper writes its extra files there, in any relative layout (for example
+  `<crate>.idx` and `.deps/<crate>.json`).
+- After a successful compile, Mitts stores those files with the unit and places them at
+  `<dir>/<relative path>`. A cache hit restores them to the same place without running the
+  wrapper.
+- The declaration is part of the key: entries made without it never satisfy a build with it.
+  If the files cannot be stored, the unit is not cached.

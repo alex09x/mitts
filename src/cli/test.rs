@@ -130,6 +130,11 @@ pub struct TestArgs {
     #[arg(long)]
     pub benches: bool,
 
+    /// Keep compiling test targets past a failed unit (skip only what depends on it); the
+    /// command still fails, and no tests run, when any target failed to compile
+    #[arg(long)]
+    pub keep_going: bool,
+
     /// Test all targets, including examples and benchmarks
     #[arg(long)]
     pub all_targets: bool,
@@ -247,7 +252,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         doc_only: args.doc,
         exclude: args.exclude.clone(),
         example_targets: Vec::new(),
-        keep_going: false,
+        keep_going: args.keep_going,
         crate_types: Vec::new(),
         quiet: args.quiet,
         json_diagnostics: args.message_format.is_json(),

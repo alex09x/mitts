@@ -335,6 +335,17 @@ pub(crate) fn dev_depends_on_itself(
     manifest_path: &std::path::Path,
     package_name: &str,
 ) -> bool {
+    !self_dev_dependency_names(toml, manifest_path, package_name).is_empty()
+}
+
+/// The names the package's own library is imported under through its self
+/// `[dev-dependencies]` entries: the entry key, which is an alias when the entry says
+/// `package = "<this package>"` (`me = { path = ".", package = "pkg" }` gives `me`).
+pub(crate) fn self_dev_dependency_names(
+    toml: &CargoToml,
+    manifest_path: &std::path::Path,
+    package_name: &str,
+) -> Vec<String> {
     let pkg_dir = manifest_path.parent().unwrap_or(std::path::Path::new("."));
     let own = package_name.replace('-', "_");
     let same_dir = |rel: &str| {
@@ -351,13 +362,15 @@ pub(crate) fn dev_depends_on_itself(
                 .values()
                 .flat_map(|ts| ts.dev_dependencies.iter()),
         )
-        .any(|(key, dep)| match dep {
+        .filter(|(key, dep)| match dep {
             super::manifest_models::TomlDependency::Detailed(d) => {
                 d.package_name.as_deref().unwrap_or(key).replace('-', "_") == own
                     && d.path.as_deref().is_some_and(same_dir)
             }
             _ => false,
         })
+        .map(|(key, _)| key.replace('-', "_"))
+        .collect()
 }
 
 /// Prunes compilation units that are not reachable from root targets.

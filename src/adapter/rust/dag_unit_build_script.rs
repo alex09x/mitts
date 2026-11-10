@@ -75,17 +75,23 @@ pub(crate) fn create_staging_dir(cas_root: &Path, clean_crate: &str) -> Result<P
     )
 }
 
+/// What running (or restoring) a unit's build script hands the compile: its directives,
+/// the staging directory it ran in, the job token it holds, and the guard of that
+/// directory's stable-staging lock.
+pub(crate) type BuildScriptOutcome<'a> = (
+    Option<BuildScriptDirectives>,
+    Option<PathBuf>,
+    Option<super::dag_unit::UnitJobReservation<'a>>,
+    Option<super::compiler_args::incremental::StableStageRelease>,
+);
+
 pub(crate) fn run_build_script_if_needed<'a>(
     unit: &PlannedCompilationUnit,
     clean_crate: &str,
     ctx: &ExecutionContext<'a>,
-) -> Result<(
-    Option<BuildScriptDirectives>,
-    Option<PathBuf>,
-    Option<super::dag_unit::UnitJobReservation<'a>>,
-)> {
+) -> Result<BuildScriptOutcome<'a>> {
     if !super::unit_env::unit_has_build_script(unit) {
-        return Ok((None, None, None));
+        return Ok((None, None, None, None));
     }
 
     let extern_crates = super::dag_unit_externs::resolve_extern_crates_for_build_script(
@@ -122,6 +128,8 @@ pub(crate) fn run_build_script_if_needed<'a>(
             Some(&build_dep_env),
         )?
     };
+    // Owns the stable staging lock from creation on: every early return below releases it.
+    let mut stage_guard = None;
     let (directives, staging_dir_opt, retained_job) = if let Some(d) = cached_directives {
         (d, None, None)
     } else {
@@ -183,6 +191,9 @@ pub(crate) fn run_build_script_if_needed<'a>(
         } else {
             let job_reservation = super::dag_unit::acquire_unit_job_token(ctx)?;
             let staging_dir = create_unit_staging_dir(ctx, unit, clean_crate)?;
+            stage_guard = Some(super::compiler_args::incremental::StableStageRelease(
+                staging_dir.clone(),
+            ));
             let d = match execute_build_script_with_key(
                 unit,
                 &staging_dir,
@@ -198,7 +209,6 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 Ok(d) => d,
                 Err(err) => {
                     let _ = fs::remove_dir_all(&staging_dir);
-                    super::compiler_args::incremental::release_stable_staging(&staging_dir);
                     let pkg_dir = unit
                         .manifest_path
                         .parent()
@@ -304,7 +314,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
 
     register_directives_in_ctx(unit, &directives, ctx);
 
-    Ok((Some(directives), staging_dir_opt, retained_job))
+    Ok((Some(directives), staging_dir_opt, retained_job, stage_guard))
 }
 
 /// Records build script directives into thread-safe maps for downstream compilation and doctests.

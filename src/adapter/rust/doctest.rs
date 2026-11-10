@@ -70,15 +70,11 @@ pub fn plan_doctests(opt: &RustBuildOptions, plan: &BuildPlan) -> Result<Vec<Doc
         .collect();
 
     let mut out = Vec::new();
-    for lib in explanation
-        .units
-        .iter()
-        .filter(|u| {
-            u.is_primary
-                && !u.for_host
-                && (super::planner_units::is_library_kind(&u.kind) || u.kind == "proc-macro")
-        })
-    {
+    for lib in explanation.units.iter().filter(|u| {
+        u.is_primary
+            && !u.for_host
+            && (super::planner_units::is_library_kind(&u.kind) || u.kind == "proc-macro")
+    }) {
         if let Some(inv) = doctest_for_lib(
             lib,
             &explanation.units,

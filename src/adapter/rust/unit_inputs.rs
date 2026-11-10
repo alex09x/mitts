@@ -203,11 +203,20 @@ pub fn compute_unit_coarse_inputs_with_checksum(
     if src_path.is_file() {
         let hash = Sha256::digest_file(src_path)
             .with_context(|| format!("Failed to hash unit src_path {:?}", src_path))?;
-        let rel = src_path
-            .strip_prefix(pkg_dir)
-            .unwrap_or(src_path)
-            .to_string_lossy()
-            .to_string();
+        // A crate root outside the package (`[lib] path = "../shared/lib.rs"`) but inside
+        // the workspace is labelled relative to the workspace, as dep-info inputs are, so
+        // the key does not carry the checkout path (issue 94).
+        let rel = match src_path.strip_prefix(pkg_dir) {
+            Ok(rel) => rel.to_string_lossy().to_string(),
+            Err(_) => match unit
+                .workspace_root
+                .as_deref()
+                .and_then(|ws| src_path.strip_prefix(ws).ok())
+            {
+                Some(rel) => format!("ws:{}", rel.display()),
+                None => src_path.to_string_lossy().to_string(),
+            },
+        };
         inputs.push((rel, hash));
     } else if src_path.is_dir() {
         scan_dir_inputs(src_path, pkg_dir, &mut inputs)?;
