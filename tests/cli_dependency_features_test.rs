@@ -208,6 +208,32 @@ fn package_from_a_member_subdirectory() {
     assert!(!root.join("winit/target").exists());
 }
 
+/// `mitts fmt` inside a member formats that member only, like `cargo fmt`
+/// (re-review of #105).
+#[test]
+fn fmt_in_a_member_formats_only_that_member() {
+    let temp = fixture();
+    let root = temp.path();
+    let messy = "fn   main( ){ slint::report( ); }\n";
+    let messy_lib = "pub fn report( ){ println!(\"winit\"); }\n";
+    write_file(root.join("todo/src/main.rs"), messy);
+    write_file(root.join("winit/src/lib.rs"), messy_lib);
+    let output = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .arg("fmt")
+        .current_dir(root.join("todo"))
+        .output()
+        .expect("run Mitts");
+    assert_ok(&output);
+    assert_ne!(
+        fs::read_to_string(root.join("todo/src/main.rs")).unwrap(),
+        messy
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("winit/src/lib.rs")).unwrap(),
+        messy_lib
+    );
+}
+
 fn build_and_run(root: &Path, args: &[&str]) -> String {
     let cache = root.join("mitts-cache");
     let output = Command::new(env!("CARGO_BIN_EXE_mitts"))

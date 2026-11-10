@@ -152,7 +152,7 @@ pub fn handle_fmt(args: &FmtArgs) -> i32 {
         verbose: args.verbose,
         ..Default::default()
     };
-    crate::cli::manifest_discovery::select_workspace_member(&mut opt, false);
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.all);
 
     let manifest_path = match RustAdapter::resolve_manifest(&opt) {
         Ok(p) => p,
@@ -250,7 +250,7 @@ pub fn handle_fmt(args: &FmtArgs) -> i32 {
     let mut edition_groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for (name, member_dir) in &members {
-        if let Some(ref target_pkg) = args.package {
+        if let Some(ref target_pkg) = opt.package {
             if name != target_pkg {
                 continue;
             }
