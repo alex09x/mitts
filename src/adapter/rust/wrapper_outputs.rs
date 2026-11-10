@@ -52,11 +52,11 @@ pub(crate) fn unit_out_dir(staging: &Path) -> PathBuf {
     staging.join(PREFIX)
 }
 
-fn files_under(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+fn files_under(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     for entry in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
         let path = entry?.path();
         if path.is_dir() {
-            files_under(root, &path, out)?;
+            files_under(&path, out)?;
         } else {
             out.push(path);
         }
@@ -75,7 +75,7 @@ pub(crate) fn collect(cas: &ContentAddressedStore, staging: &Path) -> Result<Vec
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    files_under(&src_root, &src_root, &mut files)?;
+    files_under(&src_root, &mut files)?;
     files.sort();
     let mut outputs = Vec::new();
     for file in files {

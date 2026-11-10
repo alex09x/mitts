@@ -75,16 +75,21 @@ pub(crate) fn create_staging_dir(cas_root: &Path, clean_crate: &str) -> Result<P
     )
 }
 
-pub(crate) fn run_build_script_if_needed<'a>(
-    unit: &PlannedCompilationUnit,
-    clean_crate: &str,
-    ctx: &ExecutionContext<'a>,
-) -> Result<(
+/// What running (or restoring) a unit's build script hands the compile: its directives,
+/// the staging directory it ran in, the job token it holds, and the guard of that
+/// directory's stable-staging lock.
+pub(crate) type BuildScriptOutcome<'a> = (
     Option<BuildScriptDirectives>,
     Option<PathBuf>,
     Option<super::dag_unit::UnitJobReservation<'a>>,
     Option<super::compiler_args::incremental::StableStageRelease>,
-)> {
+);
+
+pub(crate) fn run_build_script_if_needed<'a>(
+    unit: &PlannedCompilationUnit,
+    clean_crate: &str,
+    ctx: &ExecutionContext<'a>,
+) -> Result<BuildScriptOutcome<'a>> {
     if !super::unit_env::unit_has_build_script(unit) {
         return Ok((None, None, None, None));
     }
