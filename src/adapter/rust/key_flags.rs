@@ -289,6 +289,11 @@ pub fn compute_unit_flags_with_ws(
     if let Some(cgu) = profile.codegen_units {
         u_flags.push(format!("CODEGEN_UNITS={cgu}"));
     }
+    // Incremental output is partitioned differently and carries a stable `-C metadata`;
+    // keep it apart from non-incremental builds of the same unit.
+    if super::compiler_args::incremental::applies(unit, &profile) {
+        u_flags.push("INCREMENTAL=1".into());
+    }
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| !unit.for_host) {
         u_flags.push(format!("LTO={lto_mode}"));
     }

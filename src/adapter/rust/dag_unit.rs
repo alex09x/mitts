@@ -262,12 +262,31 @@ pub(crate) fn execute_unit(
             };
             let artifact_key =
                 super::dag_unit_publish::artifact_disambiguator(&early_rk, Some(&staging_dir));
+            let meta_stored = super::build_deps::is_importable_crate_unit(unit)
+                .then(|| ctx.cas.store_file(rmeta_path).ok())
+                .flatten();
             if let Some(rk_map) = ctx.resolved_keys {
-                rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
+                // Pipelined dependents key on the same rmeta binding the final publish
+                // records, so both sides of one build agree on this unit's key.
+                let bound = match (&meta_stored, rmeta_path.file_name()) {
+                    (Some((meta_hash, _)), Some(fname)) => {
+                        super::dag_unit_publish::bind_interface_digest(
+                            &early_rk,
+                            [(Path::new(fname), meta_hash.as_str())],
+                        )
+                    }
+                    // An importable crate whose rmeta could not be stored has no
+                    // binding to offer; its dependents must not reach the cache.
+                    _ if super::build_deps::is_importable_crate_unit(unit) => {
+                        super::dag_unit_publish::taint_unhashable_key(&early_rk)
+                    }
+                    _ => early_rk.clone(),
+                };
+                rk_map.lock().unwrap().insert(unit.unit_id(), bound);
             }
 
             if super::build_deps::is_importable_crate_unit(unit) {
-                if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {
+                if let Some((meta_hash, _)) = meta_stored {
                     let bdeps_meta = active_build_deps
                         .as_deref()
                         .zip(rmeta_path.file_name())

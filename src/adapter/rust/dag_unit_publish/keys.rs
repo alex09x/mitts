@@ -27,6 +27,40 @@ pub fn strip_unhashable_taint(key: &str) -> String {
     out
 }
 
+/// The key dependents of a unit fold into their own action keys: the unit's result key
+/// bound to the bytes its dependents actually compiled against.
+///
+/// The action cache is last-writer-wins, and two compilations under one result key need
+/// not produce identical bytes (rustc nondeterminism, concurrent builds sharing a cache).
+/// A dependent keyed only by the result key could then be restored next to the *other*
+/// build of its dependency and fail with E0460 ("found possibly newer version of crate").
+/// Binding the `.rmeta` content — it carries the crate's SVH, which is what rustc matches —
+/// makes such a pair a different key, so the dependent misses and is rebuilt instead.
+/// Units without an `.rmeta` (proc-macros, binaries) bind every output.
+pub(crate) fn bind_interface_digest<'a>(
+    result_key: &str,
+    outputs: impl IntoIterator<Item = (&'a Path, &'a str)>,
+) -> String {
+    let outputs: Vec<(&Path, &str)> = outputs.into_iter().collect();
+    let metas: Vec<&str> = outputs
+        .iter()
+        .filter(|(p, _)| p.extension().and_then(|e| e.to_str()) == Some("rmeta"))
+        .map(|(_, h)| *h)
+        .collect();
+    let mut parts: Vec<&str> = if metas.is_empty() {
+        outputs.iter().map(|(_, h)| *h).collect()
+    } else {
+        metas
+    };
+    if parts.is_empty() {
+        return result_key.to_string();
+    }
+    parts.sort_unstable();
+    parts.dedup();
+    let digest = Sha256::digest(parts.join("\n").as_bytes());
+    format!("{result_key}:iface:{}", &digest[..16])
+}
+
 /// Disambiguator for a unit's file names in the shared `{cas}/artifacts` directory.
 ///
 /// Names follow the result key, not the coarse action key: units with one coarse key
@@ -52,6 +86,31 @@ pub(crate) fn artifact_disambiguator(result_key: &str, staging_dir: Option<&Path
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interface_digest_binds_rmeta_bytes_only() {
+        let rk = "ab".repeat(32);
+        let rlib = Path::new("libjobserver-1.rlib");
+        let rmeta = Path::new("libjobserver-1.rmeta");
+        let a = bind_interface_digest(&rk, [(rlib, "r1"), (rmeta, "m1")]);
+        // Same metadata, different codegen bytes: dependents still match.
+        assert_eq!(a, bind_interface_digest(&rk, [(rmeta, "m1"), (rlib, "r2")]));
+        // Check-only entry of the same compile carries the same interface.
+        assert_eq!(a, bind_interface_digest(&rk, [(rmeta, "m1")]));
+        // Another build under the same result key with other metadata: a different key.
+        assert_ne!(a, bind_interface_digest(&rk, [(rlib, "r1"), (rmeta, "m2")]));
+        assert!(a.starts_with(&rk) && a.contains(":iface:"));
+        // No rmeta (proc-macro): every output is bound.
+        let so = Path::new("libderive-1.so");
+        assert_ne!(
+            bind_interface_digest(&rk, [(so, "d1")]),
+            bind_interface_digest(&rk, [(so, "d2")])
+        );
+        assert_eq!(bind_interface_digest(&rk, []), rk);
+        // Taint survives binding, so tainted dependents stay uncached.
+        let tainted = format!("{rk}:unhashable:0123456789abcdef");
+        assert!(bind_interface_digest(&tainted, [(rmeta, "m1")]).contains(":unhashable:"));
+    }
 
     #[test]
     fn strip_unhashable_taint_preserves_deterministic_suffixes() {

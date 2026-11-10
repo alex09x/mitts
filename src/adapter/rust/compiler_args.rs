@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) mod crate_types;
 pub(crate) mod diagnostics;
+pub(crate) mod incremental;
 use std::process::Command;
 
 /// Prepares and configures the `Command` for a `RustcInvocation`.
@@ -40,7 +41,24 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.unit.target_name.replace('-', "_")
     };
     let edition = inv.unit.edition.as_deref().unwrap_or("2015");
-    let short_key = super::build_deps::unit_metadata_short_key(inv.action_key);
+    let profile = super::profile::resolve_unit_profile_for(
+        &inv.unit.manifest_path,
+        &inv.unit.package_name,
+        inv.unit.is_workspace,
+        inv.unit.for_host,
+        inv.release,
+        inv.mode == BuildMode::Test,
+        inv.unit.workspace_root.as_deref(),
+    )?;
+    let incremental_dir = incremental::session_root(inv, &profile);
+    // rustc names an incremental session after the crate's StableCrateId, which includes
+    // `-C metadata`. A metadata derived from the action key changes with every edit and
+    // would start a fresh session each time, so incremental units use a stable one.
+    let short_key = if incremental_dir.is_some() {
+        incremental::stable_metadata_key(inv, &profile)
+    } else {
+        super::build_deps::unit_metadata_short_key(inv.action_key)
+    };
     let is_host_kind = matches!(
         inv.unit.kind.as_str(),
         "proc-macro" | "custom-build" | "build-script"
@@ -157,16 +175,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         ]);
     }
     cmd.args(["--out-dir", &inv.out_dir.to_string_lossy()]);
+    if let Some(ref dir) = incremental_dir {
+        fs::create_dir_all(dir)?;
+        cmd.args(["-C", &format!("incremental={}", dir.display())]);
+    }
 
-    let profile = super::profile::resolve_unit_profile_for(
-        &inv.unit.manifest_path,
-        &inv.unit.package_name,
-        inv.unit.is_workspace,
-        inv.unit.for_host,
-        inv.release,
-        inv.mode == BuildMode::Test,
-        inv.unit.workspace_root.as_deref(),
-    )?;
     if profile.opt_level != "0" || (inv.release && !inv.unit.for_host) {
         cmd.args(["-C", &format!("opt-level={}", profile.opt_level)]);
     }
