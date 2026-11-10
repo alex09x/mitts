@@ -15,8 +15,8 @@ mod multi_crate_outputs;
 
 pub(crate) use aliases::{publish_library_alias, publish_uplifted_library};
 pub use inputs::record_extra_inputs_in_ctx;
-pub(crate) use keys::artifact_disambiguator;
 pub use keys::strip_unhashable_taint;
+pub(crate) use keys::{artifact_disambiguator, bind_interface_digest};
 
 use super::compiler::RustcOutput;
 use super::dag_cache::ExecutionContext;
@@ -106,13 +106,6 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
     } else {
         taint_unhashable_key(&deterministic_rk)
     };
-
-    if let Some(rk_map) = ctx.resolved_keys {
-        rk_map
-            .lock()
-            .unwrap()
-            .insert(unit.unit_id(), result_key.clone());
-    }
 
     let artifact_key = artifact_disambiguator(&result_key, Some(args.staging_dir));
 
@@ -224,6 +217,17 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                 }
             }
         }
+    }
+
+    // Dependents key on the bytes they compile against, not on the result key alone.
+    if let Some(rk_map) = ctx.resolved_keys {
+        let bound = bind_interface_digest(
+            &result_key,
+            cached_outputs
+                .iter()
+                .map(|o| (o.relative_path.as_path(), o.cas_hash.as_str())),
+        );
+        rk_map.lock().unwrap().insert(unit.unit_id(), bound);
     }
 
     // 6. Output byte scanning for workspace root leaks (P2): an artifact that embeds the

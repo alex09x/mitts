@@ -24,6 +24,32 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Staging directory for compiling `unit`: the stable per-unit one when the unit compiles
+/// incrementally and it is free, otherwise a fresh private one. A stable directory stays
+/// locked until `release_stable_staging` (see `StableStageRelease`).
+pub(crate) fn create_unit_staging_dir(
+    ctx: &ExecutionContext,
+    unit: &PlannedCompilationUnit,
+    clean_crate: &str,
+) -> Result<PathBuf> {
+    use super::compiler_args::incremental;
+    let stable = incremental::unit_applies(unit, ctx.opt.release, ctx.opt.mode)
+        .then(|| {
+            incremental::stable_staging_dir(
+                ctx.cas.root(),
+                ctx.target_dir,
+                unit,
+                clean_crate,
+                ctx.opt.release,
+            )
+        })
+        .flatten();
+    match stable {
+        Some(dir) => Ok(dir),
+        None => create_staging_dir(ctx.cas.root(), clean_crate),
+    }
+}
+
 pub(crate) fn create_staging_dir(cas_root: &Path, clean_crate: &str) -> Result<PathBuf> {
     static STAGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let tmp_root = cas_root.join("tmp");
@@ -156,7 +182,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
             (d, None, None)
         } else {
             let job_reservation = super::dag_unit::acquire_unit_job_token(ctx)?;
-            let staging_dir = create_staging_dir(ctx.cas.root(), clean_crate)?;
+            let staging_dir = create_unit_staging_dir(ctx, unit, clean_crate)?;
             let d = match execute_build_script_with_key(
                 unit,
                 &staging_dir,
@@ -172,6 +198,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 Ok(d) => d,
                 Err(err) => {
                     let _ = fs::remove_dir_all(&staging_dir);
+                    super::compiler_args::incremental::release_stable_staging(&staging_dir);
                     let pkg_dir = unit
                         .manifest_path
                         .parent()

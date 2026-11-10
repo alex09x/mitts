@@ -239,7 +239,14 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
 
         if let Some(rk_map) = ctx.resolved_keys {
-            rk_map.lock().unwrap().insert(unit.unit_id(), res_key);
+            let bound = super::dag_unit_publish::bind_interface_digest(
+                &res_key,
+                entry
+                    .outputs
+                    .iter()
+                    .map(|o| (o.relative_path.as_path(), o.cas_hash.as_str())),
+            );
+            rk_map.lock().unwrap().insert(unit.unit_id(), bound);
         }
 
         let effective_dirs: Option<BuildScriptDirectives> = if let Some(d) = current_directives {

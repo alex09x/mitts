@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) mod crate_types;
 pub(crate) mod diagnostics;
+pub(crate) mod incremental;
 use std::process::Command;
 
 /// Prepares and configures the `Command` for a `RustcInvocation`.
@@ -40,6 +41,21 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.unit.target_name.replace('-', "_")
     };
     let edition = inv.unit.edition.as_deref().unwrap_or("2015");
+    let profile = super::profile::resolve_unit_profile_for(
+        &inv.unit.manifest_path,
+        &inv.unit.package_name,
+        inv.unit.is_workspace,
+        inv.unit.for_host,
+        inv.release,
+        inv.mode == BuildMode::Test,
+        inv.unit.workspace_root.as_deref(),
+    )?;
+    let incremental_dir = incremental::session_root(inv, &profile);
+    // rustc names an incremental session after the crate's StableCrateId, which includes
+    // `-C metadata`. A metadata derived from the action key changes with every edit and
+    // would start a fresh session each time, so incremental units get a stable one, added
+    // below once the target rustflags are known; every incremental unit gets one, so two
+    // targets named alike (a bin and its test) never share a session.
     let short_key = super::build_deps::unit_metadata_short_key(inv.action_key);
     let is_host_kind = matches!(
         inv.unit.kind.as_str(),
@@ -98,6 +114,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
 
     let meta_arg = format!("metadata={short_key}");
     let extra_fn_arg = format!("extra-filename=-{short_key}");
+    // Units whose output names carry the metadata suffix (`-C extra-filename`).
+    let keyed_output = if is_test {
+        is_check_only
+    } else {
+        is_proc_macro || is_check_only || (!is_bin && native_crate_types.is_empty())
+    };
+    let meta_pair: Vec<&str> = if incremental_dir.is_some() {
+        Vec::new()
+    } else {
+        vec!["-C", &meta_arg, "-C", &extra_fn_arg]
+    };
     let check_or_link_emit = if is_check_only {
         "--emit=dep-info,metadata"
     } else {
@@ -111,7 +138,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         }
         cmd.args([check_or_link_emit, "--extern", "proc_macro"]);
         if is_check_only {
-            cmd.args(["-C", &meta_arg, "-C", &extra_fn_arg]);
+            cmd.args(&meta_pair);
         }
     } else if is_proc_macro {
         cmd.args([
@@ -122,22 +149,12 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             "-C",
             "prefer-dynamic",
             check_or_link_emit,
-            "-C",
-            &meta_arg,
-            "-C",
-            &extra_fn_arg,
         ]);
+        cmd.args(&meta_pair);
     } else if is_check_only {
         let ct = if is_bin { "bin" } else { "rlib" };
-        cmd.args([
-            "--crate-type",
-            ct,
-            "--emit=dep-info,metadata",
-            "-C",
-            &meta_arg,
-            "-C",
-            &extra_fn_arg,
-        ]);
+        cmd.args(["--crate-type", ct, "--emit=dep-info,metadata"]);
+        cmd.args(&meta_pair);
     } else if is_bin {
         cmd.args(["--crate-type", "bin", "--emit=dep-info,link"]);
     } else if !native_crate_types.is_empty() {
@@ -146,27 +163,15 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         }
         cmd.arg("--emit=dep-info,link");
     } else {
-        cmd.args([
-            "--crate-type",
-            "rlib",
-            "--emit=dep-info,metadata,link",
-            "-C",
-            &meta_arg,
-            "-C",
-            &extra_fn_arg,
-        ]);
+        cmd.args(["--crate-type", "rlib", "--emit=dep-info,metadata,link"]);
+        cmd.args(&meta_pair);
     }
     cmd.args(["--out-dir", &inv.out_dir.to_string_lossy()]);
+    if let Some(ref dir) = incremental_dir {
+        fs::create_dir_all(dir)?;
+        cmd.args(["-C", &format!("incremental={}", dir.display())]);
+    }
 
-    let profile = super::profile::resolve_unit_profile_for(
-        &inv.unit.manifest_path,
-        &inv.unit.package_name,
-        inv.unit.is_workspace,
-        inv.unit.for_host,
-        inv.release,
-        inv.mode == BuildMode::Test,
-        inv.unit.workspace_root.as_deref(),
-    )?;
     if profile.opt_level != "0" || (inv.release && !inv.unit.for_host) {
         cmd.args(["-C", &format!("opt-level={}", profile.opt_level)]);
     }
@@ -339,13 +344,41 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         &config_start_dir,
         explicit_target.as_deref(),
     )?;
-    if super::key_flags::receives_target_rustflags(inv.unit, explicit_target.as_deref()) {
-        if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
-            cmd.args(encoded.split('\x1f').filter(|f| !f.is_empty()));
-        } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
-            cmd.args(flags.split_whitespace());
+    let target_rustflags: Vec<String> =
+        if super::key_flags::receives_target_rustflags(inv.unit, explicit_target.as_deref()) {
+            if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+                encoded
+                    .split('\x1f')
+                    .filter(|f| !f.is_empty())
+                    .map(String::from)
+                    .collect()
+            } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
+                flags.split_whitespace().map(String::from).collect()
+            } else {
+                config_flags
+            }
         } else {
-            cmd.args(config_flags);
+            Vec::new()
+        };
+    cmd.args(&target_rustflags);
+    if incremental_dir.is_some() {
+        // The mode the action key uses: a non-primary unit is compiled by rustc for
+        // `clippy` exactly as for `check`, so both must agree on its crate identity.
+        let effective_mode = if inv.mode == BuildMode::Clippy && !is_primary_target {
+            BuildMode::Check
+        } else {
+            inv.mode
+        };
+        let stable = incremental::stable_metadata_key(
+            inv,
+            &profile,
+            effective_mode,
+            &target_rustflags,
+            explicit_target.as_deref(),
+        );
+        cmd.args(["-C", &format!("metadata={stable}")]);
+        if keyed_output {
+            cmd.args(["-C", &format!("extra-filename=-{stable}")]);
         }
     }
 

@@ -43,6 +43,11 @@ pub(crate) fn execute_unit(
     let t_bs = std::time::Instant::now();
     let (current_directives, staging_dir_holder, mut retained_job) =
         super::dag_unit_build_script::run_build_script_if_needed(unit, &clean_crate, ctx)?;
+    // The build script's staging directory may be this unit's stable one: release it on
+    // every return, including a cache hit that never reaches the compile below.
+    let _holder_release = staging_dir_holder
+        .clone()
+        .map(super::compiler_args::incremental::StableStageRelease);
     if retained_job.is_none() {
         crate::core::cache_phase::resume();
     }
@@ -150,11 +155,15 @@ pub(crate) fn execute_unit(
         )));
     }
 
-    // Staging directory for build isolation
+    // Staging directory for build isolation. Incremental units compile in a per-unit
+    // stable directory so rustc can reuse its session (the staging path is part of the
+    // tracked command line); the guard releases it when this function returns.
     let staging_dir = match staging_dir_holder {
         Some(s) => s,
-        None => super::dag_unit_build_script::create_staging_dir(ctx.cas.root(), &clean_crate)?,
+        None => super::dag_unit_build_script::create_unit_staging_dir(ctx, unit, &clean_crate)?,
     };
+    let _staging_release =
+        super::compiler_args::incremental::StableStageRelease(staging_dir.clone());
 
     // Gather dependencies' CAS artifact paths for --extern, resolving any Cargo package rename aliases
     let extern_crates = super::dag_unit_externs::resolve_extern_crates(
@@ -185,6 +194,13 @@ pub(crate) fn execute_unit(
     );
     let mut rustc_directives = directives.clone();
     rustc_directives.link_searches.extend(inherited_dirs);
+    if let Some(view) = rustc_directives
+        .out_dir
+        .as_deref()
+        .and_then(|out| super::compiler_args::incremental::stable_out_dir(&staging_dir, out))
+    {
+        rustc_directives.out_dir = Some(view);
+    }
 
     let profile_name = if ctx.opt.release { "release" } else { "debug" };
     let cas_artifacts = ctx.cas.root().join("artifacts");
@@ -262,12 +278,31 @@ pub(crate) fn execute_unit(
             };
             let artifact_key =
                 super::dag_unit_publish::artifact_disambiguator(&early_rk, Some(&staging_dir));
+            let meta_stored = super::build_deps::is_importable_crate_unit(unit)
+                .then(|| ctx.cas.store_file(rmeta_path).ok())
+                .flatten();
             if let Some(rk_map) = ctx.resolved_keys {
-                rk_map.lock().unwrap().insert(unit.unit_id(), early_rk);
+                // Pipelined dependents key on the same rmeta binding the final publish
+                // records, so both sides of one build agree on this unit's key.
+                let bound = match (&meta_stored, rmeta_path.file_name()) {
+                    (Some((meta_hash, _)), Some(fname)) => {
+                        super::dag_unit_publish::bind_interface_digest(
+                            &early_rk,
+                            [(Path::new(fname), meta_hash.as_str())],
+                        )
+                    }
+                    // An importable crate whose rmeta could not be stored has no
+                    // binding to offer; its dependents must not reach the cache.
+                    _ if super::build_deps::is_importable_crate_unit(unit) => {
+                        super::dag_unit_publish::taint_unhashable_key(&early_rk)
+                    }
+                    _ => early_rk.clone(),
+                };
+                rk_map.lock().unwrap().insert(unit.unit_id(), bound);
             }
 
             if super::build_deps::is_importable_crate_unit(unit) {
-                if let Ok((meta_hash, _)) = ctx.cas.store_file(rmeta_path) {
+                if let Some((meta_hash, _)) = meta_stored {
                     let bdeps_meta = active_build_deps
                         .as_deref()
                         .zip(rmeta_path.file_name())

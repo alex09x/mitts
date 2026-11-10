@@ -32,6 +32,9 @@ pub struct UnitProfileSettings {
     pub strip: Option<String>,
     pub overflow_checks: bool,
     pub debug_assertions: bool,
+    /// Profile `incremental` (Cargo: on for `dev`/`test`, off for `release`/`bench`;
+    /// `CARGO_INCREMENTAL=0|1` overrides). Cargo applies it to workspace units only.
+    pub incremental: bool,
 }
 
 type ProfileCacheKey = (PathBuf, String, u64);
@@ -256,6 +259,14 @@ pub fn resolve_unit_profile_for(
         .and_then(|v| v.as_bool())
         .unwrap_or(default_assertions);
 
+    let incremental = match read_env_non_empty("CARGO_INCREMENTAL").as_deref() {
+        Some("0") => false,
+        Some("1") => true,
+        _ => resolve_overridable("incremental", "INCREMENTAL", true)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(!base_release),
+    };
+
     let panic = (!for_host)
         .then(|| {
             profile_env("PANIC")
@@ -280,6 +291,7 @@ pub fn resolve_unit_profile_for(
         strip,
         overflow_checks,
         debug_assertions,
+        incremental,
     })
 }
 
