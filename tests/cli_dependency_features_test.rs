@@ -125,6 +125,27 @@ fn member_subdirectory_build_uses_the_workspace_target() {
     assert!(!root.join("todo/target").exists());
 }
 
+/// Started in the member's own directory (its manifest is right there), the build still
+/// writes into the workspace root's `target`.
+#[test]
+fn member_directory_build_uses_the_workspace_target() {
+    let temp = fixture();
+    let root = temp.path();
+    let output = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["build", "--quiet", "--cache-dir"])
+        .arg(root.join("mitts-cache"))
+        .current_dir(root.join("todo"))
+        .output()
+        .expect("run Mitts");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(root.join("target/debug/todo").is_file());
+    assert!(!root.join("todo/target").exists());
+}
+
 #[test]
 fn command_line_dependency_features_reach_the_dependency() {
     let temp = fixture();
