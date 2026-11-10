@@ -320,6 +320,11 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         inv.release,
     ));
     cmd.env("RUSTC", &compiler_bin);
+    if super::wrapper_outputs::declared_dir().is_some() {
+        let wrapper_out = super::wrapper_outputs::unit_out_dir(inv.out_dir);
+        fs::create_dir_all(&wrapper_out)?;
+        cmd.env(super::wrapper_outputs::OUT_DIR_ENV, wrapper_out);
+    }
     if let Some(tc) = compiler_bin
         .ancestors()
         .nth(2)

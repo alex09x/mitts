@@ -246,6 +246,9 @@ pub fn derive_unit_action_key_context(
         };
         if let Some(wf) = wrapper_flag {
             u_flags.push(wf.clone());
+            if let Some(flag) = super::wrapper_outputs::key_flag() {
+                u_flags.push(flag.to_string());
+            }
         }
 
         Ok::<_, anyhow::Error>((unit.unit_id(), inputs, u_flags))

@@ -84,6 +84,7 @@ pub mod unit_env;
 pub mod unit_inputs;
 pub mod unit_output;
 pub mod vendor_source;
+pub(crate) mod wrapper_outputs;
 
 pub use build_script::execute_build_script;
 pub use build_script_directives::BuildScriptDirectives;

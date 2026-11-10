@@ -144,10 +144,21 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
     }
 
-    let entry = match matched_entry {
+    let mut entry = match matched_entry {
         Some(e) => e,
         None => return Ok(false),
     };
+    // A rustc wrapper's declared outputs travel with the entry; the rest of the restore
+    // sees rustc's outputs only.
+    let (rustc_outputs, wrapper_outputs) = super::wrapper_outputs::split(&entry.outputs);
+    if wrapper_outputs
+        .iter()
+        .any(|o| !ctx.cas.object_path(&o.cas_hash).is_file())
+        || !super::wrapper_outputs::restore(ctx.cas, &wrapper_outputs)
+    {
+        return Ok(false);
+    }
+    entry.outputs = rustc_outputs;
     let res_key = effective_key
         .split(":ws_leak:")
         .next()
