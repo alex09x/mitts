@@ -52,6 +52,26 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
         }
     }
 
+    // An explicit `package.workspace` names the root, as in `find_workspace_root`.
+    if ws_toml_opt.is_none() {
+        let explicit = manifest
+            .package
+            .as_ref()
+            .and_then(|p| p.workspace.as_deref())
+            .zip(path.parent());
+        if let Some((ws_rel, pkg_dir)) = explicit {
+            let dir = super::planner_paths::normalize_lexically(&pkg_dir.join(ws_rel));
+            let candidate = dir.join("Cargo.toml");
+            if let Ok(content) = super::manifest_snapshot::read_text(&candidate) {
+                if let Ok(ws) = CargoToml::parse(&content) {
+                    if ws.workspace.is_some() {
+                        ws_toml_opt = Some((dir, ws));
+                    }
+                }
+            }
+        }
+    }
+
     if ws_toml_opt.is_none() {
         while let Some(dir) = parent {
             let candidate = dir.join("Cargo.toml");
@@ -122,7 +142,11 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
                         }
                         if d.path.is_none() {
                             if let Some(ref p) = ws_d.path {
-                                d.path = Some(ws_root.join(p).to_string_lossy().to_string());
+                                d.path = Some(
+                                    super::planner_paths::normalize_lexically(&ws_root.join(p))
+                                        .to_string_lossy()
+                                        .to_string(),
+                                );
                             }
                         }
                         if let Some(ref ws_feats) = ws_d.features {

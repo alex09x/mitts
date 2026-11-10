@@ -350,9 +350,11 @@ pub(crate) fn execute_unit(
         invocation.execute()
     };
     // A unit that fails after signalling its metadata takes that metadata back (issue 89):
-    // the target/ copy, the shared alias and the per-build dependency file, so no later
-    // reader finds a failed unit's crate. Dependents' cache entries are retracted by the
-    // runner once every worker has stopped (`dag_retract`).
+    // its target/ copy and per-build dependency file, its completed artifact and its
+    // resolved key, so no later reader finds a failed unit's crate and a dependent popped
+    // before the abort is keyed as tainted. The shared alias is named after the result key
+    // and may serve a concurrent compile of that key, so it stays. Dependents' cache entries
+    // are retracted by the runner once every worker has stopped (`dag_retract`).
     let output = match output {
         Ok(out) if out.success => out,
         other => {
@@ -363,6 +365,9 @@ pub(crate) fn execute_unit(
                 .lock()
                 .unwrap()
                 .remove(&unit.unit_id());
+            if let Some(rk_map) = ctx.resolved_keys {
+                rk_map.lock().unwrap().remove(&unit.unit_id());
+            }
             other?
         }
     };

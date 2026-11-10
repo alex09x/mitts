@@ -50,6 +50,9 @@ fn build(root: &Path, temp: &Path, target: &str, salt: &str) -> Output {
         .env("MITTS_RUSTC_WRAPPER_SALT", salt)
         .env("MITTS_RUSTC_WRAPPER_OUTPUTS", temp.join("index"))
         .env("WRAPPER_LOG", temp.join("wrapper.log"))
+        // The fast build lock checks target/ only; with declared wrapper outputs it must
+        // stand aside even where it is on, so a rebuild in the same target dir restores them.
+        .env("MITTS_FAST_LOCK", "1")
         .output()
         .unwrap()
 }
@@ -119,6 +122,23 @@ fn a_wrapper_cache_hit_restores_the_wrappers_declared_outputs() {
             format!("index of {name}\n")
         );
         assert!(index.join(format!(".deps/{name}.json")).is_file());
+    }
+
+    // Same target dir as the first build (where the fast lock would answer "nothing to
+    // do"): the deleted outputs still come back, still without running the wrapper.
+    std::fs::remove_dir_all(&index).unwrap();
+    let same_dir = build(&root, temp.path(), "t1", "s1");
+    assert!(
+        same_dir.status.success(),
+        "{}",
+        String::from_utf8_lossy(&same_dir.stderr)
+    );
+    assert_eq!(runs(temp.path()), ran);
+    for name in ["dep", "app"] {
+        assert!(
+            index.join(format!("{name}.idx")).is_file(),
+            "{name}.idx after a no-op"
+        );
     }
 
     // Another salt is another wrapper state: it misses and the wrapper runs again.

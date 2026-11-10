@@ -243,9 +243,12 @@ pub fn resolve_extern_crates_with_target(
                 if dep_crate != norm_pkg {
                     add_extern(&norm_pkg, &chosen_artifact);
                 }
-                // A unit test of a package that dev-depends on itself under another name
-                // (`me = { path = ".", package = "pkg" }`) imports the library as `me`.
-                if is_own_lib && dev_depends_on_itself && unit.src_path == lib_src_path {
+                // Every unit that sees dev-dependencies (unit and integration tests, benches,
+                // examples) of a package that dev-depends on itself under another name
+                // (`me = { path = ".", package = "pkg" }`) imports the library as `me` too.
+                let sees_dev_deps =
+                    matches!(unit.kind.as_str(), "test" | "custom-test" | "example");
+                if is_own_lib && sees_dev_deps {
                     for name in &self_dev_names {
                         add_extern(name, &chosen_artifact);
                     }

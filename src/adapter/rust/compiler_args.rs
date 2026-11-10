@@ -374,10 +374,14 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         } else {
             inv.mode
         };
+        // The arguments rustc really gets for this unit, filtered as the action key is.
+        let unit_is_host = inv.unit.for_host || is_host_kind;
+        let forwarded = diagnostics::forwarded_extra_args(inv, unit_is_host, is_primary_target);
         let stable = incremental::stable_metadata_key(
             inv,
             &profile,
             effective_mode,
+            &forwarded,
             &target_rustflags,
             explicit_target.as_deref(),
         );

@@ -168,11 +168,14 @@ pub(crate) fn session_root(
 /// must not share a session or a crate identity: the unit (package, kind, target name,
 /// host) and its crate root relative to the package (`tests/x.rs` and `benches/x.rs` share
 /// a unit id), its features, the mode the action key uses (`effective_mode`), the
-/// profile, the compiler arguments and target rustflags, the target and the toolchain.
+/// profile, the extra arguments rustc really gets (`forwarded_args`, filtered like the
+/// action key: no `--workspace`, diagnostics markers, or a host unit's `--target` and
+/// coverage flags), the target rustflags, the target and the toolchain.
 pub(crate) fn stable_metadata_key(
     inv: &RustcInvocation,
     profile: &UnitProfileSettings,
     effective_mode: BuildMode,
+    forwarded_args: &[String],
     target_rustflags: &[String],
     explicit_target: Option<&str>,
 ) -> String {
@@ -187,64 +190,19 @@ pub(crate) fn stable_metadata_key(
     let toolchain = crate::adapter::rust::compiler_resolve::active_toolchain()
         .map(|t| t.toolchain.version.clone())
         .unwrap_or_default();
-    // Host units (build scripts, proc-macros, their dependencies) compile for the host
-    // whatever `--target` says, and their action key leaves it out; so does their identity.
+    // Host units compile for the host whatever `--target` says; their key leaves it out.
     let is_host = inv.unit.for_host
         || matches!(
             inv.unit.kind.as_str(),
             "proc-macro" | "custom-build" | "build-script"
         );
-    let compiler_args = if is_host {
-        without_target_args(inv.extra_compiler_args)
-    } else {
-        inv.extra_compiler_args.to_vec()
-    };
     let explicit_target = explicit_target.filter(|_| !is_host);
     let identity = format!(
         "mitts-incremental-v2\n{}\n{}\n{features:?}\n{effective_mode:?}\nrelease={}\n\
-         {profile:?}\n{compiler_args:?}\n{target_rustflags:?}\n{explicit_target:?}\n{toolchain}",
+         {profile:?}\n{forwarded_args:?}\n{target_rustflags:?}\n{explicit_target:?}\n{toolchain}",
         inv.unit.unit_id(),
         src_rel.display(),
         inv.release,
     );
     Sha256::digest(identity.as_bytes())[..16].to_string()
-}
-
-/// `args` without `--target T` / `--target=T`.
-fn without_target_args(args: &[String]) -> Vec<String> {
-    let mut out = Vec::with_capacity(args.len());
-    let mut skip_next = false;
-    for arg in args {
-        if skip_next {
-            skip_next = false;
-        } else if arg == "--target" {
-            skip_next = true;
-        } else if !arg.starts_with("--target=") {
-            out.push(arg.clone());
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::without_target_args;
-
-    #[test]
-    fn host_identity_ignores_both_target_spellings() {
-        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let native = without_target_args(&args(&["--locked"]));
-        assert_eq!(
-            without_target_args(&args(&[
-                "--target",
-                "aarch64-unknown-linux-gnu",
-                "--locked"
-            ])),
-            native
-        );
-        assert_eq!(
-            without_target_args(&args(&["--target=aarch64-unknown-linux-gnu", "--locked"])),
-            native
-        );
-    }
 }

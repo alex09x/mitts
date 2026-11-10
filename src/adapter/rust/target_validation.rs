@@ -91,11 +91,13 @@ pub(super) fn validate_named_targets(
         groups.push((Group::Test, &opt.test_targets));
         groups.push((Group::Bin, &opt.bin_targets));
     }
+    let norm = super::planner_paths::normalize_lexically;
     for (group, names) in groups {
         for name in names {
-            if units.iter().any(|u| group.planned(u, name)) {
-                continue;
-            }
+            // The name must be a target of this group in a selected package, and that very
+            // target (by source) must be planned: benches and integration tests are both
+            // planned as `test` units, so a name alone would let `--bench api` pass on
+            // `tests/api.rs`.
             let found = packages.iter().find_map(|pkg| {
                 group
                     .declared(pkg)
@@ -103,6 +105,15 @@ pub(super) fn validate_named_targets(
                     .find(|t| t.name.replace('-', "_") == name.replace('-', "_"))
                     .map(|t| (pkg.name, t))
             });
+            if let Some((_, ref t)) = found {
+                let src = norm(&t.src_path);
+                if units
+                    .iter()
+                    .any(|u| group.planned(u, name) && norm(&u.src_path) == src)
+                {
+                    continue;
+                }
+            }
             match found {
                 Some((pkg, t)) if t.required_features.as_ref().is_some_and(|f| !f.is_empty()) => {
                     let features = t.required_features.unwrap_or_default();

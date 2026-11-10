@@ -149,3 +149,33 @@ fn a_path_dependency_reached_through_a_symlink_keys_by_its_workspace_path() {
         write(&root, "app/src/lib.rs", "pub fn a() { dep::d() }\n");
     });
 }
+
+#[test]
+fn package_workspace_is_used_for_inherited_fields() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("ws");
+    write(
+        &root,
+        "Cargo.toml",
+        "[workspace]\nresolver='2'\nmembers=['../member']\n\
+         [workspace.package]\nversion='0.4.2'\nedition='2021'\n",
+    );
+    write(
+        &temp.path().join("member"),
+        "Cargo.toml",
+        "[package]\nname='member'\nversion.workspace=true\nedition.workspace=true\n\
+         workspace='../ws'\n",
+    );
+    write(
+        &temp.path().join("member"),
+        "src/lib.rs",
+        "pub const V: &str = env!(\"CARGO_PKG_VERSION\");\n\
+         const _: () = assert!(V.len() == 5);\n",
+    );
+    let out = mitts(
+        &temp.path().join("member"),
+        &temp.path().join("cache"),
+        &["check", "--offline"],
+    );
+    assert!(out.status.success(), "{}", text(&out));
+}

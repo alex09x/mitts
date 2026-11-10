@@ -31,6 +31,9 @@ pub(crate) struct RetractScope<'a> {
     pub metadata_signaled: &'a HashSet<String>,
     pub resolved_keys: &'a HashMap<String, String>,
     pub ac: &'a ActionCache,
+    /// When the build started (Unix seconds): only entries published since then are this
+    /// build's; an older valid entry a dependent was restored from stays.
+    pub build_started_secs: u64,
 }
 
 /// The action-cache key a unit published under, recovered from its resolved key.
@@ -41,16 +44,24 @@ fn published_key(resolved: &str) -> Option<&str> {
     Some(resolved.split(":iface:").next().unwrap_or(resolved))
 }
 
-/// Removes the action-cache entry published under `key`, including its per-checkout
-/// `:ws_leak:` variant for `manifest_path`'s workspace.
-fn remove_entry(ac: &ActionCache, key: &str, manifest_path: &Path) {
-    let _ = fs::remove_file(ac.entry_path(key));
+/// Removes the action-cache entry published under `key` by this build, including its
+/// per-checkout `:ws_leak:` variant for `manifest_path`'s workspace.
+fn remove_entry(ac: &ActionCache, key: &str, manifest_path: &Path, since_secs: u64) {
     let ws_root = super::compiler::find_workspace_root(manifest_path);
     let leak_key = format!(
         "{key}:ws_leak:{}",
         super::dag_unit_publish::workspace_hash(&ws_root)
     );
-    let _ = fs::remove_file(ac.entry_path(&leak_key));
+    for k in [key, leak_key.as_str()] {
+        let published_now = ac
+            .get(k)
+            .ok()
+            .flatten()
+            .is_some_and(|e| e.created_at_secs >= since_secs);
+        if published_now {
+            let _ = fs::remove_file(ac.entry_path(k));
+        }
+    }
 }
 
 pub(crate) fn retract_failed_pipelined_units(scope: &RetractScope<'_>) {
@@ -66,7 +77,12 @@ pub(crate) fn retract_failed_pipelined_units(scope: &RetractScope<'_>) {
                 continue;
             };
             if let Some(key) = published_key(resolved) {
-                remove_entry(scope.ac, key, &node.unit.manifest_path);
+                remove_entry(
+                    scope.ac,
+                    key,
+                    &node.unit.manifest_path,
+                    scope.build_started_secs,
+                );
             }
         }
     }

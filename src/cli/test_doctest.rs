@@ -25,7 +25,11 @@ pub fn should_run_doctests(args: &TestArgs) -> bool {
                 && args.test.is_empty()
                 && !args.tests
                 && args.bin.is_empty()
-                && !args.bins))
+                && !args.bins
+                // Like Cargo: a benches selection or `--all-targets` runs no doctests.
+                && !args.benches
+                && !args.all_targets
+                && args.bench_names.is_empty()))
 }
 
 /// Libtest runner arguments for rustdoc, each to be passed via `--test-args`.

@@ -50,6 +50,11 @@ pub fn run_native_dag_build(
     };
     let _gc_lease = crate::core::gc::CacheLease::acquire_for_cas_root(cas.root());
 
+    // Whole seconds, rounded down, like `ActionCacheEntry::created_at_secs`.
+    let build_started_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let dag = CompilationDag::from_explanation(explanation)?;
     let _ = dag.topological_waves()?;
 
@@ -270,6 +275,7 @@ pub fn run_native_dag_build(
         metadata_signaled: &metadata_signaled.lock().unwrap(),
         resolved_keys: &resolved_keys.lock().unwrap(),
         ac: &ac,
+        build_started_secs,
     });
 
     explanation.manifest_snapshot.verify_fresh()?;

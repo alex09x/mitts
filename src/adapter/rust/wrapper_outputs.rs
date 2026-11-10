@@ -119,12 +119,19 @@ pub(crate) fn restore(cas: &ContentAddressedStore, wrapper_outputs: &[CachedOutp
         return false;
     };
     wrapper_outputs.iter().all(|o| {
-        let rel = o
-            .relative_path
-            .strip_prefix(PREFIX)
-            .unwrap_or(&o.relative_path);
-        place(cas, &o.cas_hash, &dest_root.join(rel)).is_ok()
+        let Ok(rel) = o.relative_path.strip_prefix(PREFIX) else {
+            return false;
+        };
+        safe_relative(rel) && place(cas, &o.cas_hash, &dest_root.join(rel)).is_ok()
     })
+}
+
+/// Only plain relative components: a damaged entry must not write outside the destination.
+fn safe_relative(rel: &Path) -> bool {
+    rel.components().next().is_some()
+        && rel
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
 #[cfg(test)]
@@ -146,5 +153,14 @@ mod tests {
         ]);
         assert_eq!(rustc.len(), 1);
         assert_eq!(wrapper.len(), 2);
+    }
+
+    #[test]
+    fn only_plain_relative_paths_are_restored() {
+        assert!(safe_relative(Path::new("foo.idx")));
+        assert!(safe_relative(Path::new(".deps/foo.json")));
+        assert!(!safe_relative(Path::new("../escape")));
+        assert!(!safe_relative(Path::new("/abs")));
+        assert!(!safe_relative(Path::new("")));
     }
 }

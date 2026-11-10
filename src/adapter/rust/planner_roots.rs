@@ -145,7 +145,9 @@ pub fn prune_plan_root_units(
         && !opt.all_bins
         && !opt.all_tests
         && opt.bin_targets.is_empty()
-        && opt.test_targets.is_empty();
+        && opt.test_targets.is_empty()
+        && opt.example_targets.is_empty()
+        && opt.bench_targets.is_empty();
     // The library is a root of `--examples` too (examples link it), so "nothing matched"
     // means no example or bench unit was planned, not an empty root list.
     let group_matched = units.iter().any(|u| {

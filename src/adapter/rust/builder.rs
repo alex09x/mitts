@@ -92,6 +92,9 @@ pub fn compute_options_hash(
                 payload.push_str(&format!("|rustc_wrapper_identity={stamp}"));
             }
         }
+        if let Some(dir) = super::wrapper_outputs::declared_dir() {
+            payload.push_str(&format!("|rustc_wrapper_outputs={}", dir.display()));
+        }
     }
     Sha256::digest(payload.as_bytes())
 }
@@ -482,6 +485,11 @@ fn record_state_and_trace(
 /// `--cache-dir` (tests, benchmarks) opts out unless `RustBuildOptions::fast_lock` or
 /// `MITTS_FAST_LOCK=1` says otherwise.
 fn fast_lock_enabled(opt: &RustBuildOptions) -> bool {
+    // The lock verifies only target/ outputs; a rustc wrapper's declared outputs live
+    // elsewhere and must be restored by the DAG on every build (issue 91).
+    if super::wrapper_outputs::declared_dir().is_some() {
+        return false;
+    }
     opt.fast_lock
         .or_else(|| {
             std::env::var("MITTS_FAST_LOCK")
