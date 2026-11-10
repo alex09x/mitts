@@ -166,6 +166,7 @@ pub fn run_native_dag_build(
     let compiled_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let cached_actions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
+    let failed_units = Mutex::new(Vec::<String>::new());
     let shared = super::dag_worker::WorkerShared {
         dag: &dag,
         work_queue: &work_queue,
@@ -174,6 +175,7 @@ pub fn run_native_dag_build(
         resolved_keys: &resolved_keys,
         unit_keys,
         deriver,
+        failed_units: &failed_units,
     };
 
     let cache_budget = crate::core::cache_phase::CachePhaseBudget::for_platform();
@@ -260,6 +262,14 @@ pub fn run_native_dag_build(
                 Ok(Ok(())) => {}
             }
         }
+    });
+
+    super::dag_retract::retract_failed_pipelined_units(&super::dag_retract::RetractScope {
+        dag: &dag,
+        failed: &failed_units.lock().unwrap(),
+        metadata_signaled: &metadata_signaled.lock().unwrap(),
+        resolved_keys: &resolved_keys.lock().unwrap(),
+        ac: &ac,
     });
 
     explanation.manifest_snapshot.verify_fresh()?;

@@ -20,7 +20,7 @@ use anyhow::{bail, Result};
 pub use context::ExecutionContext;
 pub(crate) use lock::{acquire_unit_job_token, UnitJobReservation};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Compiles or restores a single planned compilation unit with CAS caching and action recording.
 pub(crate) fn execute_unit(
@@ -250,6 +250,7 @@ pub(crate) fn execute_unit(
         })
     };
 
+    let early_metadata_files = std::sync::Mutex::new(Vec::<PathBuf>::new());
     let t_rustc = std::time::Instant::now();
     let output = if let Some(cb) = ctx.on_metadata_ready {
         invocation.execute_pipelined(|rmeta_path| {
@@ -321,6 +322,12 @@ pub(crate) fn execute_unit(
                         &artifact_key,
                         "rmeta",
                     ) {
+                        // The shared alias is named after the result key and may serve a
+                        // concurrent build of the same key: it stays; the per-build copy goes.
+                        early_metadata_files
+                            .lock()
+                            .unwrap()
+                            .extend(bdeps_meta.clone());
                         let published = bdeps_meta.unwrap_or(named);
                         ctx.completed_artifacts
                             .lock()
@@ -333,13 +340,31 @@ pub(crate) fn execute_unit(
                             let _ = fs::create_dir_all(&target_deps_dir);
                             let dep_copy = target_deps_dir.join(fname);
                             let _ = crate::core::reflink_or_copy(rmeta_path, &dep_copy, false);
+                            early_metadata_files.lock().unwrap().push(dep_copy);
                         }
                     }
                 }
             }
-        })?
+        })
     } else {
-        invocation.execute()?
+        invocation.execute()
+    };
+    // A unit that fails after signalling its metadata takes that metadata back (issue 89):
+    // the target/ copy, the shared alias and the per-build dependency file, so no later
+    // reader finds a failed unit's crate. Dependents' cache entries are retracted by the
+    // runner once every worker has stopped (`dag_retract`).
+    let output = match output {
+        Ok(out) if out.success => out,
+        other => {
+            for path in early_metadata_files.lock().unwrap().drain(..) {
+                let _ = fs::remove_file(path);
+            }
+            ctx.completed_artifacts
+                .lock()
+                .unwrap()
+                .remove(&unit.unit_id());
+            other?
+        }
     };
     crate::core::metrics::record_rustc_duration(t_rustc.elapsed());
     drop(_job_token);

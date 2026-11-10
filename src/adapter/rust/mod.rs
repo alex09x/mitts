@@ -26,6 +26,7 @@ pub mod compiler_wrappers;
 pub mod credential_provider;
 pub mod dag;
 pub mod dag_cache;
+pub(crate) mod dag_retract;
 pub mod dag_runner;
 pub mod dag_scheduler;
 pub mod dag_unit;
