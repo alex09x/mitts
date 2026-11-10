@@ -229,6 +229,14 @@ pub struct BuildArgs {
     #[arg(long)]
     pub examples: bool,
 
+    /// Build the named benchmark target (repeatable)
+    #[arg(long = "bench", value_name = "NAME", action = clap::ArgAction::Append)]
+    pub bench: Vec<String>,
+
+    /// Build all benchmark targets
+    #[arg(long)]
+    pub benches: bool,
+
     /// Do not stop at the first failed unit: skip what depends on it, build the rest, fail at the end
     #[arg(long)]
     pub keep_going: bool,

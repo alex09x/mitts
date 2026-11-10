@@ -58,6 +58,8 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         all_bins: args.bins,
         lib_only: args.lib,
         all_examples: args.examples,
+        bench_targets: args.bench.clone(),
+        all_benches: args.benches,
         keep_going: args.keep_going,
         ..Default::default()
     }

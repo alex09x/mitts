@@ -209,11 +209,12 @@ pub fn resolve_extern_crates_with_target(
                 .unwrap_or_else(|| pkg_dir.join("src").join("lib.rs"));
             // The unit tests of a package that lists itself under [dev-dependencies] name the
             // crate from outside and do link the library; the planner gave them that dependency.
-            let dev_depends_on_itself = super::planner_deps::dev_depends_on_itself(
+            let self_dev_names = super::planner_deps::self_dev_dependency_names(
                 &pkg_toml,
                 &unit.manifest_path,
                 &unit.package_name,
             );
+            let dev_depends_on_itself = !self_dev_names.is_empty();
             let is_self_lib = unit.kind == "lib"
                 || unit.kind == "proc-macro"
                 || (unit.src_path == lib_src_path && !dev_depends_on_itself);
@@ -239,6 +240,13 @@ pub fn resolve_extern_crates_with_target(
                 add_extern(dep_crate, &chosen_artifact);
                 if dep_crate != norm_pkg {
                     add_extern(&norm_pkg, &chosen_artifact);
+                }
+                // A unit test of a package that dev-depends on itself under another name
+                // (`me = { path = ".", package = "pkg" }`) imports the library as `me`.
+                if is_own_lib && dev_depends_on_itself && unit.src_path == lib_src_path {
+                    for name in &self_dev_names {
+                        add_extern(name, &chosen_artifact);
+                    }
                 }
             } else {
                 for alias in matched_aliases {

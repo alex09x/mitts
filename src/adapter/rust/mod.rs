@@ -75,6 +75,7 @@ pub mod single_flight;
 pub mod source_lookup;
 pub mod sparse_index;
 pub mod target_filter;
+mod target_validation;
 pub mod test_selection;
 pub mod toolchain_probes;
 pub mod types;

@@ -47,11 +47,15 @@ pub fn select_test_targets(targets: &mut Vec<DiscoveredTarget>, opt: &RustBuildO
         targets.retain(|t| !t.explicit_only);
         return;
     }
+    // In `mitts test`, `--lib` / `--bins` / `--bin NAME` select those targets' test harnesses.
+    // In `check`, `clippy` and `build` they select the targets themselves; only `--tests`
+    // (and `--all-targets`, which implies it) brings in unit-test harnesses there.
+    let test_mode = opt.mode == super::types::BuildMode::Test;
     targets.retain(|t| {
         let role = t.test_role.clone().unwrap_or_else(|| test_role(&t.name));
         match role {
             TestRole::LibUnit => {
-                if opt.lib_only {
+                if test_mode && opt.lib_only {
                     true
                 } else if opt.all_tests {
                     !t.explicit_only
@@ -60,13 +64,14 @@ pub fn select_test_targets(targets: &mut Vec<DiscoveredTarget>, opt: &RustBuildO
                 }
             }
             TestRole::BinUnit(ref bin) => {
-                if opt
-                    .bin_targets
-                    .iter()
-                    .any(|b| b == bin || b.replace('-', "_") == *bin)
+                if test_mode
+                    && opt
+                        .bin_targets
+                        .iter()
+                        .any(|b| b == bin || b.replace('-', "_") == *bin)
                 {
                     true
-                } else if opt.all_bins || opt.all_tests {
+                } else if (test_mode && opt.all_bins) || opt.all_tests {
                     !t.explicit_only
                 } else {
                     false
@@ -214,8 +219,53 @@ mod tests {
             target("it_a"),
             target("it_b"),
         ];
-        select_test_targets(&mut ts, opt);
+        let opt = RustBuildOptions {
+            mode: crate::adapter::BuildMode::Test,
+            ..opt.clone()
+        };
+        select_test_targets(&mut ts, &opt);
         ts.into_iter().map(|t| t.name).collect()
+    }
+
+    #[test]
+    fn check_selectors_do_not_pull_in_unit_test_harnesses() {
+        let mut ts = vec![
+            target("demo_unit_test"),
+            target("cli_bin_test"),
+            target("it_a"),
+        ];
+        // `check --lib --benches`, `check --bins --bench NAME`: no `#[cfg(test)]` harness.
+        let opt = RustBuildOptions {
+            mode: crate::adapter::BuildMode::Check,
+            lib_only: true,
+            all_bins: true,
+            bin_targets: vec!["cli".into()],
+            all_benches: true,
+            ..Default::default()
+        };
+        select_test_targets(&mut ts, &opt);
+        assert!(
+            ts.is_empty(),
+            "{:?}",
+            ts.iter().map(|t| &t.name).collect::<Vec<_>>()
+        );
+
+        // `check --all-targets` (implies `--tests`) skips a `test = false` library.
+        let mut ts = vec![DiscoveredTarget {
+            explicit_only: true,
+            ..target("demo_unit_test")
+        }];
+        let all_targets = RustBuildOptions {
+            mode: crate::adapter::BuildMode::Check,
+            lib_only: true,
+            all_bins: true,
+            all_tests: true,
+            all_benches: true,
+            all_examples: true,
+            ..Default::default()
+        };
+        select_test_targets(&mut ts, &all_targets);
+        assert!(ts.is_empty());
     }
 
     #[test]

@@ -305,25 +305,12 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     crate::adapter::rust::planner_roots::prune_plan_root_units(&mut units, opt, has_all_ws);
-    for example in &opt.example_targets {
-        if !units
-            .iter()
-            .any(|unit| unit.kind == "example" && &unit.target_name == example)
-        {
-            anyhow::bail!(
-                "no example target named `{example}` is available with the selected package and features"
-            );
-        }
-    }
-    for bench in &opt.bench_targets {
-        if !units.iter().any(|unit| {
-            matches!(unit.kind.as_str(), "test" | "custom-test") && &unit.target_name == bench
-        }) {
-            anyhow::bail!(
-                "no bench target named `{bench}` is available with the selected package and features"
-            );
-        }
-    }
+    let selected: Vec<super::target_validation::SelectedPackage<'_>> = workspace_manifests
+        .iter()
+        .filter(|(name, _)| primary_roots.contains(name.as_str()))
+        .map(|(name, (dir, toml))| super::target_validation::SelectedPackage { name, dir, toml })
+        .collect();
+    super::target_validation::validate_named_targets(opt, &units, &selected)?;
     let t_deps = std::time::Instant::now();
     let s_deps = super::compiler_resolve::rustc_subproc_stats();
 
