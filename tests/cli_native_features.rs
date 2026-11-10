@@ -127,8 +127,10 @@ fn examples_target_triple_quiet_and_program_args_work_together() {
         String::from_utf8_lossy(&missing_feature.stdout),
         String::from_utf8_lossy(&missing_feature.stderr)
     );
+    // Like Cargo, the error names the feature the example needs.
     assert!(
-        missing_feature_output.contains("selected package"),
+        missing_feature_output.contains("requires the features")
+            && missing_feature_output.contains("`pty`"),
         "unexpected diagnostic: {missing_feature_output}"
     );
 
