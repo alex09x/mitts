@@ -107,6 +107,7 @@ pub use unescape::unescape_rust_string;
 
 use crate::core::action::{ActionResult, BuildPlan, ToolchainInfo};
 use anyhow::{Context, Result};
+use manifest::CargoToml;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -133,11 +134,12 @@ impl RustAdapter {
             // directories derived from this path reach unit sources and keys.
             Ok(planner_paths::normalize_lexically(&path))
         } else {
-            let default_path = std::env::current_dir()?.join("Cargo.toml");
-            if !default_path.exists() {
-                return Err(RustAdapterError::ManifestNotFound(default_path).into());
-            }
-            Ok(default_path)
+            // Like Cargo: the nearest `Cargo.toml` in the current directory or any parent.
+            let cwd = std::env::current_dir()?;
+            cwd.ancestors()
+                .map(|dir| dir.join("Cargo.toml"))
+                .find(|candidate| candidate.is_file())
+                .ok_or_else(|| RustAdapterError::ManifestNotFound(cwd.join("Cargo.toml")).into())
         }
     }
 
@@ -165,7 +167,18 @@ impl RustAdapter {
             let project_dir = manifest_path
                 .parent()
                 .context("Manifest path has no parent directory")?;
-            project_dir.join("target")
+            // Like Cargo: a workspace member builds into the workspace root's `target`.
+            let workspace_dir = CargoToml::from_file(manifest_path)
+                .ok()
+                .and_then(|manifest| {
+                    CargoToml::find_workspace_root(manifest_path, &manifest)
+                        .ok()
+                        .flatten()
+                })
+                .and_then(|(root_manifest, _)| root_manifest.parent().map(Path::to_path_buf));
+            workspace_dir
+                .unwrap_or_else(|| project_dir.to_path_buf())
+                .join("target")
         };
 
         if let Some(target) = key_flags::resolve_explicit_target(opt) {

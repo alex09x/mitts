@@ -211,7 +211,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     }
 
     let mut opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
             .clone()
@@ -258,6 +258,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         json_diagnostics: args.message_format.is_json(),
         diagnostic_format: args.message_format.diagnostic_format(),
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
 
     let root_manifest = opt
         .manifest_path

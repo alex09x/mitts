@@ -172,7 +172,7 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
     }
 
     let mut opt = RustBuildOptions {
-        manifest_path: args.manifest_path.clone(),
+        manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
             .package
             .clone()
@@ -216,6 +216,7 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
         quiet: args.quiet,
         ..Default::default()
     };
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
 
     if args.message_format != MessageFormat::Human {
         return message_format::run_non_human_build(&mut opt, args.message_format);

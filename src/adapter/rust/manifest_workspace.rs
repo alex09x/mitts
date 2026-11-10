@@ -20,6 +20,9 @@ impl CargoToml {
         manifest_path: &Path,
         manifest: &CargoToml,
     ) -> Result<Option<(PathBuf, CargoToml)>> {
+        // A relative `Cargo.toml` has no parents to climb: resolve it against the cwd first.
+        let absolute = std::path::absolute(manifest_path).unwrap_or_else(|_| manifest_path.into());
+        let manifest_path = absolute.as_path();
         let pkg_dir = manifest_path.parent().unwrap_or(Path::new("."));
 
         // 1. Explicit package.workspace if defined (fail-closed)
