@@ -201,12 +201,14 @@ pub fn resolve_extern_crates_with_target(
                 .manifest_path
                 .parent()
                 .unwrap_or(std::path::Path::new("."));
-            let lib_src_path = pkg_toml
-                .lib
-                .as_ref()
-                .and_then(|l| l.path.as_ref())
-                .map(|p| pkg_dir.join(p))
-                .unwrap_or_else(|| pkg_dir.join("src").join("lib.rs"));
+            let lib_src_path = super::planner_paths::normalize_lexically(
+                &pkg_toml
+                    .lib
+                    .as_ref()
+                    .and_then(|l| l.path.as_ref())
+                    .map(|p| pkg_dir.join(p))
+                    .unwrap_or_else(|| pkg_dir.join("src").join("lib.rs")),
+            );
             // The unit tests of a package that lists itself under [dev-dependencies] name the
             // crate from outside and do link the library; the planner gave them that dependency.
             let self_dev_names = super::planner_deps::self_dev_dependency_names(

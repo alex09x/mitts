@@ -84,10 +84,15 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             .flat_map(|(n, v)| v.iter().map(move |(p, t)| (n, p, t)))
         {
             let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-            if canon_path.starts_with(&canon_proj) {
+            if let Ok(rel) = canon_path.strip_prefix(&canon_proj) {
+                // Reached through a symlink from outside, the package is a member by where it
+                // really is: keep it under the workspace path, or its key falls back to the
+                // absolute manifest dir and loses --remap-path-prefix (issue 94).
+                let in_workspace =
+                    super::planner_paths::normalize_lexically(&project_dir.join(rel));
                 workspace_manifests
                     .entry(name.clone())
-                    .or_insert_with(|| (path.clone(), toml.clone()));
+                    .or_insert_with(|| (in_workspace, toml.clone()));
             }
         }
     }

@@ -342,7 +342,9 @@ fn create_unit(
         version: pkg.version.clone(),
         target_name: target.name.clone(),
         kind: kind_str,
-        src_path: target.src_path.clone(),
+        // `[lib] path = "../shared/lib.rs"`: without normalization the `..` stayed in the
+        // unit's source and its key fell back to the absolute path (issue 94).
+        src_path: super::planner_paths::normalize_lexically(&target.src_path),
         manifest_path: pkg_dir.join("Cargo.toml"),
         cache_eligibility: eligibility,
         is_workspace,

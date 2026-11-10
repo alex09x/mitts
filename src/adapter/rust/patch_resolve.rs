@@ -115,7 +115,9 @@ pub fn resolve_patch(
         return Ok(out);
     }
     let rel = dep.path.as_deref().unwrap_or(".");
-    let dir = base.join(rel);
+    // Lexically normalized like every other path dependency: a `..` left in the path made
+    // it a different directory from the workspace member it names (issue 94).
+    let dir = super::planner_paths::normalize_lexically(&base.join(rel));
     let mut seen = HashSet::new();
     let name = collect_path_package(&dir, config, git, &mut out, &mut seen, offline)?;
     let idx = out
@@ -166,7 +168,9 @@ fn collect_path_package(
                 dname.clone()
             }
             TomlDependency::Detailed(d) if d.path.is_some() => {
-                let sub = dir.join(d.path.as_deref().unwrap_or("."));
+                let sub = super::planner_paths::normalize_lexically(
+                    &dir.join(d.path.as_deref().unwrap_or(".")),
+                );
                 collect_path_package(&sub, config, git, out, seen, offline)?
             }
             TomlDependency::Detailed(d) if d.git.is_some() => {
