@@ -10,12 +10,12 @@
 
 //! Like Cargo's `--config`, each value is either a TOML `KEY = VALUE` (dotted keys, e.g.
 //! `build.target-dir="out"` or `profile.release.opt-level=1`) or the path of a TOML file.
-//! They form the highest-precedence configuration layer: every reader of Cargo
-//! configuration takes its files from [`super::cargo_config::discover_cargo_config_files`],
-//! which appends these after the discovered `.cargo/config.toml` files, later values
-//! winning. Inline values are written to one file in a private temporary directory that
-//! [`cleanup`] removes when the command ends. Relative paths in inline values are relative
-//! to the current directory, as in Cargo.
+//! They form the highest-precedence configuration layer, later values winning: every
+//! reader of Cargo configuration takes its files from
+//! [`super::cargo_config::discover_cargo_config_files`], which appends these after the
+//! discovered `.cargo/config.toml` files. Each inline value is written to its own file, at
+//! its position among the values, in a private temporary directory that [`cleanup`]
+//! removes when the command ends. Relative paths resolve as [`base_dir`] says.
 
 use anyhow::{anyhow, bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -23,14 +23,12 @@ use std::sync::RwLock;
 
 struct Overrides {
     files: Vec<PathBuf>,
-    inline_file: Option<PathBuf>,
     scratch: Option<PathBuf>,
     stamp: String,
 }
 
 static OVERRIDES: RwLock<Overrides> = RwLock::new(Overrides {
     files: Vec::new(),
-    inline_file: None,
     scratch: None,
     stamp: String::new(),
 });
@@ -40,29 +38,25 @@ pub fn set(values: &[String]) -> Result<()> {
     cleanup();
     let prepared = prepare(values)?;
     *OVERRIDES.write().unwrap_or_else(|e| e.into_inner()) = prepared;
+    super::cargo_config::clear_config_env_cache();
     Ok(())
 }
 
-/// Checks the values and writes the inline ones to a scratch file, without installing them.
+/// Checks the values and writes the inline ones to scratch files, without installing them.
 fn prepare(values: &[String]) -> Result<Overrides> {
-    if values.is_empty() {
-        return Ok(Overrides {
-            files: Vec::new(),
-            inline_file: None,
-            scratch: None,
-            stamp: String::new(),
-        });
-    }
-    let mut files = Vec::new();
-    let mut inline = String::new();
-    let mut inline_index = None;
+    let mut overrides = Overrides {
+        files: Vec::new(),
+        scratch: None,
+        stamp: values.join("\u{1f}"),
+    };
+    // Check everything before writing anything. All inline values together must be one
+    // valid table: a key set twice is an error, as in Cargo.
+    let mut combined = String::new();
     for value in values {
-        let as_path = Path::new(value);
         if !value.contains('=') {
-            if !as_path.is_file() {
+            if !Path::new(value).is_file() {
                 bail!("--config {value}: not a KEY=VALUE pair and not a file");
             }
-            files.push(std::path::absolute(as_path).unwrap_or_else(|_| as_path.to_path_buf()));
             continue;
         }
         let parsed: toml::Table = value.parse().map_err(|e| {
@@ -71,39 +65,41 @@ fn prepare(values: &[String]) -> Result<Overrides> {
         if parsed.is_empty() {
             bail!("--config {value}: sets nothing");
         }
-        inline.push_str(value);
-        inline.push('\n');
-        // Inline values take the place of their first occurrence among the files.
-        inline_index.get_or_insert(files.len());
-    }
-    // Check the inline values together (a key set twice is a TOML error, as in Cargo).
-    let mut scratch = None;
-    let mut inline_file = None;
-    if let Some(index) = inline_index {
-        inline
+        combined.push_str(value);
+        combined.push('\n');
+        combined
             .parse::<toml::Table>()
-            .map_err(|e| anyhow!("--config values conflict: {e}"))?;
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let dir =
-            std::env::temp_dir().join(format!("mitts-config-{}-{nanos:x}", std::process::id()));
-        std::fs::create_dir_all(&dir)
-            .with_context(|| format!("cannot create {}", dir.display()))?;
-        let file = dir.join("config.toml");
-        std::fs::write(&file, &inline)
-            .with_context(|| format!("cannot write {}", file.display()))?;
-        files.insert(index, file.clone());
-        scratch = Some(dir);
-        inline_file = Some(file);
+            .map_err(|e| anyhow!("--config {value} conflicts with an earlier value: {e}"))?;
     }
-    Ok(Overrides {
-        files,
-        inline_file,
-        scratch,
-        stamp: values.join("\u{1f}"),
-    })
+    for value in values {
+        if !value.contains('=') {
+            let path = Path::new(value);
+            overrides
+                .files
+                .push(std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
+            continue;
+        }
+        let scratch = match &overrides.scratch {
+            Some(dir) => dir.clone(),
+            None => {
+                let nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                let dir = std::env::temp_dir()
+                    .join(format!("mitts-config-{}-{nanos:x}", std::process::id()));
+                std::fs::create_dir_all(&dir)
+                    .with_context(|| format!("cannot create {}", dir.display()))?;
+                overrides.scratch = Some(dir.clone());
+                dir
+            }
+        };
+        let file = scratch.join(format!("config-{}.toml", overrides.files.len()));
+        std::fs::write(&file, format!("{value}\n"))
+            .with_context(|| format!("cannot write {}", file.display()))?;
+        overrides.files.push(file);
+    }
+    Ok(overrides)
 }
 
 /// The override files, lowest precedence first.
@@ -115,15 +111,41 @@ pub fn files() -> Vec<PathBuf> {
         .clone()
 }
 
-/// The file inline `--config` values were written to, whose relative paths are relative to
-/// the current directory rather than to the file.
+/// Whether `path` holds an inline `--config` value (a scratch file of this run).
 pub fn is_inline_file(path: &Path) -> bool {
     OVERRIDES
         .read()
         .unwrap_or_else(|e| e.into_inner())
-        .inline_file
+        .scratch
         .as_deref()
-        == Some(path)
+        .is_some_and(|dir| path.starts_with(dir))
+}
+
+/// The position of `path` among the `--config` files, if it is one; a stable label for it
+/// (the scratch directory's name changes every run).
+pub fn position(path: &Path) -> Option<usize> {
+    OVERRIDES
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .files
+        .iter()
+        .position(|file| file == path)
+}
+
+/// The directory relative paths in a configuration file are resolved against, as in
+/// Cargo: the current directory for an inline `--config` value, the directory holding
+/// `.cargo` for `.cargo/config.toml`, and the file's own directory for a `--config FILE`
+/// elsewhere.
+pub fn base_dir(config_path: &Path) -> PathBuf {
+    if is_inline_file(config_path) {
+        return std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    }
+    let parent = config_path.parent().unwrap_or(Path::new("."));
+    if parent.file_name().is_some_and(|name| name == ".cargo") {
+        parent.parent().unwrap_or(Path::new(".")).to_path_buf()
+    } else {
+        parent.to_path_buf()
+    }
 }
 
 /// The `--config` values, for the options hash (a different override is a different build).
@@ -135,15 +157,16 @@ pub fn stamp() -> String {
         .clone()
 }
 
-/// Removes the temporary file of inline values and forgets the overrides.
+/// Removes the scratch files of inline values and forgets the overrides.
 pub fn cleanup() {
     let mut overrides = OVERRIDES.write().unwrap_or_else(|e| e.into_inner());
     if let Some(dir) = overrides.scratch.take() {
         let _ = std::fs::remove_dir_all(dir);
     }
     overrides.files.clear();
-    overrides.inline_file = None;
     overrides.stamp.clear();
+    drop(overrides);
+    super::cargo_config::clear_config_env_cache();
 }
 
 #[cfg(test)]
@@ -152,24 +175,39 @@ mod tests {
 
     /// `prepare` only: installing would be visible to other tests in this process.
     #[test]
-    fn inline_values_and_files_are_layered_in_order() {
+    fn values_keep_their_command_line_order() {
         let temp = tempfile::tempdir().unwrap();
         let file = temp.path().join("extra.toml");
-        std::fs::write(&file, "[build]\njobs = 3\n").unwrap();
+        std::fs::write(&file, "[env]\nB = \"file\"\n").unwrap();
         let prepared = prepare(&[
-            "build.target-dir=\"out\"".to_string(),
+            "env.A=\"1\"".to_string(),
             file.display().to_string(),
+            "env.B=\"cli\"".to_string(),
         ])
         .unwrap();
-        assert_eq!(prepared.files.len(), 2);
-        assert_eq!(prepared.inline_file.as_ref(), Some(&prepared.files[0]));
-        let inline = std::fs::read_to_string(&prepared.files[0]).unwrap();
-        assert!(inline.contains("build.target-dir"));
+        assert_eq!(prepared.files.len(), 3);
+        let scratch = prepared.scratch.clone().unwrap();
+        assert!(prepared.files[0].starts_with(&scratch));
         assert_eq!(prepared.files[1], std::path::absolute(&file).unwrap());
-        std::fs::remove_dir_all(prepared.scratch.unwrap()).unwrap();
+        // The last value stays last, so it wins over the file before it.
+        assert!(prepared.files[2].starts_with(&scratch));
+        assert!(std::fs::read_to_string(&prepared.files[2])
+            .unwrap()
+            .contains("env.B=\"cli\""));
+        std::fs::remove_dir_all(scratch).unwrap();
 
         assert!(prepare(&["not toml =".to_string()]).is_err());
         assert!(prepare(&["missing.toml".to_string()]).is_err());
-        assert!(prepare(&["a.b=1".to_string(), "a.b=2".to_string()]).is_err());
+        let duplicate = prepare(&["a.b=1".to_string(), "a.b=2".to_string()]);
+        assert!(duplicate.is_err());
+    }
+
+    #[test]
+    fn base_dirs_follow_cargo() {
+        assert_eq!(
+            base_dir(Path::new("/w/.cargo/config.toml")),
+            PathBuf::from("/w")
+        );
+        assert_eq!(base_dir(Path::new("/w/extra.toml")), PathBuf::from("/w"));
     }
 }

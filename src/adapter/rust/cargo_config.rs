@@ -309,6 +309,13 @@ pub fn load_cargo_config_build_target(start_dir: &Path) -> Result<Option<String>
 type ConfigEnv = Vec<(String, String)>;
 static CONFIG_ENV: OnceLock<Mutex<HashMap<PathBuf, ConfigEnv>>> = OnceLock::new();
 
+/// Forgets the cached `[env]` tables (the `--config` layer changed).
+pub fn clear_config_env_cache() {
+    if let Some(cache) = CONFIG_ENV.get() {
+        cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
 /// The `[env]` tables of every Cargo config that applies to `start_dir`, with Cargo's
 /// rules: a later (closer) file overrides an earlier one, `force = true` overrides a
 /// variable the environment already has (otherwise it is left alone), `relative = true`
@@ -330,11 +337,7 @@ pub fn load_cargo_config_env(start_dir: &Path) -> ConfigEnv {
         let Some(table) = value.get("env").and_then(|e| e.as_table()) else {
             continue;
         };
-        let base = path
-            .parent()
-            .and_then(Path::parent)
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
+        let base = super::cargo_config_cli::base_dir(&path);
         for (name, spec) in table {
             let (raw, force, relative) = match spec {
                 toml::Value::String(v) => (v.clone(), false, false),

@@ -35,7 +35,8 @@ fn project() -> TempDir {
         root.join("src/main.rs"),
         "fn main() {\n\
          println!(\"cfg={} greeting={}\", cfg!(from_config), \
-         option_env!(\"GREETING\").unwrap_or(\"-\"));\n}\n",
+         option_env!(\"GREETING\").unwrap_or(\"-\"));\n\
+         if let Some(dir) = option_env!(\"DIRV\") { println!(\"dir={dir}\"); }\n}\n",
     );
     temp
 }
@@ -157,6 +158,110 @@ fn the_flag_overrides_project_configuration() {
     assert_eq!(
         run_binary(&root.join("target/debug/c")),
         "cfg=false greeting=from-cli\n"
+    );
+}
+
+/// Values keep their command-line order: an inline value after a file wins over it
+/// (review of #115, P2).
+#[test]
+fn a_later_inline_value_beats_an_earlier_file() {
+    let temp = project();
+    let root = temp.path();
+    write_file(root.join("extra.toml"), "[env]\nGREETING = \"file\"\n");
+    assert_ok(&mitts(
+        root,
+        &[
+            "build",
+            "-q",
+            "--config",
+            "env.OTHER=\"1\"",
+            "--config",
+            "extra.toml",
+            "--config",
+            "env.GREETING=\"cli\"",
+        ],
+    ));
+    assert_eq!(
+        run_binary(&root.join("target/debug/c")),
+        "cfg=false greeting=cli\n"
+    );
+}
+
+/// `relative = true` resolves against the current directory for an inline value and the
+/// file's own directory for a `--config FILE` outside `.cargo` (review of #115, P2).
+#[test]
+fn relative_values_resolve_like_cargo() {
+    let temp = project();
+    let root = temp.path().canonicalize().unwrap();
+    write_file(
+        root.join("conf/extra.toml"),
+        "[env]\nDIRV = { value = \"from-file\", relative = true }\n",
+    );
+    assert_ok(&mitts(
+        &root,
+        &["build", "-q", "--config", "conf/extra.toml"],
+    ));
+    assert_eq!(
+        run_binary(&root.join("target/debug/c")),
+        format!(
+            "cfg=false greeting=-\ndir={}\n",
+            root.join("conf/from-file").display()
+        )
+    );
+    assert_ok(&mitts(
+        &root,
+        &[
+            "build",
+            "-q",
+            "--config",
+            "env.DIRV={ value = \"inline\", relative = true }",
+        ],
+    ));
+    assert_eq!(
+        run_binary(&root.join("target/debug/c")),
+        format!(
+            "cfg=false greeting=-\ndir={}\n",
+            root.join("inline").display()
+        )
+    );
+}
+
+/// A repeated build with the same inline `--config` is a fast-lock hit: the scratch file of
+/// inline values is new every run and must not count as a changed config (review of #115, P1).
+#[test]
+fn the_same_inline_config_keeps_the_fast_lock() {
+    let temp = project();
+    let root = temp.path();
+    let build_with = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .arg("build")
+            .args(extra)
+            .arg("--cache-dir")
+            .arg(root.join("mitts-cache"))
+            .current_dir(root)
+            .env("MITTS_FAST_LOCK", "1")
+            // A machine-wide rustc wrapper (sccache) turns the fast lock off.
+            .env("RUSTC_WRAPPER", "")
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_BUILD_TARGET_DIR")
+            .output()
+            .unwrap()
+    };
+    let build = || build_with(&["--config", "env.GREETING=\"hi\""]);
+    // The first build compiles; the lock is recorded by a build whose units all hit the
+    // action cache; the third run is answered by the lock.
+    assert_ok(&build());
+    assert_ok(&build());
+    let again = build();
+    assert_ok(&again);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&again.stdout),
+        String::from_utf8_lossy(&again.stderr)
+    );
+    assert!(
+        text.contains("fast_lock=1") || text.contains("Fast build lock HIT"),
+        "{text}"
     );
 }
 
