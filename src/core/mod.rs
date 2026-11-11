@@ -31,6 +31,7 @@ pub mod owned_dir;
 pub mod reflink;
 pub mod source_store;
 pub mod target_index;
+pub mod unit_timings;
 
 pub use action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 pub use action_cache::{ActionCache, ActionCacheEntry, CachedOutput};

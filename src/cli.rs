@@ -26,6 +26,14 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "WHEN")]
     pub color: Option<color::ColorWhen>,
 
+    /// Write a per-unit timing report to target/cargo-timings (html by default; html,json)
+    #[arg(long, global = true, value_name = "FMTS", num_args = 0..=1, require_equals = true, default_missing_value = "html")]
+    pub timings: Option<String>,
+
+    /// Unstable Cargo flags: `-Z unstable-options` is accepted; rustc's -Z flags go in RUSTFLAGS
+    #[arg(short = 'Z', global = true, value_name = "FLAG", action = clap::ArgAction::Append)]
+    pub unstable: Vec<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }

@@ -22,6 +22,28 @@ fn main() -> ExitCode {
     if let Some(jobs) = cli.command.jobs() {
         mitts::core::jobs::set_flag_limit(jobs);
     }
+    // Cargo's -Z flags select unstable Cargo features; `unstable-options` only unlocks
+    // flags, which Mitts has none of behind it. rustc's own -Z flags belong in RUSTFLAGS.
+    if let Some(flag) = cli
+        .unstable
+        .iter()
+        .find(|f| f.as_str() != "unstable-options")
+    {
+        eprintln!(
+            "error: unstable Cargo flag `-Z {flag}` is not supported by Mitts \
+             (pass rustc -Z flags through RUSTFLAGS)"
+        );
+        return ExitCode::from(101);
+    }
+    if let Some(value) = &cli.timings {
+        match mitts::core::unit_timings::parse_formats(value) {
+            Ok(formats) => mitts::core::unit_timings::enable(formats),
+            Err(error) => {
+                eprintln!("error: {error:#}");
+                return ExitCode::from(101);
+            }
+        }
+    }
     let code = match cli.command {
         Commands::Build(ref args) => handle_build(args),
         Commands::Rustc(ref args) => handle_rustc(args),
@@ -43,6 +65,14 @@ fn main() -> ExitCode {
     };
 
     mitts::adapter::rust::cargo_config_cli::cleanup();
+    match mitts::core::unit_timings::finish_recorded() {
+        Ok(files) => {
+            for file in files {
+                eprintln!("      Timing report saved to {}", file.display());
+            }
+        }
+        Err(error) => eprintln!("warning: timing report not written: {error:#}"),
+    }
 
     // After the command has released the cache: keep the cache under its size limit.
     if let Some(cache_dir) = cli.command.cache_use() {
