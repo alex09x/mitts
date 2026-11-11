@@ -114,6 +114,7 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             .iter()
             .map(|(id, k)| (id.as_str(), k.as_str()))
             .collect();
+        let timing = crate::core::unit_timings::unit_started();
         let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _cache_phase = crate::core::cache_phase::enter_unit();
             let base_action_key = shared.deriver.compute_dynamic_key(&unit, &dep_refs)?;
@@ -124,6 +125,22 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             };
             execute_unit(&unit, &action_key, ctx, lock_mode)
         }));
+        // A contested unit is deferred and runs again later; that run is the one recorded.
+        if !matches!(exec_res, Ok(Ok(UnitExecutionStatus::Contested))) {
+            let host = if unit.for_host { " [host]" } else { "" };
+            crate::core::unit_timings::unit_finished(
+                timing,
+                format!(
+                    "{} {} ({}){host}",
+                    unit.package_name, unit.target_name, unit.kind
+                ),
+                if matches!(exec_res, Ok(Ok(_))) {
+                    "ok"
+                } else {
+                    "failed"
+                },
+            );
+        }
 
         match exec_res {
             Ok(Ok(UnitExecutionStatus::Success)) => {

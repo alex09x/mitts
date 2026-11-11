@@ -115,15 +115,15 @@ fn registry() -> String {
     routes.insert("/dl/extra/0.1.0/download".to_string(), extra);
     routes.insert("/dl/unused/0.1.0/download".to_string(), unused);
 
-    let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = probe.local_addr().unwrap().port();
-    drop(probe);
+    // Keep the listener that picked the port: dropping it and binding the port again let a
+    // parallel test take it in between (AddrInUse).
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
     let base = format!("http://127.0.0.1:{port}");
     routes.insert(
         "/index/config.json".to_string(),
         format!("{{\"dl\":\"{base}/dl\",\"api\":\"{base}\",\"auth-required\":false}}").into_bytes(),
     );
-    let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
     std::thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
             let mut buf = [0u8; 8192];

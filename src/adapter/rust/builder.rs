@@ -166,6 +166,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         None => base_profile.to_string(),
     };
     let profile = profile_label.as_str();
+    crate::core::unit_timings::set_build(&target_dir, profile);
 
     // Validate unsupported options explicitly
     for arg in &opt.extra_args {
