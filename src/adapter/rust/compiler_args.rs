@@ -406,10 +406,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             .windows(2)
             .any(|args| args[0] == "-C" && (args[1] == "linker" || args[1].starts_with("linker=")))
     {
-        if let Some(linker) = super::cargo_config_linker::load_cargo_config_linker(
+        let configured = super::cargo_config_linker::load_cargo_config_linker(
             &config_start_dir,
             explicit_target.as_deref(),
-        )? {
+        )?;
+        // `-C linker=` in RUSTFLAGS overrides any linker given here, the wrapper too.
+        let rustflags_pick_linker = target_rustflags
+            .iter()
+            .any(|flag| flag.starts_with("-Clinker=") || flag.starts_with("linker="));
+        let wrapped =
+            !rustflags_pick_linker && super::link_timing::wrap(&mut cmd, configured.as_deref());
+        if let Some(linker) = configured.filter(|_| !wrapped) {
             cmd.args(["-C", &format!("linker={linker}")]);
         }
     }

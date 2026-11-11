@@ -228,6 +228,13 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
         }
     }
 
+    let verbosity = crate::core::verbosity::level();
+    if verbosity >= 1 {
+        eprintln!(
+            "     Running `{}`",
+            crate::core::verbosity::render_command(&compile_cmd, verbosity >= 2)
+        );
+    }
     let compile_status = compile_cmd.output().context("Failed to compile build.rs")?;
     if !compile_status.status.success() {
         let err = String::from_utf8_lossy(&compile_status.stderr);

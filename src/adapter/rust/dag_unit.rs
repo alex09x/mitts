@@ -137,8 +137,7 @@ pub(crate) fn execute_unit(
         std::env::var("MITTS_LOG_COMPILE")
             .map(|v| v == "1")
             .unwrap_or(false)
-            || std::env::args().any(|a| a == "-v" || a == "--verbose")
-    });
+    }) || crate::core::verbosity::level() >= 1;
     if should_log {
         eprintln!(
             "[mitts::compile] package={} target={} kind={}",
@@ -372,6 +371,9 @@ pub(crate) fn execute_unit(
         }
     };
     crate::core::metrics::record_rustc_duration(t_rustc.elapsed());
+    if let Some(link) = output.link_time {
+        crate::core::unit_timings::note_link(link);
+    }
     drop(_job_token);
     drop(_implicit_job_guard);
     // Publish completed compiler output without waiting behind cache readers.

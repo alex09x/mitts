@@ -134,11 +134,7 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
                     "{} {} ({}){host}",
                     unit.package_name, unit.target_name, unit.kind
                 ),
-                if matches!(exec_res, Ok(Ok(_))) {
-                    "ok"
-                } else {
-                    "failed"
-                },
+                matches!(exec_res, Ok(Ok(_))),
             );
         }
 

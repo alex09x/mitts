@@ -96,7 +96,7 @@ pub struct CheckArgs {
     #[arg(skip)]
     pub fast_lock: Option<bool>,
 
-    /// Use verbose output (-v, -vv for very verbose)
+    /// -v: every rustc command, cache hits, toolchain, linker and link times; -vv: also their environment and build-script output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
@@ -347,32 +347,27 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
                             &Ui::badge_ac_hit(),
                             "Fast build lock verified: 0 project changes detected",
                         );
+                        crate::cli::build_summary::print();
                         Ui::finish(profile, &dur, "Up-to-date (no-op)");
                     } else {
                         Ui::stage_item(
                             true,
                             &Ui::badge_ac_hit(),
-                            &format!(
-                                "Restored {} check actions from Action Cache",
-                                plan.actions.len()
-                            ),
+                            &format!("Restored {} units from the cache", plan.actions.len()),
                         );
-                        Ui::finish(profile, &dur, "100% cache hit, 0 local target bloat");
+                        crate::cli::build_summary::print();
+                        Ui::finish(profile, &dur, "100% cache hit, nothing checked");
                     }
                 } else {
+                    let outcome = crate::cli::build_summary::outcome("checked")
+                        .unwrap_or_else(|| format!("{} units", plan.actions.len()));
                     Ui::stage_item(
                         true,
                         &Ui::badge_compile(),
-                        &format!(
-                            "Checked {} actions into CAS (0 binary bloat)",
-                            plan.actions.len()
-                        ),
+                        &format!("{} units: {outcome}", plan.actions.len()),
                     );
-                    Ui::finish(
-                        profile,
-                        &dur,
-                        &format!("{} actions checked with 0 errors", plan.actions.len()),
-                    );
+                    crate::cli::build_summary::print();
+                    Ui::finish(profile, &dur, &format!("{outcome}, 0 errors"));
                 }
             } else {
                 // The progress callback already streamed the compiler's output; printing

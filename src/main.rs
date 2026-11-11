@@ -17,8 +17,34 @@ use mitts::cli::{
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    // Started by rustc as the linker of a unit whose link time is measured.
+    if let Some(code) = mitts::adapter::rust::link_timing::run_as_linker_if_requested() {
+        return ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
+    // `mitts +nightly build`, like `cargo +nightly build`.
+    let args = match mitts::adapter::rust::toolchain_select::split_toolchain_arg(
+        std::env::args_os().collect(),
+    ) {
+        Ok((toolchain, args)) => {
+            if let Some(toolchain) = toolchain {
+                if let Err(error) = mitts::adapter::rust::toolchain_select::select(&toolchain) {
+                    eprintln!("error: {error}");
+                    return ExitCode::from(101);
+                }
+            }
+            args
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(101);
+        }
+    };
+    let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
+    mitts::core::verbosity::set(cli.command.verbose());
+    if mitts::core::verbosity::level() >= 1 || cli.timings.is_some() {
+        mitts::adapter::rust::link_timing::enable();
+    }
     if let Some(jobs) = cli.command.jobs() {
         mitts::core::jobs::set_flag_limit(jobs);
     }

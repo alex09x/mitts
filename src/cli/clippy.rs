@@ -96,7 +96,7 @@ pub struct ClippyArgs {
     #[arg(skip)]
     pub fast_lock: Option<bool>,
 
-    /// Use verbose output (-v, -vv for very verbose)
+    /// -v: every rustc command, cache hits, toolchain, linker and link times; -vv: also their environment and build-script output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
@@ -347,29 +347,27 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
                             &Ui::badge_ac_hit(),
                             "Fast build lock verified: 0 project changes detected",
                         );
+                        crate::cli::build_summary::print();
                         Ui::finish(profile, &dur, "Up-to-date (no-op)");
                     } else {
                         Ui::stage_item(
                             true,
                             &Ui::badge_ac_hit(),
-                            &format!(
-                                "Restored {} clippy actions from Action Cache",
-                                plan.actions.len()
-                            ),
+                            &format!("Restored {} units from the cache", plan.actions.len()),
                         );
-                        Ui::finish(profile, &dur, "100% cache hit, 0 local target bloat");
+                        crate::cli::build_summary::print();
+                        Ui::finish(profile, &dur, "100% cache hit, nothing linted");
                     }
                 } else {
+                    let outcome = crate::cli::build_summary::outcome("linted")
+                        .unwrap_or_else(|| format!("{} units", plan.actions.len()));
                     Ui::stage_item(
                         true,
                         &Ui::badge_compile(),
-                        &format!("Linted {} actions with clippy-driver", plan.actions.len()),
+                        &format!("{} units with clippy-driver: {outcome}", plan.actions.len()),
                     );
-                    Ui::finish(
-                        profile,
-                        &dur,
-                        &format!("{} actions linted with 0 errors", plan.actions.len()),
-                    );
+                    crate::cli::build_summary::print();
+                    Ui::finish(profile, &dur, &format!("{outcome}, 0 errors"));
                 }
             } else {
                 // The progress callback already streamed the compiler's output; printing

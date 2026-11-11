@@ -92,7 +92,7 @@ fn timings_json_lists_units_with_their_outcome() {
     .unwrap();
     let units = json["units"].as_array().unwrap();
     assert_eq!(units.len(), 2, "{json}");
-    assert!(units.iter().all(|u| u["outcome"] == "ok"));
+    assert!(units.iter().all(|u| u["outcome"] == "compiled"), "{json}");
     assert!(!root.join("target/cargo-timings/cargo-timing.html").exists());
     let unknown = mitts(root, &["build", "--timings=xml"]);
     assert!(!unknown.status.success());

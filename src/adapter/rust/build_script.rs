@@ -242,7 +242,23 @@ pub(crate) fn execute_build_script_with_key(
         &bin_path, pkg_dir, unit, &pkg_toml, &out_dir, &target, release, features, extra_env,
     );
 
+    let verbosity = crate::core::verbosity::level();
+    if verbosity >= 1 {
+        eprintln!(
+            "     Running `{}`",
+            crate::core::verbosity::render_command(&run_cmd, verbosity >= 2)
+        );
+    }
     let run_status = run_cmd.output().context("Failed to execute build.rs")?;
+    if verbosity >= 2 {
+        // Like `cargo -vv`: every line the script printed, tagged with its package.
+        let tag = format!("[{} {}]", unit.package_name, unit.version);
+        for stream in [&run_status.stdout, &run_status.stderr] {
+            for line in String::from_utf8_lossy(stream).lines() {
+                eprintln!("{tag} {line}");
+            }
+        }
+    }
     if !run_status.status.success() {
         let err = String::from_utf8_lossy(&run_status.stderr);
         bail!("build.rs failed for '{}': {}", unit.package_name, err);

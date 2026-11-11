@@ -111,7 +111,7 @@ pub struct TestArgs {
     #[arg(long)]
     pub coverage: bool,
 
-    /// Use verbose output (-v, -vv for very verbose)
+    /// -v: every rustc command, cache hits, toolchain, linker and link times; -vv: also their environment and build-script output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 

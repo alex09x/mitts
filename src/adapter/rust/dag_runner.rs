@@ -348,6 +348,7 @@ pub fn run_native_dag_build(
         .filter(|k| k.contains(":unhashable:"))
         .count();
     let n_total = actions.len();
+    crate::core::build_report::set_counts(n_compiled, n_cached, n_total, false);
     if !opt.quiet {
         eprintln!(
             "[mitts::stats] compiled={} cached={} tainted={} total={} fast_lock=0",

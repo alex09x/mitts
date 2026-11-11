@@ -178,6 +178,8 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let toolchain = logger.measure("toolchain", "Detected rustc toolchain", || {
         RustAdapter::detect_toolchain()
     })?;
+    crate::core::build_report::begin();
+    crate::core::build_report::set_rustc(&toolchain.version);
 
     let options_hash = compute_options_hash(opt, &target_dir, &manifest_path);
 
@@ -262,6 +264,8 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
                     &format!("Fast build lock HIT: {} actions up-to-date", action_count),
                 );
                 let _ = logger.write_trace(profile, 0, "Fast lock hit (0ms no-op)");
+                crate::core::build_report::set_counts(0, 0, action_count, true);
+                crate::core::build_report::set_phases(phase_times(&logger));
                 if !opt.quiet {
                     eprintln!(
                         "[mitts::stats] compiled=0 cached=0 tainted=0 total={} fast_lock=1",
@@ -361,6 +365,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         logger.measure("compile", "native parallel rustc DAG execution", || {
             super::dag_runner::run_native_dag_build(opt, &explanation, &key_deriver)
         })?;
+    crate::core::build_report::set_phases(phase_times(&logger));
 
     record_state_and_trace(
         project_dir,
@@ -376,6 +381,14 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     );
 
     Ok((plan, result))
+}
+
+fn phase_times(logger: &BuildLogger) -> Vec<(String, std::time::Duration)> {
+    logger
+        .phases()
+        .iter()
+        .map(|p| (p.name.clone(), p.duration))
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]

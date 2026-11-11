@@ -28,6 +28,8 @@ pub struct RustcOutput {
     pub command_line: String,
     pub primary_output: Option<PathBuf>,
     pub metadata_output: Option<PathBuf>,
+    /// Time spent in the linker, when link timing wrapped it (see `link_timing`).
+    pub link_time: Option<Duration>,
 }
 
 /// Unified metadata from a single `<resolved_rustc> -vV` invocation.

@@ -183,7 +183,7 @@ pub struct CoverageArgs {
     #[arg(short = 'c', long, value_name = "N", num_args = 0..=1, require_equals = true, default_missing_value = "0")]
     pub concurrency: Option<usize>,
 
-    /// Use verbose output
+    /// -v: every rustc command, cache hits, toolchain, linker and link times; -vv: also their environment and build-script output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
