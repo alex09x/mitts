@@ -336,6 +336,13 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         if let Some(c) = ctx.cached_actions {
             c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
+        crate::core::unit_timings::note_restored();
+        if crate::core::verbosity::level() >= 1 {
+            eprintln!(
+                "       Fresh {} v{} ({}, restored from the cache)",
+                unit.package_name, unit.version, unit.kind
+            );
+        }
         return Ok(true);
     }
     Ok(false)

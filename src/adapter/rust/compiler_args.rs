@@ -406,10 +406,26 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             .windows(2)
             .any(|args| args[0] == "-C" && (args[1] == "linker" || args[1].starts_with("linker=")))
     {
-        if let Some(linker) = super::cargo_config_linker::load_cargo_config_linker(
+        let configured = super::cargo_config_linker::load_cargo_config_linker(
             &config_start_dir,
             explicit_target.as_deref(),
-        )? {
+        )?;
+        // The wrapper only stands in for the host's own `cc`-flavored linking: never for a
+        // cross target (its default linker or flavor may not be `cc`), never when
+        // RUSTFLAGS name a linker or a linker flavor, and only for units that link.
+        let rustflags_pick_linker = target_rustflags.iter().any(|flag| {
+            let flag = flag.trim_start_matches("-C").trim_start();
+            flag.starts_with("linker=") || flag.starts_with("linker-flavor=")
+        });
+        let host_target = explicit_target
+            .as_deref()
+            .is_none_or(|t| t == super::compiler_resolve::resolve_host_triple());
+        let wrapped = !rustflags_pick_linker
+            && host_target
+            && !is_check_only
+            && super::pipelining::is_linking_kind(&inv.unit.kind)
+            && super::link_timing::wrap(&mut cmd, configured.as_deref());
+        if let Some(linker) = configured.filter(|_| !wrapped) {
             cmd.args(["-C", &format!("linker={linker}")]);
         }
     }

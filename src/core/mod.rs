@@ -16,6 +16,7 @@ pub mod build_env;
 pub mod build_lock;
 pub mod build_lock_types;
 pub mod build_logger;
+pub mod build_report;
 pub(crate) mod cache_phase;
 pub mod cache_root;
 pub mod cas;
@@ -32,6 +33,7 @@ pub mod reflink;
 pub mod source_store;
 pub mod target_index;
 pub mod unit_timings;
+pub mod verbosity;
 
 pub use action::{Action, ActionKind, ActionResult, BuildPlan, ToolchainInfo};
 pub use action_cache::{ActionCache, ActionCacheEntry, CachedOutput};

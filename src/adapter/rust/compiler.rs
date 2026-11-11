@@ -46,6 +46,14 @@ impl<'a> RustcInvocation<'a> {
             super::compiler_args::build_compiler_command(&self)?;
 
         let command_line = format!("{:?}", cmd);
+        let verbosity = crate::core::verbosity::level();
+        if verbosity >= 1 {
+            eprintln!(
+                "     Running `{}`",
+                crate::core::verbosity::render_command(&cmd, verbosity >= 2)
+            );
+        }
+        let link_report = super::link_timing::report_of(&cmd);
 
         let (success, mut exit_code, stdout, stderr, mut primary_output, mut metadata_output) =
             if is_pipelined_lib {
@@ -80,6 +88,7 @@ impl<'a> RustcInvocation<'a> {
         if !success {
             exit_code = 101;
         }
+        let link_time = link_report.as_deref().and_then(super::link_timing::collect);
 
         if success {
             let is_bin = self.unit.kind == "bin" || self.unit.kind == "example";
@@ -151,6 +160,7 @@ impl<'a> RustcInvocation<'a> {
             command_line,
             primary_output,
             metadata_output,
+            link_time,
         })
     }
 

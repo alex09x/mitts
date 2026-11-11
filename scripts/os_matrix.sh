@@ -42,7 +42,7 @@ host_arch=$(uname -m)
 mode=${OS_MATRIX_MODE:-auto}
 jobs=${OS_MATRIX_JOBS:-4}
 out=${OS_MATRIX_OUT:-$repo/target/os-matrix/$(date +%Y%m%d-%H%M%S)}
-smoke_tests=${OS_MATRIX_SMOKE:-"--test cli_dependency_features_test --test cli_native_features --test m8_jobserver_pool_test"}
+smoke_tests=${OS_MATRIX_SMOKE:-"--test cli_dependency_features_test --test cli_native_features --test m8_jobserver_pool_test --test verbose_toolchain_summary_test"}
 
 default_matrix=(
   ubuntu:22.04
@@ -124,6 +124,8 @@ if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
 fi
 . "$HOME/.cargo/env"
 rustup -q toolchain install stable --profile minimal --component rustfmt,clippy,llvm-tools >/dev/null
+# A second toolchain for the `mitts +nightly` tests.
+rustup -q toolchain install nightly --profile minimal >/dev/null
 mkdir -p /work && tar -C /src --exclude=./target -cf - . | tar -C /work -xf -
 cd /work
 echo "os: $(. /etc/os-release; echo "$PRETTY_NAME") $(uname -m), $(rustc --version), $(/mitts --version)"

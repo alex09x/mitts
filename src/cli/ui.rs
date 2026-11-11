@@ -82,6 +82,18 @@ impl Ui {
         );
     }
 
+    /// Prints a dimmed note under the current stage: `│  note`
+    pub fn stage_note(msg: &str) {
+        println!(
+            "{}│{}  {}{}{}",
+            Self::CYAN,
+            Self::RESET,
+            Self::DIM,
+            msg,
+            Self::RESET
+        );
+    }
+
     /// Prints a cached item badge: `[cached]` in bold green.
     pub fn badge_cached() -> String {
         format!("{}[cached]{}", Self::GREEN, Self::RESET)
