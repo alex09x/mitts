@@ -197,7 +197,7 @@ pub(crate) fn restore_importable_unit_outputs(
             .and_then(|e| e.to_str())
             .unwrap_or("rlib");
         if !ctx.opt.native || unit.is_workspace {
-            let profile_name = if ctx.opt.release { "release" } else { "debug" };
+            let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
             let deps_dir = ctx.target_dir.join(profile_name).join("deps");
             let _ = fs::create_dir_all(&deps_dir);
             let is_staticlib = matches!(ext, "a" | "lib");

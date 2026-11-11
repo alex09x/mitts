@@ -185,6 +185,10 @@ pub struct BuildArgs {
     #[arg(short, long)]
     pub release: bool,
 
+    /// Build with the named profile (dev, release, test, bench or a [profile.NAME] with inherits)
+    #[arg(long, value_name = "PROFILE-NAME")]
+    pub profile: Option<String>,
+
     /// Directory for all generated artifacts
     #[arg(long)]
     pub target_dir: Option<PathBuf>,
@@ -470,6 +474,7 @@ mod package_archive;
 mod package_directory;
 mod package_lock;
 mod package_patterns;
+pub mod profile_flag;
 mod registry_metadata;
 mod registry_protocol;
 mod registry_upload;

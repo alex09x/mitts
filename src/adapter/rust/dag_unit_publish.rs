@@ -130,8 +130,10 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                         .strip_prefix(ctx.target_dir)
                         .map(PathBuf::from)
                         .unwrap_or_else(|_| {
-                            PathBuf::from(if ctx.opt.release { "release" } else { "debug" })
-                                .join(&unit.target_name)
+                            PathBuf::from(&crate::adapter::rust::profile::profile_dir(
+                                ctx.opt.release,
+                            ))
+                            .join(&unit.target_name)
                         });
                     let rel_key = rel.to_string_lossy().to_string();
                     if let Some(ti) = ctx.target_index {
@@ -194,7 +196,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
                     completed.entry(unit.unit_id()).or_insert(extern_meta);
                 }
                 if !ctx.opt.native || unit.is_workspace {
-                    let profile_name = if ctx.opt.release { "release" } else { "debug" };
+                    let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
                     let deps_dir = ctx.target_dir.join(profile_name).join("deps");
                     let _ = fs::create_dir_all(&deps_dir);
                     let dep_copy = deps_dir.join(file_name);

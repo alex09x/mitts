@@ -39,6 +39,18 @@ pub fn configure_build_script_run_cmd(
 
     let (major, minor, patch, pre) = super::compiler_resolve::parse_version_parts(&unit.version);
     let num_jobs = crate::core::jobs::limit().unwrap_or(1).to_string();
+    // Like Cargo: OPT_LEVEL and DEBUG come from the package's resolved profile (custom
+    // profiles, `opt-level` / `debug` overrides), PROFILE names the root profile.
+    let (opt_level, debug) = super::profile::resolve_unit_profile(
+        &unit.manifest_path,
+        &unit.package_name,
+        unit.is_workspace,
+        unit.for_host,
+        release,
+        unit.workspace_root.as_deref(),
+    )
+    .map(|profile| (profile.opt_level, profile.debuginfo > 0))
+    .unwrap_or_else(|_| (if release { "3" } else { "0" }.to_string(), !release));
 
     run_cmd
         .current_dir(pkg_dir)
@@ -67,8 +79,8 @@ pub fn configure_build_script_run_cmd(
         .env("NUM_JOBS", &num_jobs)
         .env("RUSTC", &rustc_bin)
         .env("PROFILE", if release { "release" } else { "debug" })
-        .env("OPT_LEVEL", if release { "3" } else { "0" })
-        .env("DEBUG", if release { "false" } else { "true" });
+        .env("OPT_LEVEL", &opt_level)
+        .env("DEBUG", if debug { "true" } else { "false" });
 
     let target_cfgs = get_target_cfgs(target);
     for (k, v) in &target_cfgs {

@@ -202,7 +202,7 @@ pub(crate) fn execute_unit(
         rustc_directives.out_dir = Some(view);
     }
 
-    let profile_name = if ctx.opt.release { "release" } else { "debug" };
+    let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
     let cas_artifacts = ctx.cas.root().join("artifacts");
     let active_build_deps = super::build_deps::active_dir();
     let target_deps_dir = ctx.target_dir.join(profile_name).join("deps");

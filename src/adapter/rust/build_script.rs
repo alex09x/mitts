@@ -81,7 +81,7 @@ pub(crate) fn try_restore_build_script_with_key(
         .map(str::to_string)
         .unwrap_or_else(detect_default_target_triple);
     let clean_crate = unit.package_name.replace('-', "_");
-    let profile_name = if release { "release" } else { "debug" };
+    let profile_name = &crate::adapter::rust::profile::profile_dir(release);
 
     let build_key = compute_build_script_key(
         unit,
@@ -164,7 +164,7 @@ pub(crate) fn execute_build_script_with_key(
         .map(str::to_string)
         .unwrap_or_else(detect_default_target_triple);
     let clean_crate = unit.package_name.replace('-', "_");
-    let profile_name = if release { "release" } else { "debug" };
+    let profile_name = &crate::adapter::rust::profile::profile_dir(release);
 
     let build_key = if !cache_enabled {
         "uncached".to_string()

@@ -51,7 +51,7 @@ pub fn extract_out_dir_files_from_dep_info(
 
     let cleaned_out = super::unit_inputs::clean_path(out_dir);
     let cleaned_staging = super::unit_inputs::clean_path(staging_dir);
-    let prefixes = [
+    let mut prefixes = vec![
         cleaned_out,
         cleaned_staging
             .join("debug")
@@ -66,6 +66,15 @@ pub fn extract_out_dir_files_from_dep_info(
         cleaned_staging.join("out"),
         PathBuf::from(format!("/mitts/out/{clean_crate}")),
     ];
+    if let Some(custom) = super::profile::custom_profile() {
+        prefixes.push(
+            cleaned_staging
+                .join(custom)
+                .join("build")
+                .join(clean_crate)
+                .join("out"),
+        );
+    }
 
     let mut referenced = HashSet::new();
     for d_path in d_files {

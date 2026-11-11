@@ -8,7 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod custom;
 mod ingest;
+pub use custom::{custom_profile, profile_dir, profile_name, set_custom_profile};
 use ingest::ingest_profiles_from_toml;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -60,25 +62,6 @@ fn compute_profile_files_stamp(ws_root: &Path) -> u64 {
         }
     }
     hasher.finish()
-}
-
-/// The derived profile's table (`test`, `bench`) on top of its base's (`dev`, `release`)
-/// at one override level; `None` when neither profile has a table there.
-fn merged_profile_tables<'t>(
-    base_name: &str,
-    profile_name: &str,
-    get: impl Fn(&str) -> Option<&'t toml::Table>,
-) -> Option<toml::Table> {
-    let mut out = get(base_name).cloned();
-    if profile_name != base_name {
-        if let Some(derived) = get(profile_name) {
-            match out.as_mut() {
-                Some(base) => merge_table(base, derived),
-                None => out = Some(derived.clone()),
-            }
-        }
-    }
-    out
 }
 
 /// Deep merges `override_tbl` into `base` key-by-key.
@@ -141,10 +124,13 @@ pub fn resolve_unit_profile_for(
     });
 
     let default_base_name = if release { "release" } else { "dev" };
-    let profile_name = match (test, release) {
-        (true, true) => "bench",
-        (true, false) => "test",
-        (false, _) => default_base_name,
+    // A custom profile replaces dev/release and, like Cargo's `--profile`, test/bench too.
+    let custom = custom_profile();
+    let profile_name: &str = match (custom.as_deref(), test, release) {
+        (Some(name), _, _) => name,
+        (None, true, true) => "bench",
+        (None, true, false) => "test",
+        (None, false, _) => default_base_name,
     };
 
     let loaded = if let Some(ws) = &effective_ws_root {
@@ -163,25 +149,28 @@ pub fn resolve_unit_profile_for(
         ResolvedProfiles::default()
     };
 
-    let base_name = if test {
-        loaded
+    // Root (`dev` / `release`) first, the selected profile last.
+    let chain: Vec<String> = if custom.is_some() {
+        custom::chain(&loaded, profile_name)?
+    } else if test {
+        let base = loaded
             .profiles
             .get(profile_name)
             .and_then(|table| table.get("inherits"))
             .and_then(toml::Value::as_str)
-            .unwrap_or(default_base_name)
+            .unwrap_or(default_base_name);
+        vec![base.to_string(), profile_name.to_string()]
     } else {
-        default_base_name
+        vec![default_base_name.to_string()]
     };
-    let base_upper = base_name.to_uppercase();
-    let upper_prof = profile_name.to_uppercase();
+    let base_name = chain[0].as_str();
     let base_release = base_name == "release";
     let default_debug = if base_release || for_host { 0 } else { 2 };
     let default_opt = if base_release && !for_host { "3" } else { "0" };
     let default_assertions = !base_release;
 
     let clean_name = pkg_name.replace('-', "_");
-    let pkg_tbl = merged_profile_tables(base_name, profile_name, |n| {
+    let pkg_tbl = custom::merged_chain_tables(&chain, |n| {
         loaded
             .package_overrides
             .get(&(n.to_string(), pkg_name.to_string()))
@@ -192,16 +181,12 @@ pub fn resolve_unit_profile_for(
             })
     });
     let wild_tbl = (!is_workspace)
-        .then(|| {
-            merged_profile_tables(base_name, profile_name, |n| {
-                loaded.wildcard_overrides.get(n)
-            })
-        })
+        .then(|| custom::merged_chain_tables(&chain, |n| loaded.wildcard_overrides.get(n)))
         .flatten();
     let bo_tbl = for_host
-        .then(|| merged_profile_tables(base_name, profile_name, |n| loaded.build_overrides.get(n)))
+        .then(|| custom::merged_chain_tables(&chain, |n| loaded.build_overrides.get(n)))
         .flatten();
-    let top_tbl = merged_profile_tables(base_name, profile_name, |n| loaded.profiles.get(n));
+    let top_tbl = custom::merged_chain_tables(&chain, |n| loaded.profiles.get(n));
     let (pkg_tbl, wild_tbl, bo_tbl, top_tbl) = (
         pkg_tbl.as_ref(),
         wild_tbl.as_ref(),
@@ -215,13 +200,11 @@ pub fn resolve_unit_profile_for(
             .or_else(|| wild_tbl.and_then(|t| t.get(key)))
             .or_else(|| bo_tbl.and_then(|t| t.get(key)))
     };
+    // `CARGO_PROFILE_<NAME>_<KEY>`, the selected profile first, then each one it inherits.
     let profile_env = |env_suffix: &str| -> Option<String> {
-        read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", upper_prof, env_suffix)).or_else(|| {
-            (profile_name != base_name)
-                .then(|| {
-                    read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", base_upper, env_suffix))
-                })
-                .flatten()
+        chain.iter().rev().find_map(|name| {
+            let upper = name.to_uppercase().replace('-', "_");
+            read_env_non_empty(&format!("CARGO_PROFILE_{upper}_{env_suffix}"))
         })
     };
 

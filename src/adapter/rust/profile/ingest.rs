@@ -43,6 +43,10 @@ fn validate_profile_table(
             "inherits" if allow_top_only && matches!(scope, "profile.test" | "profile.bench") => {
                 matches!(val.as_str(), Some("dev") | Some("release"))
             }
+            // A custom profile names the profile it derives from (checked when resolved).
+            "inherits" if allow_top_only && !matches!(scope, "profile.dev" | "profile.release") => {
+                val.as_str().is_some_and(|parent| !parent.is_empty())
+            }
             "package" | "build-override" if allow_top_only => val.is_table(),
             _ => false,
         };

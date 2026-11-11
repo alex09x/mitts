@@ -66,6 +66,24 @@ pub fn compute_build_script_key(
         profile.overflow_checks
     );
     hasher.update(prof_stamp.as_bytes());
+    // The script runs with OPT_LEVEL / DEBUG of the package's own profile (see
+    // build_script_env), which a different profile or `opt-level` changes.
+    let run_profile = super::profile::resolve_unit_profile(
+        &unit.manifest_path,
+        &unit.package_name,
+        unit.is_workspace,
+        unit.for_host,
+        release,
+        unit.workspace_root.as_deref(),
+    )?;
+    hasher.update(
+        format!(
+            ":run_env:{}:{}:",
+            run_profile.opt_level,
+            run_profile.debuginfo > 0
+        )
+        .as_bytes(),
+    );
     hasher.update(target.as_bytes());
     hasher.update(b":rustc:");
     let verbose_rustc = get_rustc_verbose_version()?;
