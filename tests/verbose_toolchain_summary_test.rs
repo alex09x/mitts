@@ -240,12 +240,8 @@ fn only_linking_units_get_the_wrapper() {
     assert!(!helper.contains("MITTS_LINK_TIMING"), "{helper}");
     let app = stderr
         .lines()
-        .find(|l| {
-            l.contains("Running `")
-                && l.contains("--crate-name app ")
-                && !l.contains("build_script")
-        })
-        .expect("app command");
+        .find(|l| l.contains("Running `") && l.contains("--crate-name app "))
+        .unwrap_or_else(|| panic!("no app command in:\n{stderr}"));
     if cfg!(unix) {
         assert!(app.contains("MITTS_LINK_TIMING_LINKER=cc"), "{app}");
     }

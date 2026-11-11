@@ -49,6 +49,21 @@ pub fn shell_quote(word: &str) -> String {
             .all(|b| b.is_ascii_alphanumeric() || b"-_./=:,+@%^".contains(&b));
     if plain {
         word.to_string()
+    } else if word.chars().any(char::is_control) {
+        // One command per line: control characters become `$'\n'`-style escapes.
+        let mut out = String::from("$'");
+        for c in word.chars() {
+            match c {
+                '\n' => out.push_str("\\n"),
+                '\t' => out.push_str("\\t"),
+                '\\' => out.push_str("\\\\"),
+                '\'' => out.push_str("\\'"),
+                c if c.is_control() => out.push_str(&format!("\\x{:02x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('\'');
+        out
     } else {
         format!("'{}'", word.replace('\'', r"'\''"))
     }
@@ -105,5 +120,6 @@ mod tests {
             "B='two words' CARGO_PKG_NAME=demo rustc --crate-name demo --cfg 'feature=\"std\"'"
         );
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
+        assert_eq!(shell_quote("a\nb\x1fc"), r"$'a\nb\x1fc'");
     }
 }
