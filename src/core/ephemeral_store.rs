@@ -27,7 +27,7 @@ use std::sync::Mutex;
 
 /// Name prefix of the private directories in a cache root.
 pub const PREFIX: &str = "cas-ephemeral-";
-const OWNER_LOCK: &str = ".owner.lock";
+use super::owned_dir::OWNER_LOCK;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -43,11 +43,9 @@ pub fn create(cache_root: &Path) -> Result<PathBuf> {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let pid = std::process::id();
-    let dir = cache_root.join(format!("{PREFIX}{pid}-{seq}-{nanos:x}"));
-    fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create the private store {}", dir.display()))?;
-    let lock = FileLock::acquire_exclusive(&dir.join(OWNER_LOCK))
-        .with_context(|| format!("Failed to lock the private store {}", dir.display()))?;
+    let (dir, lock) =
+        super::owned_dir::create_locked(cache_root, &format!("{PREFIX}{pid}-{seq}-{nanos:x}"))
+            .context("Failed to create the private store")?;
     HELD.lock().unwrap().push(lock);
     Ok(dir)
 }
@@ -77,6 +75,7 @@ pub fn sweep_dead(cache_root: &Path) -> usize {
             removed += 1;
         }
     }
+    super::owned_dir::sweep_abandoned_staging(cache_root, PREFIX);
     removed
 }
 

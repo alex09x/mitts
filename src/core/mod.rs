@@ -27,6 +27,7 @@ pub mod jobs;
 pub mod jobserver;
 pub mod lock;
 pub mod metrics;
+pub mod owned_dir;
 pub mod reflink;
 pub mod source_store;
 pub mod target_index;
