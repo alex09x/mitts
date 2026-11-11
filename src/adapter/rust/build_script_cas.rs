@@ -94,8 +94,17 @@ pub fn try_restore_build_script_cas(
             if let Ok(mut directives) = toml::from_str::<BuildScriptDirectives>(&content) {
                 if directives.is_fresh(pkg_dir) {
                     touch_last_used_throttled(&entry_dir);
+                    // An entry saved under another profile directory (`release` for a
+                    // `--profile ci` that inherits it with the same settings) keeps OUT_DIR
+                    // where it was saved: meta.toml records it inside the entry.
+                    let recorded = directives
+                        .out_dir
+                        .clone()
+                        .filter(|p| p.starts_with(&entry_dir) && p.is_dir());
                     let persistent_out = if cached_out_dir.is_dir() {
                         cached_out_dir
+                    } else if let Some(recorded) = recorded {
+                        recorded
                     } else if let Some(od) = out_dir {
                         od.to_path_buf()
                     } else {

@@ -230,6 +230,11 @@ pub fn handle_run(args: &RunArgs) -> i32 {
     }
 
     let mut opt = to_rust_options(&args.build_args);
+    if let Some(code) =
+        crate::cli::profile_flag::apply_or_exit(&mut opt, args.build_args.profile.as_deref())
+    {
+        return code;
+    }
     // Trailing arguments after -- are for the binary execution, not rustc
     opt.extra_args.clear();
 
@@ -255,7 +260,7 @@ pub fn handle_run(args: &RunArgs) -> i32 {
         opt.example_targets.clear();
     }
 
-    let profile = if opt.release { "release" } else { "dev" };
+    let profile = &crate::adapter::rust::profile::profile_name(opt.release);
     let msg_fmt = args.build_args.message_format;
     let quiet =
         args.build_args.quiet || msg_fmt != crate::cli::message_format::MessageFormat::Human;

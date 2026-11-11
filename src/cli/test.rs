@@ -55,6 +55,10 @@ pub struct TestArgs {
     #[arg(short, long)]
     pub release: bool,
 
+    /// Use the named profile (dev, release, test, bench or a [profile.NAME] with inherits)
+    #[arg(long, value_name = "PROFILE-NAME")]
+    pub profile: Option<String>,
+
     /// Directory for all generated artifacts
     #[arg(long)]
     pub target_dir: Option<PathBuf>,
@@ -224,6 +228,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             .cloned()
             .collect(),
         release: args.release,
+        profile: None,
         target_dir: args.target_dir.clone(),
         features: args.features.clone(),
         no_default_features: args.no_default_features,
@@ -260,6 +265,9 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         diagnostic_format: args.message_format.diagnostic_format(),
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
+    if let Some(code) = crate::cli::profile_flag::apply_or_exit(&mut opt, args.profile.as_deref()) {
+        return code;
+    }
 
     let root_manifest = opt
         .manifest_path
@@ -283,7 +291,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
     }
 
     let start = std::time::Instant::now();
-    let profile = if opt.release { "release" } else { "dev" };
+    let profile = &crate::adapter::rust::profile::profile_name(opt.release);
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
     let suppress_ui = args.quiet || args.message_format != MessageFormat::Human;
     let _cache_lease = crate::core::gc::CacheLease::acquire(opt.cache_dir.as_deref());

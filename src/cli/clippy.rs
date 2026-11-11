@@ -48,6 +48,10 @@ pub struct ClippyArgs {
     #[arg(short, long)]
     pub release: bool,
 
+    /// Use the named profile (dev, release, test, bench or a [profile.NAME] with inherits)
+    #[arg(long, value_name = "PROFILE-NAME")]
+    pub profile: Option<String>,
+
     /// Directory for all generated artifacts
     #[arg(long)]
     pub target_dir: Option<PathBuf>,
@@ -218,13 +222,16 @@ pub fn handle_clippy(args: &ClippyArgs) -> i32 {
         ..Default::default()
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
+    if let Some(code) = crate::cli::profile_flag::apply_or_exit(&mut opt, args.profile.as_deref()) {
+        return code;
+    }
 
     if args.message_format != MessageFormat::Human {
         return message_format::run_non_human_build(&mut opt, args.message_format);
     }
 
     let start = std::time::Instant::now();
-    let profile = if opt.release { "release" } else { "dev" };
+    let profile = &crate::adapter::rust::profile::profile_name(opt.release);
     let is_verbose = opt.verbose > 0 || std::env::var("MITTS_VERBOSE").is_ok();
 
     if !args.quiet {

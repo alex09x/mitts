@@ -79,6 +79,9 @@ pub fn compute_options_hash(
     if !config_overrides.is_empty() {
         payload.push_str(&format!("|config_overrides={config_overrides}"));
     }
+    if let Some(profile) = &opt.profile {
+        payload.push_str(&format!("|custom_profile={profile}"));
+    }
     if !opt.bench_targets.is_empty() {
         let mut benches = opt.bench_targets.clone();
         benches.sort();
@@ -106,6 +109,9 @@ pub fn compute_options_hash(
 /// Executes the build purely natively with parallel rustc DAG compilation and CAS caching.
 pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     crate::core::jobs::limit()?;
+    let mut selected = opt.clone();
+    super::profile::custom::select(&mut selected)?;
+    let opt = &selected;
     super::diagnostic_dedupe::reset();
     super::toolchain_probes::set_cache_root(&crate::core::cache_root::resolve(
         opt.cache_dir.as_deref(),
@@ -144,7 +150,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     let log_path = target_dir.join("build.log");
     let mut logger = BuildLogger::new(Some(log_path));
 
-    let profile = match (opt.mode, opt.release) {
+    let base_profile = match (opt.mode, opt.release) {
         (super::types::BuildMode::Check, true) => "check-release",
         (super::types::BuildMode::Check, false) => "check",
         (super::types::BuildMode::Clippy, true) => "clippy-release",
@@ -154,6 +160,12 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         (super::types::BuildMode::Build, true) => "release",
         (super::types::BuildMode::Build, false) => "dev",
     };
+    // A custom profile keeps a fast lock of its own.
+    let profile_label = match &opt.profile {
+        Some(custom) => format!("{base_profile}-profile-{custom}"),
+        None => base_profile.to_string(),
+    };
+    let profile = profile_label.as_str();
 
     // Validate unsupported options explicitly
     for arg in &opt.extra_args {

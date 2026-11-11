@@ -8,9 +8,11 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod custom;
 mod ingest;
+pub use custom::{custom_profile, profile_dir, profile_name, set_custom_profile};
 use ingest::ingest_profiles_from_toml;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -60,25 +62,6 @@ fn compute_profile_files_stamp(ws_root: &Path) -> u64 {
         }
     }
     hasher.finish()
-}
-
-/// The derived profile's table (`test`, `bench`) on top of its base's (`dev`, `release`)
-/// at one override level; `None` when neither profile has a table there.
-fn merged_profile_tables<'t>(
-    base_name: &str,
-    profile_name: &str,
-    get: impl Fn(&str) -> Option<&'t toml::Table>,
-) -> Option<toml::Table> {
-    let mut out = get(base_name).cloned();
-    if profile_name != base_name {
-        if let Some(derived) = get(profile_name) {
-            match out.as_mut() {
-                Some(base) => merge_table(base, derived),
-                None => out = Some(derived.clone()),
-            }
-        }
-    }
-    out
 }
 
 /// Deep merges `override_tbl` into `base` key-by-key.
@@ -141,10 +124,13 @@ pub fn resolve_unit_profile_for(
     });
 
     let default_base_name = if release { "release" } else { "dev" };
-    let profile_name = match (test, release) {
-        (true, true) => "bench",
-        (true, false) => "test",
-        (false, _) => default_base_name,
+    // A custom profile replaces dev/release and, like Cargo's `--profile`, test/bench too.
+    let custom = custom_profile();
+    let profile_name: &str = match (custom.as_deref(), test, release) {
+        (Some(name), _, _) => name,
+        (None, true, true) => "bench",
+        (None, true, false) => "test",
+        (None, false, _) => default_base_name,
     };
 
     let loaded = if let Some(ws) = &effective_ws_root {
@@ -163,25 +149,17 @@ pub fn resolve_unit_profile_for(
         ResolvedProfiles::default()
     };
 
-    let base_name = if test {
-        loaded
-            .profiles
-            .get(profile_name)
-            .and_then(|table| table.get("inherits"))
-            .and_then(toml::Value::as_str)
-            .unwrap_or(default_base_name)
-    } else {
-        default_base_name
-    };
-    let base_upper = base_name.to_uppercase();
-    let upper_prof = profile_name.to_uppercase();
+    // Root (`dev` / `release`) first, the selected profile last; dev, release, test, bench
+    // and custom profiles take the same path.
+    let chain: Vec<String> = custom::chain(&loaded, profile_name)?;
+    let base_name = chain[0].as_str();
     let base_release = base_name == "release";
     let default_debug = if base_release || for_host { 0 } else { 2 };
     let default_opt = if base_release && !for_host { "3" } else { "0" };
     let default_assertions = !base_release;
 
     let clean_name = pkg_name.replace('-', "_");
-    let pkg_tbl = merged_profile_tables(base_name, profile_name, |n| {
+    let pkg_tbl = custom::merged_chain_tables(&chain, |n| {
         loaded
             .package_overrides
             .get(&(n.to_string(), pkg_name.to_string()))
@@ -192,16 +170,12 @@ pub fn resolve_unit_profile_for(
             })
     });
     let wild_tbl = (!is_workspace)
-        .then(|| {
-            merged_profile_tables(base_name, profile_name, |n| {
-                loaded.wildcard_overrides.get(n)
-            })
-        })
+        .then(|| custom::merged_chain_tables(&chain, |n| loaded.wildcard_overrides.get(n)))
         .flatten();
     let bo_tbl = for_host
-        .then(|| merged_profile_tables(base_name, profile_name, |n| loaded.build_overrides.get(n)))
+        .then(|| custom::merged_chain_tables(&chain, |n| loaded.build_overrides.get(n)))
         .flatten();
-    let top_tbl = merged_profile_tables(base_name, profile_name, |n| loaded.profiles.get(n));
+    let top_tbl = custom::merged_chain_tables(&chain, |n| loaded.profiles.get(n));
     let (pkg_tbl, wild_tbl, bo_tbl, top_tbl) = (
         pkg_tbl.as_ref(),
         wild_tbl.as_ref(),
@@ -215,13 +189,11 @@ pub fn resolve_unit_profile_for(
             .or_else(|| wild_tbl.and_then(|t| t.get(key)))
             .or_else(|| bo_tbl.and_then(|t| t.get(key)))
     };
+    // `CARGO_PROFILE_<NAME>_<KEY>`, the selected profile first, then each one it inherits.
     let profile_env = |env_suffix: &str| -> Option<String> {
-        read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", upper_prof, env_suffix)).or_else(|| {
-            (profile_name != base_name)
-                .then(|| {
-                    read_env_non_empty(&format!("CARGO_PROFILE_{}_{}", base_upper, env_suffix))
-                })
-                .flatten()
+        chain.iter().rev().find_map(|name| {
+            let upper = name.to_uppercase().replace('-', "_");
+            read_env_non_empty(&format!("CARGO_PROFILE_{upper}_{env_suffix}"))
         })
     };
 
@@ -382,19 +354,33 @@ fn load_workspace_and_config_profiles(
     ws_root: &Path,
     active_profile: &str,
 ) -> anyhow::Result<ResolvedProfiles> {
-    let mut resolved = ResolvedProfiles::default();
     let config_dir = super::cargo_config::resolve_config_start_dir(ws_root);
     let mut files = vec![ws_root.join("Cargo.toml")];
     files.extend(super::cargo_config::discover_cargo_config_files(
         &config_dir,
     ));
+    let mut documents = Vec::new();
     for path in files.into_iter().filter(|p| p.is_file()) {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", path.display(), e))?;
         let val: toml::Value = content
             .parse()
             .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", path.display(), e))?;
-        ingest_profiles_from_toml(&val, &mut resolved, &path, active_profile)?;
+        documents.push((path, val));
+    }
+    // Every profile the active one inherits from is validated, not only the active one:
+    // its settings are applied too. The chain needs every file first.
+    let mut unvalidated = ResolvedProfiles::default();
+    for (path, val) in &documents {
+        ingest_profiles_from_toml(val, &mut unvalidated, path, &HashSet::new())?;
+    }
+    let validate: HashSet<String> = custom::chain(&unvalidated, active_profile)
+        .unwrap_or_else(|_| vec![active_profile.to_string()])
+        .into_iter()
+        .collect();
+    let mut resolved = ResolvedProfiles::default();
+    for (path, val) in &documents {
+        ingest_profiles_from_toml(val, &mut resolved, path, &validate)?;
     }
     Ok(resolved)
 }

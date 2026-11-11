@@ -118,6 +118,9 @@ pub fn derive_unit_action_key_context(
     opt: &RustBuildOptions,
     explanation: &EffectivePlanExplanation,
 ) -> Result<UnitKeyDeriver> {
+    let mut selected = opt.clone();
+    super::profile::custom::select(&mut selected)?;
+    let opt = &selected;
     explanation.manifest_snapshot.verify_fresh()?;
     let _manifest_scope = explanation.manifest_snapshot.enter();
     let active_tc = super::compiler_resolve::active_toolchain()?;

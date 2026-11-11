@@ -160,7 +160,11 @@ pub struct RustBuildOptions {
     pub package: Option<String>,
     /// Additional package selectors, resolved together with `package` in one graph.
     pub packages: Vec<String>,
+    /// `release` profile, or for a custom profile: whether it derives from `release`.
     pub release: bool,
+    /// A custom profile (`--profile NAME`, not `dev` / `release`); its outputs go to
+    /// `target/NAME`. One run builds one profile (see `profile::custom`).
+    pub profile: Option<String>,
     pub target_dir: Option<PathBuf>,
     pub features: Vec<String>,
     pub no_default_features: bool,

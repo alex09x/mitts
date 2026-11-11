@@ -108,7 +108,7 @@ pub fn compute_unit_rustc_env_with_target(
             tmp_dir.to_string_lossy().to_string(),
         );
 
-        let profile_name = if release { "release" } else { "debug" };
+        let profile_name = &crate::adapter::rust::profile::profile_dir(release);
         let mitts_profile_dir = effective_td.join(profile_name);
         if let Ok(toml) = CargoToml::from_file(&unit.manifest_path) {
             for b in toml.discover_targets(pkg_dir) {
@@ -207,7 +207,7 @@ pub fn apply_test_binary_env(
     let _ = std::fs::create_dir_all(&tmp_dir);
     cmd.env("CARGO_TARGET_TMPDIR", &tmp_dir);
 
-    let profile_name = if release { "release" } else { "debug" };
+    let profile_name = &crate::adapter::rust::profile::profile_dir(release);
     let mitts_profile_dir = effective_td.join(profile_name);
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     if let Ok(toml) = CargoToml::from_file(&unit.manifest_path) {
@@ -307,7 +307,7 @@ pub fn apply_runtime_execution_env(
         }
     }
 
-    let profile_dir_name = if release { "release" } else { "debug" };
+    let profile_dir_name = &crate::adapter::rust::profile::profile_dir(release);
     let profile_dir = plan.target_directory.join(profile_dir_name);
     let mut lib_dirs = vec![profile_dir.join("deps"), profile_dir];
 

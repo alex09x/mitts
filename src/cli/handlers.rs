@@ -347,6 +347,23 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     for profile in profiles {
         let _ = std::fs::remove_file(FastBuildLock::lock_path_in_target(&mitts_dir, profile));
     }
+    // Fast locks of custom profiles: build-<mode>-profile-<NAME>.lock.
+    if !args.release {
+        let lock_dir = FastBuildLock::lock_path_in_target(&mitts_dir, "x")
+            .parent()
+            .map(std::path::Path::to_path_buf);
+        for entry in lock_dir
+            .and_then(|dir| std::fs::read_dir(dir).ok())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("build-") && name.contains("-profile-") && name.ends_with(".lock") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
     let badge = Ui::badge_cached();
     if args.release {
         Ui::stage_item(true, &badge, "Removed fast build lock (release)");
