@@ -62,7 +62,7 @@ pub(super) fn ingest_profiles_from_toml(
     val: &toml::Value,
     resolved: &mut ResolvedProfiles,
     source_path: &Path,
-    active_profile: &str,
+    validate: &std::collections::HashSet<String>,
 ) -> anyhow::Result<()> {
     let Some(prof_table) = val.get("profile").and_then(|p| p.as_table()) else {
         return Ok(());
@@ -71,7 +71,7 @@ pub(super) fn ingest_profiles_from_toml(
         let Some(tbl) = prof_val.as_table() else {
             continue;
         };
-        let is_active = prof_name == active_profile;
+        let is_active = validate.contains(prof_name);
         if is_active {
             validate_profile_table(&format!("profile.{prof_name}"), tbl, true, source_path)?;
         }

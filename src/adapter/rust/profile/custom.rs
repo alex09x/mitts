@@ -92,11 +92,42 @@ pub(super) fn chain(loaded: &ResolvedProfiles, name: &str) -> Result<Vec<String>
         if chain.iter().any(|seen| seen == parent) {
             bail!("profile inheritance loop: `{current}` inherits `{parent}`");
         }
+        if !matches!(parent, "dev" | "release" | "test" | "bench") {
+            validate_name(parent)
+                .map_err(|e| anyhow!("profile `{current}` inherits `{parent}`: {e}"))?;
+        }
         chain.push(parent.to_string());
         current = parent.to_string();
     }
     chain.reverse();
     Ok(chain)
+}
+
+/// Normalizes `opt.profile` and selects it for this process: `dev` / `release` become the
+/// plain builds, any other name must be a defined profile, and `opt.release` says whether
+/// it derives from `release`. The builder, the planner and the key derivation call this,
+/// so library callers get the same result as `--profile`.
+pub fn select(opt: &mut crate::adapter::rust::types::RustBuildOptions) -> Result<()> {
+    if let Some(name) = opt.profile.clone() {
+        match name.as_str() {
+            "dev" => {
+                opt.release = false;
+                opt.profile = None;
+            }
+            "release" => {
+                opt.release = true;
+                opt.profile = None;
+            }
+            _ => {
+                validate_name(&name)?;
+                let manifest = crate::adapter::rust::RustAdapter::resolve_manifest(opt)?;
+                let ws_root = super::super::compiler_resolve::find_workspace_root(&manifest);
+                opt.release = inherits_release(&ws_root, &name)?;
+            }
+        }
+    }
+    set_custom_profile(opt.profile.as_deref());
+    Ok(())
 }
 
 /// The tables of every profile in `chain` at one override level, merged root first.

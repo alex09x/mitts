@@ -50,6 +50,87 @@ fn project() -> TempDir {
     temp
 }
 
+/// A profile with the same settings as `release` shares its cached build-script run; the
+/// restored OUT_DIR must still hold the generated file (review of #114, P1).
+#[test]
+fn a_shared_build_script_entry_keeps_its_out_dir_across_profiles() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    write_file(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"g\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [profile.same]\ninherits = \"release\"\n",
+    );
+    write_file(
+        root.join("build.rs"),
+        "fn main() {\n\
+         let out = std::env::var(\"OUT_DIR\").unwrap();\n\
+         std::fs::write(std::path::Path::new(&out).join(\"gen.rs\"), \"pub const V: u32 = 7;\").unwrap();\n}\n",
+    );
+    write_file(
+        root.join("src/main.rs"),
+        "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\nfn main() { println!(\"v={}\", V); }\n",
+    );
+    assert_ok(&mitts(root, &["build", "-q", "--release"]));
+    assert_ok(&mitts(root, &["build", "-q", "--profile", "same"]));
+    assert_eq!(run_binary(&root.join("target/same/g")), "v=7\n");
+}
+
+/// Profiles a selected one inherits from are validated too, and `inherits` may not name a
+/// reserved profile (review of #114, P2).
+#[test]
+fn inherited_profiles_are_validated() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    write_file(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"v\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [profile.base]\ninherits = \"release\"\nopt-level = 9\n\
+         [profile.child]\ninherits = \"base\"\n\
+         [profile.debug]\ninherits = \"dev\"\n\
+         [profile.sneaky]\ninherits = \"debug\"\n",
+    );
+    write_file(root.join("src/main.rs"), "fn main() {}\n");
+    let child = mitts(root, &["build", "--profile", "child"]);
+    assert!(!child.status.success());
+    assert!(String::from_utf8_lossy(&child.stderr).contains("profile.base.opt-level"));
+    let sneaky = mitts(root, &["build", "--profile", "sneaky"]);
+    assert!(!sneaky.status.success());
+    assert!(String::from_utf8_lossy(&sneaky.stderr).contains("reserved"));
+}
+
+/// A library caller passing `profile` gets the same build as `--profile` (review of #114, P3).
+#[test]
+fn library_callers_get_the_profile_normalized() {
+    let temp = project();
+    let root = temp.path();
+    let opt = mitts::adapter::rust::types::RustBuildOptions {
+        manifest_path: Some(root.join("Cargo.toml")),
+        cache_dir: Some(root.join("mitts-cache")),
+        profile: Some("ci".to_string()),
+        native: true,
+        ..Default::default()
+    };
+    let (_, result) = mitts::adapter::rust::RustAdapter::build(&opt).unwrap();
+    assert!(result.success, "{}", result.stderr);
+    assert_eq!(
+        run_binary(&root.join("target/ci/p")),
+        "assertions=true opt=3 profile=release\n"
+    );
+    mitts::adapter::rust::profile::set_custom_profile(None);
+}
+
+/// `mitts clean` removes what a custom profile built (review of #114, P4).
+#[test]
+fn clean_removes_custom_profile_outputs() {
+    let temp = project();
+    let root = temp.path();
+    assert_ok(&mitts(root, &["build", "-q", "--profile", "ci"]));
+    assert!(root.join("target/ci/p").is_file());
+    assert_ok(&mitts(root, &["clean"]));
+    assert!(!root.join("target/ci/p").exists());
+}
+
 #[test]
 fn test_uses_the_profile() {
     let temp = project();
