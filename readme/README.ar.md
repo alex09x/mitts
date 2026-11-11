@@ -415,19 +415,19 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 <a id="citation"></a>
 ## الاستشهاد
 
-للاستشهاد بـ Mitts، استخدم الإصدار المؤرشف. يشير معرّف DOI المفاهيمي <bdi>[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)</bdi> دائماً إلى أحدث إصدار؛ ومعرّف DOI للإصدار 0.3.32 هو <bdi>[10.5281/zenodo.24100051](https://doi.org/10.5281/zenodo.24100051)</bdi>. تقرأ ميزة «Cite this repository» في GitHub الملف <bdi>[CITATION.cff](../CITATION.cff)</bdi>.
+للاستشهاد بـ Mitts، استخدم الإصدار المؤرشف. يشير معرّف DOI المفاهيمي <bdi>[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)</bdi> دائماً إلى أحدث إصدار؛ ومعرّف DOI للإصدار 0.3.33 هو <bdi>[10.5281/zenodo.24122513](https://doi.org/10.5281/zenodo.24122513)</bdi>. تقرأ ميزة «Cite this repository» في GitHub الملف <bdi>[CITATION.cff](../CITATION.cff)</bdi>.
 
 <div dir="ltr">
 
 ```bibtex
-@software{panasenko_2026_24100051,
+@software{panasenko_2026_24122513,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.32},
-  doi       = {10.5281/zenodo.24100051},
-  url       = {https://doi.org/10.5281/zenodo.24100051}
+  version   = {0.3.33},
+  doi       = {10.5281/zenodo.24122513},
+  url       = {https://doi.org/10.5281/zenodo.24122513}
 }
 ```
 
