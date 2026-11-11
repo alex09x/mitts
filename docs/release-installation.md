@@ -30,9 +30,9 @@ Mitts cache between runs: see [github-action.md](github-action.md).
 Source-install routes (the release pipeline does not check them after publication):
 
 ```sh
-cargo install mitts --version 0.3.20 --locked
-cargo install --git https://github.com/alex09x/mitts --tag v0.3.20 mitts --locked
-git clone --branch v0.3.20 https://github.com/alex09x/mitts
+cargo install mitts --version 0.3.34 --locked
+cargo install --git https://github.com/alex09x/mitts --tag v0.3.34 mitts --locked
+git clone --branch v0.3.34 https://github.com/alex09x/mitts
 cargo install --path mitts --locked
 ```
 

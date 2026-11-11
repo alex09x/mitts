@@ -6,9 +6,9 @@ Two small composite actions install a verified Mitts release and keep its build 
 steps:
   - uses: actions/checkout@v4
   - uses: dtolnay/rust-toolchain@stable
-  - uses: alex09x/mitts@v0.3.23
+  - uses: alex09x/mitts@v0.3.34
   - run: mitts test
-  - uses: alex09x/mitts/save@v0.3.23
+  - uses: alex09x/mitts/save@v0.3.34
     if: always()
 ```
 
@@ -31,7 +31,7 @@ The cache key is `mitts-v1`, the runner OS and architecture, the installed Mitts
 
 | Output | Meaning |
 |---|---|
-| `version` | The installed version, for example `0.3.22`. |
+| `version` | The installed version, for example `0.3.34`. |
 | `cache-dir` | The cache root used. It is also exported as `MITTS_CACHE_DIR` for the rest of the job. |
 | `cache-hit` | `true` when the exact key was restored. |
 

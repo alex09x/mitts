@@ -31,7 +31,7 @@ inputs:
 
 outputs:
   version:
-    description: Installed Mitts version, for example 0.3.22.
+    description: Installed Mitts version, for example 0.3.34.
     value: ${{ steps.install.outputs.version }}
   cache-dir:
     description: Cache root used by this job. Also exported as MITTS_CACHE_DIR.

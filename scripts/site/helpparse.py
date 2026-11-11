@@ -10,6 +10,7 @@ import re
 import subprocess
 
 OPT = re.compile(r"^  (?:(-\w), |    )(--[\w-]+)((?:\.\.\.)|(?:\[=<[^>]+>\])|(?: <[^>]+>(?:\.\.\.)?))?(?:\s{2,}(\S.*))?$")
+SHORT_ONLY = re.compile(r"^  (-\w)( <[^>]+>(?:\.\.\.)?)?(?:\s{2,}(\S.*))?$")
 
 
 def run_help(binary, command):
@@ -31,6 +32,13 @@ def parse(text):
             if m:
                 cur = {"short": m.group(1), "long": m.group(2), "value": (m.group(3) or "").strip(),
                        "text": (m.group(4) or "").strip()}
+                opts.append(cur)
+                continue
+            m = SHORT_ONLY.match(l)
+            if m:
+                # A flag with no long name, such as `-Z <FLAG>`: shown under its short name.
+                cur = {"short": None, "long": m.group(1), "value": (m.group(2) or "").strip(),
+                       "text": (m.group(3) or "").strip()}
                 opts.append(cur)
                 continue
             if l.startswith("      ") and cur is not None and l.strip():

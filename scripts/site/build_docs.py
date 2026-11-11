@@ -105,7 +105,7 @@ CONFIG = """
 
 CI = """
 <section id="github-actions"><h2>GitHub Actions</h2>
-<p>Two small composite actions install a verified release and keep the build cache between runs.</p>""" + pre("steps:\n  - uses: actions/checkout@v4\n  - uses: dtolnay/rust-toolchain@stable\n  - uses: alex09x/mitts@v0.3.30\n  - run: mitts test\n  - uses: alex09x/mitts/save@v0.3.30\n    if: always()") + """
+<p>Two small composite actions install a verified release and keep the build cache between runs.</p>""" + pre("steps:\n  - uses: actions/checkout@v4\n  - uses: dtolnay/rust-toolchain@stable\n  - uses: alex09x/mitts@v{VERSION}\n  - run: mitts test\n  - uses: alex09x/mitts/save@v{VERSION}\n    if: always()") + """
 <p>Pin the action to a release tag or a full commit SHA. The setup action installs the release you ask for with the installer that ships in the same ref, and the installer checks the archive against the published SHA-256 sums.</p>
 <h4>What gets cached</h4>
 <p>The whole Mitts cache directory (store and action cache, by default <code>~/.cache/mitts</code>), and nothing else: the Cargo registry and <code>target/</code> do not need restoring. The key is <code>mitts-v1</code>, the runner OS and architecture, the Mitts version, your <code>cache-key</code> text and a hash of every <code>Cargo.lock</code>. On a miss the newest cache with the same prefix is restored, so a changed dependency set rebuilds only what changed.</p>
@@ -153,5 +153,5 @@ def build(binary, version):
 <p>Flags always win over variables. The diagnostic variables change how the work is done, never what is cached.</p>%(env)s</section>
 %(out)s%(conf)s%(ci)s
 </article>
-</main>""" % {"side": side, "v": version, "intro": INTRO, "how": how_html, "cmds": by_group, "env": env_table(), "out": OUTPUT, "conf": CONFIG, "ci": CI}
+</main>""" % {"side": side, "v": version, "intro": INTRO, "how": how_html, "cmds": by_group, "env": env_table(), "out": OUTPUT, "conf": CONFIG, "ci": CI.replace("{VERSION}", version)}
     return page("Mitts documentation", "Install Mitts, understand the machine-wide build cache, and look up every command, option and environment variable.", body, 1, active="Docs")
