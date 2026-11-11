@@ -168,16 +168,18 @@ impl SparseIndexClient {
             Err(_) if offline => None,
             Err(_) => {
                 let url = format!("{}/config.json", self.base_url);
-                match self.request(&url).call() {
-                    Ok(r) => {
-                        let t = r.into_string()?;
+                match super::net_retry::get_bytes(&url, || self.request(&url)) {
+                    Ok(bytes) => {
+                        let t = String::from_utf8_lossy(&bytes).into_owned();
                         let _ = fs::write(&path, &t);
                         Some(t)
                     }
-                    Err(ureq::Error::Status(401 | 403, _)) => bail!(
-                        "index {} requires authentication; set CARGO_REGISTRIES_<NAME>_TOKEN or a token in credentials.toml",
-                        self.base_url
-                    ),
+                    Err(e) if matches!(super::net_retry::status_code(&e), Some(401 | 403)) => {
+                        bail!(
+                            "index {} requires authentication; set CARGO_REGISTRIES_<NAME>_TOKEN or a token in credentials.toml",
+                            self.base_url
+                        )
+                    }
                     Err(_) => None,
                 }
             }
@@ -237,14 +239,8 @@ impl SparseIndexClient {
     /// Downloads a `.crate` file through this index's download host, with its token.
     pub fn download_crate(&self, name: &str, version: &str, cksum: &str) -> Result<Vec<u8>> {
         let url = self.download_url(name, version, cksum, false)?;
-        let resp = self
-            .request(&url)
-            .call()
-            .with_context(|| format!("Failed to download crate from {url}"))?;
-        let mut bytes = Vec::new();
-        std::io::Read::read_to_end(&mut resp.into_reader(), &mut bytes)
-            .with_context(|| format!("Failed to read crate bytes from {url}"))?;
-        Ok(bytes)
+        super::net_retry::get_bytes(&url, || self.request(&url))
+            .with_context(|| format!("Failed to download crate from {url}"))
     }
 
     /// Computes the relative sparse index path according to crates.io index conventions.
@@ -298,15 +294,15 @@ impl SparseIndexClient {
         // The index's config.json says whether a token is needed; ask before the first entry.
         self.config(offline)?;
         let url = format!("{}/{}", self.base_url, rel_path);
-        let resp = match self.request(&url).call() {
-            Ok(r) => r,
-            Err(ureq::Error::Status(401 | 403, _)) => {
+        let bytes = match super::net_retry::get_bytes(&url, || self.request(&url)) {
+            Ok(bytes) => bytes,
+            Err(e) if matches!(super::net_retry::status_code(&e), Some(401 | 403)) => {
                 bail!(
                     "index {} requires authentication; set CARGO_REGISTRIES_<NAME>_TOKEN or a token in credentials.toml",
                     self.base_url
                 );
             }
-            Err(ureq::Error::Status(404, _)) => {
+            Err(e) if super::net_retry::status_code(&e) == Some(404) => {
                 bail!("Crate '{}' not found in the index ({})", crate_name, url);
             }
             Err(e) => {
@@ -324,7 +320,7 @@ impl SparseIndexClient {
             }
         };
 
-        let content = resp.into_string().with_context(|| {
+        let content = String::from_utf8(bytes).with_context(|| {
             format!(
                 "Failed to read sparse index response for '{}' from {}",
                 crate_name, url

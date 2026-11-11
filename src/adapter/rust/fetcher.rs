@@ -17,7 +17,6 @@ use crate::core::lock::FileLock;
 use crate::core::source_store::{RegistryLookup, SourceStore};
 use anyhow::{bail, Context, Result};
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -158,20 +157,8 @@ impl CrateFetcher {
     fn download_crate_bytes(&self, base_url: &str, name: &str, version: &str) -> Result<Vec<u8>> {
         let base = base_url.trim_end_matches('/');
         let url = format!("{base}/{name}/{name}-{version}.crate");
-        let resp = self
-            .agent
-            .get(&url)
-            .call()
-            .with_context(|| format!("Failed to download crate from {url}"))?;
-        let cap = resp
-            .header("Content-Length")
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(32 * 1024);
-        let mut body_bytes = Vec::with_capacity(cap);
-        resp.into_reader()
-            .read_to_end(&mut body_bytes)
-            .with_context(|| format!("Failed to read crate bytes from {url}"))?;
-        Ok(body_bytes)
+        super::net_retry::get_bytes(&url, || self.agent.get(&url))
+            .with_context(|| format!("Failed to download crate from {url}"))
     }
 
     /// Where a non-crates.io package already lives locally: the Mitts git checkouts of the
