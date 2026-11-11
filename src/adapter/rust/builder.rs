@@ -179,6 +179,7 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
         RustAdapter::detect_toolchain()
     })?;
     crate::core::build_report::begin();
+    super::link_timing::reset();
     crate::core::build_report::set_rustc(&toolchain.version);
 
     let options_hash = compute_options_hash(opt, &target_dir, &manifest_path);

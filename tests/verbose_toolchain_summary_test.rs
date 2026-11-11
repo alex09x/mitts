@@ -216,6 +216,80 @@ fn a_linker_chosen_in_rustflags_is_not_wrapped() {
     assert!(!stdout.contains(", link "), "{stdout}");
 }
 
+/// `check` and `clippy` link nothing, so `-v` must not put the timing wrapper on their
+/// commands or name a linker (review of #122).
+#[test]
+fn check_does_not_wrap_the_linker() {
+    let temp = project();
+    let root = temp.path();
+    let (stdout, stderr) = ok(mitts(root, &["check", "-vv"]));
+    assert!(!stdout.contains("linker: "), "{stdout}");
+    assert!(!stderr.contains("MITTS_LINK_TIMING"), "{stderr}");
+}
+
+/// A library unit (an rlib) does not link; only the binary gets the wrapper.
+#[test]
+fn only_linking_units_get_the_wrapper() {
+    let temp = project();
+    let root = temp.path();
+    let (_, stderr) = ok(mitts(root, &["build", "-vv"]));
+    let helper = stderr
+        .lines()
+        .find(|l| l.contains("Running `") && l.contains("--crate-name helper"))
+        .expect("helper command");
+    assert!(!helper.contains("MITTS_LINK_TIMING"), "{helper}");
+    let app = stderr
+        .lines()
+        .find(|l| {
+            l.contains("Running `")
+                && l.contains("--crate-name app ")
+                && !l.contains("build_script")
+        })
+        .expect("app command");
+    if cfg!(unix) {
+        assert!(app.contains("MITTS_LINK_TIMING_LINKER=cc"), "{app}");
+    }
+}
+
+/// A second build in the same project reports only its own rustc time: the summary of an
+/// all-cached build has no rustc part at all.
+#[test]
+fn an_all_cached_build_reports_no_compile_time() {
+    let temp = project();
+    let root = temp.path();
+    ok(mitts(root, &["build", "-v"]));
+    let (stdout, _) = ok(mitts(root, &["build", "-v"]));
+    let time = stdout
+        .lines()
+        .find(|l| l.contains("time: "))
+        .expect("time line");
+    assert!(!time.contains("rustc "), "{time}");
+    assert!(!time.contains("link "), "{time}");
+    assert!(time.contains("cache restore "), "{time}");
+}
+
+/// `RUSTC` wins over `+toolchain`, as it does for Cargo, and the summary says so.
+#[test]
+fn rustc_wins_over_plus_toolchain_and_is_named() {
+    let Some(toolchain) = active_rustup_toolchain() else {
+        eprintln!("rustup is not installed; skipping");
+        return;
+    };
+    let rustc = Command::new("rustup")
+        .args(["which", "rustc", "--toolchain", &toolchain])
+        .output()
+        .unwrap();
+    let rustc = String::from_utf8_lossy(&rustc.stdout).trim().to_string();
+    let temp = project();
+    let plus = format!("+{toolchain}");
+    let (stdout, _) = ok(mitts_with(
+        temp.path(),
+        &[plus.as_str(), "build", "-v"],
+        &[("RUSTC", rustc.as_str())],
+    ));
+    assert!(stdout.contains("(selected by RUSTC)"), "{stdout}");
+}
+
 fn active_rustup_toolchain() -> Option<String> {
     let output = Command::new("rustup")
         .args(["show", "active-toolchain"])

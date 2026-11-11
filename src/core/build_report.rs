@@ -26,6 +26,10 @@ pub struct Report {
     pub phases: Vec<(String, Duration)>,
     /// First line of `rustc -vV`.
     pub rustc: Option<String>,
+    /// The process-wide rustc and restore counters (`metrics`) when this build began,
+    /// so a second build in one command reports only its own time.
+    pub rustc_nanos_at_start: u64,
+    pub restore_nanos_at_start: u64,
 }
 
 static REPORT: Mutex<Option<Report>> = Mutex::new(None);
@@ -37,7 +41,12 @@ fn update(f: impl FnOnce(&mut Report)) {
 
 /// Starts a new report for a build.
 pub fn begin() {
-    *REPORT.lock().unwrap_or_else(|e| e.into_inner()) = Some(Report::default());
+    let snapshot = super::metrics::get_metrics_snapshot();
+    *REPORT.lock().unwrap_or_else(|e| e.into_inner()) = Some(Report {
+        rustc_nanos_at_start: snapshot.9,
+        restore_nanos_at_start: snapshot.6,
+        ..Report::default()
+    });
 }
 
 pub fn set_counts(compiled: usize, cached: usize, total: usize, fast_lock: bool) {

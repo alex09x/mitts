@@ -86,12 +86,14 @@ pub fn toolchain_name(rustc: &Path) -> Option<String> {
 }
 
 /// Where the choice of toolchain came from, in the order rustup applies them.
+/// `RUSTC` comes first because it wins over every rustup choice, `+toolchain` included,
+/// as it does for Cargo.
 pub fn selection_source(start_dir: &Path) -> String {
-    if let Some(name) = FROM_COMMAND_LINE.get() {
-        return format!("+{name} on the command line");
-    }
     if std::env::var_os("RUSTC").is_some_and(|v| !v.is_empty()) {
         return "RUSTC".to_string();
+    }
+    if let Some(name) = FROM_COMMAND_LINE.get() {
+        return format!("+{name} on the command line");
     }
     if std::env::var_os("RUSTUP_TOOLCHAIN").is_some_and(|v| !v.is_empty()) {
         return "RUSTUP_TOOLCHAIN".to_string();

@@ -45,9 +45,9 @@ pub fn lines() -> Vec<String> {
         let snapshot = metrics::get_metrics_snapshot();
         out.push(build_report::time_line(
             &report,
-            Duration::from_nanos(snapshot.9),
+            Duration::from_nanos(snapshot.9.saturating_sub(report.rustc_nanos_at_start)),
             Some((link, linked_units)),
-            Duration::from_nanos(snapshot.6),
+            Duration::from_nanos(snapshot.6.saturating_sub(report.restore_nanos_at_start)),
         ));
     }
     out

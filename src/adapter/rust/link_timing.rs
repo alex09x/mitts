@@ -115,6 +115,13 @@ pub fn collect(report: &Path) -> Option<Duration> {
     Some(Duration::from_nanos(nanos))
 }
 
+/// Forgets the link times and linkers of an earlier build in this process.
+pub fn reset() {
+    LINK_NANOS.store(0, Ordering::Relaxed);
+    LINKED_UNITS.store(0, Ordering::Relaxed);
+    LINKERS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
 /// Total link time, linked units, and the linkers that were wrapped.
 pub fn snapshot() -> (Duration, u64, Vec<String>) {
     (
