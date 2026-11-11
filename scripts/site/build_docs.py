@@ -83,7 +83,7 @@ OUTPUT = """
 </tbody></table>
 <p>Cargo's comma-separated modifiers work (<code>json,json-diagnostic-short</code>). Conflicting combinations such as <code>human,json</code>, or unknown values, are rejected with exit code 2.</p>
 <h4>The JSON stream</h4>
-<p>Each stdout line is one object with a <code>reason</code>. <code>compiler-message</code> appears once per diagnostic, in the order units finish; <code>build-finished</code> closes the stream with <code>success</code> false if any unit failed. The exit code matches human mode.</p>""" + pre('{"reason":"compiler-message","package_id":"demo@0.1.0","target":{"kind":["lib"],"name":"demo"},\n "message":{"level":"error","code":{"code":"E0308"},"rendered":"..."}}\n{"reason":"build-finished","success":false}') + """
+<p>Each stdout line is one object with a <code>reason</code>. <code>compiler-message</code> appears once per diagnostic, in the order units finish; <code>build-finished</code> closes the stream with <code>success</code> false if any unit failed. The exit code matches human mode.</p><!--email_off-->""" + pre('{"reason":"compiler-message","package_id":"demo@0.1.0","target":{"kind":["lib"],"name":"demo"},\n "message":{"level":"error","code":{"code":"E0308"},"rendered":"..."}}\n{"reason":"build-finished","success":false}') + """<!--/email_off-->
 <h4>Quiet mode</h4>
 <p><code>-q</code> / <code>--quiet</code> removes Mitts' banners, progress bars and stat lines. In <code>mitts test -q</code> libtest receives <code>-q</code>, failures and the final <code>test result</code> line remain. In <code>mitts test -c -q</code> the <code>PASS</code> lines go, <code>FAIL</code> output and the <code>Summary</code> line stay.</p>
 </section>
@@ -105,7 +105,8 @@ CONFIG = """
 
 CI = """
 <section id="github-actions"><h2>GitHub Actions</h2>
-<p>Two small composite actions install a verified release and keep the build cache between runs.</p>""" + pre("steps:\n  - uses: actions/checkout@v4\n  - uses: dtolnay/rust-toolchain@stable\n  - uses: alex09x/mitts@v{VERSION}\n  - run: mitts test\n  - uses: alex09x/mitts/save@v{VERSION}\n    if: always()") + """
+<p>Two small composite actions install a verified release and keep the build cache between runs.</p>
+<!--email_off-->""" + pre("steps:\n  - uses: actions/checkout@v4\n  - uses: dtolnay/rust-toolchain@stable\n  - uses: alex09x/mitts@v{VERSION}\n  - run: mitts test\n  - uses: alex09x/mitts/save@v{VERSION}\n    if: always()") + """<!--/email_off-->
 <p>Pin the action to a release tag or a full commit SHA. The setup action installs the release you ask for with the installer that ships in the same ref, and the installer checks the archive against the published SHA-256 sums.</p>
 <h4>What gets cached</h4>
 <p>The whole Mitts cache directory (store and action cache, by default <code>~/.cache/mitts</code>), and nothing else: the Cargo registry and <code>target/</code> do not need restoring. The key is <code>mitts-v1</code>, the runner OS and architecture, the Mitts version, your <code>cache-key</code> text and a hash of every <code>Cargo.lock</code>. On a miss the newest cache with the same prefix is restored, so a changed dependency set rebuilds only what changed.</p>
