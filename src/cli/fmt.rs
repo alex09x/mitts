@@ -11,6 +11,7 @@
 use crate::adapter::rust::manifest::CargoToml;
 use crate::adapter::{RustAdapter, RustBuildOptions};
 use crate::cli::Ui;
+use anstream::{eprintln, println};
 use clap::Args;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

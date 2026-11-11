@@ -10,6 +10,7 @@
 
 use crate::adapter::{BuildMode, RustAdapter, RustBuildOptions};
 use crate::cli::ui::Ui;
+use anstream::eprintln;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

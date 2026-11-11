@@ -17,6 +17,8 @@ anyhow = "1.0"
 thiserror = "2.0"
 semver = "1.0"
 indicatif = "0.17"
+anstream = "1.0"
+console = "0.15"
 miette = { version = "7.6", features = ["fancy", "derive"] }
 toml = "0.8"
 flate2 = "1.0"

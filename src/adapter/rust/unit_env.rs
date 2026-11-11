@@ -135,7 +135,7 @@ pub fn compute_unit_rustc_env_with_target(
 fn test_target_dir(unit: &PlannedCompilationUnit, target_dir: Option<&Path>) -> PathBuf {
     target_dir
         .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from))
+        .or_else(crate::core::build_env::env_target_dir)
         .unwrap_or_else(|| {
             let ws = unit.workspace_root.clone().unwrap_or_else(|| {
                 super::compiler_resolve::find_workspace_root(&unit.manifest_path)

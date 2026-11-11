@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use anstream::eprintln;
 use anyhow::{Context, Result};
 use clap::Args;
 use std::path::{Path, PathBuf};

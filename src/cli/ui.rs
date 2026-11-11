@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use anstream::{eprintln, println};
 use indicatif::{ProgressBar, ProgressStyle};
 
 pub struct Ui;

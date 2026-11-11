@@ -9,6 +9,7 @@
  */
 use crate::adapter::{BuildProgressCallback, BuildProgressEvent};
 use crate::cli::ui::Ui;
+use anstream::println;
 
 pub fn create_test_progress_callback(
     progress: Option<indicatif::ProgressBar>,
