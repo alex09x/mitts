@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use anstream::eprintln;
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use std::fs;
 use std::path::Path;

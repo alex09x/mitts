@@ -10,6 +10,7 @@
 
 use super::build::handle_build;
 use super::BuildArgs;
+use anstream::eprintln;
 
 pub fn handle_rustc(args: &BuildArgs) -> i32 {
     if !args.lib {

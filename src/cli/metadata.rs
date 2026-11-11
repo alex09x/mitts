@@ -11,6 +11,7 @@
 use crate::adapter::rust::manifest::{CargoToml, DiscoveredTarget, TestRole, TomlDependency};
 use crate::adapter::rust::{RustAdapter, RustBuildOptions};
 use crate::cli::MetadataArgs;
+use anstream::{eprintln, println};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};

@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use anstream::{eprintln, println};
 mod discover;
 
 pub use discover::{discover_test_binaries, DiscoveredBinaries};
@@ -96,7 +97,7 @@ pub fn execute_test_binaries_with_plan(
         target_directory: args
             .target_dir
             .clone()
-            .or_else(|| std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from))
+            .or_else(crate::core::build_env::env_target_dir)
             .unwrap_or_else(|| root_dir.join("target")),
         ..Default::default()
     };

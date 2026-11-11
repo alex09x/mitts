@@ -12,6 +12,7 @@ use crate::adapter::rust::doctest::{plan_doctests, DoctestInvocation};
 use crate::adapter::rust::types::RustBuildOptions;
 use crate::cli::test::TestArgs;
 use crate::core::action::BuildPlan;
+use anstream::{eprintln, println};
 use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
