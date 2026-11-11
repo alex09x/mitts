@@ -15,8 +15,17 @@ use crate::cli::terminal::TerminalGuard;
 use crate::cli::ui::Ui;
 use crate::cli::BuildArgs;
 use crate::core::ActionKind;
+use anstream::{eprint, eprintln, println};
 
 pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
+    let mut extra_args = args.extra_args.clone();
+    if args.workspace
+        && !extra_args
+            .iter()
+            .any(|a| a == "--workspace" || a == "--all")
+    {
+        extra_args.push("--workspace".to_string());
+    }
     let mut opt = RustBuildOptions {
         manifest_path: crate::cli::manifest_discovery::discover_manifest(&args.manifest_path),
         package: args
@@ -34,13 +43,15 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         features: args.features.clone(),
         no_default_features: args.no_default_features,
         all_features: args.all_features,
-        extra_args: args.extra_args.clone(),
+        extra_args,
         no_cache: args.no_cache,
         cache_dir: args.cache_dir.clone(),
         locked: args.locked,
         offline: args.offline,
         frozen: args.frozen,
         example_targets: args.example.clone(),
+        test_targets: args.test.clone(),
+        all_tests: args.tests || args.all_targets,
         target_triple: args.target.clone(),
         crate_types: args.crate_types.clone(),
         quiet: args.quiet,
@@ -55,15 +66,15 @@ pub fn to_rust_options(args: &BuildArgs) -> RustBuildOptions {
         start_dir: None,
         exclude: args.exclude.clone(),
         bin_targets: args.bin.clone(),
-        all_bins: args.bins,
-        lib_only: args.lib,
-        all_examples: args.examples,
+        all_bins: args.bins || args.all_targets,
+        lib_only: args.lib || args.all_targets,
+        all_examples: args.examples || args.all_targets,
         bench_targets: args.bench.clone(),
-        all_benches: args.benches,
+        all_benches: args.benches || args.all_targets,
         keep_going: args.keep_going,
         ..Default::default()
     };
-    crate::cli::manifest_discovery::select_workspace_member(&mut opt, false);
+    crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
     opt
 }
 

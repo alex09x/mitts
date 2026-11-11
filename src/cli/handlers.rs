@@ -12,6 +12,7 @@ use crate::adapter::{FetchOptions, RustAdapter, RustBuildOptions};
 use crate::cli::{CleanArgs, ExplainArgs, FetchArgs, GcArgs, Ui};
 use crate::core::build_lock::FastBuildLock;
 use crate::core::{ActionCache, CacheGc, ContentAddressedStore, GcOptions, SourceStore};
+use anstream::{eprintln, println};
 
 mod clean_target;
 

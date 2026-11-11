@@ -15,6 +15,7 @@ use crate::cli::diagnostic::render_compiler_diagnostics;
 use crate::cli::message_format::{self, MessageFormat};
 use crate::cli::terminal::TerminalGuard;
 use crate::cli::ui::Ui;
+use anstream::{eprint, eprintln, println};
 use clap::Args;
 use std::path::PathBuf;
 

@@ -18,6 +18,7 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     if let Some(jobs) = cli.command.jobs() {
         mitts::core::jobs::set_flag_limit(jobs);
     }

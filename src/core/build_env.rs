@@ -10,6 +10,16 @@
 
 use super::hash::Sha256;
 
+/// The target directory named by the environment, as Cargo reads it: `CARGO_TARGET_DIR`,
+/// else `CARGO_BUILD_TARGET_DIR`; an empty value counts as unset.
+pub fn env_target_dir() -> Option<std::path::PathBuf> {
+    ["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .find(|dir| !dir.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 /// Collects all compiler-relevant environment variable pairs (CARGO_*, RUST_*, etc.).
 /// Excludes non-compilation workspace or layout variables like CARGO_MANIFEST_DIR, CARGO_TARGET_DIR.
 pub fn collect_relevant_env_vars() -> Vec<(String, String)> {
@@ -17,6 +27,8 @@ pub fn collect_relevant_env_vars() -> Vec<(String, String)> {
         .filter_map(|(k, _)| {
             if k == "CARGO_MANIFEST_DIR"
                 || k == "CARGO_TARGET_DIR"
+                || k == "CARGO_BUILD_TARGET_DIR"
+                || k == "CARGO_TERM_COLOR"
                 || k == "CARGO_MAKEFLAGS"
                 || k == "MAKEFLAGS"
                 || k == "CARGO_HOME"
