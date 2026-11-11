@@ -82,12 +82,9 @@ impl RegistryConfig {
                 .with_context(|| format!("reading {}", path.display()))?;
             let value: toml::Value =
                 toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-            // Relative paths in a config file resolve against the parent of its `.cargo`.
-            let base = path
-                .parent()
-                .and_then(Path::parent)
-                .map(Path::to_path_buf)
-                .unwrap_or_default();
+            // Relative paths in a config file resolve against the parent of its `.cargo`
+            // (a `--config` value: see `cargo_config_cli::base_dir`).
+            let base = super::cargo_config_cli::base_dir(&path);
             cfg.merge(&value, &base);
         }
         if let Some(home) = crate::core::source_store::SourceStore::active_cargo_home() {

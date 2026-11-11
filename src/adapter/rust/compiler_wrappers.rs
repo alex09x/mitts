@@ -154,9 +154,7 @@ fn configured_wrappers_with_slots(
                     .context("compiler wrapper must be a string")?;
                 let path_value = Path::new(value);
                 let value = if value.contains('/') && path_value.is_relative() {
-                    path.parent()
-                        .and_then(Path::parent)
-                        .unwrap_or(start_dir)
+                    super::cargo_config_cli::base_dir(&path)
                         .join(path_value)
                         .into_os_string()
                 } else {

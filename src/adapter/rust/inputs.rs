@@ -191,7 +191,11 @@ pub fn hash_package_common_inputs(
     for cfg_p in config_files {
         let hash =
             Sha256::digest_file(&cfg_p).with_context(|| format!("Failed to hash {:?}", cfg_p))?;
-        let label = if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w.join(".cargo"))) {
+        // `--config` layers by position: their files (scratch paths change every run, two
+        // files may share a name) must neither move the key nor collide.
+        let label = if let Some(index) = super::cargo_config_cli::position(&cfg_p) {
+            format!("cli_config:{index}")
+        } else if let Some(ws) = ws_root.filter(|w| cfg_p.starts_with(w.join(".cargo"))) {
             format!("workspace:{}", cfg_p.strip_prefix(ws).unwrap().display())
         } else if let Ok(rel) = cfg_p.strip_prefix(package_dir) {
             rel.to_string_lossy().to_string()

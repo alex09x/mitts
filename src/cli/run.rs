@@ -211,9 +211,9 @@ pub fn handle_run(args: &RunArgs) -> i32 {
         eprintln!("error: mitts run accepts only one package");
         return 1;
     }
-    if !args.build_args.config.is_empty() {
-        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
-        return 1;
+    if let Err(error) = crate::adapter::rust::cargo_config_cli::set(&args.build_args.config) {
+        eprintln!("error: {error:#}");
+        return 101;
     }
     // Like `cargo run`: one program runs, so whole-workspace and test selections do not apply.
     let b = &args.build_args;

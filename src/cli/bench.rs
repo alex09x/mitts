@@ -105,6 +105,10 @@ pub struct BenchArgs {
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    /// Override a Cargo configuration value: TOML KEY=VALUE (e.g. build.jobs=2) or a TOML file
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub config: Vec<String>,
+
     /// Benchmark name filter, passed to the benchmark binaries
     #[arg(value_name = "BENCHNAME")]
     pub filter: Option<String>,
@@ -144,6 +148,7 @@ fn test_args(args: &BenchArgs) -> TestArgs {
         no_run: args.no_run,
         no_fail_fast: args.no_fail_fast,
         verbose: args.verbose,
+        config: args.config.clone(),
         filter: args.filter.clone(),
         // Every benchmark target unless some are named.
         benches: args.bench.is_empty(),

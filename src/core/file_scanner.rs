@@ -127,13 +127,21 @@ pub(crate) fn collect_project_files(
     Ok(())
 }
 
+/// The configuration files the fast lock tracks: inline `--config` values live in scratch
+/// files that are new every run; they are tracked through the options hash instead.
+fn tracked_configs(config_start_dir: &Path) -> Vec<std::path::PathBuf> {
+    crate::adapter::rust::cargo_config::discover_cargo_config_files(config_start_dir)
+        .into_iter()
+        .filter(|p| !crate::adapter::rust::cargo_config_cli::is_inline_file(p))
+        .collect()
+}
+
 pub(crate) fn collect_config_snapshots(
     project_dir: &Path,
 ) -> (Vec<FileSnapshot>, Vec<FileSnapshot>) {
     let config_start_dir =
         crate::adapter::rust::cargo_config::resolve_config_start_dir(project_dir);
-    let discovered_configs =
-        crate::adapter::rust::cargo_config::discover_cargo_config_files(&config_start_dir);
+    let discovered_configs = tracked_configs(&config_start_dir);
     let mut cargo_configs = Vec::new();
     for cfg_p in discovered_configs {
         if let Ok(meta) = fs::metadata(&cfg_p) {
@@ -173,8 +181,7 @@ pub(crate) fn verify_config_snapshots(
 ) -> std::result::Result<(), String> {
     let config_start_dir =
         crate::adapter::rust::cargo_config::resolve_config_start_dir(project_dir);
-    let current_configs =
-        crate::adapter::rust::cargo_config::discover_cargo_config_files(&config_start_dir);
+    let current_configs = tracked_configs(&config_start_dir);
     if current_configs.len() != cargo_configs.len() {
         return Err("Cargo configuration files changed (added/removed)".to_string());
     }

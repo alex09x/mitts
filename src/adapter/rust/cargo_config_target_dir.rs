@@ -37,12 +37,9 @@ pub fn load_build_target_dir(start_dir: &Path) -> Result<Option<PathBuf>> {
         if dir.is_absolute() {
             return Ok(Some(dir));
         }
-        // <base>/.cargo/config.toml -> <base>
-        let base = config_path
-            .parent()
-            .and_then(Path::parent)
-            .unwrap_or(Path::new("."));
-        return Ok(Some(base.join(dir)));
+        return Ok(Some(
+            super::cargo_config_cli::base_dir(&config_path).join(dir),
+        ));
     }
     Ok(None)
 }

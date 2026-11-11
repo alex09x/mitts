@@ -19,9 +19,9 @@ pub use crate::cli::coverage_tools::resolve_llvm_tool;
 pub use crate::cli::coverage_types::CoverageArgs;
 
 pub fn handle_coverage(args: &CoverageArgs) -> i32 {
-    if !args.config.is_empty() {
-        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
-        return 1;
+    if let Err(error) = crate::adapter::rust::cargo_config_cli::set(&args.config) {
+        eprintln!("error: {error:#}");
+        return 101;
     }
     if args.doc {
         eprintln!("error: --doc is not supported with coverage");
