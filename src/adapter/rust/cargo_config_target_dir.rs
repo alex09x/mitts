@@ -37,7 +37,10 @@ pub fn load_build_target_dir(start_dir: &Path) -> Result<Option<PathBuf>> {
         if dir.is_absolute() {
             return Ok(Some(dir));
         }
-        // <base>/.cargo/config.toml -> <base>
+        // <base>/.cargo/config.toml -> <base>; an inline `--config` value: the current dir.
+        if super::cargo_config_cli::is_inline_file(&config_path) {
+            return Ok(Some(std::env::current_dir()?.join(dir)));
+        }
         let base = config_path
             .parent()
             .and_then(Path::parent)

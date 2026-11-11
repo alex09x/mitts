@@ -17,6 +17,7 @@ pub mod build_script_keys;
 pub mod build_script_purity;
 pub mod builder;
 pub mod cargo_config;
+pub mod cargo_config_cli;
 pub mod cargo_config_linker;
 pub mod cargo_config_target_dir;
 pub mod compiler;

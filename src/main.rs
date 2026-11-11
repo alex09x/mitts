@@ -42,6 +42,8 @@ fn main() -> ExitCode {
         Commands::Clean(ref args) => handle_clean(args),
     };
 
+    mitts::adapter::rust::cargo_config_cli::cleanup();
+
     // After the command has released the cache: keep the cache under its size limit.
     if let Some(cache_dir) = cli.command.cache_use() {
         mitts::core::auto_gc::run_if_due(cache_dir.as_deref());

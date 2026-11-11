@@ -75,6 +75,10 @@ pub fn compute_options_hash(
         opt.effective_diagnostic_format(),
         opt.cache_dir,
     );
+    let config_overrides = super::cargo_config_cli::stamp();
+    if !config_overrides.is_empty() {
+        payload.push_str(&format!("|config_overrides={config_overrides}"));
+    }
     if !opt.bench_targets.is_empty() {
         let mut benches = opt.bench_targets.clone();
         benches.sort();

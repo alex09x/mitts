@@ -91,6 +91,9 @@ fn discover_cargo_config_files_impl(start_dir: &Path, include_shadowed: bool) ->
         }
     }
 
+    // 3. `--config` overrides (highest precedence)
+    files.extend(super::cargo_config_cli::files());
+
     files
 }
 

@@ -96,7 +96,7 @@ pub struct ClippyArgs {
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
-    /// Override a configuration value (not yet supported)
+    /// Override a Cargo configuration value: TOML KEY=VALUE (e.g. build.jobs=2) or a TOML file
     #[arg(long, action = clap::ArgAction::Append)]
     pub config: Vec<String>,
 
@@ -158,9 +158,9 @@ pub struct ClippyArgs {
 }
 
 pub fn handle_clippy(args: &ClippyArgs) -> i32 {
-    if !args.config.is_empty() {
-        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
-        return 1;
+    if let Err(error) = crate::adapter::rust::cargo_config_cli::set(&args.config) {
+        eprintln!("error: {error:#}");
+        return 101;
     }
 
     let mut extra_args = args.extra_args.clone();

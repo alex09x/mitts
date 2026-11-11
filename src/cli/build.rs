@@ -240,9 +240,9 @@ pub fn render_build_result(
 }
 
 pub fn handle_build(args: &BuildArgs) -> i32 {
-    if !args.config.is_empty() {
-        eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
-        return 1;
+    if let Err(error) = crate::adapter::rust::cargo_config_cli::set(&args.config) {
+        eprintln!("error: {error:#}");
+        return 101;
     }
 
     let mut opt = to_rust_options(args);
