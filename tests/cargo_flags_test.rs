@@ -185,6 +185,31 @@ fn target_dir_comes_from_cargo_config_and_cargo_build_target_dir() {
     assert!(env_dir.join("debug/libb.rlib").is_file());
 }
 
+/// Output layout and coloring variables are not compilation inputs: setting them must not
+/// recompile anything (review of #111).
+#[test]
+fn target_dir_and_color_variables_do_not_invalidate_the_cache() {
+    let temp = workspace();
+    let root = temp.path();
+    assert_ok(&mitts(root, &["build", "-p", "b"], &[]));
+    let target = root.join("target");
+    let again = mitts(
+        root,
+        &["build", "-p", "b"],
+        &[
+            ("CARGO_TERM_COLOR", "never"),
+            ("CARGO_BUILD_TARGET_DIR", target.to_str().unwrap()),
+        ],
+    );
+    assert_ok(&again);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&again.stdout),
+        String::from_utf8_lossy(&again.stderr)
+    );
+    assert!(text.contains("compiled=0"), "{text}");
+}
+
 #[test]
 fn color_never_and_always_control_mitts_output() {
     let temp = workspace();

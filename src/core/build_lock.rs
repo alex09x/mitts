@@ -24,8 +24,8 @@ impl FastBuildLock {
 
     /// Returns the canonical path to the fast build lockfile inside target/mitts for the given profile.
     pub fn lock_path(project_dir: &Path, profile: &str) -> PathBuf {
-        let mitts_dir = if let Ok(cargo_td) = std::env::var("CARGO_TARGET_DIR") {
-            PathBuf::from(cargo_td).join("mitts")
+        let mitts_dir = if let Some(cargo_td) = super::build_env::env_target_dir() {
+            cargo_td.join("mitts")
         } else {
             project_dir.join("target").join("mitts")
         };

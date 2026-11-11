@@ -163,11 +163,8 @@ impl RustAdapter {
     ) -> Result<PathBuf> {
         let mut target_dir = if let Some(ref td) = opt.target_dir {
             td.clone()
-        } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR")
-            .or_else(|| std::env::var_os("CARGO_BUILD_TARGET_DIR"))
-            .filter(|dir| !dir.is_empty())
-        {
-            PathBuf::from(cargo_td)
+        } else if let Some(cargo_td) = crate::core::build_env::env_target_dir() {
+            cargo_td
         } else {
             let project_dir = manifest_path
                 .parent()
