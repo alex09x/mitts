@@ -98,6 +98,36 @@ fn timings_json_lists_units_with_their_outcome() {
     assert!(!unknown.status.success());
 }
 
+/// Where the fast build lock would answer, `--timings` still reports the units of a real
+/// run instead of overwriting the report with an empty one (review of #116).
+#[test]
+fn timings_bypasses_the_fast_lock() {
+    let temp = project();
+    let root = temp.path();
+    let build = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .arg("build")
+            .args(extra)
+            .arg("--cache-dir")
+            .arg(root.join("mitts-cache"))
+            .current_dir(root)
+            .env("MITTS_FAST_LOCK", "1")
+            .env("RUSTC_WRAPPER", "")
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_BUILD_TARGET_DIR")
+            .output()
+            .unwrap()
+    };
+    assert_ok(&build(&["-q"]));
+    assert_ok(&build(&["-q"]));
+    assert_ok(&build(&["-q", "--timings=json"]));
+    let json: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join("target/cargo-timings/cargo-timing.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json["units"].as_array().unwrap().len(), 2, "{json}");
+}
+
 #[test]
 fn unstable_flags_are_accepted_or_named() {
     let temp = project();

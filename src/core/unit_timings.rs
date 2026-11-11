@@ -84,16 +84,25 @@ pub fn set_build(target_dir: &Path, title: &str) {
 /// Writes the report(s) of a recording whose build set its target directory.
 pub fn finish_recorded() -> Result<Vec<PathBuf>> {
     let (dir, title) = {
-        let guard = RECORDER.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = RECORDER.lock().unwrap_or_else(|e| e.into_inner());
         match guard
             .as_ref()
             .and_then(|r| r.target_dir.clone().map(|d| (d, r.title.clone())))
         {
             Some(found) => found,
-            None => return Ok(Vec::new()),
+            None => {
+                // No build ran (or it failed before choosing a target dir): stop recording.
+                *guard = None;
+                return Ok(Vec::new());
+            }
         }
     };
     finish(&dir, &title)
+}
+
+/// Whether this command records unit timings.
+pub fn is_enabled() -> bool {
+    RECORDER.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
 /// A unit's start, while recording; `None` otherwise.

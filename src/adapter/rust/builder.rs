@@ -223,8 +223,10 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     // Fast build lock pre-flight check: if zero project files changed, return in microsecond time.
     // Strictly restricted to Build and Check modes. In Test mode, test execution cannot be
     // cached by fast-lock because tests have runtime inputs and assertions that must be executed.
+    // `--timings` reports the units of a real run, so it does not take the lock's answer.
     if !opt.no_cache
         && fast_lock_enabled(opt)
+        && !crate::core::unit_timings::is_enabled()
         && matches!(
             opt.mode,
             super::types::BuildMode::Build | super::types::BuildMode::Check
