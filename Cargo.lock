@@ -670,8 +670,10 @@ dependencies = [
 name = "mitts"
 version = "0.3.33"
 dependencies = [
+ "anstream",
  "anyhow",
  "clap",
+ "console",
  "flate2",
  "indicatif",
  "libc",

@@ -22,6 +22,10 @@ const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS
     after_help = "Environment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_NET_RETRY=N     Retries of a registry request after a network error, 408, 429 or 5xx, after 1, 3 and 5 s (default 3; 0 = none)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
 )]
 pub struct Cli {
+    /// Coloring of Mitts' output: auto, always or never (default: CARGO_TERM_COLOR, else auto)
+    #[arg(long, global = true, value_name = "WHEN")]
+    pub color: Option<color::ColorWhen>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -289,6 +293,22 @@ pub struct BuildArgs {
     #[arg(long)]
     pub lib: bool,
 
+    /// Build all packages in the workspace
+    #[arg(long, visible_alias = "all")]
+    pub workspace: bool,
+
+    /// Build the named test target without running it (repeatable)
+    #[arg(long = "test", value_name = "NAME", action = clap::ArgAction::Append)]
+    pub test: Vec<String>,
+
+    /// Build all test targets without running them
+    #[arg(long)]
+    pub tests: bool,
+
+    /// Build all targets: lib, bins, tests, benches and examples
+    #[arg(long)]
+    pub all_targets: bool,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -435,6 +455,7 @@ pub mod bench;
 pub mod build;
 pub mod check;
 pub mod clippy;
+pub mod color;
 pub mod coverage;
 pub mod coverage_tools;
 pub mod coverage_types;

@@ -23,6 +23,7 @@ use super::test::TestArgs;
 use super::test_runner::DiscoveredBinaries;
 use crate::cli::ui::Ui;
 use crate::core::action::BuildPlan;
+use anstream::println;
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::process::Command;

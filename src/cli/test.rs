@@ -14,6 +14,7 @@ use crate::cli::message_format::{self, MessageFormat};
 use crate::cli::terminal::TerminalGuard;
 pub use crate::cli::test_progress::create_test_progress_callback;
 use crate::cli::ui::Ui;
+use anstream::eprintln;
 use clap::Args;
 use std::path::PathBuf;
 

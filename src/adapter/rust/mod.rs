@@ -18,6 +18,7 @@ pub mod build_script_purity;
 pub mod builder;
 pub mod cargo_config;
 pub mod cargo_config_linker;
+pub mod cargo_config_target_dir;
 pub mod compiler;
 pub mod compiler_args;
 mod compiler_remap;
@@ -162,7 +163,10 @@ impl RustAdapter {
     ) -> Result<PathBuf> {
         let mut target_dir = if let Some(ref td) = opt.target_dir {
             td.clone()
-        } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR") {
+        } else if let Some(cargo_td) = std::env::var_os("CARGO_TARGET_DIR")
+            .or_else(|| std::env::var_os("CARGO_BUILD_TARGET_DIR"))
+            .filter(|dir| !dir.is_empty())
+        {
             PathBuf::from(cargo_td)
         } else {
             let project_dir = manifest_path
@@ -176,10 +180,15 @@ impl RustAdapter {
                         .ok()
                         .flatten()
                 })
-                .and_then(|(root_manifest, _)| root_manifest.parent().map(Path::to_path_buf));
-            workspace_dir
-                .unwrap_or_else(|| project_dir.to_path_buf())
-                .join("target")
+                .and_then(|(root_manifest, _)| root_manifest.parent().map(Path::to_path_buf))
+                .unwrap_or_else(|| project_dir.to_path_buf());
+            // `build.target-dir` from .cargo/config.toml, then `<workspace>/target`.
+            let config_start = cargo_config::resolve_config_start_dir_with_opt(
+                &workspace_dir,
+                opt.start_dir.as_deref(),
+            );
+            cargo_config_target_dir::load_build_target_dir(&config_start)?
+                .unwrap_or_else(|| workspace_dir.join("target"))
         };
 
         if let Some(target) = key_flags::resolve_explicit_target(opt) {

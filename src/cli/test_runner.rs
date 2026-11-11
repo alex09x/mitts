@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use anstream::{eprintln, println};
 mod discover;
 
 pub use discover::{discover_test_binaries, DiscoveredBinaries};

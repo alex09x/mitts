@@ -15,6 +15,7 @@ use crate::cli::terminal::TerminalGuard;
 use crate::cli::ui::Ui;
 use crate::cli::RunArgs;
 use crate::core::ActionKind;
+use anstream::eprintln;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -213,6 +214,19 @@ pub fn handle_run(args: &RunArgs) -> i32 {
     if !args.build_args.config.is_empty() {
         eprintln!("Error: Unsupported option: --config is not yet supported in mitts");
         return 1;
+    }
+    // Like `cargo run`: one program runs, so whole-workspace and test selections do not apply.
+    let b = &args.build_args;
+    for (set, flag) in [
+        (b.workspace, "--workspace"),
+        (b.tests, "--tests"),
+        (!b.test.is_empty(), "--test"),
+        (b.all_targets, "--all-targets"),
+    ] {
+        if set {
+            eprintln!("error: mitts run does not accept {flag}");
+            return 1;
+        }
     }
 
     let mut opt = to_rust_options(&args.build_args);

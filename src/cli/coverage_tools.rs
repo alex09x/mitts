@@ -10,6 +10,7 @@
 
 use crate::cli::coverage_types::CoverageArgs;
 use crate::cli::ui::Ui;
+use anstream::{eprint, eprintln, println};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
