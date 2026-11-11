@@ -396,19 +396,25 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             inv.unit.kind.as_str(),
             "proc-macro" | "custom-build" | "build-script"
         );
-    if !is_host
-        && !inv
-            .extra_compiler_args
-            .iter()
-            .any(|arg| arg.starts_with("-Clinker="))
+    if !inv
+        .extra_compiler_args
+        .iter()
+        .any(|arg| arg.starts_with("-Clinker="))
         && !inv
             .extra_compiler_args
             .windows(2)
             .any(|args| args[0] == "-C" && (args[1] == "linker" || args[1].starts_with("linker=")))
     {
+        // Like Cargo, proc macros and other host units link with `target.<host>.linker`
+        // (or CARGO_TARGET_<HOST>_LINKER): without `--target` they also get RUSTFLAGS, and a
+        // flag such as `-Clink-arg=--ld-path=wild` needs the driver the user configured.
         let configured = super::cargo_config_linker::load_cargo_config_linker(
             &config_start_dir,
-            explicit_target.as_deref(),
+            if is_host {
+                None
+            } else {
+                explicit_target.as_deref()
+            },
         )?;
         // The wrapper only stands in for the host's own `cc`-flavored linking: never for a
         // cross target (its default linker or flavor may not be `cc`), never when
@@ -421,6 +427,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             .as_deref()
             .is_none_or(|t| t == super::compiler_resolve::resolve_host_triple());
         let wrapped = !rustflags_pick_linker
+            && !is_host
             && host_target
             && !is_check_only
             && super::pipelining::is_linking_kind(&inv.unit.kind)

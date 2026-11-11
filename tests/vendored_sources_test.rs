@@ -199,3 +199,98 @@ fn a_vendored_git_package_needs_no_git_access() {
     let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "7");
 }
+
+/// A linker set in `.cargo/config.toml` is part of the key of an immutable (vendored)
+/// proc macro: changing it rebuilds the macro instead of restoring one linked by the
+/// old linker (review of #123).
+#[test]
+fn a_config_linker_change_rebuilds_a_vendored_proc_macro() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = TempDir::new().unwrap();
+    let cargo_home = temp.path().join("cargo_home");
+    fs::create_dir_all(&cargo_home).unwrap();
+    let app = temp.path().join("app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::create_dir_all(app.join(".cargo")).unwrap();
+
+    let mac = app.join("vendor/vend-mac");
+    fs::create_dir_all(mac.join("src")).unwrap();
+    let manifest = "[package]\nname = \"vend-mac\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nproc-macro = true\n";
+    let body = "use proc_macro::TokenStream;\n#[proc_macro]\npub fn answer(_: TokenStream) -> TokenStream {\n    \"fn answer() -> u32 { 42 }\".parse().unwrap()\n}\n";
+    fs::write(mac.join("Cargo.toml"), manifest).unwrap();
+    fs::write(mac.join("src/lib.rs"), body).unwrap();
+    let sum = |t: &str| format!("{:x}", Sha256::digest(t.as_bytes()));
+    fs::write(
+        mac.join(".cargo-checksum.json"),
+        format!(
+            "{{\"files\":{{\"Cargo.toml\":\"{}\",\"src/lib.rs\":\"{}\"}},\"package\":\"{PKG_SUM}\"}}",
+            sum(manifest),
+            sum(body)
+        ),
+    )
+    .unwrap();
+    fs::write(
+        app.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nvend-mac = \"0.1\"\n",
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/main.rs"),
+        "vend_mac::answer!();\nfn main() { assert_eq!(answer(), 42); }\n",
+    )
+    .unwrap();
+
+    // Two linker drivers that log what they link, then run `cc`.
+    let driver = |name: &str| {
+        let path = temp.path().join(name);
+        let log = temp.path().join(format!("{name}.log"));
+        fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"$@\" >> '{}'\nexec cc \"$@\"\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        (path, log)
+    };
+    let (first, first_log) = driver("first-cc");
+    let (second, second_log) = driver("second-cc");
+    let host = String::from_utf8(Command::new("rustc").arg("-vV").output().unwrap().stdout)
+        .unwrap()
+        .lines()
+        .find_map(|l| l.strip_prefix("host: ").map(str::to_string))
+        .unwrap();
+    let config = |linker: &Path| {
+        fs::write(
+            app.join(".cargo/config.toml"),
+            format!(
+                "[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n\
+                 [source.vendored-sources]\ndirectory = \"vendor\"\n\n\
+                 [target.{host}]\nlinker = \"{}\"\n",
+                linker.display()
+            ),
+        )
+        .unwrap();
+    };
+    let cache = temp.path().join("cache");
+    config(&first);
+    let (ok, text) = mitts(&["build"], &app, &cache, &cargo_home);
+    assert!(ok, "{text}");
+    let first_text = fs::read_to_string(&first_log).unwrap();
+    assert!(first_text.contains("vend_mac"), "{first_text}");
+
+    config(&second);
+    let (ok, text) = mitts(&["build"], &app, &cache, &cargo_home);
+    assert!(ok, "{text}");
+    let second_text = fs::read_to_string(&second_log).unwrap_or_default();
+    assert!(
+        second_text.contains("vend_mac"),
+        "the vendored proc macro was restored instead of linked again:\n{second_text}\n{text}"
+    );
+    assert!(Command::new(app.join("target/debug/app"))
+        .status()
+        .unwrap()
+        .success());
+}

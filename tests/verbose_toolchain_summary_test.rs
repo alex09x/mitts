@@ -286,6 +286,75 @@ fn rustc_wins_over_plus_toolchain_and_is_named() {
     assert!(stdout.contains("(selected by RUSTC)"), "{stdout}");
 }
 
+/// The #109 report: `CARGO_TARGET_<HOST>_LINKER=clang` with
+/// `RUSTFLAGS=-Clink-arg=--ld-path=wild`. Without `--target`, RUSTFLAGS also reach proc
+/// macros, so they must link with the configured driver too (Cargo uses
+/// `target.<host>.linker` for host units); with plain `cc` the extra flag fails.
+#[cfg(unix)]
+#[test]
+fn proc_macros_link_with_the_configured_host_linker() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    write_file(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [dependencies]\nmac = { path = \"mac\" }\n",
+    );
+    write_file(
+        root.join("src/main.rs"),
+        "mac::answer!();\nfn main() { assert_eq!(answer(), 42); }\n",
+    );
+    write_file(
+        root.join("mac/Cargo.toml"),
+        "[package]\nname = \"mac\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[lib]\nproc-macro = true\n",
+    );
+    write_file(
+        root.join("mac/src/lib.rs"),
+        "use proc_macro::TokenStream;\n#[proc_macro]\npub fn answer(_: TokenStream) -> TokenStream {\n    \
+         \"fn answer() -> u32 { 42 }\".parse().unwrap()\n}\n",
+    );
+    // A linker driver that insists on a flag only it understands, then runs `cc`.
+    let log = root.join("linker.log");
+    let driver = root.join("test-cc");
+    write_file(
+        &driver,
+        &format!(
+            "#!/bin/sh\nfound=0; for a in \"$@\"; do [ \"$a\" = --mitts-test-flag ] && found=1; done\n\
+             [ $found = 1 ] || {{ echo 'test-cc: flag missing' >&2; exit 1; }}\n\
+             echo linked >> '{}'\n\
+             args=''; for a in \"$@\"; do [ \"$a\" = --mitts-test-flag ] || set -- \"$@\" \"$a\"; shift; done\n\
+             exec cc \"$@\"\n",
+            log.display()
+        ),
+    );
+    fs::set_permissions(&driver, fs::Permissions::from_mode(0o755)).unwrap();
+    let host = String::from_utf8(Command::new("rustc").arg("-vV").output().unwrap().stdout)
+        .unwrap()
+        .lines()
+        .find_map(|l| l.strip_prefix("host: ").map(str::to_string))
+        .unwrap();
+    let var = format!(
+        "CARGO_TARGET_{}_LINKER",
+        host.replace('-', "_").to_uppercase()
+    );
+    let driver = driver.display().to_string();
+    let (stdout, _) = ok(mitts_with(
+        root,
+        &["build"],
+        &[
+            (var.as_str(), driver.as_str()),
+            ("RUSTFLAGS", "-Clink-arg=--mitts-test-flag"),
+        ],
+    ));
+    assert!(stdout.contains("2 compiled"), "{stdout}");
+    // The proc macro and the binary both went through the configured driver.
+    let links = fs::read_to_string(&log).unwrap().lines().count();
+    assert!(links >= 2, "{links} links");
+    let exe = root.join("target/debug/app");
+    assert!(Command::new(exe).status().unwrap().success());
+}
+
 fn active_rustup_toolchain() -> Option<String> {
     let output = Command::new("rustup")
         .args(["show", "active-toolchain"])

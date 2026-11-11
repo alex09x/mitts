@@ -160,6 +160,16 @@ pub fn derive_unit_action_key_context(
     } else {
         config_rustflags
     };
+    // The linker a linking unit gets (`target.<triple>.linker` from config files or
+    // `--config`, or CARGO_TARGET_<TRIPLE>_LINKER): host units use the host triple's,
+    // others the target's. Config files are not hashed into immutable packages' inputs,
+    // so the linker goes into their keys here. No configured linker leaves keys as before.
+    let host_linker =
+        super::cargo_config_linker::load_cargo_config_linker(&config_start_dir, None)?;
+    let target_linker = super::cargo_config_linker::load_cargo_config_linker(
+        &config_start_dir,
+        explicit_target.as_deref(),
+    )?;
     let (ws_wrapper_flag, ext_wrapper_flag) = if super::compiler_wrappers::wrapper_cache_enabled() {
         let ws_ids = super::compiler_wrappers::resolve_wrapper_identities(&config_start_dir, true)?;
         let ext_ids =
@@ -240,6 +250,21 @@ pub fn derive_unit_action_key_context(
         if receives_target_rustflags(unit, explicit_target.as_deref()) {
             for rf in &effective_target_rustflags {
                 u_flags.push(format!("CONFIG_RUSTFLAG:{}", rf));
+            }
+        }
+        if super::pipelining::is_linking_kind(&unit.kind) {
+            let is_host = unit.for_host
+                || matches!(
+                    unit.kind.as_str(),
+                    "proc-macro" | "custom-build" | "build-script"
+                );
+            let linker = if is_host {
+                &host_linker
+            } else {
+                &target_linker
+            };
+            if let Some(linker) = linker {
+                u_flags.push(format!("CONFIG_LINKER:{linker}"));
             }
         }
         let wrapper_flag = if unit.is_workspace {
