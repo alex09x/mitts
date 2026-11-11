@@ -253,13 +253,24 @@ pub fn compute_execution_key(
     bytes_to_hex(&hasher.finalize())
 }
 
-/// Detects the host target triple based on compile-time target attributes or TARGET env.
+/// The host target triple build scripts see as `TARGET`/`HOST` when no `--target` is given:
+/// the `TARGET` variable, else the active rustc's `host:` (`rustc -vV`, probed once), else
+/// the triple Mitts itself was built for. Without the rustc probe every host outside
+/// x86_64/aarch64 Linux and macOS (riscv64, powerpc64le, s390x, ...) got the placeholder
+/// `host`, which build scripts using cc-rs reject.
 pub fn detect_default_target_triple() -> String {
     if let Ok(t) = std::env::var("TARGET") {
         if !t.is_empty() {
             return t;
         }
     }
+    if let Ok(probed) = super::compiler_resolve::active_toolchain() {
+        return probed.host_triple;
+    }
+    compiled_host_triple()
+}
+
+fn compiled_host_triple() -> String {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     return "aarch64-apple-darwin".to_string();
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -275,4 +286,23 @@ pub fn detect_default_target_triple() -> String {
         all(target_os = "linux", target_arch = "aarch64"),
     )))]
     return "host".to_string();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build scripts get the active rustc's host triple, which every host has (riscv64,
+    /// powerpc64le, ...), not only the four Mitts was compiled with a constant for.
+    #[test]
+    fn the_default_triple_is_the_rustc_host() {
+        if std::env::var_os("TARGET").is_some() {
+            return;
+        }
+        let host = super::super::compiler_resolve::active_toolchain()
+            .unwrap()
+            .host_triple;
+        assert_eq!(detect_default_target_triple(), host);
+        assert_ne!(detect_default_target_triple(), "host");
+    }
 }
