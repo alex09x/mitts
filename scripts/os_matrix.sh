@@ -31,6 +31,12 @@
 # Logs: $OS_MATRIX_OUT (default target/os-matrix/<timestamp>/<entry>.log).
 set -euo pipefail
 
+# `wait -n` throttles the parallel entries; without it every container would start at once.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
+  echo "os_matrix: needs bash 4.3 or newer (this is $BASH_VERSION)" >&2
+  exit 2
+fi
+
 repo=$(cd "$(dirname "$0")/.." && pwd)
 host_arch=$(uname -m)
 mode=${OS_MATRIX_MODE:-auto}
@@ -118,7 +124,7 @@ if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
 fi
 . "$HOME/.cargo/env"
 rustup -q toolchain install stable --profile minimal --component rustfmt,clippy,llvm-tools >/dev/null
-mkdir -p /work && cp -a /src/. /work/ && rm -rf /work/target
+mkdir -p /work && tar -C /src --exclude=./target -cf - . | tar -C /work -xf -
 cd /work
 echo "os: $(. /etc/os-release; echo "$PRETTY_NAME") $(uname -m), $(rustc --version), $(/mitts --version)"
 export MITTS_CI_BIN=/mitts
@@ -142,7 +148,7 @@ run_entry() {
   fi
   name=$(printf '%s' "$entry" | tr '/:@' '___')
   volume="mitts-os-matrix-$(printf '%s-%s' "$image" "$arch" | tr '/:.' '___')"
-  bin=$(mitts_for "$arch") || { echo "$entry SKIP (no Mitts binary for $arch)" > "$out/$name.result"; return; }
+  bin=$(mitts_for "$arch") || { echo "$entry $entry_mode SKIP (no Mitts binary for $arch)" > "$out/$name.result"; return; }
   status=0
   docker run --rm --platform "$platform" \
     -v "$repo:/src:ro" -v "$bin:/mitts:ro" -v "$volume:/root" \
@@ -161,9 +167,13 @@ for entry in "${entries[@]}"; do
   platform=$(native_platform)
   [ "$entry" != "${entry%@*}" ] && platform=${entry#*@}
   mitts_for "$(platform_arch "$platform")" >/dev/null || true
-  docker pull -q --platform "$platform" "${entry%@*}" >/dev/null &&
-    docker tag "${entry%@*}" "$(local_tag "$entry")" ||
+  # A locally imported image (no registry to pull from) is used as it is.
+  if docker pull -q --platform "$platform" "${entry%@*}" >/dev/null 2>&1 ||
+    docker image inspect "${entry%@*}" >/dev/null 2>&1; then
+    docker tag "${entry%@*}" "$(local_tag "$entry")"
+  else
     echo "os_matrix: cannot pull ${entry%@*} for $platform" >&2
+  fi
 done
 running=0
 for entry in "${entries[@]}"; do
