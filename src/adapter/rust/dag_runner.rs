@@ -91,7 +91,7 @@ pub fn run_native_dag_build(
     fs::create_dir_all(&target_dir)?;
     let _ = fs::write(target_dir.join(".mitts-target"), "mitts-target-v1\n");
 
-    let profile_name = if opt.release { "release" } else { "debug" };
+    let profile_name = &crate::adapter::rust::profile::profile_dir(opt.release);
     let target_index = Arc::new(Mutex::new(crate::core::TargetArtifactIndex::load(
         &target_dir,
         profile_name,

@@ -209,7 +209,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
 
     if valid {
         if is_bin {
-            let profile_name = if ctx.opt.release { "release" } else { "debug" };
+            let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
             let dest_bin =
                 super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name);
             for out in &entry.outputs {

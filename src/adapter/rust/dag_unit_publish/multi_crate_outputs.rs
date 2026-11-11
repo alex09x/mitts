@@ -80,7 +80,7 @@ pub(super) fn publish_link_outputs(
         }
 
         if !ctx.opt.native || unit.is_workspace {
-            let profile = if ctx.opt.release { "release" } else { "debug" };
+            let profile = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
             let is_staticlib = matches!(ext, "a" | "lib");
             let dep_copy = if is_staticlib {
                 ctx.target_dir.join(profile).join(file_name)

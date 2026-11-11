@@ -56,11 +56,27 @@ fn matches_record(path: &Path, record: &TargetArtifactRecord) -> bool {
 
 pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Result<usize> {
     let canonical_root = target.canonicalize()?;
-    let profiles: &[&str] = if release_only {
-        &["release"]
+    let mut profiles: Vec<String> = if release_only {
+        vec!["release".to_string()]
     } else {
-        &["debug", "release"]
+        vec!["debug".to_string(), "release".to_string()]
     };
+    // Custom profiles (`--profile NAME`) left an artifact index `.artifacts-NAME.json`.
+    if !release_only {
+        for entry in fs::read_dir(target).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(profile) = name
+                .strip_prefix(".artifacts-")
+                .and_then(|rest| rest.strip_suffix(".json"))
+            {
+                if crate::adapter::rust::profile::custom::validate_name(profile).is_ok()
+                    && !profiles.iter().any(|p| p == profile)
+                {
+                    profiles.push(profile.to_string());
+                }
+            }
+        }
+    }
     let legacy = target.join("mitts");
     let legacy_owned =
         owns_directory(&legacy) && !legacy.join("cas").is_dir() && !legacy.join("ac").is_dir();
@@ -76,7 +92,7 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
     // Cargo holds this lock while compiling/linking a profile. Nonblocking
     // admission also avoids waiting cycles with nested build-script commands.
     let mut _cargo_guards = Vec::new();
-    for profile in profiles {
+    for profile in &profiles {
         let directory = target.join(profile);
         if !directory.exists() {
             continue;
@@ -94,7 +110,7 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
         _cargo_guards.push(guard);
     }
     let mut removed = 0;
-    for profile in profiles {
+    for profile in &profiles {
         let index = TargetArtifactIndex::load(target, profile);
         for (relative, record) in index.artifacts {
             let relative = Path::new(&relative);

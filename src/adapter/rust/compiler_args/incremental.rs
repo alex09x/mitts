@@ -158,7 +158,7 @@ pub(crate) fn session_root(
     if !applies(inv.unit, profile) {
         return None;
     }
-    let profile_dir = if inv.release { "release" } else { "debug" };
+    let profile_dir = &crate::adapter::rust::profile::profile_dir(inv.release);
     inv.target_dir
         .map(|t| t.join(profile_dir).join(SESSIONS_DIR))
 }

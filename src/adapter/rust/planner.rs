@@ -20,6 +20,9 @@ use std::path::{Path, PathBuf};
 
 /// Derives the effective build plan and compilation units natively without invoking Cargo.
 pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplanation> {
+    let mut selected = opt.clone();
+    super::profile::custom::select(&mut selected)?;
+    let opt = &selected;
     let manifest_scope = super::manifest_snapshot::scope();
     let t0 = std::time::Instant::now();
     let s0 = super::compiler_resolve::rustc_subproc_stats();
@@ -346,7 +349,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         );
     }
 
-    let profile = if opt.release { "release" } else { "debug" }.to_string();
+    let profile = crate::adapter::rust::profile::profile_dir(opt.release);
     manifest_scope.snapshot().verify_fresh()?;
 
     Ok(EffectivePlanExplanation {
