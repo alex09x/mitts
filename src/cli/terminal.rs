@@ -137,9 +137,22 @@ impl Drop for TerminalGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    /// The pty test points the process's stdin at a terminal; a guard acquired by another
+    /// test meanwhile would see that terminal and set the shared state the pty test
+    /// checks. These tests therefore run one at a time.
+    static TERMINAL: Mutex<()> = Mutex::new(());
+
+    fn serial() -> MutexGuard<'static, ()> {
+        TERMINAL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn test_terminal_guard_acquire_and_drop() {
+        let _serial = serial();
         let guard = TerminalGuard::acquire();
         drop(guard);
     }
@@ -147,6 +160,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_terminal_guard_pty_and_restore() {
+        let _serial = serial();
         unsafe {
             let master = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
             if master >= 0 {
@@ -184,6 +198,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_restore_terminal_when_not_active() {
+        let _serial = serial();
         assert!(!HAS_ORIGINAL.load(Ordering::SeqCst));
         restore_terminal();
         assert!(!HAS_ORIGINAL.load(Ordering::SeqCst));
