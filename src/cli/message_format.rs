@@ -229,7 +229,8 @@ pub fn short_progress() -> BuildProgressCallback {
 fn short_progress_tracked(emitted: Arc<std::sync::atomic::AtomicBool>) -> BuildProgressCallback {
     BuildProgressCallback(Arc::new(move |event| match event {
         BuildProgressEvent::CompilerMessage(text) | BuildProgressEvent::Diagnostic(text) => {
-            if !text.trim().is_empty() {
+            // Mitts' own notes (slow units, stats) are not compiler diagnostics.
+            if !text.trim().is_empty() && !crate::core::slow_units::is_mitts_note(&text) {
                 emitted.store(true, std::sync::atomic::Ordering::Relaxed);
             }
             if text.ends_with('\n') {

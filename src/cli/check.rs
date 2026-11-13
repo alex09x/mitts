@@ -96,7 +96,7 @@ pub struct CheckArgs {
     #[arg(skip)]
     pub fast_lock: Option<bool>,
 
-    /// -v: every rustc command, cache hits, toolchain, linker and link times; -vv: also their environment and build-script output
+    /// -v: every rustc command, cache hits, compiler path, slowest units; -vv: also their environment and build-script output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
@@ -265,6 +265,11 @@ pub fn handle_check(args: &CheckArgs) -> i32 {
                     pb.set_message(format!("• {}", crate_name));
                 } else {
                     println!("[mitts::check] • {}", crate_name);
+                }
+            }
+            BuildProgressEvent::Running(message) => {
+                if let Some(ref pb) = progress_clone {
+                    pb.set_message(message);
                 }
             }
             BuildProgressEvent::UnitFinished => {

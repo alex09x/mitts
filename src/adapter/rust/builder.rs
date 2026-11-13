@@ -180,6 +180,9 @@ pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     })?;
     crate::core::build_report::begin();
     super::link_timing::reset();
+    crate::core::slow_units::reset();
+    let _slow_units =
+        crate::core::slow_units::watch(super::unit_watch::sink(opt.progress.clone(), opt.quiet));
     crate::core::build_report::set_rustc(&toolchain.version);
 
     let options_hash = compute_options_hash(opt, &target_dir, &manifest_path);

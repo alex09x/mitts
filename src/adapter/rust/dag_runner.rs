@@ -350,10 +350,16 @@ pub fn run_native_dag_build(
     let n_total = actions.len();
     crate::core::build_report::set_counts(n_compiled, n_cached, n_total, false);
     if !opt.quiet {
-        eprintln!(
+        let stats = format!(
             "[mitts::stats] compiled={} cached={} tainted={} total={} fast_lock=0",
             n_compiled, n_cached, n_tainted, n_total
         );
+        // Through the progress callback, so the line lands above the progress bar
+        // instead of on top of it.
+        match &opt.progress {
+            Some(cb) => cb.0(BuildProgressEvent::Diagnostic(stats)),
+            None => eprintln!("{stats}"),
+        }
     }
     if std::env::var("MITTS_STATS").as_deref() == Ok("json") {
         eprintln!(

@@ -392,6 +392,7 @@ fn test_m5_build_progress_events_and_clean_ui_reporting() {
                 .unwrap()
                 .push(format!("compiling:{}", name));
         }
+        mitts::adapter::BuildProgressEvent::Running(_) => {}
         mitts::adapter::BuildProgressEvent::UnitFinished => {
             events_clone.lock().unwrap().push("finished".to_string());
         }

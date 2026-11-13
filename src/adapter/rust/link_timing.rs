@@ -9,8 +9,8 @@
  */
 
 //! How long linking took, separate from compiling. rustc runs the linker itself and
-//! stable rustc reports no phase times, so with `-v` or `--timings` Mitts names itself
-//! as the linker of the target's units (`-C linker=<mitts>`): the Mitts process started
+//! stable rustc reports no phase times, so Mitts names itself as the linker of the
+//! target's units (`-C linker=<mitts>`; `MITTS_LINK_TIMING=0` turns this off): the Mitts process started
 //! that way runs the real linker with the same arguments, measures it, and appends the
 //! time to a report file that the unit reads back once rustc has finished.
 //!

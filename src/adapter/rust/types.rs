@@ -138,8 +138,14 @@ impl std::fmt::Debug for BuildProgressCallback {
 
 #[derive(Debug, Clone)]
 pub enum BuildProgressEvent {
-    InitTotal { total: usize, cached: usize },
+    InitTotal {
+        total: usize,
+        cached: usize,
+    },
     Compiling(String),
+    /// The processes running now with their times (`• melodia_ui 11m02s, zbus 3s`), for
+    /// the progress line only.
+    Running(String),
     UnitFinished,
     CompilerMessage(String),
     Diagnostic(String),

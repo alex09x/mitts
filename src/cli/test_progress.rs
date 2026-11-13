@@ -34,6 +34,11 @@ pub fn create_test_progress_callback(
                 println!("[mitts::test] • {}", crate_name);
             }
         }
+        BuildProgressEvent::Running(message) => {
+            if let Some(ref pb) = progress_clone {
+                pb.set_message(message);
+            }
+        }
         BuildProgressEvent::UnitFinished => {
             if let Some(ref pb) = progress_clone {
                 if pb.position() >= pb.length().unwrap_or(0) {
@@ -72,6 +77,7 @@ mod tests {
                 cached: 1,
             });
             cb.0(BuildProgressEvent::Compiling("test_crate".to_string()));
+            cb.0(BuildProgressEvent::Running("• test_crate 3s".to_string()));
             cb.0(BuildProgressEvent::UnitFinished);
             cb.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
             cb.0(BuildProgressEvent::Diagnostic("diag".to_string()));

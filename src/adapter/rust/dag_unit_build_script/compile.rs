@@ -235,7 +235,10 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
             crate::core::verbosity::render_command(&compile_cmd, verbosity >= 2)
         );
     }
+    let running =
+        crate::adapter::rust::unit_watch::track_build_script(args.unit, &compile_cmd, "compile");
     let compile_status = compile_cmd.output().context("Failed to compile build.rs")?;
+    drop(running);
     if !compile_status.status.success() {
         let err = String::from_utf8_lossy(&compile_status.stderr);
         bail!(

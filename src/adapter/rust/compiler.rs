@@ -54,6 +54,15 @@ impl<'a> RustcInvocation<'a> {
             );
         }
         let link_report = super::link_timing::report_of(&cmd);
+        let running = super::unit_watch::track_rustc(self.unit, &cmd);
+        if is_pipelined_lib {
+            // rustc writes the `.rmeta` when its front end is done: the rest is codegen.
+            running.track_phases();
+        }
+        let on_metadata = |path: &Path| {
+            running.front_end_done();
+            on_metadata(path)
+        };
 
         let (success, mut exit_code, stdout, stderr, mut primary_output, mut metadata_output) =
             if is_pipelined_lib {

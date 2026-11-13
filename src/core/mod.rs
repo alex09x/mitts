@@ -30,6 +30,7 @@ pub mod lock;
 pub mod metrics;
 pub mod owned_dir;
 pub mod reflink;
+pub mod slow_units;
 pub mod source_store;
 pub mod target_index;
 pub mod unit_timings;

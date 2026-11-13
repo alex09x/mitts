@@ -78,10 +78,12 @@ pub(crate) fn prepare_unit_build_script_keys(
                 }
             } else {
                 let reason = purity.reason.as_deref().unwrap_or("unknown");
-                eprintln!(
-                    "[mitts::purity] Unit '{}' marked impure: {reason}",
-                    unit.unit_id()
-                );
+                if crate::core::verbosity::level() >= 1 {
+                    eprintln!(
+                        "[mitts::purity] Unit '{}' marked impure: {reason}",
+                        unit.unit_id()
+                    );
+                }
                 PreCompileKeyInfo {
                     effective_action_key: ws_key,
                     ws_fallback_key: None,
@@ -146,10 +148,12 @@ pub(crate) fn finalize_post_rustc_purity(
             {
                 if !post_purity.is_pure {
                     let reason = post_purity.reason.as_deref().unwrap_or("unknown");
-                    eprintln!(
-                        "[mitts::purity] Unit '{}' marked impure: {reason}",
-                        unit.unit_id()
-                    );
+                    if crate::core::verbosity::level() >= 1 {
+                        eprintln!(
+                            "[mitts::purity] Unit '{}' marked impure: {reason}",
+                            unit.unit_id()
+                        );
+                    }
                     let fb_key = pre_info
                         .ws_fallback_key
                         .clone()
