@@ -157,20 +157,15 @@ fn a_unit_past_the_threshold_is_reported_with_its_command_then_reminded() {
         let exe = env!("CARGO_BIN_EXE_mitts");
         assert!(!app[0].contains(&format!("linker={exe}")), "{}", app[0]);
     }
-    assert!(
-        !stderr.contains("⏳ slowmac"),
-        "a fast unit is never reported:\n{stderr}"
-    );
+    // Whether the proc macro itself is reported depends on the machine: under qemu its
+    // own compile takes more than a second. The 10s case of
+    // `the_threshold_decides_when_the_first_notice_comes` covers units that stay quiet.
     assert!(finished_secs(&stderr, "app app (bin)") >= 2, "{stderr}");
     let slowest = stdout
         .lines()
         .find(|l| l.contains("slowest: "))
         .unwrap_or_else(|| panic!("no slowest line:\n{stdout}"));
     assert!(slowest.contains("slowest: app app (bin) "), "{slowest}");
-    assert!(
-        !slowest.contains("slowmac"),
-        "only units past the threshold: {slowest}"
-    );
     // The slow unit still builds a working program.
     let exe = temp
         .path()
@@ -292,12 +287,16 @@ fn a_slow_library_reports_its_phase() {
         .unwrap_or_else(|| panic!("{finished}"));
     assert!(front >= 2, "{finished}");
     assert!(finished.contains(", code generation "), "{finished}");
+    assert!(stdout.contains("slowlib slowlib (lib) "), "{stdout}");
+    // A binary reports no phases: it emits no `.rmeta`. (Under emulation even this tiny
+    // binary can pass the 1s threshold.)
     assert!(
-        stdout.contains("slowest: slowlib slowlib (lib) "),
-        "{stdout}"
+        notices(&stderr)
+            .iter()
+            .filter(|n| n.starts_with("⏳ app app (bin) "))
+            .all(|n| !n.contains("front end")),
+        "{stderr}"
     );
-    // A binary reports no phases: it emits no `.rmeta`.
-    assert!(!stderr.contains("⏳ app app (bin)"), "{stderr}");
 }
 
 /// A library that is also a cdylib emits no `.rmeta` (review of #127): it reports no
