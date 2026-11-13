@@ -303,7 +303,8 @@ pub fn handle_run(args: &RunArgs) -> i32 {
                     }
                 }
                 BuildProgressEvent::Diagnostic(line) => {
-                    if quiet {
+                    // A hidden bar (stderr is not a terminal) would drop the line.
+                    if quiet || progress_clone.is_hidden() {
                         eprintln!("{line}");
                     } else {
                         progress_clone.println(line);

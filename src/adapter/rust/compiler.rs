@@ -55,8 +55,9 @@ impl<'a> RustcInvocation<'a> {
         }
         let link_report = super::link_timing::report_of(&cmd);
         let running = super::unit_watch::track_rustc(self.unit, &cmd);
-        if is_pipelined_lib {
+        if is_pipelined_lib && super::unit_watch::emits_metadata(&cmd) {
             // rustc writes the `.rmeta` when its front end is done: the rest is codegen.
+            // A cdylib, staticlib or dylib unit emits no `.rmeta`, so it has no phases.
             running.track_phases();
         }
         let on_metadata = |path: &Path| {

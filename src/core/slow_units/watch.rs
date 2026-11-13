@@ -12,7 +12,7 @@
 //! the slow-unit notices while a build runs.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -36,7 +36,7 @@ pub struct WatchGuard {
 impl Drop for WatchGuard {
     fn drop(&mut self) {
         let (flag, wake) = &*self.stop;
-        *flag.lock().unwrap() = true;
+        *flag.lock().unwrap_or_else(PoisonError::into_inner) = true;
         wake.notify_all();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -73,8 +73,10 @@ pub fn watch(sink: Sink) -> Option<WatchGuard> {
         .spawn(move || {
             let (flag, wake) = &*stop_in_thread;
             loop {
-                let stopped = flag.lock().unwrap();
-                let (stopped, _) = wake.wait_timeout(stopped, interval).unwrap();
+                let stopped = flag.lock().unwrap_or_else(PoisonError::into_inner);
+                let (stopped, _) = wake
+                    .wait_timeout(stopped, interval)
+                    .unwrap_or_else(PoisonError::into_inner);
                 if *stopped {
                     return;
                 }

@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 pub mod watch;
@@ -109,13 +109,16 @@ pub fn configure(flag: Option<&str>, env: Option<&str>) -> anyhow::Result<()> {
         }
         (None, None) => Some(DEFAULT_THRESHOLD),
     };
-    *THRESHOLD.lock().unwrap() = Some(threshold);
+    *THRESHOLD.lock().unwrap_or_else(PoisonError::into_inner) = Some(threshold);
     Ok(())
 }
 
 /// The slow-unit threshold, `None` when notices are off.
 pub fn threshold() -> Option<Duration> {
-    THRESHOLD.lock().unwrap().unwrap_or(Some(DEFAULT_THRESHOLD))
+    THRESHOLD
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .unwrap_or(Some(DEFAULT_THRESHOLD))
 }
 
 /// Removes its process from the running set when dropped.
@@ -123,7 +126,11 @@ pub struct UnitGuard(u64);
 
 impl Drop for UnitGuard {
     fn drop(&mut self) {
-        let Some(unit) = ACTIVE.lock().unwrap().remove(&self.0) else {
+        let Some(unit) = ACTIVE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.0)
+        else {
             return;
         };
         let elapsed = unit.started.elapsed();
@@ -140,7 +147,10 @@ impl Drop for UnitGuard {
                 format_elapsed(elapsed)
             )));
         }
-        FINISHED.lock().unwrap().push((unit.label, elapsed));
+        FINISHED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((unit.label, elapsed));
     }
 }
 
@@ -148,32 +158,43 @@ impl Drop for UnitGuard {
 /// (may be empty) names the settings that make it slow, such as `codegen-units=1`.
 pub fn start(label: String, command: String, hint: String) -> UnitGuard {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    ACTIVE.lock().unwrap().insert(
-        id,
-        Active {
-            label,
-            started: Instant::now(),
-            command,
-            hint,
-            announced: 0,
-            phases: false,
-            front_end: None,
-        },
-    );
+    ACTIVE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(
+            id,
+            Active {
+                label,
+                started: Instant::now(),
+                command,
+                hint,
+                announced: 0,
+                phases: false,
+                front_end: None,
+            },
+        );
     UnitGuard(id)
 }
 
 impl UnitGuard {
     /// This process will report the end of its front end ([`Self::front_end_done`]).
     pub fn track_phases(&self) {
-        if let Some(unit) = ACTIVE.lock().unwrap().get_mut(&self.0) {
+        if let Some(unit) = ACTIVE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&self.0)
+        {
             unit.phases = true;
         }
     }
 
     /// The front end finished now; the rest of the process is code generation.
     pub fn front_end_done(&self) {
-        if let Some(unit) = ACTIVE.lock().unwrap().get_mut(&self.0) {
+        if let Some(unit) = ACTIVE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&self.0)
+        {
             unit.front_end.get_or_insert(unit.started.elapsed());
         }
     }
@@ -181,7 +202,10 @@ impl UnitGuard {
 
 /// Forgets the units of the previous build.
 pub fn reset() {
-    FINISHED.lock().unwrap().clear();
+    FINISHED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clear();
 }
 
 /// The running processes, longest first.
@@ -225,7 +249,7 @@ pub fn format_elapsed(elapsed: Duration) -> String {
 /// each new multiple, with its command the first time.
 pub fn due_notices(threshold: Duration) -> Vec<String> {
     let mut lines = Vec::new();
-    let mut active = ACTIVE.lock().unwrap();
+    let mut active = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
     for unit in active.values_mut() {
         let elapsed = unit.started.elapsed();
         let multiple = (elapsed.as_nanos() / threshold.as_nanos().max(1)) as u32;
@@ -256,7 +280,10 @@ pub fn due_notices(threshold: Duration) -> Vec<String> {
 /// The build-summary line naming the slowest units of this build: those that took at
 /// least `min`, at most three.
 pub fn slowest_line(min: Duration) -> Option<String> {
-    let mut finished = FINISHED.lock().unwrap().clone();
+    let mut finished = FINISHED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
     finished.retain(|(_, elapsed)| *elapsed >= min);
     if finished.is_empty() {
         return None;
@@ -278,14 +305,14 @@ pub fn is_mitts_note(text: &str) -> bool {
 }
 
 pub(crate) fn emit(notice: Notice) {
-    let sink: Option<Sink> = SINK.lock().unwrap().clone();
+    let sink: Option<Sink> = SINK.lock().unwrap_or_else(PoisonError::into_inner).clone();
     if let Some(sink) = sink {
         sink(notice);
     }
 }
 
 pub(crate) fn set_sink(sink: Option<Sink>) {
-    *SINK.lock().unwrap() = sink;
+    *SINK.lock().unwrap_or_else(PoisonError::into_inner) = sink;
 }
 
 #[cfg(test)]

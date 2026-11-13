@@ -45,6 +45,20 @@ pub fn track_rustc(unit: &PlannedCompilationUnit, cmd: &Command) -> UnitGuard {
     )
 }
 
+/// Whether rustc writes a `.rmeta` for this command (`--emit=...metadata...`), the
+/// moment its front end is done.
+pub fn emits_metadata(cmd: &Command) -> bool {
+    cmd.get_args().any(|arg| {
+        arg.to_str()
+            .and_then(|a| a.strip_prefix("--emit="))
+            .is_some_and(|kinds| {
+                kinds
+                    .split(',')
+                    .any(|k| k == "metadata" || k.starts_with("metadata="))
+            })
+    })
+}
+
 /// The command as a user can run it again: the link-timing wrapper (`-C linker=<mitts>`)
 /// is shown as the real linker it stands in for.
 fn rerunnable_command(cmd: &Command, args: &[String]) -> String {
@@ -165,5 +179,20 @@ mod tests {
             "the last setting wins, as in rustc"
         );
         assert_eq!(codegen_hint(&args(&["src/main.rs", "-C"])), "");
+    }
+
+    #[test]
+    fn only_commands_that_emit_metadata_have_phases() {
+        let cmd = |emit: &str| {
+            let mut c = std::process::Command::new("rustc");
+            c.args(["--crate-type", "rlib", emit]);
+            c
+        };
+        assert!(super::emits_metadata(&cmd("--emit=dep-info,metadata,link")));
+        assert!(super::emits_metadata(&cmd(
+            "--emit=metadata=/tmp/x.rmeta,link"
+        )));
+        assert!(!super::emits_metadata(&cmd("--emit=dep-info,link")));
+        assert!(!super::emits_metadata(&cmd("--crate-name")));
     }
 }

@@ -300,6 +300,63 @@ fn a_slow_library_reports_its_phase() {
     assert!(!stderr.contains("⏳ app app (bin)"), "{stderr}");
 }
 
+/// A library that is also a cdylib emits no `.rmeta` (review of #127): it reports no
+/// phase rather than "still in the front end" through its whole codegen.
+#[test]
+fn a_cdylib_library_reports_no_phase() {
+    let temp = slow_macro_project(0);
+    let root = temp.path();
+    write_file(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [dependencies]\nslowlib = { path = \"slowlib\" }\n",
+    );
+    write_file(root.join("src/main.rs"), "fn main() { slowlib::f(); }\n");
+    write_file(
+        root.join("slowlib/Cargo.toml"),
+        "[package]\nname = \"slowlib\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [lib]\ncrate-type = [\"lib\", \"cdylib\"]\n\
+         [dependencies]\nslowmac = { path = \"../slowmac\" }\n",
+    );
+    write_file(
+        root.join("slowlib/src/lib.rs"),
+        "slowmac::slow!(1800);\npub fn f() { slow_done(); }\n",
+    );
+    let (_, stderr) = ok(mitts_with(root, &["build", "--slow-units=1s"], &[]));
+    let lib: Vec<String> = notices(&stderr)
+        .into_iter()
+        .filter(|n| n.starts_with("⏳ slowlib slowlib (lib,cdylib) "))
+        .collect();
+    assert!(!lib.is_empty(), "{stderr}");
+    assert!(
+        lib[0].starts_with("⏳ slowlib slowlib (lib,cdylib) still running after 1s\n"),
+        "no phase, then the command: {stderr}"
+    );
+    assert!(lib.iter().all(|n| !n.contains("front end")), "{stderr}");
+    let finished = stderr
+        .lines()
+        .find(|l| l.starts_with("✓ slowlib slowlib (lib,cdylib) finished in "))
+        .unwrap_or_else(|| panic!("{stderr}"));
+    assert!(!finished.contains("front end"), "{finished}");
+}
+
+/// `mitts test` and `mitts run` with stderr piped (review of #127): the hidden progress
+/// bar must not swallow the slow-unit notices or the stats line.
+#[test]
+fn test_and_run_print_notices_when_stderr_is_piped() {
+    for command in ["test", "run"] {
+        let temp = slow_macro_project(1800);
+        let (_, stderr) = ok(mitts_with(temp.path(), &[command, "--slow-units=1s"], &[]));
+        assert!(
+            notices(&stderr)
+                .iter()
+                .any(|n| n.starts_with("⏳ app app ") && n.contains("still running after 1s")),
+            "{command}: {stderr}"
+        );
+        assert!(stderr.contains("[mitts::stats] "), "{command}: {stderr}");
+    }
+}
+
 #[test]
 fn a_slow_build_script_is_reported() {
     let temp = slow_build_script_project(1800);
