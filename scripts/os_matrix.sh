@@ -42,7 +42,7 @@ host_arch=$(uname -m)
 mode=${OS_MATRIX_MODE:-auto}
 jobs=${OS_MATRIX_JOBS:-4}
 out=${OS_MATRIX_OUT:-$repo/target/os-matrix/$(date +%Y%m%d-%H%M%S)}
-smoke_tests=${OS_MATRIX_SMOKE:-"--test cli_dependency_features_test --test cli_native_features --test m8_jobserver_pool_test --test verbose_toolchain_summary_test"}
+smoke_tests=${OS_MATRIX_SMOKE:-"--test cli_dependency_features_test --test cli_native_features --test m8_jobserver_pool_test --test verbose_toolchain_summary_test --test slow_units_test"}
 
 default_matrix=(
   ubuntu:22.04

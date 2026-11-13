@@ -42,8 +42,15 @@ fn main() -> ExitCode {
     let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     mitts::core::verbosity::set(cli.command.verbose());
-    if mitts::core::verbosity::level() >= 1 || cli.timings.is_some() {
+    if std::env::var("MITTS_LINK_TIMING").as_deref() != Ok("0") {
         mitts::adapter::rust::link_timing::enable();
+    }
+    if let Err(error) = mitts::core::slow_units::configure(
+        cli.slow_units.as_deref(),
+        std::env::var("MITTS_SLOW_UNITS").ok().as_deref(),
+    ) {
+        eprintln!("error: {error:#}");
+        return ExitCode::from(101);
     }
     if let Some(jobs) = cli.command.jobs() {
         mitts::core::jobs::set_flag_limit(jobs);

@@ -9,11 +9,12 @@
  */
 
 //! The lines under a build's result: the toolchain that compiled it and where the time
-//! went. `-v` adds the compiler path, why that toolchain was chosen, and the linker.
+//! went: the linker, the time line, and the units slower than the slow-unit threshold.
+//! `-v` adds the compiler path, why that toolchain was chosen, and the slowest units.
 
 use crate::adapter::rust::{compiler_resolve, link_timing, toolchain_select};
 use crate::cli::ui::Ui;
-use crate::core::{build_report, metrics, verbosity};
+use crate::core::{build_report, metrics, slow_units, verbosity};
 use std::time::Duration;
 
 /// The summary lines of the last build, without printing them.
@@ -33,12 +34,10 @@ pub fn lines() -> Vec<String> {
         ));
     }
     let (link, linked_units, linkers) = link_timing::snapshot();
-    if verbose {
-        for linker in &linkers {
-            match link_timing::linker_version(linker) {
-                Some(version) => out.push(format!("linker: {linker} ({version})")),
-                None => out.push(format!("linker: {linker}")),
-            }
+    for linker in &linkers {
+        match link_timing::linker_version(linker) {
+            Some(version) => out.push(format!("linker: {linker} ({version})")),
+            None => out.push(format!("linker: {linker}")),
         }
     }
     if !report.fast_lock {
@@ -49,6 +48,15 @@ pub fn lines() -> Vec<String> {
             Some((link, linked_units)),
             Duration::from_nanos(snapshot.6.saturating_sub(report.restore_nanos_at_start)),
         ));
+    }
+    // The units that crossed the slow-unit threshold; with -v the slowest three anyway.
+    let min = if verbose {
+        Some(Duration::ZERO)
+    } else {
+        slow_units::threshold()
+    };
+    if let Some(line) = min.and_then(slow_units::slowest_line) {
+        out.push(line);
     }
     out
 }

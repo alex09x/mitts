@@ -9,7 +9,7 @@
  */
 use crate::adapter::{BuildProgressCallback, BuildProgressEvent};
 use crate::cli::ui::Ui;
-use anstream::println;
+use anstream::{eprint, eprintln, println};
 
 pub fn create_test_progress_callback(
     progress: Option<indicatif::ProgressBar>,
@@ -34,6 +34,11 @@ pub fn create_test_progress_callback(
                 println!("[mitts::test] • {}", crate_name);
             }
         }
+        BuildProgressEvent::Running(message) => {
+            if let Some(ref pb) = progress_clone {
+                pb.set_message(message);
+            }
+        }
         BuildProgressEvent::UnitFinished => {
             if let Some(ref pb) = progress_clone {
                 if pb.position() >= pb.length().unwrap_or(0) {
@@ -49,13 +54,13 @@ pub fn create_test_progress_callback(
                 println!("{}", rendered);
             }
         }
-        BuildProgressEvent::Diagnostic(line) => {
-            if let Some(ref pb) = progress_clone {
-                pb.println(line);
-            } else {
-                println!("{}", line);
-            }
-        }
+        // Mitts' own notes (`[mitts::stats]`, slow units) go to stderr; a hidden bar
+        // (stderr is not a terminal) prints nothing, so they bypass it.
+        BuildProgressEvent::Diagnostic(line) => match progress_clone {
+            Some(ref pb) if !pb.is_hidden() => pb.println(line),
+            _ if line.ends_with('\n') => eprint!("{line}"),
+            _ => eprintln!("{line}"),
+        },
     }))
 }
 
@@ -72,6 +77,7 @@ mod tests {
                 cached: 1,
             });
             cb.0(BuildProgressEvent::Compiling("test_crate".to_string()));
+            cb.0(BuildProgressEvent::Running("• test_crate 3s".to_string()));
             cb.0(BuildProgressEvent::UnitFinished);
             cb.0(BuildProgressEvent::CompilerMessage("msg".to_string()));
             cb.0(BuildProgressEvent::Diagnostic("diag".to_string()));

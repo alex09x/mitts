@@ -249,7 +249,9 @@ pub(crate) fn execute_build_script_with_key(
             crate::core::verbosity::render_command(&run_cmd, verbosity >= 2)
         );
     }
+    let running = super::unit_watch::track_build_script(unit, &run_cmd, "run");
     let run_status = run_cmd.output().context("Failed to execute build.rs")?;
+    drop(running);
     if verbosity >= 2 {
         // Like `cargo -vv`: every line the script printed, tagged with its package.
         let tag = format!("[{} {}]", unit.package_name, unit.version);

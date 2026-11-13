@@ -99,6 +99,11 @@ pub fn create_progress_callback(progress: Option<indicatif::ProgressBar>) -> Bui
                 println!("[mitts::compile] • {}", crate_name);
             }
         }
+        BuildProgressEvent::Running(message) => {
+            if let Some(ref pb) = progress_clone {
+                pb.set_message(message);
+            }
+        }
         BuildProgressEvent::UnitFinished => {
             if let Some(ref pb) = progress_clone {
                 if pb.position() >= pb.length().unwrap_or(0) {
@@ -152,6 +157,7 @@ pub(crate) fn create_quiet_progress_callback() -> BuildProgressCallback {
             }
             BuildProgressEvent::InitTotal { .. }
             | BuildProgressEvent::Compiling(_)
+            | BuildProgressEvent::Running(_)
             | BuildProgressEvent::UnitFinished => return,
         };
         if text.ends_with('\n') {

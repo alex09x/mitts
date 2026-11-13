@@ -288,6 +288,7 @@ pub fn handle_run(args: &RunArgs) -> i32 {
                 BuildProgressEvent::Compiling(crate_name) => {
                     progress_clone.set_message(format!("• {}", crate_name));
                 }
+                BuildProgressEvent::Running(message) => progress_clone.set_message(message),
                 BuildProgressEvent::UnitFinished => {
                     if progress_clone.position() >= progress_clone.length().unwrap_or(0) {
                         progress_clone.set_length(progress_clone.position() + 1);
@@ -302,7 +303,8 @@ pub fn handle_run(args: &RunArgs) -> i32 {
                     }
                 }
                 BuildProgressEvent::Diagnostic(line) => {
-                    if quiet {
+                    // A hidden bar (stderr is not a terminal) would drop the line.
+                    if quiet || progress_clone.is_hidden() {
                         eprintln!("{line}");
                     } else {
                         progress_clone.println(line);

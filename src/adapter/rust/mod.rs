@@ -88,6 +88,7 @@ pub mod unescape;
 pub mod unit_env;
 pub mod unit_inputs;
 pub mod unit_output;
+pub mod unit_watch;
 pub mod vendor_source;
 pub(crate) mod wrapper_outputs;
 

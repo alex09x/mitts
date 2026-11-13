@@ -19,7 +19,7 @@ const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS
 #[command(version = MITTS_VERSION)]
 #[command(
     about = "Rust-first build and package tooling with a shared artifact cache",
-    after_help = "Toolchain:\n  mitts +TOOLCHAIN <COMMAND>  Use that rustup toolchain, like cargo +nightly (sets RUSTUP_TOOLCHAIN)\n\nEnvironment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_NET_RETRY=N     Retries of a registry request after a network error, 408, 429 or 5xx, after 1, 3 and 5 s (default 3; 0 = none)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
+    after_help = "Toolchain:\n  mitts +TOOLCHAIN <COMMAND>  Use that rustup toolchain, like cargo +nightly (sets RUSTUP_TOOLCHAIN)\n\nEnvironment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_SLOW_UNITS=DURATION Report units still running after DURATION, with their command (default 5m; off = never; --slow-units wins)\n  MITTS_LINK_TIMING=0   Do not measure link times (Mitts otherwise runs the cc-style linker driver for rustc)\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_NET_RETRY=N     Retries of a registry request after a network error, 408, 429 or 5xx, after 1, 3 and 5 s (default 3; 0 = none)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
 )]
 pub struct Cli {
     /// Coloring of Mitts' output: auto, always or never (default: CARGO_TERM_COLOR, else auto)
@@ -29,6 +29,10 @@ pub struct Cli {
     /// Write a per-unit timing report to target/cargo-timings (html by default; html,json)
     #[arg(long, global = true, value_name = "FMTS", num_args = 0..=1, require_equals = true, default_missing_value = "html")]
     pub timings: Option<String>,
+
+    /// Report every compiler or build-script process still running after DURATION (30s, 10m, 1h; off = never; default 5m)
+    #[arg(long, global = true, value_name = "DURATION")]
+    pub slow_units: Option<String>,
 
     /// Unstable Cargo flags: `-Z unstable-options` is accepted; rustc's -Z flags go in RUSTFLAGS
     #[arg(short = 'Z', global = true, value_name = "FLAG", action = clap::ArgAction::Append)]
@@ -295,7 +299,7 @@ pub struct BuildArgs {
     #[arg(long)]
     pub cargo: bool,
 
-    /// -v: every rustc command, cache hits, toolchain, linker and link times; -vv: also their environment and build-script output
+    /// -v: every rustc command, cache hits, compiler path, slowest units; -vv: also their environment and build-script output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
