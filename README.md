@@ -494,19 +494,19 @@ Architecture decisions: [docs/decisions](docs/decisions).
 
 To cite Mitts, use the archived release. The concept DOI
 [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) always resolves to the
-latest version; the version DOI of 0.3.35 is
-[10.5281/zenodo.24147274](https://doi.org/10.5281/zenodo.24147274). GitHub's
+latest version; the version DOI of 0.3.36 is
+[10.5281/zenodo.24213821](https://doi.org/10.5281/zenodo.24213821). GitHub's
 "Cite this repository" reads [CITATION.cff](CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24147274,
+@software{panasenko_2026_24213821,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.35},
-  doi       = {10.5281/zenodo.24147274},
-  url       = {https://doi.org/10.5281/zenodo.24147274}
+  version   = {0.3.36},
+  doi       = {10.5281/zenodo.24213821},
+  url       = {https://doi.org/10.5281/zenodo.24213821}
 }
 ```
 

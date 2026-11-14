@@ -2,13 +2,13 @@ cff-version: 1.2.0
 message: "If you use Mitts in research or documentation, please cite the archived release."
 type: software
 title: "Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache"
-version: 0.3.35
-date-released: 2026-11-11
+version: 0.3.36
+date-released: 2026-11-14
 doi: 10.5281/zenodo.24030067
 identifiers:
   - type: doi
-    value: 10.5281/zenodo.24147274
-    description: "Archived release 0.3.35 (version DOI)"
+    value: 10.5281/zenodo.24213821
+    description: "Archived release 0.3.36 (version DOI)"
   - type: doi
     value: 10.5281/zenodo.24030067
     description: "All versions (concept DOI, always resolves to the latest version)"
