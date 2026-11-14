@@ -29,7 +29,7 @@ def command_section(binary, name):
         if o["long"] == "--help":
             continue
         flag = ("<code>%s</code>, " % o["short"] if o["short"] else "") + "<code>%s%s</code>" % (o["long"], html.escape(" " + o["value"] if o["value"].startswith("<") else o["value"]))
-        note = C.FLAG_NOTES.get(o["long"])
+        note = C.COMMAND_FLAG_NOTES.get((name, o["long"]), C.FLAG_NOTES.get(o["long"]))
         text = html.escape(o["text"]).replace("`", "")
         if note:
             text += "<p class=\"more\">%s</p>" % note
@@ -62,7 +62,7 @@ INTRO = """
 
 <section id="quick-start"><h2>Quick start</h2>
 <ol class="steps">
-<li><b>Build.</b> From any Cargo workspace:""" + pre("cd your-workspace\nmitts build") + """The first build compiles and stores each unit. The progress line shows <i>compiled</i> and <i>cached</i> units.</li>
+<li><b>Build.</b> From any Cargo workspace:""" + pre("cd your-workspace\nmitts build") + """The first build compiles and stores each unit. The progress line counts finished units and names the ones compiling right now with how long each has run; the summary at the end splits <i>compiled</i> from <i>cached</i> units.</li>
 <li><b>Build again.</b> Nothing changed, so Mitts returns almost immediately (the <a href="#fast-path">no-op fast path</a>).</li>
 <li><b>Make a second checkout and build it.</b>""" + pre("git worktree add ../your-workspace-2 HEAD\ncd ../your-workspace-2\nmitts build") + """Every dependency, and every crate of yours whose key is path-independent, is restored from the machine-wide store instead of compiled. See <a href="#worktrees">why a second checkout reuses everything</a>.</li>
 <li><b>Ask why.</b>""" + pre("mitts explain               # the plan and every unit's cache eligibility\nmitts explain --keys k.json  # each unit's action key, for diffing between commits") + """</li>
