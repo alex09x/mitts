@@ -78,6 +78,11 @@ COMMAND_FLAG_NOTES = {
     **{(cmd, flag): _NO_COMPILE
        for cmd in ("fmt", "explain", "metadata", "fetch", "gc", "clean")
        for flag in ("--slow-units", "--timings")},
+    **{(cmd, "--slow-units"): "Not passed on to the verification build, which runs as a separate <code>mitts build</code>. To get slow-unit reports from it, set <code>MITTS_SLOW_UNITS</code> instead; the child build inherits it."
+       for cmd in ("package", "publish")},
+    **{(cmd, "--timings"): "Not passed on to the verification build, so no timing report is written."
+       for cmd in ("package", "publish")},
+    ("rustc", "--slow-units"): "<code>mitts rustc</code> runs quietly, so no slow-unit lines are printed.",
 }
 
 # command -> (group, what it is for, [(example command, what it does)], extra HTML after the table)
