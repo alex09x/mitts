@@ -109,6 +109,8 @@ fn mitts_release(dir: &Path, cache: &Path, package: &str) -> Output {
         .env_remove("CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        // CI toolchain setups export CARGO_INCREMENTAL=0, which overrides the profile.
+        .env_remove("CARGO_INCREMENTAL")
         .output()
         .unwrap()
 }
