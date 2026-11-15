@@ -247,6 +247,7 @@ edition = "2021"
             features: Vec::new(),
             for_host: false,
             workspace_root: None,
+            lto_bitcode_only: false,
         },
         PlannedCompilationUnit {
             package_id: "my-lib@0.1.0".to_string(),
@@ -265,6 +266,7 @@ edition = "2021"
             features: Vec::new(),
             for_host: false,
             workspace_root: None,
+            lto_bitcode_only: false,
         },
     ];
 

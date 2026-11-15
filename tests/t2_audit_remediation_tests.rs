@@ -450,6 +450,7 @@ debug = 1
         manifest_path: manifest.clone(),
         is_workspace: true,
         workspace_root: Some(dir.path().to_path_buf()),
+        lto_bitcode_only: false,
         ..Default::default()
     };
     let flags = compute_unit_flags_with_ws(

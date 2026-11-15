@@ -190,6 +190,7 @@ fn test_m8_compiler_test_no_dest_and_non_semver() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let inv = RustcInvocation {

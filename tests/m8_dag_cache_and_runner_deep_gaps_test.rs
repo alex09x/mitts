@@ -60,6 +60,7 @@ links = "native_zlib"
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let opt = RustBuildOptions {
@@ -272,6 +273,7 @@ fn test_m8_dag_cache_binary_restore_copy() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let opt = RustBuildOptions {

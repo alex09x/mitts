@@ -296,6 +296,10 @@ pub fn compute_unit_flags_with_ws(
     }
     if let Some(ref lto_mode) = profile.lto.as_ref().filter(|_| !unit.for_host) {
         u_flags.push(format!("LTO={lto_mode}"));
+        // A bitcode-only rlib cannot serve a link without LTO.
+        if unit.lto_bitcode_only && mode == BuildMode::Build {
+            u_flags.push("LTO_BITCODE_ONLY=1".into());
+        }
     }
     let is_linked = super::pipelining::is_linking_kind(&unit.kind);
     if let Some(ref strip_mode) = profile

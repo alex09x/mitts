@@ -171,6 +171,7 @@ fn test_m8_compiler_invocation_execution() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let empty_feats = Vec::new();

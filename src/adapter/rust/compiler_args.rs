@@ -178,6 +178,10 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     cmd.args(["-C", &format!("debuginfo={}", profile.debuginfo)]);
     if !matches!(profile.lto.as_deref(), Some("thin") | Some("fat")) {
         cmd.args(["-C", "embed-bitcode=no"]);
+    } else if inv.unit.lto_bitcode_only && inv.mode == BuildMode::Build && !is_check_only {
+        // Every consumer runs LTO, which regenerates this library's code from bitcode; Cargo
+        // skips the object code here too (`lto_plan`).
+        cmd.args(["-C", "linker-plugin-lto"]);
     }
     if let Some(ref p) = profile
         .panic

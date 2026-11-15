@@ -131,6 +131,7 @@ fn test_target_root_and_test_env_agree() {
         kind: "test".into(),
         manifest_path: member.join("Cargo.toml"),
         workspace_root: Some(root.to_path_buf()),
+        lto_bitcode_only: false,
         ..Default::default()
     };
     for release in [false, true] {
@@ -204,6 +205,7 @@ fn test_m8_compiler_invocation_modes_and_args() {
         features: vec![],
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let extra_args = vec!["-C".to_string(), "opt-level=0".to_string()];
@@ -277,6 +279,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         features: vec![],
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let inv = RustcInvocation {

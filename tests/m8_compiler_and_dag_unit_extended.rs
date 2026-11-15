@@ -66,6 +66,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         edition: Some("2021".to_string()),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let inv = RustcInvocation {
@@ -133,6 +134,7 @@ fn test_m8_compiler_invocation_modes_and_non_semver() {
         edition: Some("2021".to_string()),
         for_host: true,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let inv_pm = RustcInvocation {

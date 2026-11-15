@@ -54,6 +54,7 @@ pub mod key;
 pub mod key_flags;
 pub mod link_timing;
 pub mod lockfile;
+mod lto_plan;
 pub mod manifest;
 pub mod manifest_digest;
 pub mod manifest_inherit;

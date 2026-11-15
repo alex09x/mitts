@@ -164,6 +164,7 @@ fn test_m8_handlers_gc_action_cache_dir_error_and_compiler_dest() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let dest_bin = out_dir.join("nested_bin_dir").join("my_test_bin");
@@ -232,6 +233,7 @@ fn test_m8_reflink_and_c_adapter_and_lock_gap_pushes() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
     let out_dir2 = temp.path().join("out2");
     fs::create_dir_all(&out_dir2).unwrap();

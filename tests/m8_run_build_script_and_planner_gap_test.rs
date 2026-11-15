@@ -113,6 +113,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let target_dir = root.join("target");
