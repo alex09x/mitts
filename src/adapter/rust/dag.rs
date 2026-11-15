@@ -220,6 +220,7 @@ mod tests {
             features: Vec::new(),
             for_host: false,
             workspace_root: None,
+            lto_bitcode_only: false,
         };
         let u2 = PlannedCompilationUnit {
             package_id: "pkg2".to_string(),
@@ -238,6 +239,7 @@ mod tests {
             features: Vec::new(),
             for_host: false,
             workspace_root: None,
+            lto_bitcode_only: false,
         };
 
         let explanation = EffectivePlanExplanation {

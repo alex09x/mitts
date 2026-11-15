@@ -196,6 +196,7 @@ description = "Demo package for MSRV check"
         features: vec!["default".to_string()],
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let env_ws = compute_unit_rustc_env(&unit_ws, None, None);

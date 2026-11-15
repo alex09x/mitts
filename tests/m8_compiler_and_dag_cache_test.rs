@@ -53,6 +53,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let invocation = RustcInvocation {
@@ -104,6 +105,7 @@ fn test_m8_compiler_source_fallback_and_test_dest_none() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let test_invocation = RustcInvocation {

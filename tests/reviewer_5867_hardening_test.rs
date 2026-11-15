@@ -173,6 +173,7 @@ fn test_5a_build_target_in_config_passes_target_to_rustc() {
         manifest_path: manifest_path.clone(),
         src_path: src_path.clone(),
         workspace_root: Some(dir.path().to_path_buf()),
+        lto_bitcode_only: false,
         for_host: false,
         ..Default::default()
     };

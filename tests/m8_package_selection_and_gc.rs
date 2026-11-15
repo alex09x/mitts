@@ -191,6 +191,7 @@ fn test_m8_package_selection_target_cfg_filtering_and_pruning() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let u1 = make_unit("rg", "bin", vec!["grep"]);

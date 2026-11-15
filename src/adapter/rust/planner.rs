@@ -319,6 +319,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .map(|(name, (dir, toml))| super::target_validation::SelectedPackage { name, dir, toml })
         .collect();
     super::target_validation::validate_named_targets(opt, &units, &selected)?;
+    if opt.mode == super::types::BuildMode::Build {
+        super::lto_plan::assign(&mut units, opt.release, Some(ws_root.as_path()))?;
+    }
     let t_deps = std::time::Instant::now();
     let s_deps = super::compiler_resolve::rustc_subproc_stats();
 

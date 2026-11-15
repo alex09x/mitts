@@ -35,6 +35,7 @@ fn make_dummy_unit(name: &str, kind: &str) -> PlannedCompilationUnit {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     }
 }
 

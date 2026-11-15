@@ -140,6 +140,7 @@ edition = "2021"
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let unit_b = PlannedCompilationUnit {
@@ -159,6 +160,7 @@ edition = "2021"
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let plan = EffectivePlanExplanation {

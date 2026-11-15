@@ -50,6 +50,7 @@ fn test_m8_compiler_check_and_clippy_modes() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // 1. BuildMode::Check emits rmeta
@@ -160,6 +161,7 @@ fn test_m8_compiler_directives_and_error_handling() {
         features: vec!["foo".to_string()],
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let mut envs = HashMap::new();

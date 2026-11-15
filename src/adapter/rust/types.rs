@@ -100,6 +100,10 @@ pub struct PlannedCompilationUnit {
     pub for_host: bool,
     #[serde(default)]
     pub workspace_root: Option<PathBuf>,
+    /// Built with `-C linker-plugin-lto`: every consumer runs LTO, so object code would be
+    /// thrown away (see `lto_plan`).
+    #[serde(default)]
+    pub lto_bitcode_only: bool,
 }
 
 impl PlannedCompilationUnit {

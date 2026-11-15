@@ -74,6 +74,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let staging = root.join("staging");
@@ -184,6 +185,7 @@ edition = "2021"
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let invocation = RustcInvocation {

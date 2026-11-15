@@ -37,6 +37,7 @@ fn make_unit(pkg_dir: &Path) -> PlannedCompilationUnit {
         features: vec![],
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     }
 }
 

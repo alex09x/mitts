@@ -70,6 +70,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // Run 1: Cold execution
@@ -183,6 +184,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // Run 1: with MITTS_TEST_FEATURE=enabled
@@ -283,6 +285,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // Run 1: First build
@@ -384,6 +387,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // First build populates CAS and generates OUT_DIR/generated.rs
@@ -481,6 +485,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let d1 = execute_build_script(
@@ -531,6 +536,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // Second execution with same mtime must detect different content hash and rerun
@@ -600,6 +606,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // Package B setup (same crate name/version, different tracked.txt content)
@@ -631,6 +638,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     // Step 1: Run A (cold)

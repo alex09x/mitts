@@ -59,6 +59,7 @@ fn test_m8_compiler_proc_macro_and_check_modes() {
         edition: Some("2021".to_string()),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let mut envs = std::collections::HashMap::new();
@@ -125,6 +126,7 @@ fn test_m8_compiler_workspace_check_mode_and_nonsemver() {
         edition: None,
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let invocation = RustcInvocation {
@@ -178,6 +180,7 @@ fn test_m8_compiler_non_workspace_cap_lints() {
         edition: Some("2021".to_string()),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let invocation = RustcInvocation {

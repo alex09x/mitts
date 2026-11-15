@@ -358,6 +358,7 @@ fn create_unit(
         features,
         for_host,
         workspace_root: ws_root.map(|p| p.to_path_buf()),
+        lto_bitcode_only: false,
     }
 }
 

@@ -120,6 +120,7 @@ fn main() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let extern_crates = vec![
@@ -186,6 +187,7 @@ fn test_m8_execute_build_script_compilation_failure() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let res = execute_build_script(&unit, &staging_dir, false, &[], None, &[], None);

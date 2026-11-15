@@ -95,12 +95,17 @@ fn acquire_stable_staging(
 ) -> Option<(PathBuf, FileLock)> {
     // No build mode here: `check` and `clippy` must see one path for a unit both compile
     // with rustc. Their sessions still differ by crate identity (`stable_metadata_key`).
-    let identity = format!(
+    let mut identity = format!(
         "{}\n{}\n{}\nrelease={release}",
         target_dir.display(),
         unit.unit_id(),
         unit.src_path.display()
     );
+    // A bitcode-only build of the unit is a different output; it must not share the
+    // staging directory with the object-code build (`lto_plan`).
+    if unit.lto_bitcode_only {
+        identity.push_str("\nlto-bitcode-only");
+    }
     let tmp_root = cas_root.join("tmp");
     std::fs::create_dir_all(&tmp_root).ok()?;
     let dir = tmp_root.join(format!(
@@ -197,12 +202,18 @@ pub(crate) fn stable_metadata_key(
             "proc-macro" | "custom-build" | "build-script"
         );
     let explicit_target = explicit_target.filter(|_| !is_host);
-    let identity = format!(
+    let mut identity = format!(
         "mitts-incremental-v2\n{}\n{}\n{features:?}\n{effective_mode:?}\nrelease={}\n\
          {profile:?}\n{forwarded_args:?}\n{target_rustflags:?}\n{explicit_target:?}\n{toolchain}",
         inv.unit.unit_id(),
         src_rel.display(),
         inv.release,
     );
+    // `-C linker-plugin-lto` changes the output and is a tracked flag: the bitcode-only and
+    // object-code builds of one unit need their own crate identity and session. Left out
+    // when off, so existing sessions keep their key.
+    if inv.unit.lto_bitcode_only && effective_mode == BuildMode::Build {
+        identity.push_str("\nlto-bitcode-only");
+    }
     Sha256::digest(identity.as_bytes())[..16].to_string()
 }

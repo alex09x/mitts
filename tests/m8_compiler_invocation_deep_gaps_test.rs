@@ -62,6 +62,7 @@ fn test_m8_compiler_invocation_test_mode_and_dest_binary() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let inv = RustcInvocation {
@@ -124,6 +125,7 @@ fn test_m8_compiler_store_source_fallback() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
 
     let inv = RustcInvocation {

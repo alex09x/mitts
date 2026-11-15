@@ -31,6 +31,7 @@ fn make_unit_for_build_script(pkg_dir: &std::path::Path) -> PlannedCompilationUn
         features: vec!["custom_feat".to_string()],
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     }
 }
 

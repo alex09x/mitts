@@ -269,6 +269,7 @@ fn test_ambiguous_dep_spec_fails_closed_across_selection_features_and_deps() {
         features: Vec::new(),
         for_host: false,
         workspace_root: None,
+        lto_bitcode_only: false,
     };
     let mut units = vec![
         make_unit("app@0.1.0", "app", "0.1.0", true),
