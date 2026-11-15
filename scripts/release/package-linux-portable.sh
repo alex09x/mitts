@@ -66,6 +66,9 @@ docker run --rm --user "$(id -u):$(id -g)" \
     printf '\''#!/bin/sh\nexec "/opt/host-libs/$HOST_LOADER" --library-path /opt/host-libs "$BOOTSTRAP" "$@"\n'\'' > "$wrapper"
     chmod 755 "$wrapper"
     export MITTS_CI_BIN="$wrapper"
+    # The bootstrap runs through the loader; a released Mitts before 0.3.37 would name the
+    # loader as the linker when it times links (current_exe is the loader).
+    export MITTS_LINK_TIMING=0
     bash scripts/release/package.sh "$SOURCE_ROOT" "$RELEASE_TAG" "$RELEASE_TARGET" "$OUTPUT_DIR"
     python3 scripts/release/test_installer.py --archive "$OUTPUT_DIR/mitts-$RELEASE_TAG-$RELEASE_TARGET.tar.gz" "$RELEASE_TAG"
   '

@@ -79,6 +79,11 @@ pub fn wrap(cmd: &mut Command, configured: Option<&str>) -> bool {
     let Ok(exe) = std::env::current_exe() else {
         return false;
     };
+    // Started as `ld-linux-x86-64.so.2 [--library-path ...] mitts`, the executable is the
+    // dynamic loader, which rustc cannot run as a linker.
+    if is_dynamic_loader(&exe) {
+        return false;
+    }
     let report = std::env::temp_dir().join(format!(
         "mitts-link-{}-{}",
         std::process::id(),
@@ -93,6 +98,15 @@ pub fn wrap(cmd: &mut Command, configured: Option<&str>) -> bool {
         linkers.push(real.to_string());
     }
     true
+}
+
+/// `ld-linux-*.so.*`, `ld64.so.*`, `ld.so.*`, `ld-musl-*.so.*`: an ELF program interpreter.
+fn is_dynamic_loader(exe: &Path) -> bool {
+    let name = exe
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    name.starts_with("ld") && name.contains(".so")
 }
 
 /// The report file of a command that [`wrap`] pointed at the wrapper.
@@ -197,6 +211,27 @@ mod tests {
             "rust-lld", "ld.lld", "ld", "wild", "mold", "link.exe", "lld-link", "",
         ] {
             assert!(!is_wrappable_driver(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn a_mitts_started_through_the_dynamic_loader_is_not_a_linker() {
+        for loader in [
+            "/opt/host-libs/ld-linux-x86-64.so.2",
+            "/lib/ld-linux-aarch64.so.1",
+            "/lib/ld-linux-riscv64-lp64d.so.1",
+            "/lib64/ld64.so.2",
+            "/lib/ld-musl-x86_64.so.1",
+            "/usr/libexec/ld.so",
+        ] {
+            assert!(is_dynamic_loader(Path::new(loader)), "{loader}");
+        }
+        for exe in [
+            "/usr/local/bin/mitts",
+            "/home/u/.cargo/bin/mitts",
+            "/x/ldd-tool",
+        ] {
+            assert!(!is_dynamic_loader(Path::new(exe)), "{exe}");
         }
     }
 
