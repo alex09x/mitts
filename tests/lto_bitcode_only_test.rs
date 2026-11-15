@@ -23,8 +23,8 @@ use std::process::Output;
 use tempfile::TempDir;
 
 /// Workspace: `dep` (lib), `app` (bin using dep), `plug` (dylib using dep); release LTO on.
-/// Every rustc call is logged by a wrapper.
-fn workspace() -> TempDir {
+/// Every rustc call is logged by a wrapper. `profile_extra` is appended to the release profile.
+fn workspace_with(profile_extra: &str) -> TempDir {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     let write = |rel: &str, text: &str| {
@@ -34,8 +34,10 @@ fn workspace() -> TempDir {
     };
     write(
         "Cargo.toml",
-        "[workspace]\nmembers = [\"dep\", \"app\", \"plug\"]\nresolver = \"2\"\n\n\
-         [profile.release]\nlto = true\ncodegen-units = 1\n",
+        &format!(
+            "[workspace]\nmembers = [\"dep\", \"app\", \"plug\"]\nresolver = \"2\"\n\n\
+             [profile.release]\nlto = true\ncodegen-units = 1\n{profile_extra}"
+        ),
     );
     let pkg = |name: &str, extra: &str| {
         format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{extra}")
@@ -76,6 +78,16 @@ fn workspace() -> TempDir {
         &format!("[build]\nrustc-wrapper = \"{}\"\n", wrapper.display()),
     );
     dir
+}
+
+fn workspace() -> TempDir {
+    workspace_with("")
+}
+
+/// The `-C metadata=` value of a rustc command line.
+fn metadata_of(call: &str) -> Option<&str> {
+    call.split_whitespace()
+        .find_map(|arg| arg.strip_prefix("metadata="))
 }
 
 fn mitts_release(dir: &Path, cache: &Path, package: &str) -> Output {
@@ -177,4 +189,47 @@ fn a_library_a_dylib_links_keeps_object_code_and_its_own_cache_entry() {
         "a dylib consumer needs object code: {}",
         dep[0]
     );
+}
+
+#[test]
+fn incremental_bitcode_and_object_builds_keep_separate_crate_identities() {
+    // Review of #131: with `incremental = true` a workspace library gets a stable
+    // `-C metadata`; the bitcode-only and object-code builds must not share it (one rlib
+    // file name, one rustc session, thrashed on every consumer switch).
+    let ws = workspace_with("incremental = true\n");
+    let cache = TempDir::new().unwrap();
+    assert_success(
+        &mitts_release(ws.path(), cache.path(), "app"),
+        "build -p app",
+    );
+    let bitcode = take_calls(ws.path(), "dep");
+    assert_success(
+        &mitts_release(ws.path(), cache.path(), "plug"),
+        "build -p plug",
+    );
+    let object = take_calls(ws.path(), "dep");
+    assert_eq!(
+        (bitcode.len(), object.len()),
+        (1, 1),
+        "{bitcode:?} {object:?}"
+    );
+    assert!(bitcode[0].contains("linker-plugin-lto") && bitcode[0].contains("incremental="));
+    assert!(!object[0].contains("linker-plugin-lto"));
+    let (b, o) = (metadata_of(&bitcode[0]), metadata_of(&object[0]));
+    assert!(
+        b.is_some(),
+        "incremental units carry a stable -C metadata: {}",
+        bitcode[0]
+    );
+    assert_ne!(b, o, "the two builds of dep need distinct crate identities");
+
+    // Back to the binary: still links and runs.
+    assert_success(
+        &mitts_release(ws.path(), cache.path(), "app"),
+        "rebuild -p app",
+    );
+    let run = std::process::Command::new(ws.path().join("target/release/app"))
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "answer=42");
 }
