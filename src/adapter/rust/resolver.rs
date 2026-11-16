@@ -167,20 +167,21 @@ impl NativeResolver {
             // too, as Cargo does, but only their regular and build dependencies count.
             let mut manifests: Vec<(PathBuf, CargoToml, bool)> =
                 vec![(manifest_dir.to_path_buf(), toml.clone(), true)];
+            // A member that cannot be read fails the resolve: dropping it would write a
+            // Cargo.lock without its dependencies.
             if toml.workspace.is_some() {
-                if let Ok(members) = toml.discover_workspace_members(manifest_dir) {
-                    for (m_name, m_dir) in members {
-                        if let Ok(m_toml) = CargoToml::from_file(&m_dir.join("Cargo.toml")) {
-                            let ver = m_toml
-                                .package
-                                .as_ref()
-                                .and_then(|p| p.version.clone())
-                                .unwrap_or_else(|| "0.1.0".to_string());
-                            path_deps.push((m_name, ver));
-                            if m_dir != manifest_dir {
-                                manifests.push((m_dir, m_toml, true));
-                            }
-                        }
+                for (m_name, m_dir) in toml.discover_workspace_members(manifest_dir)? {
+                    let m_manifest = m_dir.join("Cargo.toml");
+                    let m_toml = CargoToml::from_file(&m_manifest)
+                        .with_context(|| format!("workspace member {}", m_manifest.display()))?;
+                    let ver = m_toml
+                        .package
+                        .as_ref()
+                        .and_then(|p| p.version.clone())
+                        .unwrap_or_else(|| "0.1.0".to_string());
+                    path_deps.push((m_name, ver));
+                    if m_dir != manifest_dir {
+                        manifests.push((m_dir, m_toml, true));
                     }
                 }
             }
