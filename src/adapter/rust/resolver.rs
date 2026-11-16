@@ -76,6 +76,9 @@ pub struct NativeResolver {
     sources: Mutex<HashMap<String, Arc<IndexSource>>>,
     /// `[patch]` of the root manifest being resolved.
     pub(crate) patches: Mutex<super::patch_resolve::PatchSet>,
+    /// Versions the existing Cargo.lock pins, by `(source, name)`: kept whenever they still
+    /// satisfy every requirement, as Cargo does when it updates a lock.
+    pub(crate) preferred: Mutex<HashMap<(String, String), Vec<String>>>,
 }
 
 impl NativeResolver {
@@ -93,6 +96,7 @@ impl NativeResolver {
             config: Mutex::new(RegistryConfig::default()),
             sources: Mutex::new(HashMap::new()),
             patches: Mutex::new(Default::default()),
+            preferred: Mutex::new(HashMap::new()),
         })
     }
 
@@ -104,7 +108,24 @@ impl NativeResolver {
             config: Mutex::new(RegistryConfig::default()),
             sources: Mutex::new(HashMap::new()),
             patches: Mutex::new(Default::default()),
+            preferred: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Keeps the registry versions `lock` pins wherever they still satisfy the manifests:
+    /// an update then only adds what is new, instead of moving unrelated packages.
+    pub fn prefer_locked(self, lock: &CargoLock) -> Self {
+        let mut preferred = self.preferred.lock().unwrap();
+        for pkg in &lock.packages {
+            if let Some(source) = pkg.source.as_deref().filter(|s| !s.starts_with("git+")) {
+                preferred
+                    .entry((source.to_string(), pkg.name.clone()))
+                    .or_default()
+                    .push(pkg.version.clone());
+            }
+        }
+        drop(preferred);
+        self
     }
 
     /// Uses `[registries]`, mirrors and vendor directories from this config.

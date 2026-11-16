@@ -79,29 +79,29 @@ fn registry(token: Option<&'static str>) -> (String, Arc<AtomicUsize>, String) {
         )
         .into_bytes(),
     );
-    // The base URL is only known after binding: patch it into config.json.
-    let listener_probe = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener_probe.local_addr().unwrap().port();
-    drop(listener_probe);
+    // The base URL is only known after binding: patch it into config.json. The listener that
+    // picked the port is the one that serves: dropping it and binding the port again let a
+    // parallel test take it in between (AddrInUse).
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
     let base = format!("http://127.0.0.1:{port}");
     let cfg = routes.get_mut("/index/config.json").unwrap();
     *cfg = String::from_utf8(cfg.clone())
         .unwrap()
         .replace(placeholder, &base)
         .into_bytes();
-    let (url, hits) = serve_on(routes, token, port);
+    let (url, hits) = serve_on(routes, token, listener);
     assert_eq!(url, base);
     (url, hits, sum)
 }
 
-/// Serves `routes` (path → body) over HTTP on `port`; with `token`, every request must
+/// Serves `routes` (path → body) over HTTP on `listener`; with `token`, every request must
 /// carry it in `Authorization`.
 fn serve_on(
     routes: HashMap<String, Vec<u8>>,
     token: Option<&'static str>,
-    port: u16,
+    listener: TcpListener,
 ) -> (String, Arc<AtomicUsize>) {
-    let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
     let addr = listener.local_addr().unwrap();
     let hits = Arc::new(AtomicUsize::new(0));
     let counter = hits.clone();

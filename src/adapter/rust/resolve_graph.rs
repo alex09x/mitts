@@ -38,7 +38,11 @@ struct Node {
     enabled: BTreeSet<String>,
     activated: HashSet<String>,
     requested: HashSet<String>,
-    dependencies: BTreeSet<String>,
+    /// `(package, requirement)` per edge: one package may depend on two versions of a
+    /// crate under two names (serde_with: `schemars` 0.9 and 1), and each must stay.
+    dependencies: BTreeSet<(String, String)>,
+    /// A git, path or patched package: no index feature table to check against.
+    opaque: bool,
 }
 
 impl Node {
@@ -49,8 +53,8 @@ impl Node {
             .filter(|d| d.kind.as_deref() != Some("dev"))
             .cloned()
             .collect();
-        let explicit: HashSet<String> = entry
-            .features
+        let features = all_features(entry);
+        let explicit: HashSet<String> = features
             .values()
             .flatten()
             .filter_map(|v| v.strip_prefix("dep:").map(str::to_string))
@@ -66,12 +70,13 @@ impl Node {
             source: Some(source.to_string()),
             checksum: entry.cksum.clone(),
             deps,
-            features: entry.features.clone(),
+            features,
             implicit,
             enabled: BTreeSet::new(),
             activated: HashSet::new(),
             requested: HashSet::new(),
             dependencies: BTreeSet::new(),
+            opaque: false,
         }
     }
 
@@ -88,7 +93,13 @@ impl Node {
             enabled: BTreeSet::new(),
             activated: HashSet::new(),
             requested: HashSet::new(),
-            dependencies: pkg.dependencies.iter().cloned().collect(),
+            // Already written as lock entries ("name" or "name version").
+            dependencies: pkg
+                .dependencies
+                .iter()
+                .map(|d| (d.clone(), String::new()))
+                .collect(),
+            opaque: true,
         }
     }
 
@@ -165,17 +176,113 @@ fn same_compat_range(a: &str, b: &str) -> bool {
     }
 }
 
+/// The compatibility range a version belongs to, as a pin key: `2` for 2.x, `0.9` for
+/// 0.9.x, `0.0.3` for 0.0.3. Two versions of one crate in different ranges are separate
+/// nodes and must not share what a conflict taught about one of them.
+fn compat_range(version: &str) -> String {
+    match Version::parse(version) {
+        Ok(v) if v.major > 0 => v.major.to_string(),
+        Ok(v) if v.minor > 0 => format!("0.{}", v.minor),
+        Ok(v) => format!("0.0.{}", v.patch),
+        Err(_) => version.to_string(),
+    }
+}
+
+/// What a restart learnt about one crate in one compatibility range.
+#[derive(Default, Clone)]
+struct Pin {
+    reqs: Vec<String>,
+    features: Vec<String>,
+}
+
+type PinKey = (Key, String);
+
+/// Restart with these added to the pin of `key`.
+struct Restart {
+    key: PinKey,
+    req: String,
+    features: Vec<String>,
+}
+
+/// Whether an already chosen node offers `wanted`. A git, path or patched node knows no
+/// feature table here and is taken as it is.
+fn node_offers(node: &Node, wanted: &[String]) -> bool {
+    if node.opaque {
+        return true;
+    }
+    wanted
+        .iter()
+        .all(|f| f == "default" || node.features.contains_key(f) || node.implicit.contains(f))
+}
+
+/// The feature table crates.io publishes in two parts: `features2` holds the ones that use
+/// `dep:` or `?/` syntax, which older Cargo versions could not read.
+fn all_features(entry: &SparseIndexEntry) -> HashMap<String, Vec<String>> {
+    let mut features = entry.features.clone();
+    for (name, values) in &entry.features2 {
+        features
+            .entry(name.clone())
+            .or_default()
+            .extend(values.iter().cloned());
+    }
+    features
+}
+
+/// Whether `entry` offers every feature in `wanted`: a declared feature, or the implicit
+/// feature of an optional dependency that no `dep:` entry hides. Cargo skips a version
+/// that lacks a requested feature (rsa 0.10.0 dropped `sha2`, which crypto-glue asks for).
+fn has_features(entry: &SparseIndexEntry, wanted: &[String]) -> bool {
+    if wanted.is_empty() {
+        return true;
+    }
+    let features = all_features(entry);
+    let hidden: HashSet<&str> = features
+        .values()
+        .flatten()
+        .filter_map(|v| v.strip_prefix("dep:"))
+        .collect();
+    wanted.iter().all(|f| {
+        f == "default"
+            || features.contains_key(f)
+            || entry.deps.iter().any(|d| {
+                d.optional
+                    && d.kind.as_deref() != Some("dev")
+                    && d.name == *f
+                    && !hidden.contains(f.as_str())
+            })
+    })
+}
+
+/// The version for `reqs`: a version the existing lock pins (`preferred`) when one still
+/// satisfies them, even if yanked since, as Cargo keeps it; otherwise the highest
+/// non-yanked one. Either way it must offer the requested `features`.
 fn pick_version<'a>(
     entries: &'a [SparseIndexEntry],
     reqs: &[String],
+    features: &[String],
+    preferred: &[String],
 ) -> Option<&'a SparseIndexEntry> {
     let parsed: Vec<VersionReq> = reqs.iter().map(|r| req_of(r)).collect();
+    let fits = |e: &SparseIndexEntry, v: &Version| {
+        parsed.iter().all(|r| r.matches(v)) && has_features(e, features)
+    };
     let mut best: Option<(&SparseIndexEntry, Version)> = None;
+    for e in entries.iter().filter(|e| preferred.contains(&e.vers)) {
+        let Ok(v) = Version::parse(&e.vers) else {
+            continue;
+        };
+        if fits(e, &v) && best.as_ref().is_none_or(|(_, bv)| v > *bv) {
+            best = Some((e, v));
+        }
+    }
+    if best.is_some() {
+        return best.map(|(e, _)| e);
+    }
     for e in entries.iter().filter(|e| !e.yanked) {
         let Ok(v) = Version::parse(&e.vers) else {
             continue;
         };
-        if parsed.iter().all(|r| r.matches(&v)) && best.as_ref().is_none_or(|(_, bv)| v > *bv) {
+        if fits(e, &v) && best.as_ref().is_none_or(|(_, bv)| v > *bv) {
             best = Some((e, v));
         }
     }
@@ -188,29 +295,40 @@ impl NativeResolver {
         roots: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
-        // Requirements learnt from conflicts; a conflict restarts the resolution with them.
-        let mut pins: HashMap<Key, Vec<String>> = HashMap::new();
+        // Requirements and features learnt from conflicts, per crate and compatibility
+        // range; a conflict restarts the resolution with them.
+        let mut pins: HashMap<PinKey, Pin> = HashMap::new();
         let mut index_cache: HashMap<Key, Vec<SparseIndexEntry>> = HashMap::new();
         for _ in 0..64 {
             match self.resolve_once(roots, offline, &pins, &mut index_cache)? {
                 Ok(lock) => return Ok(lock),
-                Err((key, req)) => pins.entry(key).or_default().push(req),
+                Err(restart) => {
+                    let pin = pins.entry(restart.key).or_default();
+                    if !pin.reqs.contains(&restart.req) {
+                        pin.reqs.push(restart.req);
+                    }
+                    for f in restart.features {
+                        if !pin.features.contains(&f) {
+                            pin.features.push(f);
+                        }
+                    }
+                }
             }
         }
         bail!("dependency resolution did not converge after 64 attempts")
     }
 
-    /// `Err((key, req))` asks for a restart with `req` pinned on `key`.
-    #[allow(clippy::type_complexity)]
+    /// `Err(restart)` asks for a restart with more pinned on one crate.
     fn resolve_once(
         &self,
         roots: &[ManifestDirectDep],
         offline: bool,
-        pins: &HashMap<Key, Vec<String>>,
+        pins: &HashMap<PinKey, Pin>,
         index_cache: &mut HashMap<Key, Vec<SparseIndexEntry>>,
-    ) -> Result<std::result::Result<CargoLock, (Key, String)>> {
+    ) -> Result<std::result::Result<CargoLock, Restart>> {
         let patches = self.patches.lock().unwrap().clone();
         let config = self.config.lock().unwrap().clone();
+        let preferred = self.preferred.lock().unwrap().clone();
         let mut git = GitResolver::for_cache_dir(self.cache_dir.as_deref(), config.clone());
         let mut nodes: Vec<Node> = Vec::new();
         let mut by_key: HashMap<Key, Vec<usize>> = HashMap::new();
@@ -259,12 +377,24 @@ impl NativeResolver {
                         })
                 });
                 let idx = match existing {
+                    // The version fits but lacks a feature this edge asks for: restart with
+                    // the feature pinned, so the range picks a version that has it.
+                    Some(Ok(i)) if !node_offers(&nodes[i], &r.features) => {
+                        return Ok(Err(Restart {
+                            key: (k, compat_range(&nodes[i].version)),
+                            req: r.req.clone(),
+                            features: r.features.clone(),
+                        }));
+                    }
                     Some(Ok(i)) => i,
                     Some(Err(conflicting)) => {
                         // Same compatibility range, no shared version yet: restart with both
                         // requirements pinned, as a unifying resolver would.
-                        let _ = conflicting;
-                        return Ok(Err((k, r.req.clone())));
+                        return Ok(Err(Restart {
+                            key: (k, compat_range(&nodes[conflicting].version)),
+                            req: r.req.clone(),
+                            features: r.features.clone(),
+                        }));
                     }
                     None => {
                         let node = if let Some((base, dep)) = patches.get(&r.source, &r.name) {
@@ -286,9 +416,30 @@ impl NativeResolver {
                             Node::opaque(&primary)
                         } else {
                             let entries = &index_cache[&k];
+                            let locked = preferred.get(&k).cloned().unwrap_or_default();
                             let mut reqs = vec![r.req.clone()];
-                            reqs.extend(pins.get(&k).cloned().unwrap_or_default());
-                            let chosen = pick_version(entries, &reqs).with_context(|| {
+                            let mut wanted = r.features.clone();
+                            // A pin belongs to the range of the version it was learnt on, which a
+                            // wide requirement (`*`, `>=0.8, <2`) does not name: pick, apply the
+                            // pin of the range the pick landed in, pick again, until a pick lands
+                            // in a range whose pin is already applied (or has none).
+                            let mut applied: HashSet<String> = HashSet::new();
+                            let chosen = loop {
+                                let Some(pick) = pick_version(entries, &reqs, &wanted, &locked)
+                                else {
+                                    break None;
+                                };
+                                let range = compat_range(&pick.vers);
+                                if !applied.insert(range.clone()) {
+                                    break Some(pick);
+                                }
+                                let Some(pin) = pins.get(&(k.clone(), range)) else {
+                                    break Some(pick);
+                                };
+                                reqs.extend(pin.reqs.iter().cloned());
+                                wanted.extend(pin.features.iter().cloned());
+                            };
+                            let chosen = chosen.with_context(|| {
                                 let by = requested_by
                                     .get(&k)
                                     .map(|p| format!(" (required by {p})"))
@@ -332,7 +483,9 @@ impl NativeResolver {
                         .as_deref()
                         .map(index_to_lock_source)
                         .unwrap_or_else(|| parent_source.clone());
-                    nodes[idx].dependencies.insert(pkg_name.clone());
+                    nodes[idx]
+                        .dependencies
+                        .insert((pkg_name.clone(), d.req.clone()));
                     requested_by
                         .entry((source.clone(), pkg_name.clone()))
                         .or_insert_with(|| parent.clone());
@@ -365,18 +518,23 @@ impl NativeResolver {
                 .or_default()
                 .push(p.version.clone());
         }
-        let qualify = |n: &Node, dep: &str| -> String {
+        let qualify = |n: &Node, (dep, edge_req): &(String, String)| -> String {
+            let dep = dep.as_str();
             if dep.contains(' ') {
                 return dep.to_string();
             }
             let Some(versions) = versions_by_name.get(dep).filter(|v| v.len() > 1) else {
                 return dep.to_string();
             };
-            let req = n
-                .deps
-                .iter()
-                .find(|d| d.package.as_deref().unwrap_or(&d.name) == dep)
-                .and_then(|d| semver::VersionReq::parse(&d.req).ok());
+            // The edge's own requirement; an opaque node's edges carry none.
+            let req = if edge_req.is_empty() {
+                n.deps
+                    .iter()
+                    .find(|d| d.package.as_deref().unwrap_or(&d.name) == dep)
+                    .and_then(|d| semver::VersionReq::parse(&d.req).ok())
+            } else {
+                semver::VersionReq::parse(edge_req).ok()
+            };
             let Some(req) = req else {
                 return dep.to_string();
             };
@@ -396,7 +554,14 @@ impl NativeResolver {
                 version: n.version.clone(),
                 source: n.source.clone(),
                 checksum: (!n.checksum.is_empty()).then_some(n.checksum.clone()),
-                dependencies: n.dependencies.iter().map(|d| qualify(n, d)).collect(),
+                // Two edges to one version (a normal and a build dependency) are one entry.
+                dependencies: n
+                    .dependencies
+                    .iter()
+                    .map(|d| qualify(n, d))
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
             })
             .collect();
         for p in extra {
@@ -486,3 +651,7 @@ mod tests {
         assert_eq!(lowest_bound("*"), "0.0.0");
     }
 }
+
+#[cfg(test)]
+#[path = "resolve_graph_pick_tests.rs"]
+mod pick_tests;
