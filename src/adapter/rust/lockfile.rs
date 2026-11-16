@@ -167,57 +167,34 @@ impl CargoLock {
         self.packages.iter().find(|p| p.name == name)
     }
 
-    /// Fast-path validation: checks whether direct dependencies declared in Cargo.toml
+    /// Fast-path validation: checks whether the direct dependencies declared in Cargo.toml
     /// exist in this Cargo.lock. Returns true if compatible, false if sync is needed.
+    ///
+    /// Every kind counts, as in Cargo's resolve: normal, build and dev dependencies, the
+    /// `[target.'…'.*]` ones, and in a workspace those of every member, since one lock
+    /// serves them all (issue 136: a new `[dev-dependencies]` entry left the lock as it was).
     pub fn validate_manifest_compatibility(&self, manifest_path: &Path) -> Result<bool> {
         if !manifest_path.is_file() {
             return Ok(false);
         }
         if let Ok(toml) = super::manifest::CargoToml::from_file(manifest_path) {
-            for (dep_name, dep_val) in toml.dependencies.iter().chain(&toml.build_dependencies) {
-                let (pkg_name, requirement) = match dep_val {
-                    super::manifest::TomlDependency::Simple(req) => (dep_name, Some(req.as_str())),
-                    super::manifest::TomlDependency::Detailed(d) => {
-                        if d.optional.unwrap_or(false) || d.path.is_some() {
-                            continue;
-                        }
-                        if let Some(url) = d.git.as_deref() {
-                            let pkg_name = d.package_name.as_ref().unwrap_or(dep_name);
-                            let want = match (&d.tag, &d.branch, &d.rev) {
-                                (Some(t), _, _) => format!("git+{url}?tag={t}#"),
-                                (_, Some(b), _) => format!("git+{url}?branch={b}#"),
-                                (_, _, Some(r)) => format!("git+{url}?rev={r}#"),
-                                _ => format!("git+{url}#"),
-                            };
-                            if !self.packages.iter().any(|p| {
-                                &p.name == pkg_name
-                                    && p.source.as_deref().is_some_and(|s| s.starts_with(&want))
-                            }) {
-                                return Ok(false);
-                            }
-                            continue;
-                        }
-                        (
-                            d.package_name.as_ref().unwrap_or(dep_name),
-                            d.version.as_deref(),
-                        )
-                    }
-                };
-                let Some(requirement) = requirement else {
-                    if self.get_package(pkg_name).is_none() {
-                        return Ok(false);
-                    }
+            if !self.manifest_dependencies_locked(&toml) {
+                return Ok(false);
+            }
+            let root_dir = manifest_path.parent().unwrap_or(Path::new("."));
+            // A member that cannot be read is left to the full resolve, which reports it.
+            let Ok(members) = toml.discover_workspace_members(root_dir) else {
+                return Ok(false);
+            };
+            for (_, dir) in members {
+                let member_manifest = dir.join("Cargo.toml");
+                if member_manifest == manifest_path {
                     continue;
+                }
+                let Ok(member) = super::manifest::CargoToml::from_file(&member_manifest) else {
+                    return Ok(false);
                 };
-                let req = match semver::VersionReq::parse(requirement) {
-                    Ok(req) => req,
-                    Err(_) => return Ok(false),
-                };
-                if !self.packages.iter().any(|p| {
-                    p.name == *pkg_name
-                        && semver::Version::parse(&p.version)
-                            .is_ok_and(|version| req.matches(&version))
-                }) {
+                if !self.manifest_dependencies_locked(&member) {
                     return Ok(false);
                 }
             }
@@ -233,6 +210,67 @@ impl CargoLock {
         }
 
         Ok(true)
+    }
+
+    /// Whether every non-optional, non-path dependency of `toml`, of any kind and for any
+    /// target, has a locked package that satisfies it.
+    fn manifest_dependencies_locked(&self, toml: &super::manifest::CargoToml) -> bool {
+        let targets = toml.target.values();
+        let all = toml
+            .dependencies
+            .iter()
+            .chain(&toml.build_dependencies)
+            .chain(&toml.dev_dependencies)
+            .chain(targets.flat_map(|spec| {
+                spec.dependencies
+                    .iter()
+                    .chain(&spec.build_dependencies)
+                    .chain(&spec.dev_dependencies)
+            }));
+        for (dep_name, dep_val) in all {
+            if !self.dependency_locked(dep_name, dep_val) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn dependency_locked(&self, dep_name: &str, dep_val: &super::manifest::TomlDependency) -> bool {
+        let (pkg_name, requirement) = match dep_val {
+            super::manifest::TomlDependency::Simple(req) => (dep_name, Some(req.as_str())),
+            super::manifest::TomlDependency::Detailed(d) => {
+                if d.optional.unwrap_or(false) || d.path.is_some() {
+                    return true;
+                }
+                if let Some(url) = d.git.as_deref() {
+                    let pkg_name = d.package_name.as_deref().unwrap_or(dep_name);
+                    let want = match (&d.tag, &d.branch, &d.rev) {
+                        (Some(t), _, _) => format!("git+{url}?tag={t}#"),
+                        (_, Some(b), _) => format!("git+{url}?branch={b}#"),
+                        (_, _, Some(r)) => format!("git+{url}?rev={r}#"),
+                        _ => format!("git+{url}#"),
+                    };
+                    return self.packages.iter().any(|p| {
+                        p.name == pkg_name
+                            && p.source.as_deref().is_some_and(|s| s.starts_with(&want))
+                    });
+                }
+                (
+                    d.package_name.as_deref().unwrap_or(dep_name),
+                    d.version.as_deref(),
+                )
+            }
+        };
+        let Some(requirement) = requirement else {
+            return self.get_package(pkg_name).is_some();
+        };
+        let Ok(req) = semver::VersionReq::parse(requirement) else {
+            return false;
+        };
+        self.packages.iter().any(|p| {
+            p.name == pkg_name
+                && semver::Version::parse(&p.version).is_ok_and(|version| req.matches(&version))
+        })
     }
 
     /// Two-phase dependency resolver:
@@ -335,3 +373,7 @@ fn extract_manifest_dependencies(content: &str) -> Vec<String> {
     deps.dedup();
     deps
 }
+
+#[cfg(test)]
+#[path = "lockfile_compat_tests.rs"]
+mod compat_tests;
