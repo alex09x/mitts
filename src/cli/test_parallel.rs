@@ -84,11 +84,20 @@ struct Context<'a> {
     targets: Vec<Target>,
     /// Added to every test process (for example the profile file pattern of a coverage run).
     extra_env: Vec<(String, std::ffi::OsString)>,
+    /// `target.<triple>.runner` and its arguments, put in front of every test binary.
+    runner: Option<Vec<String>>,
 }
 
 impl Context<'_> {
     fn command(&self, target: &Target) -> Command {
-        let mut cmd = Command::new(&target.path);
+        let mut cmd = match &self.runner {
+            Some(parts) => {
+                let mut cmd = Command::new(&parts[0]);
+                cmd.args(&parts[1..]).arg(&target.path);
+                cmd
+            }
+            None => Command::new(&target.path),
+        };
         cmd.current_dir(&target.work_dir);
         crate::adapter::rust::unit_env::apply_runtime_execution_env(
             &mut cmd,
@@ -178,12 +187,25 @@ pub fn run(
             }
         })
         .collect();
+    let runner = match crate::adapter::rust::cargo_config_runner::effective_target(
+        root_dir,
+        args.target.as_deref(),
+    )
+    .and_then(|triple| crate::adapter::rust::cargo_config_runner::runner(root_dir, &triple))
+    {
+        Ok(runner) => runner,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            return 101;
+        }
+    };
     let context = Context {
         binaries,
         plan,
         release: args.release,
         targets,
         extra_env: extra_env.to_vec(),
+        runner,
     };
 
     // List the tests of all binaries at once.

@@ -234,9 +234,11 @@ pub fn resolve_unit_profile_for(
     let incremental = match read_env_non_empty("CARGO_INCREMENTAL").as_deref() {
         Some("0") => false,
         Some("1") => true,
-        _ => resolve_overridable("incremental", "INCREMENTAL", true)
-            .and_then(|v| v.as_bool())
-            .unwrap_or(!base_release),
+        _ => super::cargo_config_tools::incremental().unwrap_or_else(|| {
+            resolve_overridable("incremental", "INCREMENTAL", true)
+                .and_then(|v| v.as_bool())
+                .unwrap_or(!base_release)
+        }),
     };
 
     let panic = (!for_host)

@@ -481,6 +481,7 @@ pub struct GcArgs {
     pub max_age_secs: Option<u64>,
 }
 
+pub mod argv_config;
 pub mod bench;
 pub mod build;
 pub mod build_summary;

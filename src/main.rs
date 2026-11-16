@@ -39,6 +39,14 @@ fn main() -> ExitCode {
             return ExitCode::from(101);
         }
     };
+    // `--config`, `[alias]`, `net.offline`, `term.quiet` / `term.verbose`, as Cargo does.
+    let args = match mitts::cli::argv_config::apply(args) {
+        Ok(args) => args,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            return ExitCode::from(101);
+        }
+    };
     let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     mitts::core::verbosity::set(cli.command.verbose());

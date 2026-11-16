@@ -18,7 +18,6 @@ use crate::core::ActionKind;
 use anstream::eprintln;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 struct SelectedRunTarget {
     pkg_name: String,
@@ -370,7 +369,18 @@ pub fn handle_run(args: &RunArgs) -> i32 {
                     .unwrap_or_else(|_| PathBuf::from("."))
                     .join(&selected.pkg_dir)
             };
-            let mut cmd = Command::new(&binary);
+            let config_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let mut cmd = match crate::adapter::rust::cargo_config_runner::command(
+                &binary,
+                &config_dir,
+                opt.target_triple.as_deref(),
+            ) {
+                Ok(cmd) => cmd,
+                Err(error) => {
+                    eprintln!("error: {error:#}");
+                    return 101;
+                }
+            };
             cmd.args(trailing);
             crate::adapter::rust::unit_env::apply_runtime_execution_env(
                 &mut cmd,
