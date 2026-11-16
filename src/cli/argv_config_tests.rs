@@ -47,6 +47,10 @@ fn config_values_stop_at_the_double_dash() {
 fn verbosity_flags_are_recognised_in_every_spelling() {
     let args = os(&["mitts", "build", "-vv"]);
     assert!(has_flag(&args, 2, &["-q", "--quiet", "-v", "--verbose"]));
+    let args = os(&["mitts", "build", "-vq"]);
+    assert!(has_flag(&args, 2, &["-q", "--quiet"]));
+    let args = os(&["mitts", "build", "-j4"]);
+    assert!(!has_flag(&args, 2, &["-q", "--quiet", "-v", "--verbose"]));
     let args = os(&["mitts", "run", "--", "-v"]);
     assert!(!has_flag(&args, 2, &["-q", "--quiet", "-v", "--verbose"]));
 }

@@ -49,6 +49,9 @@ pub struct BuildScriptDirectives {
     /// emitted no rerun directive: Cargo then reruns it when any package file changes.
     #[serde(default)]
     pub package_inputs_digest: Option<String>,
+    /// From a `target.<triple>.<links>` override, not from running the script.
+    #[serde(default)]
+    pub overridden: bool,
 }
 
 impl BuildScriptDirectives {
@@ -263,6 +266,24 @@ impl BuildScriptDirectives {
             hasher.update(b"link-search:");
             hasher.update(s.as_bytes());
             hasher.update(b"\n");
+        }
+
+        // An override replaces the script, so whatever it sets is the whole input: the
+        // `DEP_<LINKS>_*` metadata it hands to dependents too. A registry dependent hashes
+        // no config files, so without this a metadata-only change would be a false hit.
+        if self.overridden {
+            hasher.update(b"override:");
+            hasher.update(self.links.as_deref().unwrap_or("").as_bytes());
+            hasher.update(b"\n");
+            let mut metadata: Vec<_> = self.metadata.iter().collect();
+            metadata.sort();
+            for (k, v) in metadata {
+                hasher.update(b"metadata:");
+                hasher.update(k.as_bytes());
+                hasher.update(b"=");
+                hasher.update(v.as_bytes());
+                hasher.update(b"\n");
+            }
         }
 
         bytes_to_hex(&hasher.finalize())

@@ -300,7 +300,7 @@ pub fn resolve_clippy_driver() -> PathBuf {
 }
 
 pub fn resolve_rustdoc() -> PathBuf {
-    if let Ok(p) = std::env::var("RUSTDOC") {
+    if let Some(p) = std::env::var_os("RUSTDOC").filter(|v| !v.is_empty()) {
         return PathBuf::from(p);
     }
     if let Some(p) = super::cargo_config_tools::rustdoc() {

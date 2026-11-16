@@ -472,3 +472,38 @@ fn term_verbose_and_quiet_act_like_the_flags() {
         text(&out)
     );
 }
+
+#[test]
+fn an_override_metadata_change_reaches_dependents() {
+    let ws = Ws::new();
+    ws.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"sys\", \"user\"]\nresolver = \"2\"\n",
+    );
+    fs::remove_dir_all(ws.root().join("src")).unwrap();
+    ws.write(
+        "sys/Cargo.toml",
+        "[package]\nname = \"sys\"\nversion = \"0.1.0\"\nedition = \"2021\"\nlinks = \"probe\"\nbuild = \"build.rs\"\n",
+    );
+    ws.write("sys/build.rs", "fn main() { panic!(\"overridden\"); }\n");
+    ws.write("sys/src/lib.rs", "");
+    ws.write(
+        "user/Cargo.toml",
+        "[package]\nname = \"user\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsys = { path = \"../sys\" }\n",
+    );
+    ws.write(
+        "user/build.rs",
+        "fn main() { println!(\"cargo:rustc-env=SEEN={}\", std::env::var(\"DEP_PROBE_INCLUDE\").unwrap()); }\n",
+    );
+    ws.write(
+        "user/src/main.rs",
+        "fn main() { println!(\"seen={}\", env!(\"SEEN\")); }\n",
+    );
+    let host = host();
+    ws.config(&format!("[target.{host}.probe]\ninclude = \"/v1\"\n"));
+    let all = ok(&run(&mut ws.mitts(&["run", "-p", "user"])));
+    assert!(all.contains("seen=/v1"), "{all}");
+    ws.config(&format!("[target.{host}.probe]\ninclude = \"/v2\"\n"));
+    let all = ok(&run(&mut ws.mitts(&["run", "-p", "user"])));
+    assert!(all.contains("seen=/v2"), "{all}");
+}

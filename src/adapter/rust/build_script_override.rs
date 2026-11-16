@@ -57,18 +57,32 @@ pub fn directives_for(
         super::cargo_config_runner::effective_target(start_dir, explicit_target)?
     };
     let key = format!("target.{triple}.{links}");
-    let Some(value) = super::cargo_config_value::get(start_dir, &key)? else {
+    // Every layer, lowest precedence first, merged as Cargo merges configuration: arrays
+    // join, tables merge, other values are replaced. No environment variable applies.
+    let layers = super::cargo_config_value::tables(start_dir, &key)?;
+    if layers.is_empty() {
         return Ok(None);
-    };
-    let Some(table) = value.value.as_table() else {
-        bail!(
-            "{}: `{key}` must be a table of build script outputs",
-            value.origin
-        );
-    };
-    let mut directives = BuildScriptDirectives::parse_stdout(&to_stdout(table, &key)?);
+    }
+    let mut table = toml::Table::new();
+    for (layer, _, _) in layers {
+        merge(&mut table, layer);
+    }
+    let mut directives = BuildScriptDirectives::parse_stdout(&to_stdout(&table, &key)?);
     directives.links = Some(links);
+    directives.overridden = true;
     Ok(Some(directives))
+}
+
+fn merge(into: &mut toml::Table, from: toml::Table) {
+    for (name, value) in from {
+        match (into.get_mut(&name), value) {
+            (Some(toml::Value::Array(have)), toml::Value::Array(more)) => have.extend(more),
+            (Some(toml::Value::Table(have)), toml::Value::Table(more)) => merge(have, more),
+            (_, value) => {
+                into.insert(name, value);
+            }
+        }
+    }
 }
 
 /// The table as the `cargo:` lines a build script would have printed.
@@ -157,6 +171,39 @@ mod tests {
             d.metadata.get("include").map(String::as_str),
             Some("/opt/foo/include")
         );
+    }
+
+    #[test]
+    fn layers_merge_like_cargo_configuration() {
+        let mut table: toml::Table = toml::from_str(
+            "rustc-link-lib = [\"a\"]\nrustc-env = { X = \"1\" }\ninclude = \"/old\"\n",
+        )
+        .unwrap();
+        merge(
+            &mut table,
+            toml::from_str(
+                "rustc-link-lib = [\"b\"]\nrustc-env = { Y = \"2\" }\ninclude = \"/new\"\n",
+            )
+            .unwrap(),
+        );
+        let d = BuildScriptDirectives::parse_stdout(&to_stdout(&table, "k").unwrap());
+        assert_eq!(d.link_libs, ["a", "b"]);
+        assert_eq!(d.envs.len(), 2);
+        assert_eq!(d.metadata.get("include").map(String::as_str), Some("/new"));
+    }
+
+    #[test]
+    fn a_metadata_change_changes_the_compile_hash_of_an_override() {
+        let make = |include: &str| {
+            let mut d = BuildScriptDirectives::parse_stdout(&format!(
+                "cargo:rustc-link-lib=foo\ncargo:metadata=include={include}\n"
+            ));
+            d.links = Some("foo".into());
+            d.overridden = true;
+            d.compute_compile_hash()
+        };
+        assert_ne!(make("/v1"), make("/v2"));
+        assert_eq!(make("/v1"), make("/v1"));
     }
 
     #[test]

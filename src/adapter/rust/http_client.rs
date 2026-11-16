@@ -51,7 +51,10 @@ fn read(start_dir: &Path) -> Result<HttpSettings> {
             bail!("http.proxy `{proxy}` is not a usable proxy URL: {error}");
         }
     }
-    let cainfo = get("http.cainfo")?.map(|v| v.as_path()).transpose()?;
+    let cainfo = match get("http.cainfo")? {
+        Some(value) if !value.as_str()?.trim().is_empty() => Some(value.as_path()?),
+        _ => None,
+    };
     let timeout = match get("http.timeout")? {
         Some(value) => {
             let secs = value.as_i64()?;

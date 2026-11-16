@@ -112,16 +112,25 @@ fn expand_aliases(args: &mut Vec<OsString>, at: usize) -> Result<()> {
     }
 }
 
+/// Whether one of `flags` is on the command line, also inside a bundle of short flags
+/// (`-vv`, `-vq`) for the single-letter ones.
 fn has_flag(args: &[OsString], from: usize, flags: &[&str]) -> bool {
+    let letters: Vec<char> = flags
+        .iter()
+        .filter_map(|f| f.strip_prefix('-').filter(|s| s.len() == 1))
+        .filter_map(|s| s.chars().next())
+        .collect();
     args[from..]
         .iter()
         .take_while(|word| *word != "--")
         .filter_map(|word| word.to_str())
         .any(|word| {
             flags.contains(&word)
-                || (flags.contains(&"-v")
-                    && word.starts_with("-v")
-                    && word.chars().skip(1).all(|c| c == 'v'))
+                || (word.len() > 2
+                    && word.starts_with('-')
+                    && !word.starts_with("--")
+                    && word[1..].chars().all(|c| c.is_ascii_alphabetic())
+                    && word[1..].chars().any(|c| letters.contains(&c)))
         })
 }
 
