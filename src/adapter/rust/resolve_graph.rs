@@ -41,6 +41,8 @@ struct Node {
     /// `(package, requirement)` per edge: one package may depend on two versions of a
     /// crate under two names (serde_with: `schemars` 0.9 and 1), and each must stay.
     dependencies: BTreeSet<(String, String)>,
+    /// A git, path or patched package: no index feature table to check against.
+    opaque: bool,
 }
 
 impl Node {
@@ -74,6 +76,7 @@ impl Node {
             activated: HashSet::new(),
             requested: HashSet::new(),
             dependencies: BTreeSet::new(),
+            opaque: false,
         }
     }
 
@@ -96,6 +99,7 @@ impl Node {
                 .iter()
                 .map(|d| (d.clone(), String::new()))
                 .collect(),
+            opaque: true,
         }
     }
 
@@ -172,6 +176,45 @@ fn same_compat_range(a: &str, b: &str) -> bool {
     }
 }
 
+/// The compatibility range a version belongs to, as a pin key: `2` for 2.x, `0.9` for
+/// 0.9.x, `0.0.3` for 0.0.3. Two versions of one crate in different ranges are separate
+/// nodes and must not share what a conflict taught about one of them.
+fn compat_range(version: &str) -> String {
+    match Version::parse(version) {
+        Ok(v) if v.major > 0 => v.major.to_string(),
+        Ok(v) if v.minor > 0 => format!("0.{}", v.minor),
+        Ok(v) => format!("0.0.{}", v.patch),
+        Err(_) => version.to_string(),
+    }
+}
+
+/// What a restart learnt about one crate in one compatibility range.
+#[derive(Default, Clone)]
+struct Pin {
+    reqs: Vec<String>,
+    features: Vec<String>,
+}
+
+type PinKey = (Key, String);
+
+/// Restart with these added to the pin of `key`.
+struct Restart {
+    key: PinKey,
+    req: String,
+    features: Vec<String>,
+}
+
+/// Whether an already chosen node offers `wanted`. A git, path or patched node knows no
+/// feature table here and is taken as it is.
+fn node_offers(node: &Node, wanted: &[String]) -> bool {
+    if node.opaque {
+        return true;
+    }
+    wanted
+        .iter()
+        .all(|f| f == "default" || node.features.contains_key(f) || node.implicit.contains(f))
+}
+
 /// The feature table crates.io publishes in two parts: `features2` holds the ones that use
 /// `dep:` or `?/` syntax, which older Cargo versions could not read.
 fn all_features(entry: &SparseIndexEntry) -> HashMap<String, Vec<String>> {
@@ -201,10 +244,12 @@ fn has_features(entry: &SparseIndexEntry, wanted: &[String]) -> bool {
     wanted.iter().all(|f| {
         f == "default"
             || features.contains_key(f)
-            || entry
-                .deps
-                .iter()
-                .any(|d| d.optional && d.name == *f && !hidden.contains(f.as_str()))
+            || entry.deps.iter().any(|d| {
+                d.optional
+                    && d.kind.as_deref() != Some("dev")
+                    && d.name == *f
+                    && !hidden.contains(f.as_str())
+            })
     })
 }
 
@@ -250,27 +295,37 @@ impl NativeResolver {
         roots: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
-        // Requirements learnt from conflicts; a conflict restarts the resolution with them.
-        let mut pins: HashMap<Key, Vec<String>> = HashMap::new();
+        // Requirements and features learnt from conflicts, per crate and compatibility
+        // range; a conflict restarts the resolution with them.
+        let mut pins: HashMap<PinKey, Pin> = HashMap::new();
         let mut index_cache: HashMap<Key, Vec<SparseIndexEntry>> = HashMap::new();
         for _ in 0..64 {
             match self.resolve_once(roots, offline, &pins, &mut index_cache)? {
                 Ok(lock) => return Ok(lock),
-                Err((key, req)) => pins.entry(key).or_default().push(req),
+                Err(restart) => {
+                    let pin = pins.entry(restart.key).or_default();
+                    if !pin.reqs.contains(&restart.req) {
+                        pin.reqs.push(restart.req);
+                    }
+                    for f in restart.features {
+                        if !pin.features.contains(&f) {
+                            pin.features.push(f);
+                        }
+                    }
+                }
             }
         }
         bail!("dependency resolution did not converge after 64 attempts")
     }
 
-    /// `Err((key, req))` asks for a restart with `req` pinned on `key`.
-    #[allow(clippy::type_complexity)]
+    /// `Err(restart)` asks for a restart with more pinned on one crate.
     fn resolve_once(
         &self,
         roots: &[ManifestDirectDep],
         offline: bool,
-        pins: &HashMap<Key, Vec<String>>,
+        pins: &HashMap<PinKey, Pin>,
         index_cache: &mut HashMap<Key, Vec<SparseIndexEntry>>,
-    ) -> Result<std::result::Result<CargoLock, (Key, String)>> {
+    ) -> Result<std::result::Result<CargoLock, Restart>> {
         let patches = self.patches.lock().unwrap().clone();
         let config = self.config.lock().unwrap().clone();
         let preferred = self.preferred.lock().unwrap().clone();
@@ -322,12 +377,24 @@ impl NativeResolver {
                         })
                 });
                 let idx = match existing {
+                    // The version fits but lacks a feature this edge asks for: restart with
+                    // the feature pinned, so the range picks a version that has it.
+                    Some(Ok(i)) if !node_offers(&nodes[i], &r.features) => {
+                        return Ok(Err(Restart {
+                            key: (k, compat_range(&nodes[i].version)),
+                            req: r.req.clone(),
+                            features: r.features.clone(),
+                        }));
+                    }
                     Some(Ok(i)) => i,
                     Some(Err(conflicting)) => {
                         // Same compatibility range, no shared version yet: restart with both
                         // requirements pinned, as a unifying resolver would.
-                        let _ = conflicting;
-                        return Ok(Err((k, r.req.clone())));
+                        return Ok(Err(Restart {
+                            key: (k, compat_range(&nodes[conflicting].version)),
+                            req: r.req.clone(),
+                            features: r.features.clone(),
+                        }));
                     }
                     None => {
                         let node = if let Some((base, dep)) = patches.get(&r.source, &r.name) {
@@ -349,10 +416,16 @@ impl NativeResolver {
                             Node::opaque(&primary)
                         } else {
                             let entries = &index_cache[&k];
+                            let pin = pins
+                                .get(&(k.clone(), compat_range(&lowest_bound(&r.req))))
+                                .cloned()
+                                .unwrap_or_default();
                             let mut reqs = vec![r.req.clone()];
-                            reqs.extend(pins.get(&k).cloned().unwrap_or_default());
+                            reqs.extend(pin.reqs);
+                            let mut wanted = r.features.clone();
+                            wanted.extend(pin.features);
                             let locked = preferred.get(&k).cloned().unwrap_or_default();
-                            let chosen = pick_version(entries, &reqs, &r.features, &locked)
+                            let chosen = pick_version(entries, &reqs, &wanted, &locked)
                                 .with_context(|| {
                                 let by = requested_by
                                     .get(&k)

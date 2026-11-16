@@ -176,32 +176,30 @@ fn prepare(args: &PackageArgs) -> Result<(serde_json::Value, Vec<u8>)> {
         .as_str()
         .context("invalid package version")?;
     let lock_path = lock_path_for(&manifest);
+    // Re-resolving from an existing lock keeps its versions where they fit and its format
+    // version, as Cargo does.
+    let re_resolve = |lock: &crate::adapter::rust::lockfile::CargoLock| -> Result<Vec<u8>> {
+        let mut fresh = crate::adapter::rust::resolver::NativeResolver::for_cache_dir(
+            args.cache_dir.as_deref(),
+        )?
+        .prefer_locked(lock)
+        .resolve_manifest(&manifest, args.offline || args.frozen)?;
+        fresh.version = fresh.version.max(lock.version);
+        Ok(fresh.to_string_formatted().into_bytes())
+    };
     let lock = if lock_path.is_file() {
         let lock = crate::adapter::rust::lockfile::CargoLock::from_file(&lock_path)?;
         if !package_lock::compatible(&lock, &manifest, name, version)? {
             if args.locked || args.frozen {
                 anyhow::bail!("Cargo.lock does not match the package manifest");
             }
-            crate::adapter::rust::resolver::NativeResolver::for_cache_dir(
-                args.cache_dir.as_deref(),
-            )?
-            .prefer_locked(&lock)
-            .resolve_manifest(&manifest, args.offline || args.frozen)?
-            .to_string_formatted()
-            .into_bytes()
+            re_resolve(&lock)?
         } else if lock_path.parent() == Some(root) {
             std::fs::read(&lock_path)?
         } else {
             // A workspace member's archive carries a lock of its own graph, not the
             // workspace's (which lists sibling path packages the archive does not contain).
-            // The workspace lock's versions are kept where they fit, as Cargo does.
-            crate::adapter::rust::resolver::NativeResolver::for_cache_dir(
-                args.cache_dir.as_deref(),
-            )?
-            .prefer_locked(&lock)
-            .resolve_manifest(&manifest, args.offline || args.frozen)?
-            .to_string_formatted()
-            .into_bytes()
+            re_resolve(&lock)?
         }
     } else if args.locked || args.frozen {
         anyhow::bail!("Cargo.lock is missing and locked resolution was requested");
