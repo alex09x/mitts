@@ -323,3 +323,15 @@ fn a_conflict_in_one_major_leaves_the_other_major_alone() {
     d_edges.sort();
     assert_eq!(d_edges, ["c 1.2.0", "c 2.0.0"]);
 }
+
+#[test]
+fn a_wide_requirement_converges_on_the_pinned_range() {
+    // The lock pins a 1.0.0 under `>=0.8, <2`; `b` needs a ^1.2. The restart pins ^1.2 on the
+    // 1.x range, which the wide requirement does not name: it must still reach it.
+    let mut b = version("b", "1.0.0");
+    b.deps = vec![dep("a", None, "^1.2", &[])];
+    let published = vec![version("a", "1.0.0"), version("a", "1.2.0"), b];
+    let lock = lock_with(&["a"], &[("a", "1.0.0", &[])]);
+    let locked = fetch(published, "a = \">=0.8, <2\"\nb = \"1\"", Some(&lock));
+    assert_eq!(locked.packages, [pkg("a", "1.2.0"), pkg("b", "1.0.0")]);
+}

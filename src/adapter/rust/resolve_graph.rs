@@ -416,17 +416,30 @@ impl NativeResolver {
                             Node::opaque(&primary)
                         } else {
                             let entries = &index_cache[&k];
-                            let pin = pins
-                                .get(&(k.clone(), compat_range(&lowest_bound(&r.req))))
-                                .cloned()
-                                .unwrap_or_default();
-                            let mut reqs = vec![r.req.clone()];
-                            reqs.extend(pin.reqs);
-                            let mut wanted = r.features.clone();
-                            wanted.extend(pin.features);
                             let locked = preferred.get(&k).cloned().unwrap_or_default();
-                            let chosen = pick_version(entries, &reqs, &wanted, &locked)
-                                .with_context(|| {
+                            let mut reqs = vec![r.req.clone()];
+                            let mut wanted = r.features.clone();
+                            // A pin belongs to the range of the version it was learnt on, which a
+                            // wide requirement (`*`, `>=0.8, <2`) does not name: pick, apply the
+                            // pin of the range the pick landed in, pick again, until a pick lands
+                            // in a range whose pin is already applied (or has none).
+                            let mut applied: HashSet<String> = HashSet::new();
+                            let chosen = loop {
+                                let Some(pick) = pick_version(entries, &reqs, &wanted, &locked)
+                                else {
+                                    break None;
+                                };
+                                let range = compat_range(&pick.vers);
+                                if !applied.insert(range.clone()) {
+                                    break Some(pick);
+                                }
+                                let Some(pin) = pins.get(&(k.clone(), range)) else {
+                                    break Some(pick);
+                                };
+                                reqs.extend(pin.reqs.iter().cloned());
+                                wanted.extend(pin.features.iter().cloned());
+                            };
+                            let chosen = chosen.with_context(|| {
                                 let by = requested_by
                                     .get(&k)
                                     .map(|p| format!(" (required by {p})"))
