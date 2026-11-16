@@ -38,7 +38,9 @@ struct Node {
     enabled: BTreeSet<String>,
     activated: HashSet<String>,
     requested: HashSet<String>,
-    dependencies: BTreeSet<String>,
+    /// `(package, requirement)` per edge: one package may depend on two versions of a
+    /// crate under two names (serde_with: `schemars` 0.9 and 1), and each must stay.
+    dependencies: BTreeSet<(String, String)>,
 }
 
 impl Node {
@@ -49,8 +51,8 @@ impl Node {
             .filter(|d| d.kind.as_deref() != Some("dev"))
             .cloned()
             .collect();
-        let explicit: HashSet<String> = entry
-            .features
+        let features = all_features(entry);
+        let explicit: HashSet<String> = features
             .values()
             .flatten()
             .filter_map(|v| v.strip_prefix("dep:").map(str::to_string))
@@ -66,7 +68,7 @@ impl Node {
             source: Some(source.to_string()),
             checksum: entry.cksum.clone(),
             deps,
-            features: entry.features.clone(),
+            features,
             implicit,
             enabled: BTreeSet::new(),
             activated: HashSet::new(),
@@ -88,7 +90,12 @@ impl Node {
             enabled: BTreeSet::new(),
             activated: HashSet::new(),
             requested: HashSet::new(),
-            dependencies: pkg.dependencies.iter().cloned().collect(),
+            // Already written as lock entries ("name" or "name version").
+            dependencies: pkg
+                .dependencies
+                .iter()
+                .map(|d| (d.clone(), String::new()))
+                .collect(),
         }
     }
 
@@ -165,17 +172,72 @@ fn same_compat_range(a: &str, b: &str) -> bool {
     }
 }
 
+/// The feature table crates.io publishes in two parts: `features2` holds the ones that use
+/// `dep:` or `?/` syntax, which older Cargo versions could not read.
+fn all_features(entry: &SparseIndexEntry) -> HashMap<String, Vec<String>> {
+    let mut features = entry.features.clone();
+    for (name, values) in &entry.features2 {
+        features
+            .entry(name.clone())
+            .or_default()
+            .extend(values.iter().cloned());
+    }
+    features
+}
+
+/// Whether `entry` offers every feature in `wanted`: a declared feature, or the implicit
+/// feature of an optional dependency that no `dep:` entry hides. Cargo skips a version
+/// that lacks a requested feature (rsa 0.10.0 dropped `sha2`, which crypto-glue asks for).
+fn has_features(entry: &SparseIndexEntry, wanted: &[String]) -> bool {
+    if wanted.is_empty() {
+        return true;
+    }
+    let features = all_features(entry);
+    let hidden: HashSet<&str> = features
+        .values()
+        .flatten()
+        .filter_map(|v| v.strip_prefix("dep:"))
+        .collect();
+    wanted.iter().all(|f| {
+        f == "default"
+            || features.contains_key(f)
+            || entry
+                .deps
+                .iter()
+                .any(|d| d.optional && d.name == *f && !hidden.contains(f.as_str()))
+    })
+}
+
+/// The version for `reqs`: a version the existing lock pins (`preferred`) when one still
+/// satisfies them, even if yanked since, as Cargo keeps it; otherwise the highest
+/// non-yanked one. Either way it must offer the requested `features`.
 fn pick_version<'a>(
     entries: &'a [SparseIndexEntry],
     reqs: &[String],
+    features: &[String],
+    preferred: &[String],
 ) -> Option<&'a SparseIndexEntry> {
     let parsed: Vec<VersionReq> = reqs.iter().map(|r| req_of(r)).collect();
+    let fits = |e: &SparseIndexEntry, v: &Version| {
+        parsed.iter().all(|r| r.matches(v)) && has_features(e, features)
+    };
     let mut best: Option<(&SparseIndexEntry, Version)> = None;
+    for e in entries.iter().filter(|e| preferred.contains(&e.vers)) {
+        let Ok(v) = Version::parse(&e.vers) else {
+            continue;
+        };
+        if fits(e, &v) && best.as_ref().is_none_or(|(_, bv)| v > *bv) {
+            best = Some((e, v));
+        }
+    }
+    if best.is_some() {
+        return best.map(|(e, _)| e);
+    }
     for e in entries.iter().filter(|e| !e.yanked) {
         let Ok(v) = Version::parse(&e.vers) else {
             continue;
         };
-        if parsed.iter().all(|r| r.matches(&v)) && best.as_ref().is_none_or(|(_, bv)| v > *bv) {
+        if fits(e, &v) && best.as_ref().is_none_or(|(_, bv)| v > *bv) {
             best = Some((e, v));
         }
     }
@@ -211,6 +273,7 @@ impl NativeResolver {
     ) -> Result<std::result::Result<CargoLock, (Key, String)>> {
         let patches = self.patches.lock().unwrap().clone();
         let config = self.config.lock().unwrap().clone();
+        let preferred = self.preferred.lock().unwrap().clone();
         let mut git = GitResolver::for_cache_dir(self.cache_dir.as_deref(), config.clone());
         let mut nodes: Vec<Node> = Vec::new();
         let mut by_key: HashMap<Key, Vec<usize>> = HashMap::new();
@@ -288,7 +351,9 @@ impl NativeResolver {
                             let entries = &index_cache[&k];
                             let mut reqs = vec![r.req.clone()];
                             reqs.extend(pins.get(&k).cloned().unwrap_or_default());
-                            let chosen = pick_version(entries, &reqs).with_context(|| {
+                            let locked = preferred.get(&k).cloned().unwrap_or_default();
+                            let chosen = pick_version(entries, &reqs, &r.features, &locked)
+                                .with_context(|| {
                                 let by = requested_by
                                     .get(&k)
                                     .map(|p| format!(" (required by {p})"))
@@ -332,7 +397,9 @@ impl NativeResolver {
                         .as_deref()
                         .map(index_to_lock_source)
                         .unwrap_or_else(|| parent_source.clone());
-                    nodes[idx].dependencies.insert(pkg_name.clone());
+                    nodes[idx]
+                        .dependencies
+                        .insert((pkg_name.clone(), d.req.clone()));
                     requested_by
                         .entry((source.clone(), pkg_name.clone()))
                         .or_insert_with(|| parent.clone());
@@ -365,18 +432,23 @@ impl NativeResolver {
                 .or_default()
                 .push(p.version.clone());
         }
-        let qualify = |n: &Node, dep: &str| -> String {
+        let qualify = |n: &Node, (dep, edge_req): &(String, String)| -> String {
+            let dep = dep.as_str();
             if dep.contains(' ') {
                 return dep.to_string();
             }
             let Some(versions) = versions_by_name.get(dep).filter(|v| v.len() > 1) else {
                 return dep.to_string();
             };
-            let req = n
-                .deps
-                .iter()
-                .find(|d| d.package.as_deref().unwrap_or(&d.name) == dep)
-                .and_then(|d| semver::VersionReq::parse(&d.req).ok());
+            // The edge's own requirement; an opaque node's edges carry none.
+            let req = if edge_req.is_empty() {
+                n.deps
+                    .iter()
+                    .find(|d| d.package.as_deref().unwrap_or(&d.name) == dep)
+                    .and_then(|d| semver::VersionReq::parse(&d.req).ok())
+            } else {
+                semver::VersionReq::parse(edge_req).ok()
+            };
             let Some(req) = req else {
                 return dep.to_string();
             };
@@ -396,7 +468,14 @@ impl NativeResolver {
                 version: n.version.clone(),
                 source: n.source.clone(),
                 checksum: (!n.checksum.is_empty()).then_some(n.checksum.clone()),
-                dependencies: n.dependencies.iter().map(|d| qualify(n, d)).collect(),
+                // Two edges to one version (a normal and a build dependency) are one entry.
+                dependencies: n
+                    .dependencies
+                    .iter()
+                    .map(|d| qualify(n, d))
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
             })
             .collect();
         for p in extra {
@@ -486,3 +565,7 @@ mod tests {
         assert_eq!(lowest_bound("*"), "0.0.0");
     }
 }
+
+#[cfg(test)]
+#[path = "resolve_graph_pick_tests.rs"]
+mod pick_tests;

@@ -105,7 +105,7 @@ fn registry() -> String {
     );
     routes.insert(
         format!("/index/{}", index_path("extra")),
-        entry("extra", &[], "{}", &extra_sum),
+        entry("extra", &[], "{\"std\":[]}", &extra_sum),
     );
     routes.insert(
         format!("/index/{}", index_path("unused")),

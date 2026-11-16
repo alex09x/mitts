@@ -185,6 +185,7 @@ fn prepare(args: &PackageArgs) -> Result<(serde_json::Value, Vec<u8>)> {
             crate::adapter::rust::resolver::NativeResolver::for_cache_dir(
                 args.cache_dir.as_deref(),
             )?
+            .prefer_locked(&lock)
             .resolve_manifest(&manifest, args.offline || args.frozen)?
             .to_string_formatted()
             .into_bytes()
@@ -193,9 +194,11 @@ fn prepare(args: &PackageArgs) -> Result<(serde_json::Value, Vec<u8>)> {
         } else {
             // A workspace member's archive carries a lock of its own graph, not the
             // workspace's (which lists sibling path packages the archive does not contain).
+            // The workspace lock's versions are kept where they fit, as Cargo does.
             crate::adapter::rust::resolver::NativeResolver::for_cache_dir(
                 args.cache_dir.as_deref(),
             )?
+            .prefer_locked(&lock)
             .resolve_manifest(&manifest, args.offline || args.frozen)?
             .to_string_formatted()
             .into_bytes()

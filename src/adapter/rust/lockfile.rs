@@ -296,12 +296,14 @@ impl CargoLock {
             .context("Manifest path has no parent directory")?;
         let lock_path = manifest_dir.join("Cargo.lock");
 
+        let mut previous = None;
         if lock_path.is_file() {
             // An unreadable lock is regenerated; a broken manifest is reported.
             if let Ok(lock) = Self::from_file(&lock_path) {
                 if lock.validate_manifest_compatibility(manifest_path)? {
                     return Ok(lock);
                 }
+                previous = Some(lock);
             }
         }
 
@@ -310,9 +312,18 @@ impl CargoLock {
             bail!("Cargo.lock is missing or incompatible and {mode} was specified");
         }
 
-        // Sync-path: standalone native resolution via crates.io sparse index
-        let resolver = super::resolver::NativeResolver::for_cache_dir(cache_dir)?;
-        let lock = resolver.resolve_manifest(manifest_path, offline)?;
+        // Sync-path: standalone native resolution via crates.io sparse index. An update
+        // keeps the versions the old lock pins where they still fit, and its format
+        // version, as Cargo does (issue 140: a new dependency bumped unrelated packages and
+        // rewrote `version = 4` as 3).
+        let mut resolver = super::resolver::NativeResolver::for_cache_dir(cache_dir)?;
+        if let Some(previous) = &previous {
+            resolver = resolver.prefer_locked(previous);
+        }
+        let mut lock = resolver.resolve_manifest(manifest_path, offline)?;
+        if let Some(previous) = &previous {
+            lock.version = lock.version.max(previous.version);
+        }
         let _ = lock.write_to_file(&lock_path);
         Ok(lock)
     }
