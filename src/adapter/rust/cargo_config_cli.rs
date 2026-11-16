@@ -39,7 +39,9 @@ pub fn set(values: &[String]) -> Result<()> {
     let prepared = prepare(values)?;
     *OVERRIDES.write().unwrap_or_else(|e| e.into_inner()) = prepared;
     super::cargo_config::clear_config_env_cache();
-    Ok(())
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    super::cargo_config_tools::refresh(&cwd)?;
+    super::http_client::refresh(&cwd)
 }
 
 /// Checks the values and writes the inline ones to scratch files, without installing them.

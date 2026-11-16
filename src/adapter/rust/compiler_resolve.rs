@@ -227,6 +227,9 @@ pub fn resolve_rustc() -> PathBuf {
     if let Some(p) = std::env::var_os("RUSTC").filter(|v| !v.is_empty()) {
         return PathBuf::from(p);
     }
+    if let Some(p) = super::cargo_config_tools::rustc() {
+        return p;
+    }
     RESOLVED_RUSTC
         .get_or_init(|| {
             let home_cargo_rustup = std::env::var("HOME")
@@ -297,8 +300,11 @@ pub fn resolve_clippy_driver() -> PathBuf {
 }
 
 pub fn resolve_rustdoc() -> PathBuf {
-    if let Ok(p) = std::env::var("RUSTDOC") {
+    if let Some(p) = std::env::var_os("RUSTDOC").filter(|v| !v.is_empty()) {
         return PathBuf::from(p);
+    }
+    if let Some(p) = super::cargo_config_tools::rustdoc() {
+        return p;
     }
     RESOLVED_RUSTDOC
         .get_or_init(|| {

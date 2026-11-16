@@ -94,10 +94,13 @@ pub fn doctest_command(rustdoc: &Path, inv: &DoctestInvocation, args: &TestArgs)
     for dir in &inv.native_search {
         cmd.arg("-L").arg(dir);
     }
-    if let Ok(flags) = std::env::var("RUSTDOCFLAGS") {
-        for arg in flags.split_whitespace() {
-            cmd.arg(arg);
+    // Doctests are compiled for the host here.
+    let host = crate::adapter::rust::compiler_resolve::resolve_host_triple();
+    match crate::adapter::rust::cargo_config_tools::rustdocflags(&inv.package_dir, host) {
+        Ok(flags) => {
+            cmd.args(flags);
         }
+        Err(error) => eprintln!("mitts warning: {error:#}"),
     }
     for runner_arg in doctest_runner_args(args) {
         cmd.arg("--test-args").arg(runner_arg);

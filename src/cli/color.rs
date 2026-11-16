@@ -21,17 +21,20 @@ pub enum ColorWhen {
 }
 
 impl ColorWhen {
-    /// `--color`, else Cargo's `CARGO_TERM_COLOR`, else `auto`.
+    /// `--color`, else Cargo's `term.color` (`--config`, `CARGO_TERM_COLOR`, then
+    /// `.cargo/config.toml`), else `auto`.
     pub fn resolve(flag: Option<ColorWhen>) -> ColorWhen {
         flag.or_else(|| {
-            std::env::var("CARGO_TERM_COLOR").ok().and_then(|value| {
-                match value.trim().to_ascii_lowercase().as_str() {
-                    "always" => Some(ColorWhen::Always),
-                    "never" => Some(ColorWhen::Never),
-                    "auto" => Some(ColorWhen::Auto),
-                    _ => None,
-                }
-            })
+            let cwd = std::env::current_dir().ok()?;
+            let value = crate::adapter::rust::cargo_config_value::get(&cwd, "term.color")
+                .ok()
+                .flatten()?;
+            match value.as_str().ok()?.trim().to_ascii_lowercase().as_str() {
+                "always" => Some(ColorWhen::Always),
+                "never" => Some(ColorWhen::Never),
+                "auto" => Some(ColorWhen::Auto),
+                _ => None,
+            }
         })
         .unwrap_or(ColorWhen::Auto)
     }

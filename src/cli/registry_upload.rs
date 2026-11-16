@@ -29,7 +29,9 @@ fn upload_to(url: &str, metadata: &Value, archive: &[u8], token: &str) -> Result
     }
     let mut body = Vec::new();
     write_publish_body(&mut body, metadata, archive)?;
-    let agent = ureq::AgentBuilder::new().redirects(0).build();
+    let agent = crate::adapter::rust::http_client::upload_agent_builder()
+        .redirects(0)
+        .build();
     let response = agent
         .put(url)
         .set("Authorization", token)

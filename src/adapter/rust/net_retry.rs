@@ -24,10 +24,12 @@ use std::time::Duration;
 const DEFAULT_RETRIES: usize = 3;
 const DELAY_STEPS: [u64; 3] = [1, 3, 5];
 
+/// `MITTS_NET_RETRY`, else Cargo's `net.retry` / `CARGO_NET_RETRY`, else 3.
 fn retries() -> usize {
     std::env::var("MITTS_NET_RETRY")
         .ok()
         .and_then(|value| value.trim().parse().ok())
+        .or_else(super::cargo_config_tools::retry)
         .unwrap_or(DEFAULT_RETRIES)
 }
 

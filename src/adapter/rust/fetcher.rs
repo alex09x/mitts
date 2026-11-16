@@ -53,9 +53,7 @@ pub struct CrateFetcher {
 impl CrateFetcher {
     /// Creates a new CrateFetcher backed by the given SourceStore.
     pub fn new(store: SourceStore) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30))
+        let agent = super::http_client::agent_builder()
             .max_idle_connections(128)
             .max_idle_connections_per_host(128)
             .build();
