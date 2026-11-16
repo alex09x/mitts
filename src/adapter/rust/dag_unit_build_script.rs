@@ -93,6 +93,20 @@ pub(crate) fn run_build_script_if_needed<'a>(
     if !super::unit_env::unit_has_build_script(unit) {
         return Ok((None, None, None, None));
     }
+    // `target.<triple>.<links>` replaces the script: nothing to compile or run.
+    let config_dir = unit
+        .workspace_root
+        .as_deref()
+        .map(super::cargo_config::resolve_config_start_dir)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    if let Some(directives) = super::build_script_override::directives_for(
+        unit,
+        ctx.opt.target_triple.as_deref(),
+        &config_dir,
+    )? {
+        register_directives_in_ctx(unit, &directives, ctx);
+        return Ok((Some(directives), None, None, None));
+    }
 
     let extern_crates = super::dag_unit_externs::resolve_extern_crates_for_build_script(
         unit,

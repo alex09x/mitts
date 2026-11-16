@@ -113,9 +113,7 @@ impl SparseIndexClient {
     /// Custom cache directory for tests or isolated environments.
     pub fn with_cache_dir(cache_dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&cache_dir)?;
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30))
+        let agent = super::http_client::agent_builder()
             .max_idle_connections(64)
             .max_idle_connections_per_host(64)
             .build();

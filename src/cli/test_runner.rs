@@ -17,7 +17,6 @@ use super::test::TestArgs;
 use crate::cli::ui::Ui;
 use crate::core::action::BuildPlan;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Executes all discovered test binaries sequentially and returns the final exit code.
 pub fn execute_test_binaries(
@@ -138,7 +137,17 @@ pub fn execute_test_binaries_with_plan(
             root_dir.to_path_buf()
         };
 
-        let mut cmd = Command::new(&abs_bin);
+        let mut cmd = match crate::adapter::rust::cargo_config_runner::command(
+            &abs_bin,
+            root_dir,
+            args.target.as_deref(),
+        ) {
+            Ok(cmd) => cmd,
+            Err(error) => {
+                eprintln!("error: {error:#}");
+                return 101;
+            }
+        };
         cmd.current_dir(&work_dir);
         crate::adapter::rust::unit_env::apply_runtime_execution_env(
             &mut cmd,

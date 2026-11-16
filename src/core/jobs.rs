@@ -14,9 +14,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// `-j/--jobs N` from the command line; zero means unset. It wins over `MITTS_JOBS`.
 static FLAG_LIMIT: AtomicUsize = AtomicUsize::new(0);
 
+/// The language's own build configuration (Cargo's `build.jobs`); zero means unset. Below
+/// `-j` and `MITTS_JOBS`, above the number of CPUs.
+static CONFIG_LIMIT: AtomicUsize = AtomicUsize::new(0);
+
 /// Records the limit given by `-j/--jobs`. Zero clears it.
 pub fn set_flag_limit(jobs: usize) {
     FLAG_LIMIT.store(jobs, Ordering::Relaxed);
+}
+
+/// Records the limit from the build configuration. Zero clears it.
+pub fn set_config_limit(jobs: usize) {
+    CONFIG_LIMIT.store(jobs, Ordering::Relaxed);
+}
+
+pub fn cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(8)
 }
 
 pub fn limit() -> Result<usize> {
@@ -31,7 +46,9 @@ pub fn limit() -> Result<usize> {
             _ => bail!("MITTS_JOBS must be a positive integer"),
         };
     }
-    Ok(std::thread::available_parallelism()
-        .map(|value| value.get())
-        .unwrap_or(8))
+    let config = CONFIG_LIMIT.load(Ordering::Relaxed);
+    if config > 0 {
+        return Ok(config);
+    }
+    Ok(cpus())
 }
