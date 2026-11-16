@@ -182,18 +182,17 @@ impl CargoLock {
                 return Ok(false);
             }
             let root_dir = manifest_path.parent().unwrap_or(Path::new("."));
-            // A member that cannot be read is left to the full resolve, which reports it.
-            let Ok(members) = toml.discover_workspace_members(root_dir) else {
-                return Ok(false);
-            };
+            // A broken member (bad manifest, duplicate name, bad pattern) is an error here:
+            // calling the lock stale would hide it behind "--locked: incompatible", or let a
+            // resolve without that member overwrite Cargo.lock.
+            let members = toml.discover_workspace_members(root_dir)?;
             for (_, dir) in members {
                 let member_manifest = dir.join("Cargo.toml");
                 if member_manifest == manifest_path {
                     continue;
                 }
-                let Ok(member) = super::manifest::CargoToml::from_file(&member_manifest) else {
-                    return Ok(false);
-                };
+                let member = super::manifest::CargoToml::from_file(&member_manifest)
+                    .with_context(|| format!("workspace member {}", member_manifest.display()))?;
                 if !self.manifest_dependencies_locked(&member) {
                     return Ok(false);
                 }
@@ -298,11 +297,9 @@ impl CargoLock {
         let lock_path = manifest_dir.join("Cargo.lock");
 
         if lock_path.is_file() {
+            // An unreadable lock is regenerated; a broken manifest is reported.
             if let Ok(lock) = Self::from_file(&lock_path) {
-                if lock
-                    .validate_manifest_compatibility(manifest_path)
-                    .unwrap_or(false)
-                {
+                if lock.validate_manifest_compatibility(manifest_path)? {
                     return Ok(lock);
                 }
             }

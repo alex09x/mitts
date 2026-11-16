@@ -114,3 +114,43 @@ fn a_new_dev_dependency_of_a_workspace_member_needs_a_resolve() {
         "the member's new dev-dependency is not locked"
     );
 }
+
+#[test]
+fn a_broken_member_is_an_error_not_a_stale_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = manifest(
+        dir.path(),
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"app\"]\nresolver = \"2\"\n",
+    );
+    manifest(dir.path(), "app/Cargo.toml", "[package\nname = ");
+    let result = CargoLock::parse(LOCK)
+        .unwrap()
+        .validate_manifest_compatibility(&root);
+    let error = format!("{:#}", result.unwrap_err());
+    assert!(error.contains("app"), "{error}");
+}
+
+#[test]
+fn an_inherited_workspace_dependency_is_checked_by_its_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = manifest(
+        dir.path(),
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"app\"]\nresolver = \"2\"\n\n[workspace.dependencies]\nitoa = \"1\"\n",
+    );
+    manifest(
+        dir.path(),
+        "app/Cargo.toml",
+        &format!("{PKG}\n[dev-dependencies]\nitoa = {{ workspace = true }}\n"),
+    );
+    manifest(dir.path(), "app/src/lib.rs", "");
+    assert!(compatible(&root));
+
+    manifest(
+        dir.path(),
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"app\"]\nresolver = \"2\"\n\n[workspace.dependencies]\nitoa = \"2\"\n",
+    );
+    assert!(!compatible(&root), "itoa 2 is required, 1.0.11 is locked");
+}
