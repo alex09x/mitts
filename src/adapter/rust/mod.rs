@@ -16,6 +16,7 @@ pub mod build_script_env;
 pub mod build_script_keys;
 pub mod build_script_override;
 pub mod build_script_purity;
+pub mod build_script_tool_env;
 pub mod builder;
 pub mod cargo_config;
 pub mod cargo_config_cli;

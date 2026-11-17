@@ -351,6 +351,32 @@ impl BuildScriptDirectives {
 static TARGET_CFGS: std::sync::Mutex<Option<HashMap<String, HashMap<String, String>>>> =
     std::sync::Mutex::new(None);
 
+/// `CARGO_CFG_*` variables from `rustc --print cfg` output: a repeated key such as
+/// `target_feature` joins its values with commas, a bare name gets an empty value.
+pub fn parse_cfg_lines(stdout: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            let key = format!("CARGO_CFG_{}", k.trim().to_ascii_uppercase());
+            let val = v.trim().trim_matches('"');
+            map.entry(key)
+                .and_modify(|existing: &mut String| {
+                    existing.push(',');
+                    existing.push_str(val);
+                })
+                .or_insert_with(|| val.to_string());
+        } else {
+            let key = format!("CARGO_CFG_{}", line.to_ascii_uppercase());
+            map.entry(key).or_insert_with(String::new);
+        }
+    }
+    map
+}
+
 /// Queries `rustc --print cfg` for the specified target and formats standard `CARGO_CFG_*` environment variables.
 pub fn get_target_cfgs(target: &str) -> HashMap<String, String> {
     if let Ok(mut lock) = TARGET_CFGS.lock() {
@@ -358,30 +384,11 @@ pub fn get_target_cfgs(target: &str) -> HashMap<String, String> {
         if let Some(cfgs) = cache.get(target) {
             return cfgs.clone();
         }
-        let mut map = HashMap::new();
         let rustc = crate::adapter::rust::compiler::resolve_rustc();
         let explicit = (target != "host").then_some(target);
-        if let Ok(stdout) = super::toolchain_probes::rustc_print_cfg(&rustc, explicit) {
-            for line in stdout.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                if let Some((k, v)) = line.split_once('=') {
-                    let key = format!("CARGO_CFG_{}", k.trim().to_ascii_uppercase());
-                    let val = v.trim().trim_matches('"');
-                    map.entry(key)
-                        .and_modify(|existing: &mut String| {
-                            existing.push(',');
-                            existing.push_str(val);
-                        })
-                        .or_insert_with(|| val.to_string());
-                } else {
-                    let key = format!("CARGO_CFG_{}", line.to_ascii_uppercase());
-                    map.entry(key).or_insert_with(String::new);
-                }
-            }
-        }
+        let map = super::toolchain_probes::rustc_print_cfg(&rustc, explicit)
+            .map(|stdout| parse_cfg_lines(&stdout))
+            .unwrap_or_default();
         cache.insert(target.to_string(), map.clone());
         map
     } else {

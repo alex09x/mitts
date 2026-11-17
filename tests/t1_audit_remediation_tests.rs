@@ -421,7 +421,10 @@ fn test_b6_non_registry_build_script_key_and_n2_cas_tmp_purity() {
         &build_rs,
         false,
         &[],
-        "x86_64-unknown-linux-gnu",
+        &mitts::adapter::rust::build_script_tool_env::script_platform(
+            &unit,
+            Some("x86_64-unknown-linux-gnu"),
+        ),
         None,
         &[],
     )
@@ -433,7 +436,10 @@ fn test_b6_non_registry_build_script_key_and_n2_cas_tmp_purity() {
         &build_rs,
         false,
         &[],
-        "x86_64-unknown-linux-gnu",
+        &mitts::adapter::rust::build_script_tool_env::script_platform(
+            &unit,
+            Some("x86_64-unknown-linux-gnu"),
+        ),
         None,
         &[],
     )
