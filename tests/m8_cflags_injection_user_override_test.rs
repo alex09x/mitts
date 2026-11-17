@@ -10,6 +10,7 @@
 
 use mitts::adapter::rust::build_script::execute_build_script;
 use mitts::adapter::rust::build_script_env::configure_build_script_run_cmd;
+use mitts::adapter::rust::build_script_tool_env::script_platform;
 use mitts::adapter::rust::manifest::CargoToml;
 use mitts::adapter::rust::types::PlannedCompilationUnit;
 use std::collections::HashMap;
@@ -67,7 +68,7 @@ fn test_m8_cflags_user_override_preserved_without_shadowing() {
         &unit,
         &pkg_toml,
         &out_dir,
-        target,
+        &script_platform(&unit, Some(target)),
         false,
         &[],
         Some(&extra_env),
@@ -114,7 +115,7 @@ fn test_m8_cflags_user_override_preserved_without_shadowing() {
         &unit,
         &pkg_toml,
         &out_dir,
-        msvc_target,
+        &script_platform(&unit, Some(msvc_target)),
         false,
         &[],
         Some(&extra_env),
@@ -143,7 +144,7 @@ fn test_m8_cflags_user_override_preserved_without_shadowing() {
         &unit,
         &pkg_toml,
         &space_out,
-        target,
+        &script_platform(&unit, Some(target)),
         false,
         &[],
         Some(&extra_env),

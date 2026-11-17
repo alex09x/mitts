@@ -22,7 +22,7 @@ pub fn configure_build_script_run_cmd(
     unit: &PlannedCompilationUnit,
     pkg_toml: &CargoToml,
     out_dir: &Path,
-    target: &str,
+    platform: &super::build_script_tool_env::ScriptPlatform,
     release: bool,
     features: &[String],
     extra_env: Option<&HashMap<String, String>>,
@@ -74,13 +74,14 @@ pub fn configure_build_script_run_cmd(
         })
         .env("CARGO_MANIFEST_PATH", &unit.manifest_path)
         .env("OUT_DIR", out_dir)
-        .env("TARGET", target)
         .env("NUM_JOBS", &num_jobs)
         .env("PROFILE", if release { "release" } else { "debug" })
         .env("OPT_LEVEL", &opt_level)
         .env("DEBUG", if debug { "true" } else { "false" });
-    // HOST, RUSTC, RUSTDOC, RUSTC_LINKER, wrappers, CARGO_ENCODED_RUSTFLAGS, CARGO_CFG_*.
-    run_cmd.envs(super::build_script_tool_env::tool_env(unit, target));
+    // TARGET, HOST, RUSTC, RUSTDOC, RUSTC_LINKER, wrappers, CARGO_ENCODED_RUSTFLAGS,
+    // CARGO_CFG_*.
+    run_cmd.envs(super::build_script_tool_env::tool_env(unit, platform));
+    let target = platform.target.as_str();
 
     if let Some(ref links) = pkg_toml.package.as_ref().and_then(|p| p.links.as_ref()) {
         run_cmd.env("CARGO_MANIFEST_LINKS", links);

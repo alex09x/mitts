@@ -179,3 +179,54 @@ fn changed_rustflags_run_the_script_again() {
     );
     assert!(build_and_run(root).starts_with("flags=[--cfg second]"));
 }
+
+/// An overridden rustdoc counts by its version: a script that reads `$RUSTDOC -V` runs again
+/// when the override changes, while the rustdoc path itself stays out of the key.
+#[cfg(unix)]
+#[test]
+fn a_changed_rustdoc_override_runs_the_script_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    write_file(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"docprobe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write_file(
+        root.join("build.rs"),
+        "fn main() {\n\
+         let out = std::process::Command::new(std::env::var(\"RUSTDOC\").unwrap())\n\
+             .arg(\"-V\").output().unwrap();\n\
+         println!(\"cargo:rustc-env=SEEN_DOC={}\", String::from_utf8_lossy(&out.stdout).trim());\n}\n",
+    );
+    write_file(
+        root.join("src/main.rs"),
+        "fn main() { println!(\"{}\", env!(\"SEEN_DOC\")); }\n",
+    );
+    let fake = root.join("fake-rustdoc");
+    let run_with = |version: &str| {
+        write_file(&fake, &format!("#!/bin/sh\necho \"rustdoc {version}\"\n"));
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
+        cmd.args(["build", "-q", "--cache-dir"])
+            .arg(root.join("mitts-cache"))
+            .current_dir(root)
+            .env_remove("MITTS_CACHE_DIR")
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_ENCODED_RUSTFLAGS")
+            .env_remove("RUSTFLAGS")
+            .env("RUSTDOC", &fake);
+        let out = cmd.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(root.join("target/debug/docprobe"))
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&run.stdout).trim().to_string()
+    };
+    assert_eq!(run_with("1.0.0"), "rustdoc 1.0.0");
+    assert_eq!(run_with("2.0.0"), "rustdoc 2.0.0");
+}

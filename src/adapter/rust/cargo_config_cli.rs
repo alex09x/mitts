@@ -39,6 +39,7 @@ pub fn set(values: &[String]) -> Result<()> {
     let prepared = prepare(values)?;
     *OVERRIDES.write().unwrap_or_else(|e| e.into_inner()) = prepared;
     super::cargo_config::clear_config_env_cache();
+    super::build_script_tool_env::clear_cache();
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     super::cargo_config_tools::refresh(&cwd)?;
     super::http_client::refresh(&cwd)
@@ -169,6 +170,7 @@ pub fn cleanup() {
     overrides.stamp.clear();
     drop(overrides);
     super::cargo_config::clear_config_env_cache();
+    super::build_script_tool_env::clear_cache();
 }
 
 #[cfg(test)]

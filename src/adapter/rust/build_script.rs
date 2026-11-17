@@ -77,9 +77,7 @@ pub(crate) fn try_restore_build_script_with_key(
         return Ok((Some(BuildScriptDirectives::default()), None));
     };
 
-    let target = target_triple
-        .map(str::to_string)
-        .unwrap_or_else(detect_default_target_triple);
+    let platform = super::build_script_tool_env::script_platform(unit, target_triple);
     let clean_crate = unit.package_name.replace('-', "_");
     let profile_name = &crate::adapter::rust::profile::profile_dir(release);
 
@@ -88,7 +86,7 @@ pub(crate) fn try_restore_build_script_with_key(
         &build_rs,
         release,
         features,
-        &target,
+        &platform,
         extra_env,
         extern_crates,
     )?;
@@ -163,6 +161,7 @@ pub(crate) fn execute_build_script_with_key(
     let target = target_triple
         .map(str::to_string)
         .unwrap_or_else(detect_default_target_triple);
+    let platform = super::build_script_tool_env::script_platform(unit, target_triple);
     let clean_crate = unit.package_name.replace('-', "_");
     let profile_name = &crate::adapter::rust::profile::profile_dir(release);
 
@@ -191,7 +190,7 @@ pub(crate) fn execute_build_script_with_key(
                         &build_rs,
                         release,
                         features,
-                        &target,
+                        &platform,
                         extra_env,
                         extern_crates,
                     )?,
@@ -239,7 +238,7 @@ pub(crate) fn execute_build_script_with_key(
     let script_inputs = collect_script_inputs(&bin_path.with_extension("d"), pkg_dir, extra_env);
 
     let mut run_cmd = super::build_script_env::configure_build_script_run_cmd(
-        &bin_path, pkg_dir, unit, &pkg_toml, &out_dir, &target, release, features, extra_env,
+        &bin_path, pkg_dir, unit, &pkg_toml, &out_dir, &platform, release, features, extra_env,
     );
 
     let verbosity = crate::core::verbosity::level();
