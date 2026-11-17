@@ -30,7 +30,7 @@ pub fn compute_build_script_key(
     extern_crates: &[(String, PathBuf)],
 ) -> Result<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v8:");
+    hasher.update(b"build_script_v9:");
     hasher.update(format!(":jobs={}:", crate::core::jobs::limit()?).as_bytes());
     hasher.update(unit.package_id.as_bytes());
     hasher.update(b":");
@@ -85,6 +85,10 @@ pub fn compute_build_script_key(
         .as_bytes(),
     );
     hasher.update(target.as_bytes());
+    // What the script sees of the toolchain beyond the target and the rustc version.
+    for (name, value) in super::build_script_tool_env::key_inputs(unit, target) {
+        hasher.update(format!(":tool_env:{name}={value}").as_bytes());
+    }
     hasher.update(b":rustc:");
     let verbose_rustc = get_rustc_verbose_version()?;
     hasher.update(verbose_rustc.as_bytes());

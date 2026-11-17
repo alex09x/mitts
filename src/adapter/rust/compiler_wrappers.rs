@@ -136,7 +136,7 @@ pub fn format_wrapper_identities_stamp(identities: &[WrapperIdentity]) -> Option
     ))
 }
 
-fn configured_wrappers_with_slots(
+pub(crate) fn configured_wrappers_with_slots(
     start_dir: &Path,
     workspace: bool,
 ) -> Result<Vec<(&'static str, OsString)>> {
