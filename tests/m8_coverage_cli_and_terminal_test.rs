@@ -12,9 +12,21 @@ use mitts::adapter::rust::inputs::hash_package_base_inputs;
 use mitts::cli::coverage::{handle_coverage, CoverageArgs};
 use mitts::cli::test::{handle_test, TestArgs};
 use std::fs;
+use std::sync::Mutex;
+
+/// `HOME` and `CARGO_HOME` are process-wide: the home-config test rewrites them while the
+/// coverage tests read the Cargo configuration, so the tests of this file take turns.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[test]
 fn test_m8_coverage_html_lcov_and_threshold_pass() {
+    let _env = env_lock();
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -78,6 +90,7 @@ path = "tests/sample.rs"
 
 #[test]
 fn test_m8_test_and_coverage_no_tests_found() {
+    let _env = env_lock();
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -115,6 +128,7 @@ edition = "2021"
 
 #[test]
 fn test_m8_inputs_home_cargo_config_without_cargo_home() {
+    let _env = env_lock();
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -133,14 +147,20 @@ fn test_m8_inputs_home_cargo_config_without_cargo_home() {
 
     // Temporarily unset CARGO_HOME and set HOME
     let prev_cargo_home = std::env::var_os("CARGO_HOME");
+    let prev_home = std::env::var_os("HOME");
     std::env::remove_var("CARGO_HOME");
     std::env::set_var("HOME", root.join("home").display().to_string());
 
     let res = hash_package_base_inputs(&pkg_dir, None, false);
 
-    // Restore CARGO_HOME
+    // Restore both: a `HOME` left pointing into the deleted temp dir broke the coverage tests
+    // that read the Cargo configuration afterwards.
     if let Some(v) = prev_cargo_home {
         std::env::set_var("CARGO_HOME", v);
+    }
+    match prev_home {
+        Some(v) => std::env::set_var("HOME", v),
+        None => std::env::remove_var("HOME"),
     }
 
     assert!(res.is_ok());

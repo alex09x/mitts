@@ -11,7 +11,6 @@
 use super::features::{resolve_package_features_with_resolver, PackageFeatureContext};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::CargoToml;
-use super::package_selection::select_transitive_packages;
 use super::types::{EffectivePlanExplanation, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use anyhow::{Context, Result};
@@ -236,13 +235,18 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let t_lockfile = std::time::Instant::now();
     let s_lockfile = super::compiler_resolve::rustc_subproc_stats();
 
-    // Select root packages and collect all reachable transitive dependencies
-    let selected_packages = select_transitive_packages(
+    // Select root packages and collect all reachable transitive dependencies. Resolver 1 reads
+    // features through every dependency a member declares, dev-dependencies and other
+    // platforms' included, so their manifests are selected too; the feature resolver still
+    // activates (builds) only what the build reaches.
+    let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml)?;
+    let selected_packages = super::package_selection::select_packages(
         &lockfile,
         &workspace_manifests,
         &root_toml,
         project_dir,
         opt,
+        ws_resolver == "1",
     )?;
     let t_select = std::time::Instant::now();
     let s_select = super::compiler_resolve::rustc_subproc_stats();
@@ -278,7 +282,6 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             dependencies: &pkg.dependencies,
         })
         .collect();
-    let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml)?;
     let package_features =
         resolve_package_features_with_resolver(&feature_inputs, opt, Some(&ws_resolver))?;
     let t_features = std::time::Instant::now();
@@ -313,6 +316,21 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     crate::adapter::rust::planner_roots::prune_plan_root_units(&mut units, opt, has_all_ws);
+    // A build of selected workspace packages that plans none of them is a planner defect, not
+    // an empty build: report it instead of finishing "successfully" with nothing compiled.
+    if opt.mode == super::types::BuildMode::Build
+        && !primary_roots.is_empty()
+        && !units.iter().any(|u| u.is_primary)
+    {
+        anyhow::bail!(
+            "the build plan has no unit of the selected workspace packages {:?}",
+            {
+                let mut names: Vec<&String> = primary_roots.iter().collect();
+                names.sort();
+                names
+            }
+        );
+    }
     let selected: Vec<super::target_validation::SelectedPackage<'_>> = workspace_manifests
         .iter()
         .filter(|(name, _)| primary_roots.contains(name.as_str()))

@@ -18,6 +18,7 @@ pub(super) fn propagate_package<'a>(
     ctx: &'a PackageFeatureContext<'a>,
     index: &mut FeatureGraphIndex<'a>,
     is_test: bool,
+    dev_features: bool,
     is_host_ctx: bool,
     active_target: &mut HashSet<String>,
     active_host: &mut HashSet<String>,
@@ -30,8 +31,10 @@ pub(super) fn propagate_package<'a>(
     let mut build_deps: Vec<(&String, &TomlDependency)> =
         ctx.toml.build_dependencies.iter().collect();
     let is_pm = ctx.is_proc_macro();
-    let include_dev_deps =
-        is_test && ctx.is_root && (if is_pm { is_host_ctx } else { !is_host_ctx });
+    // Dev-dependencies count for a test of a root, and in resolver 1's feature pass for every
+    // workspace member (see `resolve_package_features_with_resolver`).
+    let include_dev_deps = ((is_test && ctx.is_root) || (dev_features && ctx.is_workspace))
+        && (if is_pm { is_host_ctx } else { !is_host_ctx });
     if include_dev_deps {
         runtime_deps.extend(&ctx.toml.dev_dependencies);
     }
@@ -87,7 +90,10 @@ pub(super) fn propagate_package<'a>(
             include_dev_deps,
             is_host_ctx,
         )?;
-        if is_optional_dep(&deps) {
+        // A feature turns on the optional dependency of its name only through the implicit
+        // feature, which `dep:<name>` anywhere in `[features]` removes: bevy_image has a marker
+        // `zstd = []` and `zstd_c = ["zstd", "dep:zstd"]`, so `zstd` alone builds no zstd crate.
+        if is_optional_dep(&deps) && is_implicit_feature(ctx.toml, feat) {
             let is_pm_dep =
                 index.is_dep_proc_macro_with_hint(pkg_idx, feat, deps.first().copied())?;
             let (to_target, to_host) = optional_dep_sides(ctx.toml, feat, is_host_ctx, is_pm_dep);
@@ -308,7 +314,9 @@ pub(super) fn propagate_package<'a>(
                 if deps.is_empty() {
                     continue;
                 }
-                if explicit_dep || is_optional_dep(&deps) {
+                if explicit_dep
+                    || (is_optional_dep(&deps) && is_implicit_feature(ctx.toml, dep_name))
+                {
                     let hint = deps.first().copied();
                     let is_pm_dep = index.is_dep_proc_macro_with_hint(pkg_idx, dep_name, hint)?;
                     let (to_target, to_host) =

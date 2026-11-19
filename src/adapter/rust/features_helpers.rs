@@ -68,6 +68,9 @@ pub struct FeatureGraphIndex<'a> {
     candidates_by_norm: HashMap<String, Vec<usize>>,
     ctx_dep_specs: Vec<HashMap<String, Vec<DepSpecEntry<'a>>>>,
     cfg_incompat_cache: HashMap<(String, bool), bool>,
+    /// Treat every `[target.'cfg(..)']` table as active: resolver 1 computes features
+    /// through other platforms' dependencies too.
+    pub every_platform: bool,
     /// Package names the root manifest's `[patch]` tables replace.
     patched: std::collections::HashSet<String>,
 }
@@ -115,6 +118,7 @@ impl<'a> FeatureGraphIndex<'a> {
             candidates_by_norm,
             ctx_dep_specs,
             cfg_incompat_cache: HashMap::new(),
+            every_platform: false,
             // `[patch]` lives in the project's root manifest (the workspace root for a
             // member), never in the current directory: `--manifest-path` from elsewhere
             // used to read `<cwd>/Cargo.toml` and poison the manifest snapshot.
@@ -294,6 +298,9 @@ impl<'a> FeatureGraphIndex<'a> {
         spec: &str,
         for_host: bool,
     ) -> Result<bool, RustAdapterError> {
+        if self.every_platform {
+            return Ok(false);
+        }
         let key = (spec.to_string(), for_host);
         if let Some(&cached) = self.cfg_incompat_cache.get(&key) {
             return Ok(cached);
