@@ -140,11 +140,17 @@ pub(crate) fn find_crate_source_dir_with_store(
             let store_root = store
                 .map(|st| st.root().to_path_buf())
                 .unwrap_or_else(SourceStore::default_root);
+            let lookup = RegistryLookup::discover(&store_root);
+            // Cargo builds its unpacked copy as it finds it, edits included (a stubbed
+            // build helper, say): an edited copy wins over the pristine one in the store.
+            if let Some(edited) = lookup.find_edited_in_src(name, version) {
+                return Some(edited);
+            }
             let candidate = store_root.join(format!("{}-{}", name, version));
             if SourceStore::is_valid_source_dir(&candidate) {
                 return Some(candidate);
             }
-            RegistryLookup::discover(&store_root).find_in_src(name, version)
+            lookup.find_in_src(name, version)
         }
         // Another registry, or a mirror: its packages live in a sub-store of the cache root.
         Some(s) if CrateFetcher::is_registry_source(s) => {
@@ -206,6 +212,23 @@ pub(crate) fn resolve_selected_package_manifests<'a>(
             })
         })
     };
+
+    // Whether Cargo's unpacked copies were edited by hand decides where each crates.io
+    // package is built from; check them all at once.
+    let store_root = store
+        .as_ref()
+        .map(|st| st.root().to_path_buf())
+        .unwrap_or_else(SourceStore::default_root);
+    crate::core::source_store::RegistryLookup::discover(&store_root).prime_src_copies(
+        selected_packages
+            .iter()
+            .filter(|(pkg, _)| {
+                pkg.source
+                    .as_deref()
+                    .is_some_and(CrateFetcher::is_crates_io_registry_source)
+            })
+            .map(|(pkg, _)| (pkg.name.as_str(), pkg.version.as_str())),
+    );
 
     for (pkg, is_ws) in selected_packages {
         let is_ws_pkg = *is_ws && pkg.source.is_none();

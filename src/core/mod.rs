@@ -19,6 +19,7 @@ pub mod build_logger;
 pub mod build_report;
 pub(crate) mod cache_phase;
 pub mod cache_root;
+pub mod cargo_registry_copy;
 pub mod cas;
 pub mod ephemeral_store;
 pub mod file_scanner;

@@ -410,11 +410,38 @@ impl RegistryLookup {
             .find(|c| c.is_file())
     }
 
+    /// Cargo's unpacked copy of the package, only while it is untouched: this is what may
+    /// be copied into the shared source store.
     pub fn find_in_src(&self, name: &str, version: &str) -> Option<PathBuf> {
+        self.src_copies(name, version)
+            .find(|c| super::cargo_registry_copy::is_pristine(c))
+    }
+
+    /// Cargo's unpacked copy of the package when it was edited after the unpack: Cargo
+    /// builds that copy, so Mitts builds it too (keyed by its files, see `inputs`).
+    pub fn find_edited_in_src(&self, name: &str, version: &str) -> Option<PathBuf> {
+        self.src_copies(name, version)
+            .find(|c| super::cargo_registry_copy::is_edited(c))
+    }
+
+    /// Cargo's finished copies of these packages, checked for edits all at once.
+    pub fn prime_src_copies<'n>(&self, packages: impl IntoIterator<Item = (&'n str, &'n str)>) {
+        let dirs: Vec<PathBuf> = packages
+            .into_iter()
+            .flat_map(|(name, version)| self.src_copies(name, version).collect::<Vec<_>>())
+            .filter(|c| {
+                c.join(super::cargo_registry_copy::CARGO_OK_MARKER)
+                    .is_file()
+            })
+            .collect();
+        super::cargo_registry_copy::prime(&dirs);
+    }
+
+    fn src_copies<'a>(&'a self, name: &str, version: &str) -> impl Iterator<Item = PathBuf> + 'a {
         let dir_name = format!("{}-{}", name, version);
         self.src_index_dirs
             .iter()
-            .map(|dir| dir.join(&dir_name))
-            .find(|c| c.join("Cargo.toml").is_file() && c.join(".cargo-ok").is_file())
+            .map(move |dir| dir.join(&dir_name))
+            .filter(|c| c.join("Cargo.toml").is_file())
     }
 }

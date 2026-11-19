@@ -23,6 +23,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     super::profile::custom::select(&mut selected)?;
     let opt = &selected;
     let manifest_scope = super::manifest_snapshot::scope();
+    crate::core::cargo_registry_copy::reset();
     let t0 = std::time::Instant::now();
     let s0 = super::compiler_resolve::rustc_subproc_stats();
     let manifest_path = RustAdapter::resolve_manifest(opt)?;
