@@ -69,10 +69,13 @@ pub fn prime(dirs: &[PathBuf]) {
     if todo.is_empty() {
         return;
     }
+    // APFS serialises directory reads beyond a few threads (16 threads walked a full
+    // registry three times slower than 4).
+    let cap = if cfg!(target_os = "macos") { 4 } else { 16 };
     let workers = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-        .clamp(1, 16)
+        .clamp(1, cap)
         .min(todo.len());
     let cursor = std::sync::atomic::AtomicUsize::new(0);
     let found: Mutex<Vec<(PathBuf, bool)>> = Mutex::new(Vec::with_capacity(todo.len()));

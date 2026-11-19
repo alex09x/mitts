@@ -51,7 +51,8 @@ fn unpack_helper(cargo_home: &Path) -> PathBuf {
     );
     write_file(
         dir.join("src/lib.rs"),
-        "pub fn tool() -> &'static str { env!(\"HELPER_TOOL\") }\n",
+        // Cargo caps lints for a registry package, edited or not.
+        "#![deny(warnings)]\nfn unused() {}\npub fn tool() -> &'static str { env!(\"HELPER_TOOL\") }\n",
     );
     write_file(dir.join("tool/fetch"), "fail\n");
     std::thread::sleep(Duration::from_millis(30));

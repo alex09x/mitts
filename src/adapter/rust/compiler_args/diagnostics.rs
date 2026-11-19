@@ -102,7 +102,15 @@ pub(crate) fn append_extra_and_diagnostic_args(
 ) -> bool {
     cmd.args(forwarded_extra_args(inv, is_host, is_primary_target));
 
-    if crate::adapter::rust::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace)
+    // Cargo caps lints for every registry and git package, a hand-edited registry copy
+    // included (it is tracked like a path dependency but still is not the user's code).
+    let from_registry_or_git = !inv.unit.is_workspace
+        && crate::adapter::rust::features::parse_package_id_source(&inv.unit.package_id)
+            .is_some_and(|s| {
+                s.starts_with("registry+") || s.starts_with("sparse+") || s.starts_with("git+")
+            });
+    if from_registry_or_git
+        || crate::adapter::rust::inputs::is_immutable_package_dir(pkg_dir, inv.unit.is_workspace)
         || (!inv.unit.is_workspace && !inv.unit.manifest_path.is_file())
     {
         cmd.args(["--cap-lints", "allow"]);
