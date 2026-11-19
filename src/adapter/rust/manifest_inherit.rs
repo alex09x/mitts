@@ -127,8 +127,23 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
         }
     }
 
+    // Before edition 2024 Cargo ignores a member's `default-features = false` on an inherited
+    // dependency (with a warning); from 2024 on (Cargo 1.99+) the member's `false` applies.
+    let member_can_disable_defaults = manifest
+        .package
+        .as_ref()
+        .and_then(|p| p.edition.as_deref())
+        .and_then(|e| e.parse::<u32>().ok())
+        .is_some_and(|e| e >= 2024);
+
+    // Only a declaration with `workspace = true` inherits `[workspace.dependencies]`, as in
+    // Cargo: a member writing `shared = { path = "../shared", features = ["x"] }` keeps its
+    // own default features and takes no feature from the workspace entry.
     let merge_dep_map = |deps: &mut HashMap<String, TomlDependency>| {
         for (key, dep) in deps.iter_mut() {
+            if !matches!(dep, TomlDependency::Detailed(d) if d.workspace == Some(true)) {
+                continue;
+            }
             let norm = key.replace('-', "_");
             if let Some(ws_dep) = ws
                 .dependencies
@@ -139,6 +154,17 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
                     (TomlDependency::Detailed(ref mut d), TomlDependency::Detailed(ref ws_d)) => {
                         if d.version.is_none() {
                             d.version = ws_d.version.clone();
+                        }
+                        for (own, inherited) in [
+                            (&mut d.git, &ws_d.git),
+                            (&mut d.registry, &ws_d.registry),
+                            (&mut d.branch, &ws_d.branch),
+                            (&mut d.tag, &ws_d.tag),
+                            (&mut d.rev, &ws_d.rev),
+                        ] {
+                            if own.is_none() {
+                                own.clone_from(inherited);
+                            }
                         }
                         if d.path.is_none() {
                             if let Some(ref p) = ws_d.path {
@@ -158,17 +184,26 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
                             }
                             d.features = Some(combined);
                         }
-                        if d.default_features.is_none() {
-                            d.default_features = ws_d.default_features;
-                        }
+                        // Cargo's `inner_dependency_inherit_with`: a member can turn default
+                        // features on (`true` over the workspace's `false`), and off only
+                        // from edition 2024.
+                        d.default_features = match d.default_features {
+                            Some(true) => Some(true),
+                            Some(false) if member_can_disable_defaults => Some(false),
+                            _ => ws_d.default_features,
+                        };
                         if d.package_name.is_none() {
                             d.package_name = ws_d.package_name.clone();
                         }
                     }
-                    (TomlDependency::Detailed(ref mut d), TomlDependency::Simple(s))
-                        if d.version.is_none() =>
-                    {
-                        d.version = Some(s.clone());
+                    (TomlDependency::Detailed(ref mut d), TomlDependency::Simple(s)) => {
+                        if d.version.is_none() {
+                            d.version = Some(s.clone());
+                        }
+                        // `dep = "1"` in the workspace keeps default features on.
+                        if d.default_features == Some(false) && !member_can_disable_defaults {
+                            d.default_features = None;
+                        }
                     }
                     _ => {}
                 }

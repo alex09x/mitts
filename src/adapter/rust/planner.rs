@@ -266,6 +266,22 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let (primary_roots, has_all_ws) =
         super::planner_roots::selected_roots(&root_toml, &workspace_manifests, project_dir, opt)?;
     let is_primary_pkg = |name: &str| primary_roots.contains(name);
+    // Every selected member must be selected as itself, the lock entry without a source. A
+    // registry copy of the same name and version (itoa's own 1.0.19 through its
+    // dev-dependencies) once stood in for it, and the build compiled nothing "successfully".
+    let mut missing: Vec<&String> = primary_roots
+        .iter()
+        .filter(|name| {
+            workspace_manifests.contains_key(name.as_str())
+                && !selected_packages
+                    .iter()
+                    .any(|(p, is_ws)| *is_ws && &p.name == *name)
+        })
+        .collect();
+    if !missing.is_empty() {
+        missing.sort();
+        anyhow::bail!("selected workspace packages {missing:?} are missing from the build graph");
+    }
 
     // Resolve unified compile-time features across all packages
     let feature_inputs: Vec<PackageFeatureContext> = resolved_packages
@@ -316,21 +332,6 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     }
 
     crate::adapter::rust::planner_roots::prune_plan_root_units(&mut units, opt, has_all_ws);
-    // A build of selected workspace packages that plans none of them is a planner defect, not
-    // an empty build: report it instead of finishing "successfully" with nothing compiled.
-    if opt.mode == super::types::BuildMode::Build
-        && !primary_roots.is_empty()
-        && !units.iter().any(|u| u.is_primary)
-    {
-        anyhow::bail!(
-            "the build plan has no unit of the selected workspace packages {:?}",
-            {
-                let mut names: Vec<&String> = primary_roots.iter().collect();
-                names.sort();
-                names
-            }
-        );
-    }
     let selected: Vec<super::target_validation::SelectedPackage<'_>> = workspace_manifests
         .iter()
         .filter(|(name, _)| primary_roots.contains(name.as_str()))

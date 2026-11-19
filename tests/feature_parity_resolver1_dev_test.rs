@@ -194,6 +194,58 @@ fn a_root_proc_macro_lends_its_dependency_features_to_their_target_copies() {
     );
 }
 
+/// Resolver 1 reads every platform's table: `feat = ["foo/bar"]` reaches both `foo` 1 (unix
+/// table) and `foo` 2 (windows table), not whichever table the map yields first.
+#[test]
+fn a_dep_feature_reaches_every_version_declared_under_platform_tables() {
+    const REG: &str = "registry+https://github.com/rust-lang/crates.io-index";
+    let app = CargoToml::parse(
+        "[package]\nname='app'\nversion='1.0.0'\n\
+         [features]\ndefault=['feat']\nfeat=['foo/bar']\n\
+         [target.'cfg(unix)'.dependencies]\nfoo='1'\n\
+         [target.'cfg(windows)'.dependencies]\nfoo='2'\n",
+    )
+    .unwrap();
+    let foo1 =
+        CargoToml::parse("[package]\nname='foo'\nversion='1.0.0'\n[features]\nbar=[]\n").unwrap();
+    let foo2 =
+        CargoToml::parse("[package]\nname='foo'\nversion='2.0.0'\n[features]\nbar=[]\n").unwrap();
+    let app_deps = vec![format!("foo 1.0.0 ({REG})"), format!("foo 2.0.0 ({REG})")];
+    let dep = |version: &'static str, toml: &'static CargoToml| PackageFeatureContext {
+        name: "foo",
+        version,
+        source: Some(REG),
+        is_workspace: false,
+        is_root: false,
+        toml,
+        dependencies: &[],
+    };
+    let (foo1, foo2): (&'static CargoToml, &'static CargoToml) =
+        (Box::leak(Box::new(foo1)), Box::leak(Box::new(foo2)));
+    let packages = vec![
+        ctx("app", &app, &app_deps, true),
+        dep("1.0.0", foo1),
+        dep("2.0.0", foo2),
+    ];
+    for _ in 0..8 {
+        let r = resolve_package_features_with_resolver(
+            &packages,
+            &RustBuildOptions::default(),
+            Some("1"),
+        )
+        .unwrap();
+        for id in [format!("foo@1.0.0 ({REG})"), format!("foo@2.0.0 ({REG})")] {
+            assert!(
+                r.target
+                    .get(&id)
+                    .is_some_and(|f| f.contains(&"bar".to_string())),
+                "{id}: {:?}",
+                r.target
+            );
+        }
+    }
+}
+
 #[test]
 fn all_features_turns_on_implicit_optional_dependency_features() {
     let app = CargoToml::parse(
