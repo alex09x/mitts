@@ -108,6 +108,9 @@ fn mitts(root: &Path, args: &[&str]) -> Output {
         .arg("--cache-dir")
         .arg(root.join("mitts-cache"))
         .current_dir(root)
+        // An empty Cargo home: a host's own `~/.cargo/config.toml` rustflags must not reach
+        // the probe script.
+        .env("CARGO_HOME", root.join("cargo-home"))
         .env_remove("MITTS_CACHE_DIR");
     for name in [
         "CARGO_TARGET_DIR",

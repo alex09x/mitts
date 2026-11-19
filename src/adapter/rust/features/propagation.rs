@@ -151,9 +151,17 @@ pub(super) fn propagate_package<'a>(
                 {
                     continue;
                 }
-                if !is_weak
-                    && (ctx.toml.features.contains_key(actual_dep) || is_optional_dep(&dep_decls))
-                {
+                // `dep/feat` turns on the feature named `dep` only when `dep` is an optional
+                // dependency, as Cargo does. A required dependency that shares its name with a
+                // feature keeps that feature off: slint's i-slint-compiler has `serde` as both,
+                // `std` lists `serde/std`, and enabling the `serde` feature pulled in
+                // `either/serde` without the `serde` edge Cargo.lock has (issue 143).
+                let names_feature = if dep_decls.is_empty() {
+                    ctx.toml.features.contains_key(actual_dep)
+                } else {
+                    is_optional_dep(&dep_decls)
+                };
+                if !is_weak && names_feature {
                     let this_req = if is_host_ctx {
                         &mut *host_req
                     } else {
@@ -183,8 +191,13 @@ pub(super) fn propagate_package<'a>(
                     } else {
                         &*target_req
                     };
+                    // A dependency declared both optional and required for this platform is
+                    // always on: wgpu 30 lists `wgpu-core` optional in `[dependencies]` and
+                    // required under `cfg(not(target_arch = "wasm32"))`, and `vulkan =
+                    // ["wgpu-core?/vulkan"]` must reach wgpu-core on Linux (issue 143).
+                    let has_required = dep_decls.iter().any(|d| !is_optional_dep(&[*d]));
                     let is_dep_active = !dep_decls.is_empty()
-                        && (!is_optional_dep(&dep_decls)
+                        && (has_required
                             || cur_req.get(&id).is_some_and(|s| {
                                 s.contains(actual_dep)
                                     || s.contains(&dep_prefix)
@@ -268,6 +281,13 @@ pub(super) fn propagate_package<'a>(
                     dep_name,
                     include_dev_deps,
                 )?;
+                // `dep:x` for a dependency declared only under another platform's
+                // `[target.'cfg(..)']` table enables nothing here. slint's `wgpu-30` feature names
+                // `dep:wgpu-hal-30`, an Apple-only dependency; resolving it by its package name
+                // met two locked wgpu-hal versions and failed as ambiguous (issue 143).
+                if deps.is_empty() {
+                    continue;
+                }
                 if explicit_dep || is_optional_dep(&deps) {
                     let hint = deps.first().copied();
                     let is_pm_dep = index.is_dep_proc_macro_with_hint(pkg_idx, dep_name, hint)?;
