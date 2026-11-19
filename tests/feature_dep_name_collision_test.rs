@@ -112,7 +112,9 @@ fn an_optional_dependency_still_turns_on_its_same_named_feature() {
 #[test]
 fn a_dep_feature_for_a_dependency_of_another_platform_enables_nothing() {
     let app = CargoToml::parse(
-        "[package]\nname='app'\nversion='0.1.0'\n\
+        // Resolver 2 (edition 2021), as slint: resolver 1 computes features through other
+        // platforms' dependencies too.
+        "[package]\nname='app'\nversion='0.1.0'\nedition='2021'\n\
          [features]\ndefault=['hal-new']\nhal-new=['dep:hal-2']\nhal-old=['dep:hal-1']\n\
          [target.'cfg(target_os = \"no-such-os\")'.dependencies]\n\
          hal-1={package='hal',version='1',optional=true}\n\
@@ -178,7 +180,7 @@ fn a_weak_feature_reaches_only_the_side_whose_declaration_is_on() {
 #[test]
 fn a_feature_of_another_platforms_renamed_dependency_skips_its_same_package_sibling() {
     let app = CargoToml::parse(
-        "[package]\nname='app'\nversion='0.1.0'\n\
+        "[package]\nname='app'\nversion='0.1.0'\nedition='2021'\n\
          [features]\ndefault=['w']\nw=['hal-30/metal']\n\
          [dependencies]\nhal='1'\n\
          [target.'cfg(target_os = \"no-such-os\")'.dependencies]\n\

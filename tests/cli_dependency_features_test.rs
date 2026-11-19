@@ -173,6 +173,16 @@ fn dependency_features_with_several_selected_packages() {
     );
     assert!(!unknown.status.success());
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("names neither"));
+
+    // One selected package: the selector used to be dropped silently and the build passed
+    // without the feature; Cargo fails it.
+    let unknown_single = mitts(
+        root,
+        root,
+        &["build", "--quiet", "-p", "todo", "--features", "nothing/x"],
+    );
+    assert!(!unknown_single.status.success());
+    assert!(String::from_utf8_lossy(&unknown_single.stderr).contains("names neither"));
 }
 
 /// Inside a member, Mitts builds the enclosing workspace like Cargo: its Cargo.lock (no

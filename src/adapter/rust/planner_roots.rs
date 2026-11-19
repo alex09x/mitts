@@ -15,6 +15,14 @@ use super::types::RustBuildOptions;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+/// Whether the member at `dir` matches one `workspace.default-members` entry, globs included.
+pub(super) fn is_default_member_dir(pattern: &str, project_dir: &Path, dir: &Path) -> bool {
+    let clean = pattern.trim_start_matches("./").trim_end_matches('/');
+    let clean = if clean.is_empty() { "." } else { clean };
+    dir.strip_prefix(project_dir)
+        .is_ok_and(|rel| super::manifest_workspace::matches_path_pattern(clean, rel))
+}
+
 pub(super) fn selected_roots(
     root: &CargoToml,
     members: &HashMap<String, (PathBuf, CargoToml)>,
@@ -35,16 +43,12 @@ pub(super) fn selected_roots(
         defaults.map_or_else(
             || members.contains_key(name),
             |items| {
+                // `default-members` takes the same globs as `members` (ratatui lists
+                // `examples/apps/*`).
                 items.iter().any(|pattern| {
-                    let clean = pattern.trim_start_matches("./").trim_end_matches('/');
-                    let member_dir = if clean == "." || clean.is_empty() {
-                        project_dir.to_path_buf()
-                    } else {
-                        project_dir.join(clean)
-                    };
-                    members.get(name).is_some_and(|(dir, _)| {
-                        dir == &member_dir || (clean == "." && dir == project_dir)
-                    })
+                    members
+                        .get(name)
+                        .is_some_and(|(dir, _)| is_default_member_dir(pattern, project_dir, dir))
                 })
             },
         )

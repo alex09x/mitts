@@ -27,6 +27,27 @@ pub fn select_transitive_packages<'a>(
     project_dir: &Path,
     opt: &RustBuildOptions,
 ) -> Result<Vec<(&'a CargoLockPackage, bool)>> {
+    select_packages(
+        lockfile,
+        workspace_manifests,
+        root_toml,
+        project_dir,
+        opt,
+        false,
+    )
+}
+
+/// [`select_transitive_packages`], and with `every_member_dep` every dependency a workspace
+/// member lists in Cargo.lock, dev-dependencies and other platforms' included: resolver 1
+/// computes features through all of them (Cargo's `FeatureOpts::default`).
+pub fn select_packages<'a>(
+    lockfile: &'a CargoLock,
+    workspace_manifests: &HashMap<String, (std::path::PathBuf, CargoToml)>,
+    root_toml: &CargoToml,
+    project_dir: &Path,
+    opt: &RustBuildOptions,
+    every_member_dep: bool,
+) -> Result<Vec<(&'a CargoLockPackage, bool)>> {
     let mut packages_by_name: HashMap<String, Vec<&'a CargoLockPackage>> = HashMap::new();
     for pkg in &lockfile.packages {
         packages_by_name
@@ -40,13 +61,15 @@ pub fn select_transitive_packages<'a>(
     sorted_ws.sort_by_key(|(name, _)| *name);
 
     // Determine root packages to compile
+    // A workspace member is the lock entry without a source. itoa's dev-dependencies pull its
+    // own published 1.0.19 from crates.io, listed first under the same name and version, and
+    // picking that one left the plan without the member: the build compiled nothing.
     let find_ws_pkg =
         |pkgs: &[&'a CargoLockPackage], ws_ver: Option<&str>| -> Option<&'a CargoLockPackage> {
-            if let Some(ver) = ws_ver {
-                pkgs.iter().find(|p| p.version == ver).copied()
-            } else {
-                pkgs.first().copied()
-            }
+            pkgs.iter()
+                .filter(|p| ws_ver.is_none_or(|ver| p.version == ver))
+                .min_by_key(|p| p.source.is_some())
+                .copied()
         };
 
     let mut root_pkgs: Vec<&'a CargoLockPackage> = Vec::new();
@@ -95,13 +118,8 @@ pub fn select_transitive_packages<'a>(
 
         if let Some(dm) = default_members {
             for member_pat in dm {
-                let member_dir = if member_pat == "." {
-                    project_dir.to_path_buf()
-                } else {
-                    project_dir.join(member_pat)
-                };
                 for &(name, (dir, ws_toml)) in &sorted_ws {
-                    if dir == &member_dir || (member_pat == "." && dir == project_dir) {
+                    if super::planner_roots::is_default_member_dir(member_pat, project_dir, dir) {
                         let ws_version =
                             ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                         if let Some(pkgs) = packages_by_name.get(name) {
@@ -183,7 +201,7 @@ pub fn select_transitive_packages<'a>(
                 // `[target.'cfg(...)']` tables, which the manifest checks below and the feature
                 // resolver evaluate. chrono's unconditional dev-dependency `windows-bindgen` builds
                 // on every host, and a name list once hid it from the plan.
-                if is_ws {
+                if is_ws && !every_member_dep {
                     if let Some((_, ws_toml)) = workspace_manifests.get(&pkg.name) {
                         let has_manifest_deps = !ws_toml.dependencies.is_empty()
                             || !ws_toml.build_dependencies.is_empty()

@@ -11,7 +11,6 @@
 use super::features::{resolve_package_features_with_resolver, PackageFeatureContext};
 use super::lockfile::{CargoLock, CargoLockPackage};
 use super::manifest::CargoToml;
-use super::package_selection::select_transitive_packages;
 use super::types::{EffectivePlanExplanation, RustBuildOptions};
 use crate::adapter::RustAdapter;
 use anyhow::{Context, Result};
@@ -236,13 +235,18 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let t_lockfile = std::time::Instant::now();
     let s_lockfile = super::compiler_resolve::rustc_subproc_stats();
 
-    // Select root packages and collect all reachable transitive dependencies
-    let selected_packages = select_transitive_packages(
+    // Select root packages and collect all reachable transitive dependencies. Resolver 1 reads
+    // features through every dependency a member declares, dev-dependencies and other
+    // platforms' included, so their manifests are selected too; the feature resolver still
+    // activates (builds) only what the build reaches.
+    let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml)?;
+    let selected_packages = super::package_selection::select_packages(
         &lockfile,
         &workspace_manifests,
         &root_toml,
         project_dir,
         opt,
+        ws_resolver == "1",
     )?;
     let t_select = std::time::Instant::now();
     let s_select = super::compiler_resolve::rustc_subproc_stats();
@@ -262,6 +266,22 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     let (primary_roots, has_all_ws) =
         super::planner_roots::selected_roots(&root_toml, &workspace_manifests, project_dir, opt)?;
     let is_primary_pkg = |name: &str| primary_roots.contains(name);
+    // Every selected member must be selected as itself, the lock entry without a source. A
+    // registry copy of the same name and version (itoa's own 1.0.19 through its
+    // dev-dependencies) once stood in for it, and the build compiled nothing "successfully".
+    let mut missing: Vec<&String> = primary_roots
+        .iter()
+        .filter(|name| {
+            workspace_manifests.contains_key(name.as_str())
+                && !selected_packages
+                    .iter()
+                    .any(|(p, is_ws)| *is_ws && &p.name == *name)
+        })
+        .collect();
+    if !missing.is_empty() {
+        missing.sort();
+        anyhow::bail!("selected workspace packages {missing:?} are missing from the build graph");
+    }
 
     // Resolve unified compile-time features across all packages
     let feature_inputs: Vec<PackageFeatureContext> = resolved_packages
@@ -278,7 +298,6 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
             dependencies: &pkg.dependencies,
         })
         .collect();
-    let ws_resolver = CargoToml::effective_resolver_for_manifest(&manifest_path, &root_toml)?;
     let package_features =
         resolve_package_features_with_resolver(&feature_inputs, opt, Some(&ws_resolver))?;
     let t_features = std::time::Instant::now();

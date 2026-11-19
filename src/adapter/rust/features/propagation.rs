@@ -18,6 +18,7 @@ pub(super) fn propagate_package<'a>(
     ctx: &'a PackageFeatureContext<'a>,
     index: &mut FeatureGraphIndex<'a>,
     is_test: bool,
+    dev_features: bool,
     is_host_ctx: bool,
     active_target: &mut HashSet<String>,
     active_host: &mut HashSet<String>,
@@ -30,8 +31,13 @@ pub(super) fn propagate_package<'a>(
     let mut build_deps: Vec<(&String, &TomlDependency)> =
         ctx.toml.build_dependencies.iter().collect();
     let is_pm = ctx.is_proc_macro();
-    let include_dev_deps =
-        is_test && ctx.is_root && (if is_pm { is_host_ctx } else { !is_host_ctx });
+    // Dev-dependencies count for the selected root packages only: in a test, and in resolver
+    // 1's feature pass for a build (see `resolve_package_features_with_resolver`). Cargo leaves
+    // a non-selected member's dev-dependencies out even under resolver 1 (`-p a` where `a`
+    // depends on member `b`: `b`'s dev-dependency features stay off).
+    let include_dev_deps = (is_test || dev_features)
+        && ctx.is_root
+        && (if is_pm { is_host_ctx } else { !is_host_ctx });
     if include_dev_deps {
         runtime_deps.extend(&ctx.toml.dev_dependencies);
     }
@@ -87,7 +93,10 @@ pub(super) fn propagate_package<'a>(
             include_dev_deps,
             is_host_ctx,
         )?;
-        if is_optional_dep(&deps) {
+        // A feature turns on the optional dependency of its name only through the implicit
+        // feature, which `dep:<name>` anywhere in `[features]` removes: bevy_image has a marker
+        // `zstd = []` and `zstd_c = ["zstd", "dep:zstd"]`, so `zstd` alone builds no zstd crate.
+        if is_optional_dep(&deps) && is_implicit_feature(ctx.toml, feat) {
             let is_pm_dep =
                 index.is_dep_proc_macro_with_hint(pkg_idx, feat, deps.first().copied())?;
             let (to_target, to_host) = optional_dep_sides(ctx.toml, feat, is_host_ctx, is_pm_dep);
@@ -232,12 +241,26 @@ pub(super) fn propagate_package<'a>(
                 let to_target = runtime_on && !all_host;
                 let to_host = build_on || (runtime_on && all_host);
 
-                if !is_weak && !dep_decls.is_empty() {
-                    let (target_decls, host_decls) = if all_host {
-                        (Vec::new(), dep_decls.clone())
+                // The declarations each side reaches. The feature goes to the package each one
+                // resolves to: two versions of a dependency under two platform tables (resolver
+                // 1 reads every platform) both get it, not whichever table hashes first.
+                let side = |on: bool, decls: &[&'a TomlDependency]| {
+                    if on {
+                        decls.to_vec()
                     } else {
-                        (runtime.clone(), build.clone())
-                    };
+                        Vec::new()
+                    }
+                };
+                let (target_decls, host_decls) = if all_host {
+                    (
+                        Vec::new(),
+                        [side(runtime_on, &runtime), side(build_on, &build)].concat(),
+                    )
+                } else {
+                    (side(runtime_on, &runtime), side(build_on, &build))
+                };
+
+                if !is_weak && !dep_decls.is_empty() {
                     index.activate_manifest_dep(
                         pkg_idx,
                         actual_dep,
@@ -256,24 +279,41 @@ pub(super) fn propagate_package<'a>(
                     )?;
                 }
 
-                if let Some(target_id) =
-                    index.resolve_dep_id_with_hint(pkg_idx, &real_dep, dep_hint)?
-                {
-                    if to_target
-                        && target_req
-                            .entry(target_id.clone())
-                            .or_default()
-                            .insert(dep_feat.to_string())
-                    {
-                        *changed = true;
+                for (decls, on, host) in [
+                    (&target_decls, to_target, false),
+                    (&host_decls, to_host, true),
+                ] {
+                    if !on {
+                        continue;
                     }
-                    if to_host
-                        && host_req
-                            .entry(target_id)
+                    let hints: Vec<Option<&TomlDependency>> = if decls.is_empty() {
+                        vec![None]
+                    } else {
+                        decls.iter().map(|d| Some(*d)).collect()
+                    };
+                    let mut seen: Vec<String> = Vec::new();
+                    for hint in hints {
+                        let Some(dep_id) =
+                            index.resolve_dep_id_with_hint(pkg_idx, &real_dep, hint)?
+                        else {
+                            continue;
+                        };
+                        if seen.contains(&dep_id) {
+                            continue;
+                        }
+                        let req = if host {
+                            &mut *host_req
+                        } else {
+                            &mut *target_req
+                        };
+                        if req
+                            .entry(dep_id.clone())
                             .or_default()
                             .insert(dep_feat.to_string())
-                    {
-                        *changed = true;
+                        {
+                            *changed = true;
+                        }
+                        seen.push(dep_id);
                     }
                 }
             } else {
@@ -308,7 +348,9 @@ pub(super) fn propagate_package<'a>(
                 if deps.is_empty() {
                     continue;
                 }
-                if explicit_dep || is_optional_dep(&deps) {
+                if explicit_dep
+                    || (is_optional_dep(&deps) && is_implicit_feature(ctx.toml, dep_name))
+                {
                     let hint = deps.first().copied();
                     let is_pm_dep = index.is_dep_proc_macro_with_hint(pkg_idx, dep_name, hint)?;
                     let (to_target, to_host) =

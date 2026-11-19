@@ -85,12 +85,11 @@ pub(super) fn features_for_root(
             }
             // ...and `dep/feature` turns on a dependency's feature in every selected package
             // that depends on it, even when that dependency is selected too.
-            if declares_dependency(ctx, dep) || (roots.len() <= 1 && !names_root) {
+            // A selector naming nothing fails, as in Cargo, with one selected package too: it
+            // used to pass through and be dropped silently, building without the feature.
+            if declares_dependency(ctx, dep) {
                 features.push(feature.clone());
-            } else if roots.len() > 1
-                && !names_root
-                && !roots.iter().any(|root| declares_dependency(root, dep))
-            {
+            } else if !names_root && !roots.iter().any(|root| declares_dependency(root, dep)) {
                 return Err(RustAdapterError::UnsupportedOption(format!(
                     "feature selector '{feature}' names neither a selected package nor a dependency of one"
                 )));

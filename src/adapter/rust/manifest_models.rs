@@ -229,6 +229,8 @@ pub struct TomlDetailedDep {
     pub optional: Option<bool>,
     #[serde(rename = "package", alias = "package-name", alias = "package_name")]
     pub package_name: Option<String>,
+    /// `workspace = true`: the declaration inherits `[workspace.dependencies]`.
+    pub workspace: Option<bool>,
 }
 
 /// Bidirectional mapping between dependency alias and actual package name.
