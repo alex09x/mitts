@@ -291,8 +291,19 @@ mod tests {
         // Without --target a host unit shares the target's flags, with --target <host> not.
         let native = script_platform(&unit_for_host, None);
         let explicit = script_platform(&unit_for_host, Some(&host));
+        // A host's own Cargo home may set `[target.<host>] rustflags`, which win over
+        // `build.rustflags` exactly as in Cargo.
+        let cargo_home = std::env::var_os("CARGO_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".cargo")));
+        let home_sets_flags = cargo_home.is_some_and(|h| {
+            ["config.toml", "config"]
+                .iter()
+                .any(|f| std::fs::read_to_string(h.join(f)).is_ok_and(|s| s.contains("rustflags")))
+        });
         if std::env::var_os("CARGO_ENCODED_RUSTFLAGS").is_none()
             && std::env::var_os("RUSTFLAGS").is_none()
+            && !home_sets_flags
         {
             assert_eq!(native.flags, ["--cfg", "probe"]);
         }

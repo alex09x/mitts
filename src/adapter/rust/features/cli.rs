@@ -44,7 +44,7 @@ fn declares_feature(ctx: &PackageFeatureContext<'_>, feature: &str) -> bool {
 
 /// Whether the package declares a dependency named `dep` (as its key in any dependency
 /// table), the name a `dep/feature` selector refers to.
-fn declares_dependency(ctx: &PackageFeatureContext<'_>, dep: &str) -> bool {
+pub(super) fn declares_dependency(ctx: &PackageFeatureContext<'_>, dep: &str) -> bool {
     let normalized = dep.replace('-', "_");
     let mut maps = vec![
         &ctx.toml.dependencies,

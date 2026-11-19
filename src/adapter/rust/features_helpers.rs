@@ -55,6 +55,8 @@ fn matches_toml_dep_hint(
 }
 
 type DepSpecEntry<'a> = (Option<&'a str>, Option<&'a str>);
+/// A dependency's declarations: the package's own, then its build script's.
+pub type ManifestDecls<'t> = (Vec<&'t TomlDependency>, Vec<&'t TomlDependency>);
 
 pub struct FeatureGraphIndex<'a> {
     pub packages: &'a [PackageFeatureContext<'a>],
@@ -306,36 +308,54 @@ impl<'a> FeatureGraphIndex<'a> {
         Ok(res)
     }
 
+    /// Every declaration of dependency `name` active for this package, runtime and build ones
+    /// together (see [`Self::split_manifest_dependencies`]).
     pub fn collect_manifest_dependencies_with_dev<'t>(
         &mut self,
         toml: &'t CargoToml,
         name: &str,
         include_dev: bool,
+        is_host_ctx: bool,
     ) -> Result<Vec<&'t TomlDependency>, RustAdapterError> {
+        let (mut runtime, build) =
+            self.split_manifest_dependencies(toml, name, include_dev, is_host_ctx)?;
+        runtime.extend(build);
+        Ok(runtime)
+    }
+
+    /// The active declarations of dependency `name`, split into the package's own
+    /// (`[dependencies]`, plus `[dev-dependencies]` when `include_dev`) and its build script's
+    /// (`[build-dependencies]`). Platform tables of the package's own dependencies are matched
+    /// against the host when the package itself is built for the host, as Cargo does.
+    pub fn split_manifest_dependencies<'t>(
+        &mut self,
+        toml: &'t CargoToml,
+        name: &str,
+        include_dev: bool,
+        is_host_ctx: bool,
+    ) -> Result<ManifestDecls<'t>, RustAdapterError> {
         let norm = name.replace('-', "_");
-        let mut result = Vec::new();
-        let mut add = |map: &'t HashMap<String, TomlDependency>| {
-            if let Some(d) = map.get(name).or_else(|| map.get(&norm)) {
-                result.push(d);
-            }
-        };
-        add(&toml.dependencies);
-        add(&toml.build_dependencies);
+        let get =
+            |map: &'t HashMap<String, TomlDependency>| map.get(name).or_else(|| map.get(&norm));
+        let mut runtime = Vec::new();
+        let mut build = Vec::new();
+        runtime.extend(get(&toml.dependencies));
+        build.extend(get(&toml.build_dependencies));
         if include_dev {
-            add(&toml.dev_dependencies);
+            runtime.extend(get(&toml.dev_dependencies));
         }
         for (spec, t) in &toml.target {
-            if !self.is_target_incompat(spec, false)? {
-                add(&t.dependencies);
+            if !self.is_target_incompat(spec, is_host_ctx)? {
+                runtime.extend(get(&t.dependencies));
                 if include_dev {
-                    add(&t.dev_dependencies);
+                    runtime.extend(get(&t.dev_dependencies));
                 }
             }
             if !self.is_target_incompat(spec, true)? {
-                add(&t.build_dependencies);
+                build.extend(get(&t.build_dependencies));
             }
         }
-        Ok(result)
+        Ok((runtime, build))
     }
 
     pub fn activate_dep_instance(
