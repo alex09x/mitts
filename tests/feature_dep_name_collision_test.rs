@@ -132,6 +132,102 @@ fn a_dep_feature_for_a_dependency_of_another_platform_enables_nothing() {
     assert!(result["app@0.1.0"].contains(&"hal-new".to_string()));
 }
 
+/// A weak feature reaches the build script's required `foo`, not the package's own optional one.
+#[test]
+fn a_weak_feature_reaches_only_the_side_whose_declaration_is_on() {
+    // Resolver 2 (edition 2021) keeps host and target features apart.
+    let app = CargoToml::parse(
+        "[package]\nname='app'\nversion='0.1.0'\nedition='2021'\n\
+         [dependencies]\ncomp={path='comp'}\n",
+    )
+    .unwrap();
+    let comp = CargoToml::parse(
+        "[package]\nname='comp'\nversion='0.1.0'\n\
+         [features]\ndefault=['x']\nx=['foo?/feat']\n\
+         [dependencies]\nfoo={version='1',optional=true}\n\
+         [build-dependencies]\nfoo={version='1'}\n",
+    )
+    .unwrap();
+    let foo =
+        CargoToml::parse("[package]\nname='foo'\nversion='1.0.0'\n[features]\nfeat=[]\n").unwrap();
+    let app_deps = vec!["comp".to_string()];
+    let comp_deps = vec!["foo".to_string()];
+    let packages = vec![
+        ctx("app", "0.1.0", &app, &app_deps, true),
+        ctx("comp", "0.1.0", &comp, &comp_deps, false),
+        ctx("foo", "1.0.0", &foo, &[], false),
+    ];
+    let result = resolve_package_features(&packages, &RustBuildOptions::default()).unwrap();
+    assert!(
+        result.host["foo@1.0.0"].contains(&"feat".to_string()),
+        "{:?}",
+        result.host
+    );
+    assert!(
+        !result
+            .target
+            .get("foo@1.0.0")
+            .is_some_and(|f| f.contains(&"feat".to_string())),
+        "the optional runtime `foo` is off: {:?}",
+        result.target
+    );
+    assert!(!result.active_target_packages.contains("foo@1.0.0"));
+}
+
+/// `hal-30/metal` for an Apple-only key must not land on the required `hal` 1 sibling.
+#[test]
+fn a_feature_of_another_platforms_renamed_dependency_skips_its_same_package_sibling() {
+    let app = CargoToml::parse(
+        "[package]\nname='app'\nversion='0.1.0'\n\
+         [features]\ndefault=['w']\nw=['hal-30/metal']\n\
+         [dependencies]\nhal='1'\n\
+         [target.'cfg(target_os = \"no-such-os\")'.dependencies]\n\
+         hal-30={package='hal',version='30',optional=true}\n",
+    )
+    .unwrap();
+    let hal1 =
+        CargoToml::parse("[package]\nname='hal'\nversion='1.0.0'\n[features]\nmetal=[]\n").unwrap();
+    let hal30 = CargoToml::parse("[package]\nname='hal'\nversion='30.0.0'\n[features]\nmetal=[]\n")
+        .unwrap();
+    let app_deps = vec!["hal 1.0.0".to_string(), "hal 30.0.0".to_string()];
+    let packages = vec![
+        ctx("app", "0.1.0", &app, &app_deps, true),
+        ctx("hal", "1.0.0", &hal1, &[], false),
+        ctx("hal", "30.0.0", &hal30, &[], false),
+    ];
+    let result = resolve_package_features(&packages, &RustBuildOptions::default()).unwrap();
+    assert!(
+        !result
+            .get("hal@1.0.0")
+            .is_some_and(|f| f.contains(&"metal".to_string())),
+        "{:?}",
+        result.get("hal@1.0.0")
+    );
+    assert!(!result["app@0.1.0"].contains(&"hal-30".to_string()));
+}
+
+/// `foo/std` for a required `foo` of another platform leaves the same-named feature off.
+#[test]
+fn a_dep_feature_for_another_platforms_required_dependency_keeps_its_feature_off() {
+    let app = CargoToml::parse(
+        "[package]\nname='app'\nversion='0.1.0'\n\
+         [features]\ndefault=['bar']\nbar=['foo/std']\nfoo=[]\n\
+         [target.'cfg(target_os = \"no-such-os\")'.dependencies]\nfoo='1'\n",
+    )
+    .unwrap();
+    let foo =
+        CargoToml::parse("[package]\nname='foo'\nversion='1.0.0'\n[features]\nstd=[]\n").unwrap();
+    let app_deps = vec!["foo".to_string()];
+    let packages = vec![
+        ctx("app", "0.1.0", &app, &app_deps, true),
+        ctx("foo", "1.0.0", &foo, &[], false),
+    ];
+    let result = resolve_package_features(&packages, &RustBuildOptions::default()).unwrap();
+    let app_feats = &result["app@0.1.0"];
+    assert!(app_feats.contains(&"bar".to_string()));
+    assert!(!app_feats.contains(&"foo".to_string()), "{app_feats:?}");
+}
+
 /// wgpu 30: `wgpu-core` is optional in `[dependencies]` and required for non-wasm targets, so
 /// on Linux it is always on and the weak `vulkan = ["wgpu-core?/vulkan"]` reaches it.
 #[test]

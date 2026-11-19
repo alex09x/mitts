@@ -81,8 +81,12 @@ pub(super) fn propagate_package<'a>(
     .unwrap_or_default();
 
     for feat in &current_feats {
-        let deps =
-            index.collect_manifest_dependencies_with_dev(ctx.toml, feat, include_dev_deps)?;
+        let deps = index.collect_manifest_dependencies_with_dev(
+            ctx.toml,
+            feat,
+            include_dev_deps,
+            is_host_ctx,
+        )?;
         if is_optional_dep(&deps) {
             let is_pm_dep =
                 index.is_dep_proc_macro_with_hint(pkg_idx, feat, deps.first().copied())?;
@@ -128,18 +132,26 @@ pub(super) fn propagate_package<'a>(
                     .get(actual_dep)
                     .cloned()
                     .unwrap_or_else(|| actual_dep.to_string());
-                let mut dep_decls = index.collect_manifest_dependencies_with_dev(
+                // Cargo matches `dep/feat` on the dependency key alone; the package name is a
+                // fallback only for a key the manifest does not declare at all, never for a key
+                // declared for another platform (it would land on an unrelated sibling).
+                let declared = super::cli::declares_dependency(ctx, actual_dep);
+                let (mut runtime, mut build) = index.split_manifest_dependencies(
                     ctx.toml,
                     actual_dep,
                     include_dev_deps,
+                    is_host_ctx,
                 )?;
-                if dep_decls.is_empty() {
-                    dep_decls = index.collect_manifest_dependencies_with_dev(
+                if runtime.is_empty() && build.is_empty() && !declared {
+                    (runtime, build) = index.split_manifest_dependencies(
                         ctx.toml,
                         &real_dep,
                         include_dev_deps,
+                        is_host_ctx,
                     )?;
                 }
+                let dep_decls: Vec<&TomlDependency> =
+                    runtime.iter().chain(build.iter()).copied().collect();
                 if dep_decls.is_empty()
                     && !include_dev_deps
                     && (ctx.toml.dev_dependencies.contains_key(actual_dep)
@@ -151,11 +163,16 @@ pub(super) fn propagate_package<'a>(
                 {
                     continue;
                 }
-                // `dep/feat` turns on the feature named `dep` only when `dep` is an optional
-                // dependency, as Cargo does. A required dependency that shares its name with a
-                // feature keeps that feature off: slint's i-slint-compiler has `serde` as both,
-                // `std` lists `serde/std`, and enabling the `serde` feature pulled in
-                // `either/serde` without the `serde` edge Cargo.lock has (issue 143).
+                // A dependency declared only for another platform takes no part here: Cargo
+                // walks the declarations active on this platform, and there are none.
+                if dep_decls.is_empty() && declared {
+                    continue;
+                }
+                // `dep/feat` turns on the feature named `dep` only when one of its active
+                // declarations is optional, as Cargo does. A required dependency that shares
+                // its name with a feature keeps that feature off: slint's i-slint-compiler has
+                // `serde` as both, `std` lists `serde/std`, and enabling the `serde` feature
+                // pulled in `either/serde` without the `serde` edge Cargo.lock has (issue 143).
                 let names_feature = if dep_decls.is_empty() {
                     ctx.toml.features.contains_key(actual_dep)
                 } else {
@@ -175,15 +192,15 @@ pub(super) fn propagate_package<'a>(
                         *changed = true;
                     }
                 }
-                if dep_decls.is_empty()
-                    && ctx.toml.target.values().any(|t| {
-                        t.dependencies.contains_key(actual_dep)
-                            || t.build_dependencies.contains_key(actual_dep)
-                    })
-                {
-                    continue;
-                }
-                if is_weak {
+                // Which declarations the feature reaches: the package's own and its build
+                // script's, each on its own side. A weak `dep?/feat` reaches a declaration that
+                // is required or whose optional dependency is already on; wgpu 30 lists
+                // `wgpu-core` optional in `[dependencies]` and required under
+                // `cfg(not(target_arch = "wasm32"))`, and `vulkan = ["wgpu-core?/vulkan"]` must
+                // reach wgpu-core on Linux (issue 143).
+                let (runtime_on, build_on) = if dep_decls.is_empty() {
+                    (!is_weak, false)
+                } else if is_weak {
                     let dep_prefix = format!("dep:{}", actual_dep);
                     let real_prefix = format!("dep:{}", real_dep);
                     let cur_req = if is_host_ctx {
@@ -191,50 +208,52 @@ pub(super) fn propagate_package<'a>(
                     } else {
                         &*target_req
                     };
-                    // A dependency declared both optional and required for this platform is
-                    // always on: wgpu 30 lists `wgpu-core` optional in `[dependencies]` and
-                    // required under `cfg(not(target_arch = "wasm32"))`, and `vulkan =
-                    // ["wgpu-core?/vulkan"]` must reach wgpu-core on Linux (issue 143).
-                    let has_required = dep_decls.iter().any(|d| !is_optional_dep(&[*d]));
-                    let is_dep_active = !dep_decls.is_empty()
-                        && (has_required
-                            || cur_req.get(&id).is_some_and(|s| {
-                                s.contains(actual_dep)
-                                    || s.contains(&dep_prefix)
-                                    || s.contains(&real_dep)
-                                    || s.contains(&real_prefix)
-                            }));
-                    if !is_dep_active {
-                        continue;
-                    }
+                    let activated = cur_req.get(&id).is_some_and(|s| {
+                        s.contains(actual_dep)
+                            || s.contains(&dep_prefix)
+                            || s.contains(&real_dep)
+                            || s.contains(&real_prefix)
+                    });
+                    let reached = |decls: &[&TomlDependency]| {
+                        !decls.is_empty()
+                            && (activated || decls.iter().any(|d| !is_optional_dep(&[*d])))
+                    };
+                    (reached(&runtime), reached(&build))
+                } else {
+                    (!runtime.is_empty(), !build.is_empty())
+                };
+                if !runtime_on && !build_on {
+                    continue;
                 }
                 let dep_hint = dep_decls.first().copied();
                 let is_pm_dep = index.is_dep_proc_macro_with_hint(pkg_idx, &real_dep, dep_hint)?;
-                let (t1, h1) = optional_dep_sides(ctx.toml, actual_dep, is_host_ctx, is_pm_dep);
-                let (t2, h2) = optional_dep_sides(ctx.toml, &real_dep, is_host_ctx, is_pm_dep);
-                let (to_target, to_host) = (t1 || t2, h1 || h2);
+                // Everything a host-side package or a proc-macro reaches is built for the host.
+                let all_host = is_host_ctx || is_pm_dep;
+                let to_target = runtime_on && !all_host;
+                let to_host = build_on || (runtime_on && all_host);
 
                 if !is_weak && !dep_decls.is_empty() {
-                    if to_target {
-                        index.activate_manifest_dep(
-                            pkg_idx,
-                            actual_dep,
-                            &dep_decls,
-                            active_target,
-                            target_req,
-                            changed,
-                        )?;
-                    }
-                    if to_host {
-                        index.activate_manifest_dep(
-                            pkg_idx,
-                            actual_dep,
-                            &dep_decls,
-                            active_host,
-                            host_req,
-                            changed,
-                        )?;
-                    }
+                    let (target_decls, host_decls) = if all_host {
+                        (Vec::new(), dep_decls.clone())
+                    } else {
+                        (runtime.clone(), build.clone())
+                    };
+                    index.activate_manifest_dep(
+                        pkg_idx,
+                        actual_dep,
+                        &target_decls,
+                        active_target,
+                        target_req,
+                        changed,
+                    )?;
+                    index.activate_manifest_dep(
+                        pkg_idx,
+                        actual_dep,
+                        &host_decls,
+                        active_host,
+                        host_req,
+                        changed,
+                    )?;
                 }
 
                 if let Some(target_id) =
@@ -280,6 +299,7 @@ pub(super) fn propagate_package<'a>(
                     ctx.toml,
                     dep_name,
                     include_dev_deps,
+                    is_host_ctx,
                 )?;
                 // `dep:x` for a dependency declared only under another platform's
                 // `[target.'cfg(..)']` table enables nothing here. slint's `wgpu-30` feature names

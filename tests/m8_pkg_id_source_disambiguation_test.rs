@@ -372,7 +372,10 @@ fn test_two_major_versions_of_same_crate_with_distinct_features_and_b7_cfg_pruni
         .expect("explain_plan must ignore cfg-pruned foo 1.0.5 cleanly");
     let app_unit = plan.units.iter().find(|u| u.package_name == "app").unwrap();
     assert_eq!(app_unit.dependencies, vec![format!("{id2}::lib:foo")]);
-    assert_eq!(app_unit.features, vec!["default", "foo", "std"]);
+    // Cargo walks only the declarations active on this platform and turns on the same-named
+    // feature only through an active optional one (`activate_dep_feature`), so `foo/std` for a
+    // `foo` of another platform leaves the `foo` feature off (issue 143).
+    assert_eq!(app_unit.features, vec!["default", "std"]);
 }
 
 #[test]
