@@ -504,17 +504,17 @@ Mitts использует те же стандартные пути вывод�
 
 ## Цитирование
 
-Чтобы сослаться на Mitts, используйте архивированный релиз. Концептуальный DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) всегда ведёт к последней версии; DOI версии 0.3.38 — [10.5281/zenodo.24271643](https://doi.org/10.5281/zenodo.24271643). Кнопка GitHub «Cite this repository» читает [CITATION.cff](../CITATION.cff).
+Чтобы сослаться на Mitts, используйте архивированный релиз. Концептуальный DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) всегда ведёт к последней версии; DOI версии 0.3.39 — [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376). Кнопка GitHub «Cite this repository» читает [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24271643,
+@software{panasenko_2026_24407376,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.38},
-  doi       = {10.5281/zenodo.24271643},
-  url       = {https://doi.org/10.5281/zenodo.24271643}
+  version   = {0.3.39},
+  doi       = {10.5281/zenodo.24407376},
+  url       = {https://doi.org/10.5281/zenodo.24407376}
 }
 ```
 
