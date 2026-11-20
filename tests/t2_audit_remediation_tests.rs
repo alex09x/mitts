@@ -380,7 +380,7 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.dev]
-split-debuginfo = "packed"
+trim-paths = "all"
 "#,
     )
     .unwrap();
@@ -391,7 +391,7 @@ split-debuginfo = "packed"
         .expect("Expected RustAdapterError");
     assert!(
         matches!(adapter_err, RustAdapterError::UnsupportedOption(msg)
-            if msg.contains("profile.dev.split-debuginfo") && msg.contains("Cargo.toml")),
+            if msg.contains("profile.dev.trim-paths") && msg.contains("Cargo.toml")),
         "Unexpected error: {:?}",
         adapter_err
     );

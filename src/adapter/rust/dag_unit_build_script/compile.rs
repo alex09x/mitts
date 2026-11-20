@@ -81,6 +81,10 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
     if let Some(ref sm) = profile.strip.as_ref().filter(|s| s.as_str() != "none") {
         compile_cmd.args(["-C", &format!("strip={sm}")]);
     }
+    let host = crate::adapter::rust::compiler_resolve::resolve_host_triple();
+    if let Some(split) = crate::adapter::rust::split_debuginfo::effective(&profile, host) {
+        compile_cmd.args(["-C", &format!("split-debuginfo={split}")]);
+    }
     match (profile.opt_level != "0", profile.debug_assertions) {
         (true, true) => {
             compile_cmd.args(["-C", "debug-assertions=on"]);

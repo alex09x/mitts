@@ -37,6 +37,9 @@ pub struct UnitProfileSettings {
     /// Profile `incremental` (Cargo: on for `dev`/`test`, off for `release`/`bench`;
     /// `CARGO_INCREMENTAL=0|1` overrides). Cargo applies it to workspace units only.
     pub incremental: bool,
+    /// Profile `split-debuginfo` as written (`off`, `packed`, `unpacked`); the value rustc
+    /// gets also depends on the target (see `split_debuginfo::effective`).
+    pub split_debuginfo: Option<String>,
 }
 
 type ProfileCacheKey = (PathBuf, String, u64);
@@ -224,6 +227,9 @@ pub fn resolve_unit_profile_for(
         .filter(|i| *i >= 1)
         .map(|i| i as u32);
     let strip = resolve_overridable("strip", "STRIP", true).and_then(|v| parse_strip_value(&v));
+    let split_debuginfo = resolve_overridable("split-debuginfo", "SPLIT_DEBUGINFO", true)
+        .and_then(|v| v.as_str().map(String::from))
+        .filter(|s| matches!(s.as_str(), "off" | "packed" | "unpacked"));
     let overflow_checks = resolve_overridable("overflow-checks", "OVERFLOW_CHECKS", true)
         .and_then(|v| v.as_bool())
         .unwrap_or(default_assertions);
@@ -266,6 +272,7 @@ pub fn resolve_unit_profile_for(
         overflow_checks,
         debug_assertions,
         incremental,
+        split_debuginfo,
     })
 }
 

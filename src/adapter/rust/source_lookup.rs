@@ -57,43 +57,37 @@ fn find_in_git_checkouts(
     None
 }
 
-/// Finds the package inside one checked-out commit: at its root, in a direct subdirectory,
-/// or under `crates/`.
+/// Finds the package inside one checked-out commit anywhere in the tree, like Cargo's git
+/// source (`ops::read_packages`): every directory is searched except hidden ones and a
+/// `target` directory beside a manifest. zed's livekit dependency has `webrtc-sys-build` in
+/// `webrtc-sys/build`, a package inside another package's directory. Shallower directories
+/// are searched first, so the package nearest the root wins.
 pub(crate) fn find_package_in_checkout(
     commit_path: &Path,
     name: &str,
     version: &str,
 ) -> Option<PathBuf> {
-    if manifest_matches_package(&commit_path.join("Cargo.toml"), name, version) {
-        return Some(commit_path.to_path_buf());
-    }
-    let subs = std::fs::read_dir(commit_path).ok()?;
-    for sub in subs.flatten() {
-        let sub_path = sub.path();
-        if !sub_path.is_dir() {
+    let mut queue = std::collections::VecDeque::from([commit_path.to_path_buf()]);
+    while let Some(dir) = queue.pop_front() {
+        let has_manifest = dir.join("Cargo.toml").is_file();
+        if has_manifest && manifest_matches_package(&dir.join("Cargo.toml"), name, version) {
+            return Some(dir);
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
-        }
-        let s_name = sub.file_name();
-        let s_str = s_name.to_string_lossy();
-        if s_str.starts_with('.') || s_str == "target" {
-            continue;
-        }
-        if manifest_matches_package(&sub_path.join("Cargo.toml"), name, version) {
-            return Some(sub_path);
-        }
-        if s_str == "crates" {
-            let Ok(nested) = std::fs::read_dir(&sub_path) else {
-                continue;
-            };
-            for n in nested.flatten() {
-                let n_path = n.path();
-                if n_path.is_dir()
-                    && manifest_matches_package(&n_path.join("Cargo.toml"), name, version)
-                {
-                    return Some(n_path);
-                }
-            }
-        }
+        };
+        let mut subdirs: Vec<PathBuf> = entries
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy();
+                !n.starts_with('.') && !(n == "target" && has_manifest)
+            })
+            .map(|e| e.path())
+            .collect();
+        subdirs.sort();
+        queue.extend(subdirs);
     }
     None
 }

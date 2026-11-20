@@ -32,6 +32,7 @@ fn validate_profile_table(
             "opt-level" => parse_opt_level_value(val).is_some(),
             "codegen-units" => val.as_integer().is_some_and(|i| i >= 1),
             "strip" => parse_strip_value(val).is_some(),
+            "split-debuginfo" => matches!(val.as_str(), Some("off" | "packed" | "unpacked")),
             "overflow-checks" | "debug-assertions" | "incremental" => val.is_bool(),
             "panic" if allow_top_only => matches!(val.as_str(), Some("unwind") | Some("abort")),
             "rpath" if allow_top_only => val.as_bool() == Some(false),
