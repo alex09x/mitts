@@ -166,13 +166,30 @@ impl<'a> CacheGc<'a> {
         let now = SystemTime::now();
         let mut pruned_hashes: HashSet<String> = HashSet::new();
         let mut bytes_freed: u64 = 0;
+        // Unlinking needs no write permission on Unix, and the inode may have other names
+        // (a store hardlink in a workspace target, a named artifact): its mode must not
+        // change, or a linked executable would lose its execute bit.
         let remove_readonly_file = |p: &std::path::Path| -> bool {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o644));
+            #[cfg(not(unix))]
+            if let Ok(meta) = fs::metadata(p) {
+                let mut perms = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = fs::set_permissions(p, perms);
             }
             fs::remove_file(p).is_ok()
+        };
+        let other_names = |p: &std::path::Path| -> bool {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                fs::metadata(p).is_ok_and(|m| m.nlink() > 1)
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = p;
+                false
+            }
         };
         // A build holding the cache keeps what it may still use (see `eviction`): objects
         // used within the grace window, and linked ones, whose names stay until no build
@@ -185,15 +202,25 @@ impl<'a> CacheGc<'a> {
                             .duration_since(obj.mtime)
                             .map_or(true, |age| age < eviction::LEASE_GRACE)))
         };
+        // Removes the object's store name; the bytes this freed. Under a lease the link
+        // count is read again right before: a cache hit may have linked the object into a
+        // workspace since the scan, and such an object is kept (pruning it would free
+        // nothing). A link made in the instant after this check keeps the inode, unchanged,
+        // alive in that workspace; only the count of freed bytes is then too high.
+        let unlink = |obj: &CasObjectMeta| -> Option<u64> {
+            if has_active_lease && other_names(&obj.path) {
+                return None;
+            }
+            remove_readonly_file(&obj.path).then_some(obj.size)
+        };
         if let Some(max_age) = opts.max_age {
             for obj in &objects {
-                if prunable(obj)
-                    && now.duration_since(obj.mtime).is_ok_and(|age| age > max_age)
-                    && remove_readonly_file(&obj.path)
-                {
-                    pruned_hashes.insert(obj.hash.clone());
-                    bytes_freed += obj.size;
-                    total_bytes = total_bytes.saturating_sub(obj.size);
+                if prunable(obj) && now.duration_since(obj.mtime).is_ok_and(|age| age > max_age) {
+                    if let Some(freed) = unlink(obj) {
+                        pruned_hashes.insert(obj.hash.clone());
+                        bytes_freed += freed;
+                        total_bytes = total_bytes.saturating_sub(freed);
+                    }
                 }
             }
         }
@@ -208,13 +235,13 @@ impl<'a> CacheGc<'a> {
                 if total_bytes <= max_bytes {
                     break;
                 }
-                if !pruned_hashes.contains(&obj.hash)
-                    && prunable(obj)
-                    && remove_readonly_file(&obj.path)
-                {
+                if pruned_hashes.contains(&obj.hash) || !prunable(obj) {
+                    continue;
+                }
+                if let Some(freed) = unlink(obj) {
                     pruned_hashes.insert(obj.hash.clone());
-                    bytes_freed += obj.size;
-                    total_bytes = total_bytes.saturating_sub(obj.size);
+                    bytes_freed += freed;
+                    total_bytes = total_bytes.saturating_sub(freed);
                 }
             }
         }

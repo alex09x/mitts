@@ -40,6 +40,19 @@ pub struct ActionCacheEntry {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
+    /// Which project's target this is ([`target_scope`] of its manifest path): entries with
+    /// the same `action_id` and scope are versions of one target, so GC prunes the older
+    /// ones first. `action_id` alone (`app@0.1.0::bin:app`) also matches unrelated projects.
+    /// Absent in entries written before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_scope: Option<String>,
+}
+
+/// A short, stable digest of `manifest`'s absolute path, for [`ActionCacheEntry::target_scope`].
+pub fn target_scope(manifest: &Path) -> String {
+    let path = std::path::absolute(manifest).unwrap_or_else(|_| manifest.to_path_buf());
+    let digest = crate::core::hash::Sha256::digest(path.to_string_lossy().as_bytes());
+    digest[..16].to_string()
 }
 
 /// The Action Cache (AC) storing metadata of previously completed build actions.

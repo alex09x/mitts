@@ -279,6 +279,7 @@ fn test_m5_conservative_gc_and_storage_quotas() {
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scope: None,
     };
     ac.put(&entry).unwrap();
 

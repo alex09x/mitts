@@ -183,6 +183,7 @@ fn test_m8_dag_cache_progress_and_non_native() {
         stdout: String::new(),
         stderr: "warning: test compiler warning".to_string(),
         exit_code: 0,
+        target_scope: None,
     })
     .unwrap();
     ac.record_manifest_entry(action_key, Vec::new(), action_key)

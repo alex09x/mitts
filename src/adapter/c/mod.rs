@@ -288,6 +288,7 @@ impl CAdapter {
                 stdout: stdout.clone(),
                 stderr: stderr.clone(),
                 exit_code: 0,
+                target_scope: Some(crate::core::action_cache::target_scope(&manifest_path)),
             };
             let _ = ac.put(&entry);
         }

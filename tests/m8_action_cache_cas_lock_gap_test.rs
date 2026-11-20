@@ -91,6 +91,7 @@ fn test_m8_action_cache_default_paths_and_error_handling() {
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scope: None,
     };
     let put_res = ac.put(&entry);
     assert!(put_res.is_err());

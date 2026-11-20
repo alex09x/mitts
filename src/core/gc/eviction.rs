@@ -30,7 +30,8 @@ pub const LEASE_GRACE: Duration = Duration::from_secs(2 * 3600);
 /// A cache hit refreshes the object's modification time when it is older than this.
 pub const TOUCH_INTERVAL: Duration = Duration::from_secs(3600);
 
-/// Hashes of executables whose target has a more recently used cached version, and that no
+/// Hashes of executables whose target (action id and project, see
+/// `ActionCacheEntry::target_scope`) has a more recently used cached version, and that no
 /// such latest version of any target uses. A version's time is the latest of its creation
 /// and its objects' `last_used` time, so a checkout that went back to an older state keeps
 /// that state's binaries.
@@ -38,7 +39,7 @@ pub fn superseded_executables(
     ac: &ActionCache,
     last_used: impl Fn(&str) -> Option<SystemTime>,
 ) -> HashSet<String> {
-    let mut by_target: HashMap<String, Vec<ActionCacheEntry>> = HashMap::new();
+    let mut by_target: HashMap<(String, String), Vec<ActionCacheEntry>> = HashMap::new();
     for entry in fs::read_dir(ac.root()).into_iter().flatten().flatten() {
         let path = entry.path();
         let Some(key) = path
@@ -49,9 +50,14 @@ pub fn superseded_executables(
         else {
             continue;
         };
+        // A target is its action id within one project; entries without a scope (written
+        // by older versions) are left to the plain LRU order.
         if let Ok(Some(e)) = ac.get(key) {
-            if !e.action_id.is_empty() {
-                by_target.entry(e.action_id.clone()).or_default().push(e);
+            if let Some(scope) = e.target_scope.clone().filter(|_| !e.action_id.is_empty()) {
+                by_target
+                    .entry((e.action_id.clone(), scope))
+                    .or_default()
+                    .push(e);
             }
         }
     }

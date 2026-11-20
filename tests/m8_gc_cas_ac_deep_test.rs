@@ -42,6 +42,7 @@ fn test_m8_gc_active_lock_protection_and_pruning() {
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scope: None,
     };
     ac.put(&entry1).unwrap();
 

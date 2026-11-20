@@ -47,6 +47,7 @@ fn test_m8_gc_empty_and_active_locks_protection() {
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scope: None,
     };
     ac.put(&entry).unwrap();
 
@@ -89,6 +90,7 @@ fn test_m8_gc_age_eviction_and_orphaned_cleanup() {
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scope: None,
     };
     ac.put(&entry).unwrap();
 

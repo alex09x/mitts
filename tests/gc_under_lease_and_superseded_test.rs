@@ -65,8 +65,22 @@ fn age_of(path: &Path) -> Duration {
         .unwrap_or_default()
 }
 
-/// An action cache entry for `target` created `age` ago with one output.
+const PROJECT: &str = "project-a";
+
+/// An action cache entry for `target` of [`PROJECT`] created `age` ago with one output.
 fn entry(s: &Store, key: &str, target: &str, hash: &str, executable: bool, age: Duration) {
+    entry_in(s, PROJECT, key, target, hash, executable, age);
+}
+
+fn entry_in(
+    s: &Store,
+    project: &str,
+    key: &str,
+    target: &str,
+    hash: &str,
+    executable: bool,
+    age: Duration,
+) {
     let created = SystemTime::now() - age;
     s.ac.put(&ActionCacheEntry {
         action_key: key.to_string(),
@@ -81,6 +95,7 @@ fn entry(s: &Store, key: &str, target: &str, hash: &str, executable: bool, age: 
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scope: Some(project.to_string()),
     })
     .unwrap();
 }
@@ -237,4 +252,81 @@ fn a_build_that_hits_the_cache_marks_its_objects_used() {
             "{o:?} not marked used"
         );
     }
+}
+
+/// Two projects whose binaries share an action id (`app@0.1.0::bin:app`) are not versions of
+/// one target: each keeps its latest, and neither is pruned ahead of the LRU order.
+#[test]
+fn same_named_targets_of_two_projects_are_not_versions_of_each_other() {
+    let s = store();
+    let a = object(&s, &[1u8; 1000], 6 * HOUR);
+    entry_in(
+        &s,
+        "project-a",
+        "a1",
+        "app@0.1.0::bin:app",
+        &a,
+        true,
+        6 * HOUR,
+    );
+    let b = object(&s, &[2u8; 1000], 3 * HOUR);
+    entry_in(
+        &s,
+        "project-b",
+        "b1",
+        "app@0.1.0::bin:app",
+        &b,
+        true,
+        3 * HOUR,
+    );
+    // Entries of older Mitts versions have no scope: never treated as superseded.
+    let legacy = object(&s, &[3u8; 1000], 9 * HOUR);
+    let legacy_new = object(&s, &[4u8; 1000], 1 * HOUR);
+    for (key, hash, age) in [("l1", &legacy, 9 * HOUR), ("l2", &legacy_new, HOUR)] {
+        let mut e = ActionCacheEntry {
+            action_key: key.to_string(),
+            action_id: "old@0.1.0::bin:old".to_string(),
+            created_at_secs: (SystemTime::now() - age)
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            outputs: vec![],
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: 0,
+            target_scope: None,
+        };
+        e.outputs.push(CachedOutput {
+            relative_path: "debug/old".into(),
+            cas_hash: hash.to_string(),
+            file_size: 1000,
+            executable: true,
+        });
+        s.ac.put(&e).unwrap();
+    }
+
+    let superseded = eviction::superseded_executables(&s.ac, |h| {
+        fs::metadata(s.cas.object_path(h)).ok()?.modified().ok()
+    });
+    assert!(superseded.is_empty(), "{superseded:?}");
+}
+
+/// Pruning an object never changes the mode of its inode: a workspace may still hold a
+/// store hardlink to it, and an executable there must stay executable.
+#[cfg(unix)]
+#[test]
+fn pruning_leaves_the_mode_of_a_linked_inode_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = store();
+    let exe = object(&s, &[7u8; 1000], 5 * HOUR);
+    let path = s.cas.object_path(&exe);
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o555)).unwrap();
+    let workspace_copy = s.root.join("app");
+    fs::hard_link(&path, &workspace_copy).unwrap();
+
+    CacheGc::new(&s.cas, &s.ac).prune(&limit(0)).unwrap();
+
+    assert!(!s.cas.has_object(&exe), "no build holds the cache: pruned");
+    let mode = fs::metadata(&workspace_copy).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o555, "the workspace link keeps its mode");
 }

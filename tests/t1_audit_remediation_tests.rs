@@ -324,6 +324,7 @@ fn test_b5_tainted_key_uses_random_nonce_and_blocks_cache_restore_and_long_ac_pu
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scope: None,
     };
     ac.put(&entry)
         .expect("ActionCache::put must handle keys >255 chars");
