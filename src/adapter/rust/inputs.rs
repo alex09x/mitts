@@ -61,8 +61,9 @@ pub fn is_immutable_package_dir(package_dir: &Path, is_workspace: bool) -> bool 
     let cargo_home =
         crate::core::SourceStore::active_cargo_home().unwrap_or_else(|| PathBuf::from(".cargo"));
     let cargo_registry_src = cargo_home.join("registry").join("src");
-    let in_cargo_registry =
-        package_dir.starts_with(&cargo_registry_src) && package_dir.join(".cargo-ok").is_file();
+    // An edited copy is no longer the published package: its files are tracked.
+    let in_cargo_registry = package_dir.starts_with(&cargo_registry_src)
+        && crate::core::cargo_registry_copy::is_pristine(package_dir);
 
     let cargo_git_checkouts = cargo_home.join("git").join("checkouts");
     let in_cargo_git = package_dir.starts_with(&cargo_git_checkouts)
