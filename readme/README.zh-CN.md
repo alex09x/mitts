@@ -372,17 +372,17 @@ Mitts 使用与 Cargo 相同的默认输出路径。其共享工件存储保持�
 
 ## 引用
 
-引用 Mitts 时，请使用已归档的发布版本。概念 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) 始终指向最新版本；0.3.38 的版本 DOI 为 [10.5281/zenodo.24271643](https://doi.org/10.5281/zenodo.24271643)。GitHub 的「Cite this repository」会读取 [CITATION.cff](../CITATION.cff)。
+引用 Mitts 时，请使用已归档的发布版本。概念 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) 始终指向最新版本；0.3.39 的版本 DOI 为 [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376)。GitHub 的「Cite this repository」会读取 [CITATION.cff](../CITATION.cff)。
 
 ```bibtex
-@software{panasenko_2026_24271643,
+@software{panasenko_2026_24407376,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.38},
-  doi       = {10.5281/zenodo.24271643},
-  url       = {https://doi.org/10.5281/zenodo.24271643}
+  version   = {0.3.39},
+  doi       = {10.5281/zenodo.24407376},
+  url       = {https://doi.org/10.5281/zenodo.24407376}
 }
 ```
 

@@ -374,17 +374,17 @@ Mitts는 Cargo와 동일한 기본 출력 경로를 사용합니다. 공유 아�
 
 ## 인용
 
-Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.3.38 버전의 DOI는 [10.5281/zenodo.24271643](https://doi.org/10.5281/zenodo.24271643)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
+Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.3.39 버전의 DOI는 [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
 
 ```bibtex
-@software{panasenko_2026_24271643,
+@software{panasenko_2026_24407376,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.38},
-  doi       = {10.5281/zenodo.24271643},
-  url       = {https://doi.org/10.5281/zenodo.24271643}
+  version   = {0.3.39},
+  doi       = {10.5281/zenodo.24407376},
+  url       = {https://doi.org/10.5281/zenodo.24407376}
 }
 ```
 
