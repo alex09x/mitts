@@ -254,6 +254,11 @@ pub fn try_restore_from_cache_with_directives_and_purity(
             return Ok(false);
         }
 
+        // A hit is a use: keeps the objects at the young end of the cache's LRU order.
+        for out in entry.outputs.iter().chain(&wrapper_outputs) {
+            ctx.cas.touch_object(&out.cas_hash);
+        }
+
         if let Some(rk_map) = ctx.resolved_keys {
             let bound = super::dag_unit_publish::bind_interface_digest(
                 &res_key,

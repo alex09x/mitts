@@ -173,14 +173,14 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
 
 pub(super) fn prune_cache(cache_dir: Option<&std::path::PathBuf>) {
     if let Ok((cas, ac)) = super::open_cas_and_ac(cache_dir) {
-        let skipped = CacheGc::new(&cas, &ac)
+        let build_held = CacheGc::new(&cas, &ac)
             .prune(&GcOptions {
                 max_bytes: Some(0),
                 max_age: None,
             })
-            .is_ok_and(|r| r.skipped_active_build);
-        let message = if skipped {
-            "Skipped CAS eviction (active build holds cache lease)"
+            .is_ok_and(|r| r.build_held_cache);
+        let message = if build_held {
+            "Pruned global CAS; kept what the running build may use"
         } else {
             "Pruned global CAS and Action Cache"
         };
