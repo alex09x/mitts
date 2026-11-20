@@ -283,7 +283,23 @@ pub fn derive_unit_action_key_context(
                 from_profile.clone(),
             ],
         );
-        let final_split = from_cli.or(from_rustflags).or(from_profile);
+        let unit_host = super::split_debuginfo::is_host_unit(unit);
+        let final_split = super::split_debuginfo::for_unit(
+            from_cli.or(from_rustflags).or(from_profile),
+            unit_triple,
+            &unit.kind,
+            unit_host,
+        );
+        if super::split_debuginfo::keeps_debuginfo_paths(
+            final_split.as_deref(),
+            unit_triple,
+            &unit.kind,
+            unit_host,
+        ) {
+            // Its debug info names the checkout (see `keeps_debuginfo_paths`).
+            let ws = super::compiler_resolve::find_workspace_root(&unit.manifest_path);
+            u_flags.push(format!("DEBUGINFO_PATHS={}", ws.display()));
+        }
         if let Some(split) = final_split {
             u_flags.push(format!("SPLIT_DEBUGINFO={split}"));
         }
