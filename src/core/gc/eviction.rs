@@ -30,18 +30,22 @@ pub const LEASE_GRACE: Duration = Duration::from_secs(2 * 3600);
 /// A cache hit refreshes the object's modification time when it is older than this.
 pub const TOUCH_INTERVAL: Duration = Duration::from_secs(3600);
 
-/// Hashes of executables whose target (action id and project, see
-/// `ActionCacheEntry::target_scope`) has a more recently used cached version, and that no
-/// such latest version of any target uses. A version's time is the latest of its creation
-/// and its objects' `last_used` time, so a checkout that went back to an older state keeps
-/// that state's binaries.
+/// Hashes of executables that are an old version of every target they belong to.
+///
+/// A target is an action id within one project (`ActionCacheEntry::target_scopes`); keys
+/// are path-independent, so one entry can belong to several projects, each of which added
+/// itself on a hit. A version's time is the latest of its creation and its objects'
+/// `last_used` time, so a checkout that went back to an older state keeps that state's
+/// binaries. A hash is left out when the latest version of any target uses it, or when an
+/// entry without scopes (written by an older Mitts) has it.
 pub fn superseded_executables(
     ac: &ActionCache,
     last_used: impl Fn(&str) -> Option<SystemTime>,
 ) -> HashSet<String> {
-    let mut by_target: HashMap<(String, String), Vec<ActionCacheEntry>> = HashMap::new();
-    for entry in fs::read_dir(ac.root()).into_iter().flatten().flatten() {
-        let path = entry.path();
+    let mut entries: Vec<ActionCacheEntry> = Vec::new();
+    let mut unscoped: HashSet<String> = HashSet::new();
+    for dir_entry in fs::read_dir(ac.root()).into_iter().flatten().flatten() {
+        let path = dir_entry.path();
         let Some(key) = path
             .extension()
             .is_some_and(|e| e == "json")
@@ -50,19 +54,14 @@ pub fn superseded_executables(
         else {
             continue;
         };
-        // A target is its action id within one project; entries without a scope (written
-        // by older versions) are left to the plain LRU order.
         if let Ok(Some(e)) = ac.get(key) {
-            if let Some(scope) = e.target_scope.clone().filter(|_| !e.action_id.is_empty()) {
-                by_target
-                    .entry((e.action_id.clone(), scope))
-                    .or_default()
-                    .push(e);
+            if e.target_scopes.is_empty() || e.action_id.is_empty() {
+                unscoped.extend(e.outputs.iter().map(|o| o.cas_hash.clone()));
+            } else {
+                entries.push(e);
             }
         }
     }
-    let mut old = HashSet::new();
-    let mut newest = HashSet::new();
     let used_at = |e: &ActionCacheEntry| {
         let created = UNIX_EPOCH + Duration::from_secs(e.created_at_secs);
         e.outputs
@@ -70,18 +69,40 @@ pub fn superseded_executables(
             .filter_map(|o| last_used(&o.cas_hash))
             .fold(created, SystemTime::max)
     };
-    for entries in by_target.values_mut() {
-        entries.sort_by_cached_key(|e| used_at(e));
-        let (last, earlier) = entries.split_last().expect("grouped entries are non-empty");
-        newest.extend(last.outputs.iter().map(|o| o.cas_hash.clone()));
-        old.extend(
-            earlier
-                .iter()
-                .flat_map(|e| e.outputs.iter())
-                .filter(|o| o.executable)
-                .map(|o| o.cas_hash.clone()),
-        );
+    let times: Vec<SystemTime> = entries.iter().map(used_at).collect();
+    let mut by_target: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+    for (i, e) in entries.iter().enumerate() {
+        for scope in &e.target_scopes {
+            by_target
+                .entry((e.action_id.as_str(), scope.as_str()))
+                .or_default()
+                .push(i);
+        }
     }
-    old.retain(|h| !newest.contains(h));
+    // For each entry, in how many of its targets a newer version exists.
+    let mut old_in = vec![0usize; entries.len()];
+    let mut newest = HashSet::new();
+    for members in by_target.values() {
+        let latest = *members
+            .iter()
+            .max_by_key(|&&i| times[i])
+            .expect("targets have members");
+        newest.extend(entries[latest].outputs.iter().map(|o| o.cas_hash.as_str()));
+        for &i in members.iter().filter(|&&i| i != latest) {
+            old_in[i] += 1;
+        }
+    }
+    let mut old = HashSet::new();
+    for (i, e) in entries.iter().enumerate() {
+        if old_in[i] == e.target_scopes.len() {
+            old.extend(
+                e.outputs
+                    .iter()
+                    .filter(|o| o.executable)
+                    .map(|o| o.cas_hash.clone()),
+            );
+        }
+    }
+    old.retain(|h| !newest.contains(h.as_str()) && !unscoped.contains(h));
     old
 }

@@ -95,7 +95,7 @@ fn entry_in(
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
-        target_scope: Some(project.to_string()),
+        target_scopes: vec![project.to_string()],
     })
     .unwrap();
 }
@@ -294,7 +294,7 @@ fn same_named_targets_of_two_projects_are_not_versions_of_each_other() {
             stdout: String::new(),
             stderr: String::new(),
             exit_code: 0,
-            target_scope: None,
+            target_scopes: Vec::new(),
         };
         e.outputs.push(CachedOutput {
             relative_path: "debug/old".into(),
@@ -329,4 +329,118 @@ fn pruning_leaves_the_mode_of_a_linked_inode_alone() {
     assert!(!s.cas.has_object(&exe), "no build holds the cache: pruned");
     let mode = fs::metadata(&workspace_copy).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o555, "the workspace link keeps its mode");
+}
+
+/// Keys are path-independent: project B hits the entry project A wrote, then A builds a
+/// newer version. The shared old version is still B's latest and is not superseded; once
+/// B has a newer version too, it is. A hash that an entry without scopes (older Mitts)
+/// also has is never superseded.
+#[test]
+fn a_version_another_project_hit_stays_until_it_is_old_there_too() {
+    let s = store();
+    let shared = object(&s, &[1u8; 1000], 6 * HOUR);
+    entry_in(
+        &s,
+        "project-a",
+        "v1",
+        "app@0.1.0::bin:app",
+        &shared,
+        true,
+        6 * HOUR,
+    );
+    let v1 = s.ac.get("v1").unwrap().unwrap();
+    s.ac.record_scope(&v1, "project-b".to_string());
+    assert_eq!(
+        s.ac.get("v1").unwrap().unwrap().target_scopes,
+        ["project-a", "project-b"]
+    );
+    let a2 = object(&s, &[2u8; 1000], 3 * HOUR);
+    entry_in(
+        &s,
+        "project-a",
+        "a2",
+        "app@0.1.0::bin:app",
+        &a2,
+        true,
+        3 * HOUR,
+    );
+    let superseded = |s: &Store| {
+        eviction::superseded_executables(&s.ac, |h| {
+            fs::metadata(s.cas.object_path(h)).ok()?.modified().ok()
+        })
+    };
+    assert!(superseded(&s).is_empty(), "still B's latest");
+
+    let b2 = object(&s, &[3u8; 1000], 2 * HOUR);
+    entry_in(
+        &s,
+        "project-b",
+        "b2",
+        "app@0.1.0::bin:app",
+        &b2,
+        true,
+        2 * HOUR,
+    );
+    assert!(superseded(&s).contains(&shared), "old in A and in B");
+
+    // The same bytes in an entry an older Mitts wrote: kept out of the superseded set.
+    s.ac.put(&ActionCacheEntry {
+        action_key: "legacy".to_string(),
+        action_id: "app@0.1.0::bin:app".to_string(),
+        created_at_secs: 0,
+        outputs: v1.outputs.clone(),
+        stdout: String::new(),
+        stderr: String::new(),
+        exit_code: 0,
+        target_scopes: Vec::new(),
+    })
+    .unwrap();
+    assert!(!superseded(&s).contains(&shared));
+}
+
+/// A second checkout that hits the first one's entry adds its own scope to it.
+#[test]
+fn a_hit_from_a_second_checkout_records_its_project() {
+    let dir = TempDir::new().unwrap();
+    let cache = dir.path().join("cache");
+    let build = |name: &str| {
+        let proj = dir.path().join(name);
+        fs::create_dir_all(proj.join("src")).unwrap();
+        fs::write(
+            proj.join("Cargo.toml"),
+            "[package]\nname = \"scoped\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(proj.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["build", "--cache-dir"])
+            .arg(&cache)
+            .current_dir(&proj)
+            .env("CARGO_HOME", dir.path().join("cargo-home"))
+            .env_remove("MITTS_CACHE_DIR")
+            .env_remove("RUSTC_WRAPPER")
+            .env_remove("CARGO_BUILD_RUSTC_WRAPPER")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    build("one");
+    build("two");
+    let ac = ActionCache::new(cache.join("ac")).unwrap();
+    let bin = fs::read_dir(ac.root())
+        .unwrap()
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            let key = p.file_stem()?.to_str()?.to_string();
+            p.extension().is_some_and(|x| x == "json").then_some(key)
+        })
+        .filter_map(|k| ac.get(&k).ok().flatten())
+        .find(|e| e.action_id.contains("::bin:scoped"))
+        .expect("the binary's entry");
+    assert_eq!(bin.target_scopes.len(), 2, "{:?}", bin.target_scopes);
 }

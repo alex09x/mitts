@@ -148,6 +148,11 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         Some(e) => e,
         None => return Ok(false),
     };
+    // This project uses the entry too: GC must not see it as only another project's.
+    ctx.ac.record_scope(
+        &entry,
+        crate::core::action_cache::target_scope(&unit.manifest_path),
+    );
     // A rustc wrapper's declared outputs travel with the entry; the rest of the restore
     // sees rustc's outputs only. They are validated with the entry and placed only once
     // rustc's outputs were restored, so a rejected entry never writes them.

@@ -201,6 +201,10 @@ impl CAdapter {
                         && cas.verify_object(&out.cas_hash).unwrap_or(false)
                     {
                         cas.restore_object(&out.cas_hash, &dest_bin, true)?;
+                        ac.record_scope(
+                            &entry,
+                            crate::core::action_cache::target_scope(&manifest_path),
+                        );
                         let plan = BuildPlan {
                             actions: vec![Action {
                                 id: format!("c::bin:{}", manifest.package.name),
@@ -288,7 +292,7 @@ impl CAdapter {
                 stdout: stdout.clone(),
                 stderr: stderr.clone(),
                 exit_code: 0,
-                target_scope: Some(crate::core::action_cache::target_scope(&manifest_path)),
+                target_scopes: vec![crate::core::action_cache::target_scope(&manifest_path)],
             };
             let _ = ac.put(&entry);
         }
