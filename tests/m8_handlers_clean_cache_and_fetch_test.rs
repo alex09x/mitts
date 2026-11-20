@@ -12,10 +12,17 @@ use mitts::adapter::rust::inputs::hash_package_base_inputs;
 use mitts::cli::handlers::{handle_clean, handle_fetch, handle_gc};
 use mitts::cli::{CleanArgs, FetchArgs, GcArgs};
 use std::fs;
+use std::sync::Mutex;
 use tempfile::TempDir;
+
+/// `test_m8_inputs_cargo_home_and_missing_manifest` points CARGO_HOME at a temporary
+/// directory it deletes afterwards; a concurrent `clean` reading the Cargo config then
+/// fails (seen in the aarch64 Debian 13 matrix run).
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_m8_handlers_clean_release_and_cache_pruning() {
+    let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -110,6 +117,8 @@ version = "0.1.0"
 
 #[test]
 fn test_m8_inputs_cargo_home_and_missing_manifest() {
+    let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let old_cargo_home = std::env::var_os("CARGO_HOME");
     let temp = TempDir::new().unwrap();
 
     // 1. Package without Cargo.toml fails immediately
@@ -156,5 +165,8 @@ edition = "2021"
         .any(|(k, _)| k.contains("CARGO_HOME/config.toml")));
     assert!(inputs.iter().any(|(k, _)| k.contains("CARGO_HOME/config")));
 
-    std::env::remove_var("CARGO_HOME");
+    match old_cargo_home {
+        Some(v) => std::env::set_var("CARGO_HOME", v),
+        None => std::env::remove_var("CARGO_HOME"),
+    }
 }
