@@ -94,6 +94,7 @@ fn test_m8_gc_active_lock_protection_and_ac_pruning() {
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scopes: Vec::new(),
     };
     ac.put(&entry).unwrap();
 

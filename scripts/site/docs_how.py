@@ -151,10 +151,11 @@ deps:      &lt;sorted (dependency unit, dependency action key) pairs&gt;</code><
 <p>After a successful build Mitts writes <code>target/mitts/build-&lt;profile&gt;.lock</code>: the toolchain, the package selection, the features, and stat snapshots (path, size, mtime) of <code>Cargo.lock</code>, the manifests, the source files and directories, and the outputs.</p>
 <p>On the next build, if every snapshot still matches, Mitts skips planning and keying and returns at once. Directory snapshots catch added and removed files. Any mismatch falls through to the normal keyed build, so the fast path can only skip work the full protocol would also skip. It is local to one workspace and never shared. With an explicit <code>--cache-dir</code> it is off unless <code>MITTS_FAST_LOCK=1</code>.</p>"""))
     S.append(("gc", "Size limit and garbage collection", """
-<p>The store is bounded by default, with no cron job. After a command that uses the cache (<code>build</code>, <code>check</code>, <code>clippy</code>, <code>test</code>, <code>bench</code>, <code>coverage</code>, <code>llvm-cov</code>, <code>run</code>, <code>rustc</code>), Mitts checks the size of the store and, over the limit, prunes the oldest objects until it is under it.</p>
+<p>The store is bounded by default, with no cron job. After a command that uses the cache (<code>build</code>, <code>check</code>, <code>clippy</code>, <code>test</code>, <code>bench</code>, <code>coverage</code>, <code>llvm-cov</code>, <code>run</code>, <code>rustc</code>), Mitts checks the size of the store and, over the limit, prunes it until it is under it.</p>
 <ul>
-<li>Objects of a running build are never pruned; pruning waits until no build holds the cache.</li>
-<li>Pruning goes by file modification time, oldest first. A pruned object costs one recompile, nothing else.</li>
+<li>Old versions of tests and binaries go first: each change relinks them, so a busy workspace leaves many copies. The version of each target used last stays.</li>
+<li>Then the least recently used objects. A cache hit counts as a use.</li>
+<li>Pruning does not wait for running builds. While one holds the cache, objects used in the last two hours, those of units being built and those still linked into a workspace are kept. A pruned object costs one recompile, nothing else.</li>
 <li><code>MITTS_CACHE_MAX_BYTES</code> sets the limit (<code>500M</code>, <code>2G</code>, or <code>off</code> / <code>0</code>); the default is 100&nbsp;GiB. <code>MITTS_GC_INTERVAL_SECS</code> is the least time between checks (default 3600).</li>
 <li>Build-script entries are removed by an atomic rename to <code>.gc.*</code> and then deleted, so a concurrent reader sees the whole entry or none of it. Leftover <code>tmp</code> files older than one hour go too.</li>
 <li><code>mitts gc --max-bytes N --max-age-secs S</code> prunes on demand.</li>

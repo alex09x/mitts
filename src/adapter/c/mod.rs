@@ -130,6 +130,10 @@ impl CAdapter {
         if pkg_name.is_empty() {
             bail!("Manifest missing package name");
         }
+        // The name is the binary's file name and part of its cache key, which trims.
+        if pkg_name.trim() != pkg_name {
+            bail!("Package name {pkg_name:?} has leading or trailing whitespace");
+        }
 
         Ok(CPackageManifest {
             package: CPackageInfo {
@@ -182,10 +186,11 @@ impl CAdapter {
             None => ActionCache::default_cache()?,
         };
 
-        // Derive Action Key
+        // Derive Action Key. The package name is part of it: the binary is named after it,
+        // and two packages must not share one entry (GC groups versions by target).
         let action_key = ActionCache::derive_action_key(
             &toolchain.version,
-            "c-target",
+            &format!("c-target:{}", manifest.package.name),
             if opt.release { "release" } else { "debug" },
             &opt.extra_flags,
             &[],
@@ -201,6 +206,10 @@ impl CAdapter {
                         && cas.verify_object(&out.cas_hash).unwrap_or(false)
                     {
                         cas.restore_object(&out.cas_hash, &dest_bin, true)?;
+                        ac.record_scope(
+                            &entry,
+                            crate::core::action_cache::target_scope(&manifest_path),
+                        );
                         let plan = BuildPlan {
                             actions: vec![Action {
                                 id: format!("c::bin:{}", manifest.package.name),
@@ -288,6 +297,7 @@ impl CAdapter {
                 stdout: stdout.clone(),
                 stderr: stderr.clone(),
                 exit_code: 0,
+                target_scopes: vec![crate::core::action_cache::target_scope(&manifest_path)],
             };
             let _ = ac.put(&entry);
         }

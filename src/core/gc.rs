@@ -8,6 +8,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod eviction;
+
 use super::{action_cache::ActionCache, cas::ContentAddressedStore, lock::FileLock};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
@@ -24,7 +26,7 @@ pub struct GcReport {
     pub objects_pruned: usize,
     pub bytes_freed: u64,
     pub bytes_retained: u64,
-    pub skipped_active_build: bool,
+    pub build_held_cache: bool,
 }
 
 /// Options configuring cache garbage collection and storage quotas.
@@ -117,6 +119,9 @@ impl<'a> CacheGc<'a> {
             mtime: SystemTime,
             #[cfg(unix)]
             ino_key: (u64, u64),
+            /// Other names of the inode (a store hardlink in a workspace, a named
+            /// artifact): pruning the object frees nothing while they remain.
+            linked: bool,
         }
         let mut objects: Vec<CasObjectMeta> = Vec::new();
         let mut total_bytes: u64 = 0;
@@ -139,10 +144,12 @@ impl<'a> CacheGc<'a> {
                 let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                 total_bytes += size;
                 #[cfg(unix)]
-                let ino_key = {
+                let (ino_key, linked) = {
                     use std::os::unix::fs::MetadataExt;
-                    (meta.dev(), meta.ino())
+                    ((meta.dev(), meta.ino()), meta.nlink() > 1)
                 };
+                #[cfg(not(unix))]
+                let linked = false;
                 objects.push(CasObjectMeta {
                     path,
                     hash,
@@ -150,6 +157,7 @@ impl<'a> CacheGc<'a> {
                     mtime,
                     #[cfg(unix)]
                     ino_key,
+                    linked,
                 });
             }
         }
@@ -158,40 +166,82 @@ impl<'a> CacheGc<'a> {
         let now = SystemTime::now();
         let mut pruned_hashes: HashSet<String> = HashSet::new();
         let mut bytes_freed: u64 = 0;
+        // Unlinking needs no write permission on Unix, and the inode may have other names
+        // (a store hardlink in a workspace target, a named artifact): its mode must not
+        // change, or a linked executable would lose its execute bit.
         let remove_readonly_file = |p: &std::path::Path| -> bool {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o644));
+            #[cfg(not(unix))]
+            if let Ok(meta) = fs::metadata(p) {
+                let mut perms = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = fs::set_permissions(p, perms);
             }
             fs::remove_file(p).is_ok()
         };
-        if !has_active_lease {
-            if let Some(max_age) = opts.max_age {
-                for obj in &objects {
-                    if !protected_hashes.contains(&obj.hash)
-                        && now.duration_since(obj.mtime).is_ok_and(|age| age > max_age)
-                        && remove_readonly_file(&obj.path)
-                    {
+        let other_names = |p: &std::path::Path| -> bool {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                fs::metadata(p).is_ok_and(|m| m.nlink() > 1)
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = p;
+                false
+            }
+        };
+        // A build holding the cache keeps what it may still use (see `eviction`): objects
+        // used within the grace window, and linked ones, whose names stay until no build
+        // holds the cache and which free nothing before that.
+        let prunable = |obj: &CasObjectMeta| {
+            !protected_hashes.contains(&obj.hash)
+                && !(has_active_lease
+                    && (obj.linked
+                        || now
+                            .duration_since(obj.mtime)
+                            .map_or(true, |age| age < eviction::LEASE_GRACE)))
+        };
+        // Removes the object's store name; the bytes this freed. Under a lease the link
+        // count is read again right before: a cache hit may have linked the object into a
+        // workspace since the scan, and such an object is kept (pruning it would free
+        // nothing). A link made in the instant after this check keeps the inode, unchanged,
+        // alive in that workspace; only the count of freed bytes is then too high.
+        let unlink = |obj: &CasObjectMeta| -> Option<u64> {
+            if has_active_lease && other_names(&obj.path) {
+                return None;
+            }
+            remove_readonly_file(&obj.path).then_some(obj.size)
+        };
+        if let Some(max_age) = opts.max_age {
+            for obj in &objects {
+                if prunable(obj) && now.duration_since(obj.mtime).is_ok_and(|age| age > max_age) {
+                    if let Some(freed) = unlink(obj) {
                         pruned_hashes.insert(obj.hash.clone());
-                        bytes_freed += obj.size;
-                        total_bytes = total_bytes.saturating_sub(obj.size);
+                        bytes_freed += freed;
+                        total_bytes = total_bytes.saturating_sub(freed);
                     }
                 }
             }
-            if let Some(max_bytes) = opts.max_bytes {
-                for obj in &objects {
-                    if total_bytes <= max_bytes {
-                        break;
-                    }
-                    if !pruned_hashes.contains(&obj.hash)
-                        && !protected_hashes.contains(&obj.hash)
-                        && remove_readonly_file(&obj.path)
-                    {
-                        pruned_hashes.insert(obj.hash.clone());
-                        bytes_freed += obj.size;
-                        total_bytes = total_bytes.saturating_sub(obj.size);
-                    }
+        }
+        if let Some(max_bytes) = opts.max_bytes.filter(|max| total_bytes > *max) {
+            // Superseded versions of tests and binaries first, then least recently used.
+            let mtimes: std::collections::HashMap<&str, SystemTime> =
+                objects.iter().map(|o| (o.hash.as_str(), o.mtime)).collect();
+            let superseded = eviction::superseded_executables(self.ac, |h| mtimes.get(h).copied());
+            let (first, rest): (Vec<&CasObjectMeta>, Vec<&CasObjectMeta>) =
+                objects.iter().partition(|o| superseded.contains(&o.hash));
+            for obj in first.into_iter().chain(rest) {
+                if total_bytes <= max_bytes {
+                    break;
+                }
+                if pruned_hashes.contains(&obj.hash) || !prunable(obj) {
+                    continue;
+                }
+                if let Some(freed) = unlink(obj) {
+                    pruned_hashes.insert(obj.hash.clone());
+                    bytes_freed += freed;
+                    total_bytes = total_bytes.saturating_sub(freed);
                 }
             }
         }
@@ -389,7 +439,7 @@ impl<'a> CacheGc<'a> {
             objects_pruned: pruned_hashes.len(),
             bytes_freed,
             bytes_retained: total_bytes,
-            skipped_active_build: has_active_lease,
+            build_held_cache: has_active_lease,
         })
     }
 }

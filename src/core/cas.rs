@@ -270,6 +270,27 @@ impl ContentAddressedStore {
         Ok(())
     }
 
+    /// Marks an object as used now, for the least-recently-used order of `gc`: its
+    /// modification time is moved forward when it is older than `gc::eviction::TOUCH_INTERVAL`
+    /// (at most one metadata write an hour per object). The owner may set the times of a
+    /// read-only file, so the object stays sealed. Failures are ignored: a missed touch only
+    /// makes the object look older.
+    pub fn touch_object(&self, hash: &str) {
+        let path = self.object_path(hash);
+        let now = std::time::SystemTime::now();
+        let stale = fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| {
+                now.duration_since(t)
+                    .is_ok_and(|age| age >= crate::core::gc::eviction::TOUCH_INTERVAL)
+            });
+        if stale {
+            if let Ok(file) = fs::File::open(&path) {
+                let _ = file.set_modified(now);
+            }
+        }
+    }
+
     /// Restores an object from CAS into `dest_path` via CoW reflink or byte copy.
     /// With restore verification on, the object is re-hashed first and a corrupted one
     /// is removed instead of restored.

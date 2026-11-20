@@ -220,20 +220,18 @@ pub fn handle_gc(args: &GcArgs) -> i32 {
         println!("mitts: removed {swept} private store(s) left by uncached builds");
     }
     match CacheGc::new(&cas, &ac).prune(&opts) {
-        Ok(report) if report.skipped_active_build => {
-            println!(
-                "mitts: GC skipped — active build lease held ({} bytes retained)",
-                report.bytes_retained
-            );
-            0
-        }
         Ok(report) => {
             println!(
-                "mitts: GC completed — {} examined, {} pruned ({} bytes freed, {} bytes retained)",
+                "mitts: GC completed — {} examined, {} pruned ({} bytes freed, {} bytes retained){}",
                 report.objects_examined,
                 report.objects_pruned,
                 report.bytes_freed,
-                report.bytes_retained
+                report.bytes_retained,
+                if report.build_held_cache {
+                    "; a build holds the cache, so objects it may use were kept"
+                } else {
+                    ""
+                }
             );
             0
         }

@@ -12,9 +12,10 @@
 //!
 //! The cache had no bound and nothing cleaned it: a build host that compiled all day filled its
 //! disk (issue 52). After a command that works with the cache, Mitts now checks the size of the
-//! content-addressed store, at most once per interval, and prunes the oldest objects when it is
-//! over the limit. Objects of a running build are never pruned: the pruning waits until no build
-//! holds the cache.
+//! content-addressed store, at most once per interval, and prunes it when it is over the limit:
+//! superseded versions of tests and binaries first, then the least recently used objects.
+//! Pruning does not wait for builds to finish (a host that builds without pause would never
+//! prune); while one holds the cache, what it may still use is kept (see `gc::eviction`).
 //!
 //! - `MITTS_CACHE_MAX_BYTES`: the limit, a number of bytes with an optional `K`, `M`, `G` or `T`
 //!   suffix (binary multiples), or `off`/`0` to disable. Default: 100 GiB.
@@ -110,7 +111,7 @@ pub fn run_if_due(cache_dir: Option<&Path>) -> Option<u64> {
             max_age: None,
         })
         .ok()?;
-    if report.skipped_active_build || report.objects_pruned == 0 {
+    if report.objects_pruned == 0 {
         return None;
     }
     eprintln!(

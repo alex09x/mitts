@@ -125,6 +125,7 @@ links = "native_zlib"
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scopes: Vec::new(),
     };
     ctx.ac.put(&missing_entry).unwrap();
 
@@ -146,6 +147,7 @@ links = "native_zlib"
         stdout: String::new(),
         stderr: "warning: test compiler message\n".to_string(),
         exit_code: 0,
+        target_scopes: Vec::new(),
     };
     ctx.ac.put(&valid_cas_entry).unwrap();
 
@@ -188,6 +190,7 @@ links = "native_zlib"
         stdout: String::new(),
         stderr: "warning: unit built with warning\n".to_string(),
         exit_code: 0,
+        target_scopes: Vec::new(),
     };
     ctx.ac.put(&multi_output_entry).unwrap();
     ctx.ac
@@ -337,6 +340,7 @@ fn test_m8_dag_cache_binary_restore_copy() {
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scopes: Vec::new(),
     };
     ctx.ac.put(&entry).unwrap();
     ctx.ac
