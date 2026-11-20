@@ -334,6 +334,7 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             stdout: String::new(),
             stderr: args.output.stderr.clone(),
             exit_code: 0,
+            target_scopes: vec![crate::core::action_cache::target_scope(&unit.manifest_path)],
         };
         let has_linkable = |outs: &[CachedOutput]| {
             outs.iter().any(|o| {

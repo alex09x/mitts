@@ -5,8 +5,19 @@
 The shared cache (`~/.cache/mitts`, or `--cache-dir`) is bounded. After a command that works
 with the cache (`build`, `check`, `clippy`, `test`, `bench`, `coverage`, `llvm-cov`, `run`,
 `rustc`), Mitts looks at the size of the content-addressed store and, when it is over the limit,
-prunes the oldest objects until it is under it. Objects of a build that is running are not
-pruned: the pruning waits until no build holds the cache.
+prunes it until it is under it:
+
+1. Old versions of tests and binaries first. Every change under a test target relinks it, and
+   with debug info a test binary can be hundreds of MB, so a busy workspace leaves many copies
+   of each. For each target, the version used last is kept (a checkout that went back to an
+   older state keeps that state's binaries); the others go, oldest first.
+2. Then everything else, least recently used first. A cache hit counts as a use (the object's
+   modification time is moved forward, at most once an hour).
+
+Pruning does not wait for running builds: a host that builds without pause would never prune.
+While a build holds the cache, objects used within the last two hours, those of units being
+built, and objects still linked into a workspace are kept. A build that wanted an object pruned
+anyway compiles that unit again; it does not fail.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
@@ -14,9 +25,9 @@ pruned: the pruning waits until no build holds the cache.
 | `MITTS_GC_INTERVAL_SECS` | the least time between two checks (the check scans the store) | 3600 |
 
 A value that is not a size keeps the default limit. When something is pruned, one line on
-stderr says how much (`[mitts::gc] the cache was over its limit ...`). Pruning goes by file
-modification time, oldest first, not by last use; a pruned object is compiled again when
-needed, which costs time and nothing else. `mitts gc --max-bytes N` still prunes on demand.
+stderr says how much (`[mitts::gc] the cache was over its limit ...`). A pruned object is
+compiled again when needed, which costs time and nothing else. `mitts gc --max-bytes N` still
+prunes on demand.
 
 ## Uncached builds do not use the shared store
 

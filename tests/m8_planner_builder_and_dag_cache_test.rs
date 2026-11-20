@@ -131,6 +131,7 @@ edition = "2021"
         stdout: String::new(),
         stderr: "warning: test warning\n".to_string(),
         exit_code: 0,
+        target_scopes: Vec::new(),
     };
     ac.put(&entry).unwrap();
     ac.record_manifest_entry(action_key, Vec::new(), action_key)
@@ -176,6 +177,7 @@ edition = "2021"
         stdout: String::new(),
         stderr: String::new(),
         exit_code: 0,
+        target_scopes: Vec::new(),
     };
     ac.put(&lib_entry).unwrap();
     ac.record_manifest_entry(lib_key, Vec::new(), lib_key)

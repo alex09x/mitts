@@ -148,6 +148,11 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         Some(e) => e,
         None => return Ok(false),
     };
+    // This project uses the entry too: GC must not see it as only another project's.
+    ctx.ac.record_scope(
+        &entry,
+        crate::core::action_cache::target_scope(&unit.manifest_path),
+    );
     // A rustc wrapper's declared outputs travel with the entry; the rest of the restore
     // sees rustc's outputs only. They are validated with the entry and placed only once
     // rustc's outputs were restored, so a rejected entry never writes them.
@@ -270,6 +275,11 @@ pub fn try_restore_from_cache_with_directives_and_purity(
             dest_bin.as_deref(),
         ) {
             return Ok(false);
+        }
+
+        // A hit is a use: keeps the objects at the young end of the cache's LRU order.
+        for out in entry.outputs.iter().chain(&wrapper_outputs) {
+            ctx.cas.touch_object(&out.cas_hash);
         }
 
         if let Some(rk_map) = ctx.resolved_keys {

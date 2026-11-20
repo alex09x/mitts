@@ -98,13 +98,13 @@ fn test_b1_gc_prunes_cas_artifacts_and_preserves_during_active_locks() {
         0
     );
     let report_doctest = waiter.join().unwrap();
-    assert!(report_doctest.skipped_active_build && report_doctest.objects_pruned == 0);
+    assert!(report_doctest.build_held_cache && report_doctest.objects_pruned == 0);
     let cas = ContentAddressedStore::new(cas_root.clone()).unwrap();
     let ac = ActionCache::new(ac_root).unwrap();
     let gc = CacheGc::new(&cas, &ac);
     let lease_guard = CacheLease::acquire(Some(&cache_dir));
     let report_lease = gc.prune(&zero_gc).unwrap();
-    assert!(report_lease.skipped_active_build && report_lease.objects_pruned == 0);
+    assert!(report_lease.build_held_cache && report_lease.objects_pruned == 0);
     let mut seen_during_lease = HashSet::new();
     assert!(unique_inode_bytes(&cas_root.join("artifacts"), &mut seen_during_lease) > 0);
     drop(lease_guard);
@@ -128,7 +128,7 @@ fn test_b1_gc_prunes_cas_artifacts_and_preserves_during_active_locks() {
     })
     .unwrap();
     assert!(live_fb.exists() && live_sc.exists() && !dead_fb.exists() && !dead_sc.exists());
-    assert!(!gc.prune(&zero_gc).unwrap().skipped_active_build);
+    assert!(!gc.prune(&zero_gc).unwrap().build_held_cache);
     let mut seen_after = HashSet::new();
     let bytes_after = unique_inode_bytes(&cas_root.join("objects"), &mut seen_after)
         + unique_inode_bytes(&cas_root.join("artifacts"), &mut seen_after);

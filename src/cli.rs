@@ -472,7 +472,7 @@ pub struct GcArgs {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
-    /// Maximum cache size in bytes (pruning oldest until under quota)
+    /// Maximum cache size in bytes (old test/binary versions first, then least recently used)
     #[arg(long)]
     pub max_bytes: Option<u64>,
 

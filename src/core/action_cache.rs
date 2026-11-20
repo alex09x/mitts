@@ -40,6 +40,21 @@ pub struct ActionCacheEntry {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
+    /// The projects whose target this is ([`target_scope`] of each manifest path): keys are
+    /// path-independent, so another project with the same sources uses the same entry and
+    /// adds itself on its first hit ([`ActionCache::record_scope`]). Entries with the same
+    /// `action_id` and a shared scope are versions of one target, and GC prunes the older
+    /// ones first; `action_id` alone (`app@0.1.0::bin:app`) also matches unrelated
+    /// projects. Empty in entries written before it existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_scopes: Vec<String>,
+}
+
+/// A short, stable digest of `manifest`'s absolute path, for [`ActionCacheEntry::target_scopes`].
+pub fn target_scope(manifest: &Path) -> String {
+    let path = std::path::absolute(manifest).unwrap_or_else(|_| manifest.to_path_buf());
+    let digest = crate::core::hash::Sha256::digest(path.to_string_lossy().as_bytes());
+    digest[..16].to_string()
 }
 
 /// The Action Cache (AC) storing metadata of previously completed build actions.
@@ -175,6 +190,19 @@ impl ActionCache {
 
         manifest.record_entry(extra_inputs, result_key.to_string());
         manifest.save_atomic(&self.manifest_path(base_key), &self.tmp_dir)
+    }
+
+    /// Adds `scope` to the projects of a hit entry, once per project: the entry file is
+    /// rewritten only when the scope is new. Two projects adding themselves at the same
+    /// moment may lose one of the two; that project's next hit adds it again, and until
+    /// then GC may only prune the version early (a rebuild, never a wrong output).
+    pub fn record_scope(&self, entry: &ActionCacheEntry, scope: String) {
+        if entry.target_scopes.is_empty() || entry.target_scopes.contains(&scope) {
+            return;
+        }
+        let mut updated = entry.clone();
+        updated.target_scopes.push(scope);
+        let _ = self.put(&updated);
     }
 
     /// Atomically publishes an entry into the Action Cache.
