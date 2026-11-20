@@ -251,3 +251,37 @@ fn test_m6_multi_language_shared_cas_and_action_cache() {
         "Live multi-language artifacts must not be pruned"
     );
 }
+
+/// Two C packages with the same source but different names are different targets: the
+/// second does not hit the first one's entry (GC groups versions by target and project).
+#[test]
+fn test_m6_same_source_different_package_names_do_not_share_an_entry() {
+    let src = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/hello-c/src/main.c"),
+    )
+    .unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let cache = work.path().join("cache");
+    let build = |name: &str| {
+        let dir = work.path().join(name);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/main.c"), &src).unwrap();
+        fs::write(
+            dir.join("Mitts.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[bin]\nsrc = \"src/main.c\"\n"),
+        )
+        .unwrap();
+        let opt = CBuildOptions {
+            manifest_path: Some(dir.join("Mitts.toml")),
+            target_dir: Some(dir.join("target")),
+            cache_dir: Some(cache.clone()),
+            release: false,
+            no_cache: false,
+            extra_flags: Vec::new(),
+        };
+        CAdapter::build(&opt).expect("build").1
+    };
+    assert!(!build("first-c").cached);
+    assert!(!build("second-c").cached, "another package: its own entry");
+    assert!(build("second-c").cached, "and that entry is reused");
+}

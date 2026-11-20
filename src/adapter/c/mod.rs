@@ -182,10 +182,11 @@ impl CAdapter {
             None => ActionCache::default_cache()?,
         };
 
-        // Derive Action Key
+        // Derive Action Key. The package name is part of it: the binary is named after it,
+        // and two packages must not share one entry (GC groups versions by target).
         let action_key = ActionCache::derive_action_key(
             &toolchain.version,
-            "c-target",
+            &format!("c-target:{}", manifest.package.name),
             if opt.release { "release" } else { "debug" },
             &opt.extra_flags,
             &[],
