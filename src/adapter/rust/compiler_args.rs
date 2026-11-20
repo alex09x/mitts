@@ -483,28 +483,6 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         is_host,
         is_primary_target,
     );
-    // Last, so it decides: an Apple executable packs its debug info (see `for_unit`).
-    let unit_host = inv.unit.for_host || is_host_kind;
-    let unit_split = super::split_debuginfo::for_unit(
-        final_split.clone(),
-        unit_triple,
-        &inv.unit.kind,
-        unit_host,
-    );
-    if unit_split != final_split {
-        if let Some(ref split) = unit_split {
-            cmd.args(["-C", &format!("split-debuginfo={split}")]);
-        }
-    }
-    if super::split_debuginfo::keeps_debuginfo_paths(
-        unit_split.as_deref(),
-        unit_triple,
-        &inv.unit.kind,
-        unit_host,
-    ) && !super::compiler_remap::is_coverage_build(inv.extra_compiler_args)
-    {
-        cmd.arg("--remap-path-scope=macro,diagnostics");
-    }
     Ok((cmd, clean_crate, is_pipelined_lib))
 }
 

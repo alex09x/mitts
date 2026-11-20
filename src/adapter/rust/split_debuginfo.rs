@@ -86,63 +86,6 @@ pub(crate) fn unpacked_dwarf(split: Option<&str>, triple: &str) -> bool {
     split == Some("unpacked") && !triple.contains("-apple-")
 }
 
-/// An executable or dynamic library linked for an Apple target (not a host unit).
-fn apple_link(triple: &str, kind: &str, host: bool) -> bool {
-    !host
-        && triple.contains("-apple-")
-        && kind.split(',').map(str::trim).any(|k| {
-            matches!(
-                k,
-                "bin" | "test" | "custom-test" | "example" | "bench" | "dylib" | "cdylib"
-            )
-        })
-}
-
-/// The value rustc gets in the end for a unit of `kind`, after [`last_in`] / the profile
-/// chose `split`.
-///
-/// On Apple targets `unpacked` leaves a linked executable's own debug info in the object
-/// files, and its debug map (`N_OSO`) records their paths. Cargo links in `deps`, where they
-/// stay; Mitts links in a staging directory that is gone after the build. Such units get
-/// `packed`: rustc runs `dsymutil` while the objects exist, and the `.dSYM` is kept beside
-/// the executable and restored with it. Libraries keep `unpacked` (their objects live on in
-/// the rlib). See also [`keeps_debuginfo_paths`].
-pub(crate) fn for_unit(
-    split: Option<String>,
-    triple: &str,
-    kind: &str,
-    host: bool,
-) -> Option<String> {
-    match split {
-        Some(s)
-            if s == "unpacked"
-                && apple_link(triple, kind, host)
-                && supported(triple).iter().any(|v| v == "packed") =>
-        {
-            Some("packed".to_string())
-        }
-        other => other,
-    }
-}
-
-/// Whether the unit's path remapping stays out of its debug info
-/// (`--remap-path-scope=macro,diagnostics`).
-///
-/// Mitts maps the workspace root to an empty prefix (`src/lib.rs`, as Cargo prints it). The
-/// compile directory then becomes empty too, and Apple's linker leaves objects without one
-/// out of the debug map: the `.dSYM` had no line tables for the crate itself, so backtraces
-/// and lldb lost its files and lines (in every release). A packed Apple executable keeps
-/// real paths in its debug info instead, while `file!()` and messages stay remapped. The
-/// paths make the unit specific to this checkout; its key names the workspace root.
-pub(crate) fn keeps_debuginfo_paths(
-    split: Option<&str>,
-    triple: &str,
-    kind: &str,
-    host: bool,
-) -> bool {
-    split == Some("packed") && apple_link(triple, kind, host)
-}
-
 /// `<target>/<profile>/deps`, where Cargo leaves split debug info; absolute, because
 /// unpacked DWARF records this path and rustc runs in another directory.
 pub(crate) fn deps_dir(target_dir: &Path, release: bool) -> PathBuf {

@@ -55,14 +55,6 @@ debug = true
 For a single run: `CARGO_PROFILE_DEV_DEBUG=true mitts build`. `release` and `bench` are
 unchanged (no debug info unless set).
 
-On macOS, executables (binaries, tests, examples, benches, dylibs) with debug info are
-linked with `split-debuginfo = "packed"` even where the profile or Cargo's default says
-`unpacked`: Mitts links in a build directory it removes afterwards, and `unpacked` would
-leave the debug map pointing at object files that are gone. The `.dSYM` lands beside the
-executable and comes back with it on a cache hit. Their debug info keeps the real source
-paths (`file!()` and messages still show `src/lib.rs`), so such units are not shared
-between two checkouts of a project.
-
 ## Accepted and ignored
 
 Keys that only tune Cargo itself or do not apply to Mitts' layout are accepted without

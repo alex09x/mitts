@@ -50,16 +50,12 @@ fn project(root: &Path, profile: &str) {
 }
 
 fn mitts(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
-    mitts_in(root, "target", args, env)
-}
-
-fn mitts_in(root: &Path, target: &str, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
     cmd.args(args)
         .arg("--cache-dir")
         .arg(root.join("cache"))
         .arg("--target-dir")
-        .arg(root.join(target))
+        .arg(root.join("target"))
         .current_dir(root)
         .env("CARGO_HOME", root.join("cargo-home"))
         .env_remove("MITTS_CACHE_DIR");
@@ -174,40 +170,4 @@ fn a_cargo_config_profile_turns_full_debug_info_back_on() {
     assert!(out.status.success(), "{log}");
     assert_eq!(debuginfo_of(&log, "app"), ["2"], "rebuilt with full: {log}");
     assert_eq!(debuginfo_of(&log, "helper"), ["2"], "{log}");
-}
-
-/// A backtrace frame of the failing test names its line: `at <path>/src/lib.rs:7:`.
-fn frame_has_line(stdout: &str) -> bool {
-    stdout
-        .lines()
-        .any(|l| l.trim_start().starts_with("at ") && l.contains("src/lib.rs:7:"))
-}
-
-/// The test binary's own lines survive the build directory on Apple targets (its debug map
-/// pointed at objects in a staging directory that is removed), cold and when another target
-/// directory restores it from the cache; full debug info too. On other targets the same
-/// holds through the binary's own DWARF.
-#[test]
-fn a_test_binary_keeps_its_lines_cold_and_after_a_cache_hit() {
-    for (profile, label) in [("", "default"), ("[profile.dev]\ndebug = true\n", "full")] {
-        let temp = TempDir::new().unwrap();
-        let root = temp.path().join("proj");
-        project(&root, profile);
-        let env = [("RUST_BACKTRACE", "1")];
-        let cold = mitts_in(&root, "target-a", &["test"], &env);
-        let cold_out = String::from_utf8_lossy(&cold.stdout).to_string();
-        assert!(frame_has_line(&cold_out), "{label}, cold: {cold_out}");
-
-        let warm = mitts_in(&root, "target-b", &["test", "-v"], &env);
-        let warm_out = String::from_utf8_lossy(&warm.stdout).to_string();
-        let warm_err = String::from_utf8_lossy(&warm.stderr).to_string();
-        assert!(
-            !warm_err.contains("Compiled app@0.1.0::test"),
-            "{label}: the test binary comes from the cache: {warm_err}"
-        );
-        assert!(
-            frame_has_line(&warm_out),
-            "{label}, after a hit: {warm_out}"
-        );
-    }
 }
