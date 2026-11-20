@@ -130,6 +130,10 @@ impl CAdapter {
         if pkg_name.is_empty() {
             bail!("Manifest missing package name");
         }
+        // The name is the binary's file name and part of its cache key, which trims.
+        if pkg_name.trim() != pkg_name {
+            bail!("Package name {pkg_name:?} has leading or trailing whitespace");
+        }
 
         Ok(CPackageManifest {
             package: CPackageInfo {

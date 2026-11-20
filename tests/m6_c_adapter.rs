@@ -51,6 +51,16 @@ fn test_m6_c_manifest_parsing() {
         src = "src/main.c"
     "#;
     assert!(CAdapter::parse_manifest(invalid).is_err());
+
+    // A name with surrounding whitespace is refused: it would share the key of the
+    // trimmed name while naming a different binary.
+    for name in ["app ", " app", "\tapp"] {
+        let manifest = format!("[package]\nname = \"{name}\"\n[bin]\nsrc = \"src/main.c\"\n");
+        assert!(
+            CAdapter::parse_manifest(&manifest).is_err(),
+            "{name:?} accepted"
+        );
+    }
 }
 
 #[test]
