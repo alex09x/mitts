@@ -202,6 +202,12 @@ fn a_copy_rewritten_with_the_published_contents_stays_the_published_package() {
     fs::write(dir.join("tool/fetch"), "stub\n").unwrap();
     reset();
     assert!(is_edited(&dir), "a changed file");
+    reset();
+    assert!(is_edited(&dir), "the remembered edited verdict");
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(dir.join("tool/fetch"), "fail\n").unwrap();
+    reset();
+    assert!(is_pristine(&dir), "put back: checked again");
 
     let dir = unpack_helper(&cargo_home);
     fs::write(dir.join("Cargo.lock"), "version = 3\n").unwrap();
@@ -219,6 +225,9 @@ fn a_copy_rewritten_with_the_published_contents_stays_the_published_package() {
     rewrite_unchanged(&dir.join("src/lib.rs"));
     reset();
     assert!(is_edited(&dir), "nothing to compare with");
+    cache_archive(&cargo_home, &dir);
+    reset();
+    assert!(is_pristine(&dir), "the archive arrived");
     set_verdict_dir(None);
 }
 

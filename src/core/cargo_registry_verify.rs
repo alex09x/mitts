@@ -42,26 +42,37 @@ pub struct Entry {
 
 /// True when the copy's files are exactly the archive's (signature memo first).
 pub fn matches_published(dir: &Path, entries: &[Entry]) -> bool {
+    // Both verdicts are remembered: an edited copy (a stubbed skia-bindings) would
+    // otherwise re-read a large archive on every plan. The signature covers the archive
+    // too, so a verdict made without one is not reused once Cargo downloads it.
     let signature = signature(dir, entries);
     let memo = memo_path(dir);
     if let Some(memo) = &memo {
-        if fs::read_to_string(memo).is_ok_and(|s| s == signature) {
-            return true;
-        }
-    }
-    if !matches_archive(dir, entries) {
-        return false;
-    }
-    if let Some(memo) = memo {
-        if let Some(parent) = memo.parent() {
-            let _ = fs::create_dir_all(parent);
-            let tmp = memo.with_extension(format!("tmp{}", std::process::id()));
-            if fs::write(&tmp, &signature).is_ok() && fs::rename(&tmp, &memo).is_err() {
-                let _ = fs::remove_file(&tmp);
+        if let Ok(saved) = fs::read_to_string(memo) {
+            match saved.split_once('\n') {
+                Some(("published", s)) if s == signature => return true,
+                Some(("edited", s)) if s == signature => return false,
+                _ => {}
             }
         }
     }
-    true
+    let published = matches_archive(dir, entries);
+    if let Some(memo) = memo {
+        let verdict = if published { "published" } else { "edited" };
+        write_atomically(&memo, &format!("{verdict}\n{signature}"));
+    }
+    published
+}
+
+fn write_atomically(path: &Path, contents: &str) {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let Some(parent) = path.parent() else { return };
+    let _ = fs::create_dir_all(parent);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp{}-{seq}", std::process::id()));
+    if fs::write(&tmp, contents).is_ok() && fs::rename(&tmp, path).is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
 }
 
 fn signature(dir: &Path, entries: &[Entry]) -> String {
@@ -79,6 +90,18 @@ fn signature(dir: &Path, entries: &[Entry]) -> String {
         })
         .collect();
     lines.sort();
+    let archive = archive_path(dir)
+        .and_then(|a| fs::metadata(a).ok())
+        .map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            format!("archive\0{}\0{mtime}", m.len())
+        })
+        .unwrap_or_else(|| "no archive".to_string());
+    lines.insert(0, archive);
     lines.insert(0, dir.display().to_string());
     Sha256::digest(lines.join("\n").as_bytes())
 }
