@@ -392,7 +392,7 @@ deps:      &lt;sorted (dependency unit, dependency action key) pairs&gt;</code><
 <section id="configuration"><h2>Configuration</h2>
 <p>Mitts has no configuration file of its own. It follows Cargo's, with one different default, and has one project-level table.</p>
 <dl class="params">
-<dt>Debug info: line tables by default</dt><dd>When nothing sets <code>debug</code>, <code>dev</code> and <code>test</code> builds get <code>-C debuginfo=line-tables-only</code>, not Cargo's full debug info. Panic backtraces still show file and line; what is left out are the variables and types a debugger (gdb, lldb, an IDE) reads, which made up about 90% of a large test binary we measured. Binaries and the cache get several times smaller. To debug with variables, set it back, for one project, for every project of a user, or for one run:<pre class="term"><code># Cargo.toml, or ~/.cargo/config.toml for every project
+<dt>Debug info: line tables by default</dt><dd>When nothing sets <code>debug</code>, <code>dev</code> and <code>test</code> builds get <code>-C debuginfo=line-tables-only</code>, not Cargo's full debug info. Panic backtraces still show file and line (on macOS not yet for the workspace's own crates, with any setting: Apple's linker leaves their objects out of the debug map; a fix is planned); what is left out are the variables and types a debugger (gdb, lldb, an IDE) reads, which made up about 90% of a large test binary we measured. Binaries and the cache get several times smaller. To debug with variables, set it back, for one project, for every project of a user, or for one run:<pre class="term"><code># Cargo.toml, or ~/.cargo/config.toml for every project
 [profile.dev]
 debug = true
 

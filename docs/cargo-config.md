@@ -43,6 +43,12 @@ backtraces keep file and line numbers; the variable and type information that on
 debugger (gdb, lldb, an IDE) reads is left out. In a 750 MB test binary we measured, that
 information was about 90% of the file.
 
+On macOS, backtrace frames and lldb do not yet show file and line for the workspace's own
+crates, with any `debug` setting (dependencies and the standard library do). This is not
+new: Apple's linker leaves those crates' objects out of the debug map, because Mitts
+strips the checkout path from them so another checkout can reuse the build. A fix is
+planned.
+
 To debug with variables, set `debug` explicitly; Mitts then passes it as written, like
 Cargo:
 
