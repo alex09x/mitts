@@ -116,12 +116,18 @@ fn dev_and_test_default_to_line_tables_and_backtraces_keep_lines() {
         "{err}"
     );
     // The panic message carries its location without debug info; a backtrace frame
-    // (`at <path>:<line>:<col>`) needs the line tables.
-    assert!(
-        out.lines()
-            .any(|l| l.trim_start().starts_with("at ") && l.contains("src/lib.rs:7:")),
-        "a backtrace frame names the failing line: {out}"
-    );
+    // (`at <path>:<line>:<col>`) needs the line tables. Not on macOS yet: Apple's linker
+    // leaves the crate's own objects out of the debug map (empty compile directory after
+    // the workspace remap), in every release so far; KYB task-mitts-macos-workspace-lib-
+    // debug-map. The fix tried in PR 149 made executables checkout-specific and was
+    // deferred by the owner.
+    if !cfg!(target_os = "macos") {
+        assert!(
+            out.lines()
+                .any(|l| l.trim_start().starts_with("at ") && l.contains("src/lib.rs:7:")),
+            "a backtrace frame names the failing line: {out}"
+        );
+    }
 }
 
 #[test]

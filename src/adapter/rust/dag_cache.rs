@@ -278,7 +278,12 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
 
         // A hit is a use: keeps the objects at the young end of the cache's LRU order.
-        for out in entry.outputs.iter().chain(&wrapper_outputs) {
+        for out in entry
+            .outputs
+            .iter()
+            .chain(&wrapper_outputs)
+            .chain(&debuginfo_outputs)
+        {
             ctx.cas.touch_object(&out.cas_hash);
         }
 

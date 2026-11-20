@@ -50,6 +50,20 @@ fn project(root: &Path, split: Option<&str>) {
     );
 }
 
+/// Variables of the environment the tests run in that would change what Mitts builds.
+const CLEARED: [&str; 10] = [
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_TARGET_DIR",
+    "CARGO_BUILD_TARGET",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "RUSTFLAGS",
+    "CARGO_BUILD_RUSTFLAGS",
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "CARGO_BUILD_RUSTC_WRAPPER",
+    "CARGO_PROFILE_DEV_SPLIT_DEBUGINFO",
+];
+
 fn mitts(root: &Path, cache: &Path, target: &Path, args: &[&str]) -> Output {
     mitts_with(root, cache, target, args, None)
 }
@@ -70,18 +84,7 @@ fn mitts_with(
         .current_dir(root)
         .env("CARGO_HOME", root.join("cargo-home"))
         .env_remove("MITTS_CACHE_DIR");
-    for name in [
-        "CARGO_TARGET_DIR",
-        "CARGO_BUILD_TARGET_DIR",
-        "CARGO_BUILD_TARGET",
-        "CARGO_ENCODED_RUSTFLAGS",
-        "RUSTFLAGS",
-        "CARGO_BUILD_RUSTFLAGS",
-        "RUSTC_WRAPPER",
-        "RUSTC_WORKSPACE_WRAPPER",
-        "CARGO_BUILD_RUSTC_WRAPPER",
-        "CARGO_PROFILE_DEV_SPLIT_DEBUGINFO",
-    ] {
+    for name in CLEARED {
         cmd.env_remove(name);
     }
     if let Some(flags) = rustflags {
@@ -315,5 +318,52 @@ fn an_unknown_split_debuginfo_value_is_refused() {
         String::from_utf8_lossy(&out.stderr).contains("split-debuginfo"),
         "{}",
         String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// `mitts rustc -- -C split-debuginfo=…` reaches the primary target only; a dependency's
+/// key must not change with it (it would rebuild with a key naming a value it never got).
+#[test]
+fn a_command_line_split_flag_does_not_change_a_dependency_key() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("proj");
+    project(&root, None);
+    // `mitts rustc` builds the library target.
+    write_file(
+        root.join("src/lib.rs"),
+        "pub fn answer() -> u32 { helper::answer() }\n",
+    );
+    let cache = temp.path().join("cache");
+    let target = temp.path().join("target");
+    let first = mitts(&root, &cache, &target, &["build"]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    // The options go before `--`: everything after it is rustc's.
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
+    cmd.args(["rustc", "--lib", "-vv", "--cache-dir"])
+        .arg(&cache)
+        .arg("--target-dir")
+        .arg(&target)
+        .args(["--", "-C", "split-debuginfo=off"])
+        .current_dir(&root)
+        .env("CARGO_HOME", root.join("cargo-home"))
+        .env_remove("MITTS_CACHE_DIR");
+    for name in CLEARED {
+        cmd.env_remove(name);
+    }
+    let out = cmd.output().unwrap();
+    let log = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{log}");
+    assert!(
+        !log.contains("--crate-name helper "),
+        "the dependency is reused, not recompiled: {log}"
+    );
+    assert!(
+        log.contains("--crate-name app "),
+        "the primary target is rebuilt: {log}"
     );
 }

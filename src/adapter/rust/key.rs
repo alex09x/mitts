@@ -272,7 +272,15 @@ pub fn derive_unit_action_key_context(
         // RUSTFLAGS and command-line arguments come after the profile's flag and win. The
         // command line reaches only some units, so the deps directory is keyed whenever any
         // of the three could make the unit's DWARF unpacked.
-        let from_cli = super::split_debuginfo::last_in(&effective_flags);
+        // Only primary targets get the caller's own flags (`forwarded_extra_args`); the key
+        // reads the same subset, so it names the value rustc really gets.
+        let host_kind = matches!(
+            unit.kind.as_str(),
+            "proc-macro" | "custom-build" | "build-script"
+        );
+        let from_cli = (unit.is_primary && (!unit.for_host || host_kind))
+            .then(|| super::split_debuginfo::last_in(&effective_flags))
+            .flatten();
         let from_rustflags = super::split_debuginfo::last_in(unit_rustflags);
         let from_profile = super::split_debuginfo::effective(&unit_profile, unit_triple);
         let names_dwo_dir = super::split_debuginfo::may_be_unpacked_dwarf(
