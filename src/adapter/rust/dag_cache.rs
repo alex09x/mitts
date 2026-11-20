@@ -157,13 +157,19 @@ pub fn try_restore_from_cache_with_directives_and_purity(
     // sees rustc's outputs only. They are validated with the entry and placed only once
     // rustc's outputs were restored, so a rejected entry never writes them.
     let (rustc_outputs, wrapper_outputs) = super::wrapper_outputs::split(&entry.outputs);
+    // Split debug info the same way: restored beside rustc's outputs, never bound into them.
+    let (rustc_outputs, debuginfo_outputs) = super::split_debuginfo::split(&rustc_outputs);
     entry.outputs = rustc_outputs;
+    let in_store = |o: &crate::core::action_cache::CachedOutput| {
+        fs::metadata(ctx.cas.object_path(&o.cas_hash)).is_ok_and(|m| m.len() == o.file_size)
+    };
     let wrapper_outputs_present = (wrapper_outputs.is_empty()
         || super::wrapper_outputs::declared_dir().is_some())
-        && wrapper_outputs.iter().all(|o| {
-            fs::metadata(ctx.cas.object_path(&o.cas_hash)).is_ok_and(|m| m.len() == o.file_size)
-        });
-    if !wrapper_outputs_present {
+        && wrapper_outputs.iter().all(in_store);
+    if !wrapper_outputs_present
+        || !super::split_debuginfo::valid_entry(&debuginfo_outputs)
+        || !debuginfo_outputs.iter().all(in_store)
+    {
         return Ok(false);
     }
     let res_key = effective_key
@@ -258,9 +264,26 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         if !super::wrapper_outputs::restore(ctx.cas, &wrapper_outputs) {
             return Ok(false);
         }
+        let dest_bin = is_bin.then(|| {
+            let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
+            super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name)
+        });
+        if !super::split_debuginfo::restore(
+            ctx.cas,
+            &debuginfo_outputs,
+            &super::split_debuginfo::deps_dir(ctx.target_dir, ctx.opt.release),
+            dest_bin.as_deref(),
+        ) {
+            return Ok(false);
+        }
 
         // A hit is a use: keeps the objects at the young end of the cache's LRU order.
-        for out in entry.outputs.iter().chain(&wrapper_outputs) {
+        for out in entry
+            .outputs
+            .iter()
+            .chain(&wrapper_outputs)
+            .chain(&debuginfo_outputs)
+        {
             ctx.cas.touch_object(&out.cas_hash);
         }
 

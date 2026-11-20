@@ -77,7 +77,7 @@ pub(crate) fn coverage_working_dir(inv: &RustcInvocation<'_>) -> Option<PathBuf>
 /// rustc and the Darwin linker can canonicalize paths independently of the
 /// manifest spelling (notably /var -> /private/var). Cover both spellings so
 /// debug metadata and macro spans cannot retain the checkout's absolute root.
-fn append_aliases(cmd: &mut Command, path: &Path, replacement: &str) {
+pub(crate) fn append_aliases(cmd: &mut Command, path: &Path, replacement: &str) {
     append_prefix(cmd, path, replacement);
     if let Ok(canonical) = path.canonicalize() {
         if canonical != path {

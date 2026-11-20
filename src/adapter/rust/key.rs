@@ -247,6 +247,60 @@ pub fn derive_unit_action_key_context(
         // macros. Keep its protocol in every unit key so old outputs miss once.
         u_flags.push(super::compiler_remap::KEY_FLAG.to_string());
 
+        // The `-C split-debuginfo` the unit gets, and with it the debug-info files its
+        // entry carries (Apple's default included: such entries hold the object files).
+        let unit_triple = if super::split_debuginfo::is_host_unit(unit) {
+            super::compiler_resolve::resolve_host_triple()
+        } else {
+            target_triple.as_str()
+        };
+        let unit_profile = super::profile::resolve_unit_profile_for(
+            &unit.manifest_path,
+            &unit.package_name,
+            unit.is_workspace,
+            unit.for_host,
+            opt.release,
+            opt.mode == crate::adapter::BuildMode::Test,
+            unit.workspace_root.as_deref().or(Some(build_ws_root)),
+        )?;
+        let unit_rustflags: &[String] =
+            if receives_target_rustflags(unit, explicit_target.as_deref()) {
+                &effective_target_rustflags
+            } else {
+                &[]
+            };
+        // RUSTFLAGS and command-line arguments come after the profile's flag and win. The
+        // command line reaches only some units, so the deps directory is keyed whenever any
+        // of the three could make the unit's DWARF unpacked.
+        // Only primary targets get the caller's own flags (`forwarded_extra_args`); the key
+        // reads the same subset, so it names the value rustc really gets.
+        let host_kind = matches!(
+            unit.kind.as_str(),
+            "proc-macro" | "custom-build" | "build-script"
+        );
+        let from_cli = (unit.is_primary && (!unit.for_host || host_kind))
+            .then(|| super::split_debuginfo::last_in(&effective_flags))
+            .flatten();
+        let from_rustflags = super::split_debuginfo::last_in(unit_rustflags);
+        let from_profile = super::split_debuginfo::effective(&unit_profile, unit_triple);
+        let names_dwo_dir = super::split_debuginfo::may_be_unpacked_dwarf(
+            unit_triple,
+            &[
+                from_cli.clone(),
+                from_rustflags.clone(),
+                from_profile.clone(),
+            ],
+        );
+        let final_split = from_cli.or(from_rustflags).or(from_profile);
+        if let Some(split) = final_split {
+            u_flags.push(format!("SPLIT_DEBUGINFO={split}"));
+        }
+        if names_dwo_dir {
+            // Unpacked DWARF objects name the absolute deps directory of their `.dwo` files.
+            let deps = super::split_debuginfo::deps_dir(&explanation.target_directory, opt.release);
+            u_flags.push(format!("SPLIT_DEBUGINFO_DIR={}", deps.display()));
+        }
+
         if receives_target_rustflags(unit, explicit_target.as_deref()) {
             for rf in &effective_target_rustflags {
                 u_flags.push(format!("CONFIG_RUSTFLAG:{}", rf));

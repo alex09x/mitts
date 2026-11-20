@@ -380,7 +380,7 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.dev]
-split-debuginfo = "packed"
+trim-paths = "all"
 "#,
     )
     .unwrap();
@@ -391,7 +391,7 @@ split-debuginfo = "packed"
         .expect("Expected RustAdapterError");
     assert!(
         matches!(adapter_err, RustAdapterError::UnsupportedOption(msg)
-            if msg.contains("profile.dev.split-debuginfo") && msg.contains("Cargo.toml")),
+            if msg.contains("profile.dev.trim-paths") && msg.contains("Cargo.toml")),
         "Unexpected error: {:?}",
         adapter_err
     );
@@ -770,11 +770,15 @@ rpath = false
     .unwrap();
     let target_prof =
         resolve_unit_profile(&manifest, "f1_pkg", true, false, false, Some(dir.path())).unwrap();
-    assert_eq!(target_prof.debuginfo, 2);
+    assert_eq!(
+        target_prof.debuginfo,
+        mitts::adapter::rust::profile::DebugInfo::Full
+    );
     let host_prof =
         resolve_unit_profile(&manifest, "f1_pkg", true, true, false, Some(dir.path())).unwrap();
     assert_eq!(
-        host_prof.debuginfo, 0,
+        host_prof.debuginfo,
+        mitts::adapter::rust::profile::DebugInfo::None,
         "Host unit must default to debuginfo = 0 and not inherit top-level [profile.dev] debug"
     );
 

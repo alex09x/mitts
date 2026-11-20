@@ -67,6 +67,10 @@ pub fn compute_build_script_key(
         profile.overflow_checks
     );
     hasher.update(prof_stamp.as_bytes());
+    let host = super::compiler_resolve::resolve_host_triple();
+    if let Some(split) = super::split_debuginfo::effective(&profile, host) {
+        hasher.update(format!(":split_debuginfo:{split}:").as_bytes());
+    }
     // The script runs with OPT_LEVEL / DEBUG of the package's own profile (see
     // build_script_env), which a different profile or `opt-level` changes.
     let run_profile = super::profile::resolve_unit_profile(
@@ -81,7 +85,7 @@ pub fn compute_build_script_key(
         format!(
             ":run_env:{}:{}:",
             run_profile.opt_level,
-            run_profile.debuginfo > 0
+            run_profile.debuginfo.is_on()
         )
         .as_bytes(),
     );

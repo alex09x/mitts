@@ -162,7 +162,18 @@ fn is_executable_binary(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if matches!(
         ext,
-        "d" | "rmeta" | "rlib" | "pdb" | "txt" | "json" | "toml" | "lock" | "log" | "a" | "o"
+        "d" | "rmeta"
+            | "rlib"
+            | "pdb"
+            | "txt"
+            | "json"
+            | "toml"
+            | "lock"
+            | "log"
+            | "a"
+            | "o"
+            | "dwo"
+            | "dwp"
     ) {
         return false;
     }

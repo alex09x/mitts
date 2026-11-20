@@ -12,7 +12,7 @@
 //! inherits its base profile and overrides the keys it sets. ahash's `[profile.test]
 //! opt-level = 2` is what lets its `#[no_panic]` tests link; built with `dev` they fail.
 
-use mitts::adapter::rust::profile::resolve_unit_profile_for;
+use mitts::adapter::rust::profile::{resolve_unit_profile_for, DebugInfo};
 use std::fs;
 use tempfile::TempDir;
 
@@ -47,13 +47,17 @@ fn test_and_bench_profiles_inherit_their_base_and_override_it() {
 
     let dev = resolve(false, false);
     assert_eq!(dev.opt_level, "1");
-    assert_eq!(dev.debuginfo, 1);
+    assert_eq!(dev.debuginfo, DebugInfo::Limited);
     assert_eq!(dev.lto, None);
     assert!(!dev.overflow_checks, "package override of the base profile");
 
     let test = resolve(false, true);
     assert_eq!(test.opt_level, "2", "the test profile overrides opt-level");
-    assert_eq!(test.debuginfo, 1, "and inherits the rest of dev");
+    assert_eq!(
+        test.debuginfo,
+        DebugInfo::Limited,
+        "and inherits the rest of dev"
+    );
     assert_eq!(test.lto.as_deref(), Some("fat"));
     assert!(
         !test.overflow_checks,
@@ -85,7 +89,7 @@ fn test_profile_can_inherit_release_settings() {
     )
     .unwrap();
     assert_eq!(test.opt_level, "3");
-    assert_eq!(test.debuginfo, 1);
+    assert_eq!(test.debuginfo, DebugInfo::Limited);
     assert!(!test.debug_assertions);
 }
 

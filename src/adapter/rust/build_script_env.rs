@@ -48,7 +48,7 @@ pub fn configure_build_script_run_cmd(
         release,
         unit.workspace_root.as_deref(),
     )
-    .map(|profile| (profile.opt_level, profile.debuginfo > 0))
+    .map(|profile| (profile.opt_level, profile.debuginfo.is_on()))
     .unwrap_or_else(|_| (if release { "3" } else { "0" }.to_string(), !release));
 
     run_cmd

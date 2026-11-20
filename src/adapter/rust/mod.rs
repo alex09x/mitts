@@ -85,6 +85,7 @@ pub mod resolver;
 pub mod single_flight;
 pub mod source_lookup;
 pub mod sparse_index;
+pub(crate) mod split_debuginfo;
 pub mod target_filter;
 mod target_validation;
 pub mod test_selection;

@@ -369,7 +369,36 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         } else {
             Vec::new()
         };
+    // Profile `split-debuginfo` (and Cargo's `unpacked` default on Apple targets) goes before
+    // RUSTFLAGS, as with Cargo, so a `-C split-debuginfo` there or on the command line wins.
+    let unit_triple = explicit_target
+        .as_deref()
+        .filter(|_| !(inv.unit.for_host || is_host_kind))
+        .unwrap_or_else(|| super::compiler_resolve::resolve_host_triple());
+    let profile_split = super::split_debuginfo::effective(&profile, unit_triple);
+    if let Some(ref split) = profile_split {
+        cmd.args(["-C", &format!("split-debuginfo={split}")]);
+    }
     cmd.args(&target_rustflags);
+    let forwarded_args = diagnostics::forwarded_extra_args(
+        inv,
+        inv.unit.for_host || is_host_kind,
+        is_primary_target,
+    );
+    let final_split = super::split_debuginfo::last_in(&forwarded_args)
+        .or_else(|| super::split_debuginfo::last_in(&target_rustflags))
+        .or(profile_split);
+    // Unpacked DWARF: the objects record where their `.dwo` files are. Point that at the
+    // deps directory they are placed in, as Cargo's paths do (the path is in the unit key).
+    if let (true, Some(target_dir)) = (
+        super::split_debuginfo::unpacked_dwarf(final_split.as_deref(), unit_triple),
+        inv.target_dir,
+    ) {
+        let deps = super::split_debuginfo::deps_dir(target_dir, inv.release);
+        if super::split_debuginfo::remappable(&deps) {
+            super::compiler_remap::append_aliases(&mut cmd, inv.out_dir, &deps.to_string_lossy());
+        }
+    }
     if incremental_dir.is_some() {
         // The mode the action key uses: a non-primary unit is compiled by rustc for
         // `clippy` exactly as for `check`, so both must agree on its crate identity.

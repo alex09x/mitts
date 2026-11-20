@@ -245,6 +245,23 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             can_publish_cache = false;
         }
     }
+    // Split debug info (`.dwo`, `.dwp`, `.o`, `.dSYM`) travels with the entry too, whatever
+    // turned it on (the profile, RUSTFLAGS, the command line).
+    match super::split_debuginfo::collect(
+        ctx.cas,
+        args.staging_dir,
+        &super::split_debuginfo::deps_dir(ctx.target_dir, ctx.opt.release),
+        args.dest_binary,
+    ) {
+        Ok(extra) => cached_outputs.extend(extra),
+        Err(err) => {
+            eprintln!(
+                "[mitts::warn] Unit '{}': storing split debug info failed: {err:#}. Not caching it.",
+                unit.unit_id()
+            );
+            can_publish_cache = false;
+        }
+    }
 
     // 6. Output byte scanning for workspace root leaks (P2): an artifact that embeds the
     // checkout path is published under a per-checkout key, and a marker lets later misses
@@ -280,6 +297,13 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             if link_output_sources
                 .iter()
                 .any(|path| scan_file(path.as_path()))
+            {
+                contains_ws_root_path = true;
+            }
+            // Debug info moved out of the artifact can carry the checkout path instead.
+            if super::split_debuginfo::staged_paths(args.staging_dir)
+                .iter()
+                .any(|path| scan_file(path))
             {
                 contains_ws_root_path = true;
             }

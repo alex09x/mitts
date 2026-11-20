@@ -255,6 +255,24 @@ pub fn rustc_print_cfg(rustc_path: &Path, target: Option<&str>) -> Result<String
     )
 }
 
+/// Stdout of `<rustc_path> --print split-debuginfo [--target <target>]`: the
+/// `-C split-debuginfo` values the target supports, one per line (Cargo asks the same).
+pub fn rustc_print_split_debuginfo(
+    rustc_path: &Path,
+    target: Option<&str>,
+) -> Result<String, String> {
+    let mut args = vec!["--print", "split-debuginfo"];
+    if let Some(t) = target {
+        args.extend(["--target", t]);
+    }
+    load_or_probe(
+        "rustc-split-debuginfo",
+        &rustc_probe_key(rustc_path, &format!("split-debuginfo|target={target:?}")),
+        !is_rustup_proxy(rustc_path),
+        || run_rustc(rustc_path, &args),
+    )
+}
+
 fn run_rustc(rustc_path: &Path, args: &[&str]) -> Result<String, String> {
     let t0 = Instant::now();
     let output = std::process::Command::new(rustc_path).args(args).output();

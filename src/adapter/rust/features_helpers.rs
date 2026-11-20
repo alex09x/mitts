@@ -193,12 +193,21 @@ impl<'a> FeatureGraphIndex<'a> {
                 .unwrap_or(dep_name),
         };
         let clean = real_name.replace('-', "_");
-        let Some(cand_indices) = self.candidates_by_norm.get(&clean) else {
+        let Some(all_cands) = self.candidates_by_norm.get(&clean) else {
             return Ok(None);
         };
-        if cand_indices.is_empty() {
+        if all_cands.is_empty() {
             return Ok(None);
         }
+        // `-` and `_` are folded to match a manifest's spelling against the lockfile's, but
+        // they are different packages when both exist: zed has the git `livekit-api` and its
+        // member `livekit_api`. Packages spelled exactly as the dependency come first.
+        let exact: Vec<usize> = all_cands
+            .iter()
+            .copied()
+            .filter(|&i| self.packages[i].name == real_name)
+            .collect();
+        let cand_indices: &[usize] = if exact.is_empty() { all_cands } else { &exact };
 
         if let Some(specs) = self.ctx_dep_specs[pkg_idx].get(&clean) {
             if specs.len() == 1 {
@@ -247,7 +256,10 @@ impl<'a> FeatureGraphIndex<'a> {
             )));
         }
 
-        if cand_indices.len() == 1 {
+        // A package that is the only one of its folded name. One made unique by the spelling
+        // preference goes through the checks below first (it may be an inactive optional
+        // dependency the lockfile leaves out).
+        if all_cands.len() == 1 {
             return Ok(Some(self.pkg_ids[cand_indices[0]].clone()));
         }
         if let Some(hint) = dep_hint {
@@ -272,6 +284,9 @@ impl<'a> FeatureGraphIndex<'a> {
         let package = &self.packages[pkg_idx];
         if !package.dependencies.is_empty() && is_any_optional_dep(package.toml, real_name) {
             return Ok(None);
+        }
+        if cand_indices.len() == 1 {
+            return Ok(Some(self.pkg_ids[cand_indices[0]].clone()));
         }
         Err(RustAdapterError::MetadataFailed(format!(
             "Ambiguous dependency '{}' in package '{}' ({} candidate packages and no lockfile disambiguation)",

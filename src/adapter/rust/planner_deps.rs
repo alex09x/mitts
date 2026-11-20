@@ -41,7 +41,8 @@ pub fn resolve_unit_dependencies_with_manifests(
     start_dir: &Path,
 ) -> Result<(), crate::adapter::rust::types::RustAdapterError> {
     type ExactLibKey = (String, String, Option<String>, bool);
-    type LibCandidate = (String, Option<String>, String);
+    /// Version, source, unit id and the package name as spelled.
+    type LibCandidate = (String, Option<String>, String, String);
 
     let mut lib_units_by_exact: HashMap<ExactLibKey, (String, PathBuf)> = HashMap::new();
     let mut lib_units_by_name: HashMap<(String, bool), Vec<LibCandidate>> = HashMap::new();
@@ -84,8 +85,13 @@ pub fn resolve_unit_dependencies_with_manifests(
             let entry = lib_units_by_name
                 .entry((clean_pkg, unit.for_host))
                 .or_default();
-            if !entry.iter().any(|(_, _, u)| u == &uid) {
-                entry.push((unit.version.clone(), unit_src, uid));
+            if !entry.iter().any(|(_, _, u, _)| u == &uid) {
+                entry.push((
+                    unit.version.clone(),
+                    unit_src,
+                    uid,
+                    unit.package_name.clone(),
+                ));
             }
         }
     }
@@ -229,12 +235,16 @@ pub fn resolve_unit_dependencies_with_manifests(
                     Option<String>,
                     crate::adapter::rust::types::RustAdapterError,
                 > {
-                    let Some(candidates) = lib_units_by_name.get(&(dep_clean.clone(), flag)) else {
+                    let Some(all) = lib_units_by_name.get(&(dep_clean.clone(), flag)) else {
                         return Ok(None);
                     };
+                    // `livekit-api` and `livekit_api` are different packages when both exist.
+                    let exact: Vec<LibCandidate> =
+                        all.iter().filter(|c| c.3 == dep_name).cloned().collect();
+                    let candidates: &[LibCandidate] = if exact.is_empty() { all } else { &exact };
                     let idx = super::dependency_check::resolve_candidate_by_spec(
                         candidates,
-                        |(ver, src, _)| (ver.as_str(), src.as_deref()),
+                        |(ver, src, _, _)| (ver.as_str(), src.as_deref()),
                         dep_ver,
                         dep_src,
                         pkg.source.as_deref(),

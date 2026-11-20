@@ -24,7 +24,7 @@ holds its `.cargo` directory.
 | `target.<triple>.linker` | `CARGO_TARGET_<TRIPLE>_LINKER` | |
 | `target.<triple>.<links>` | | Build script override for a package with `links = "<links>"`: `rustc-link-lib`, `rustc-link-search`, `rustc-flags`, `rustc-cfg`, `rustc-env`, `rustc-cdylib-link-arg`, other keys as `DEP_<LINKS>_<KEY>` metadata. The script is not run. |
 | `[env]` | | `force`, `relative`. |
-| `[profile.*]` | `CARGO_PROFILE_<NAME>_<KEY>` | |
+| `[profile.*]` | `CARGO_PROFILE_<NAME>_<KEY>` | One default differs from Cargo: see [Debug info](#debug-info-line-tables-by-default). |
 | `[registries]`, `[registry]`, `[source]`, `[credential-alias]`, `[patch]` | `CARGO_REGISTRIES_<NAME>_*` | |
 | `net.offline` | `CARGO_NET_OFFLINE` | Same as `--offline` on every command that has it. |
 | `net.retry` | `CARGO_NET_RETRY` | `MITTS_NET_RETRY` wins. |
@@ -33,6 +33,33 @@ holds its `.cargo` directory.
 | `http.timeout` | `CARGO_HTTP_TIMEOUT` | Seconds to connect and between reads. |
 | `term.verbose`, `term.quiet` | `CARGO_TERM_VERBOSE`, `CARGO_TERM_QUIET` | The command line wins; both set is an error. |
 | `term.color` | `CARGO_TERM_COLOR` | `--color` wins. |
+
+## Debug info: line tables by default
+
+When no `debug` is set for the profile (in `Cargo.toml`, a Cargo config file or
+`CARGO_PROFILE_<NAME>_DEBUG`), `dev`, `test` and custom profiles that inherit `dev` build
+with `-C debuginfo=line-tables-only`. Cargo's default there is full debug info. Panic
+backtraces keep file and line numbers; the variable and type information that only a
+debugger (gdb, lldb, an IDE) reads is left out. In a 750 MB test binary we measured, that
+information was about 90% of the file.
+
+On macOS, backtrace frames and lldb do not yet show file and line for the workspace's own
+crates, with any `debug` setting (dependencies and the standard library do). This is not
+new: Apple's linker leaves those crates' objects out of the debug map, because Mitts
+strips the checkout path from them so another checkout can reuse the build. A fix is
+planned.
+
+To debug with variables, set `debug` explicitly; Mitts then passes it as written, like
+Cargo:
+
+```toml
+# Cargo.toml for one project, or ~/.cargo/config.toml for every project of the user
+[profile.dev]
+debug = true
+```
+
+For a single run: `CARGO_PROFILE_DEV_DEBUG=true mitts build`. `release` and `bench` are
+unchanged (no debug info unless set).
 
 ## Accepted and ignored
 
