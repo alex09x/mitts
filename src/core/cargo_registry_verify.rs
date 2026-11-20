@@ -34,10 +34,12 @@ pub fn set_verdict_dir(dir: Option<PathBuf>) {
 pub struct Entry {
     pub rel: PathBuf,
     pub path: PathBuf,
-    pub mtime_ns: u128,
+    /// `cargo_registry_copy::stamp`: the status-change time on Unix.
+    pub stamp_ns: u128,
     pub len: u64,
     pub is_file: bool,
     pub is_symlink: bool,
+    pub executable: bool,
 }
 
 /// True when the copy's files are exactly the archive's (signature memo first).
@@ -80,12 +82,13 @@ fn signature(dir: &Path, entries: &[Entry]) -> String {
         .iter()
         .map(|e| {
             format!(
-                "{}\0{}\0{}\0{}{}",
+                "{}\0{}\0{}\0{}{}{}",
                 e.rel.display(),
-                e.mtime_ns,
+                e.stamp_ns,
                 e.len,
                 e.is_file as u8,
-                e.is_symlink as u8
+                e.is_symlink as u8,
+                e.executable as u8
             )
         })
         .collect();
@@ -93,12 +96,8 @@ fn signature(dir: &Path, entries: &[Entry]) -> String {
     let archive = archive_path(dir)
         .and_then(|a| fs::metadata(a).ok())
         .map(|m| {
-            let mtime = m
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_nanos());
-            format!("archive\0{}\0{mtime}", m.len())
+            let stamp = super::cargo_registry_copy::stamp(&m);
+            format!("archive\0{}\0{stamp}", m.len())
         })
         .unwrap_or_else(|| "no archive".to_string());
     lines.insert(0, archive);
@@ -128,7 +127,8 @@ fn archive_path(dir: &Path) -> Option<PathBuf> {
 }
 
 enum Published {
-    File(String),
+    /// Content digest and the owner's execute bit.
+    File(String, bool),
     Link(PathBuf),
 }
 
@@ -150,8 +150,10 @@ fn matches_archive(dir: &Path, entries: &[Entry]) -> bool {
             let Ok(digest) = Sha256::digest_file(&e.path) else {
                 return false;
             };
+            // Cargo unpacks the archive's modes (umask aside); only Unix has the bit.
+            let same_mode = |exec: bool| !cfg!(unix) || exec == e.executable;
             match published.get(&e.rel) {
-                Some(Published::File(d)) if *d == digest => seen += 1,
+                Some(Published::File(d, exec)) if *d == digest && same_mode(*exec) => seen += 1,
                 _ => return false,
             }
         }
@@ -175,9 +177,10 @@ fn read_archive(path: &Path) -> Option<HashMap<PathBuf, Published>> {
         if kind.is_symlink() {
             out.insert(rel, Published::Link(entry.link_name().ok()??.into_owned()));
         } else if kind.is_file() {
+            let exec = entry.header().mode().is_ok_and(|m| m & 0o100 != 0);
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes).ok()?;
-            out.insert(rel, Published::File(Sha256::digest(&bytes)));
+            out.insert(rel, Published::File(Sha256::digest(&bytes), exec));
         }
     }
     Some(out)

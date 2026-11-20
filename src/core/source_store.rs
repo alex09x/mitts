@@ -419,9 +419,25 @@ impl RegistryLookup {
 
     /// Cargo's unpacked copy of the package when it was edited after the unpack: Cargo
     /// builds that copy, so Mitts builds it too (keyed by its files, see `inputs`).
+    ///
+    /// Only the copy Cargo would use counts: crates.io over the sparse protocol (the one
+    /// Mitts speaks) lives in `index.crates.io-<hash>`, and when several Cargo versions left
+    /// copies there, the most recently unpacked one. An edited copy in a legacy
+    /// `github.com-*` index or an older index directory does not override it.
     pub fn find_edited_in_src(&self, name: &str, version: &str) -> Option<PathBuf> {
+        let unpacked_at = |c: &PathBuf| {
+            fs::metadata(c.join(super::cargo_registry_copy::CARGO_OK_MARKER))
+                .and_then(|m| m.modified())
+                .ok()
+        };
         self.src_copies(name, version)
-            .find(|c| super::cargo_registry_copy::is_edited(c))
+            .filter(|c| {
+                c.parent()
+                    .and_then(|i| i.file_name())
+                    .is_some_and(|n| n.to_string_lossy().starts_with("index.crates.io-"))
+            })
+            .max_by_key(unpacked_at)
+            .filter(|c| super::cargo_registry_copy::is_edited(c))
     }
 
     /// Cargo's finished copies of these packages, checked for edits all at once.
@@ -429,10 +445,6 @@ impl RegistryLookup {
         let dirs: Vec<PathBuf> = packages
             .into_iter()
             .flat_map(|(name, version)| self.src_copies(name, version).collect::<Vec<_>>())
-            .filter(|c| {
-                c.join(super::cargo_registry_copy::CARGO_OK_MARKER)
-                    .is_file()
-            })
             .collect();
         super::cargo_registry_copy::prime(&dirs);
     }
@@ -442,6 +454,10 @@ impl RegistryLookup {
         self.src_index_dirs
             .iter()
             .map(move |dir| dir.join(&dir_name))
-            .filter(|c| c.join("Cargo.toml").is_file())
+            // A finished copy, manifest or not: a removed manifest is an edit, not an absence.
+            .filter(|c| {
+                c.join(super::cargo_registry_copy::CARGO_OK_MARKER)
+                    .is_file()
+            })
     }
 }
