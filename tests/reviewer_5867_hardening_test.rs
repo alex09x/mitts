@@ -122,6 +122,7 @@ fn test_7b_target_resolution_precedence_and_no_target_env() {
 
 #[test]
 fn test_7c_rustflags_host_isolation_under_cross_compilation() {
+    let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let host_unit = PlannedCompilationUnit {
         kind: "proc-macro".to_string(),
         for_host: true,
@@ -145,6 +146,8 @@ fn test_7c_rustflags_host_isolation_under_cross_compilation() {
 
 #[test]
 fn test_5a_build_target_in_config_passes_target_to_rustc() {
+    // test_7a points RUSTC at a missing binary while it holds the lock.
+    let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempdir().unwrap();
     let cargo_dir = dir.path().join(".cargo");
     fs::create_dir_all(&cargo_dir).unwrap();
@@ -239,6 +242,7 @@ fn test_5a_build_target_in_config_passes_target_to_rustc() {
 
 #[test]
 fn test_5c_profile_precedence_and_deep_merging() {
+    let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let ws_dir = tempdir().unwrap();
     let ws_manifest = ws_dir.path().join("Cargo.toml");
     let ws_toml = r#"
@@ -325,6 +329,7 @@ fn test_5d_b37f4e0_regression_host_vs_target_extern_crates() {
     use mitts::adapter::rust::dag_unit_externs::{
         resolve_extern_crates, resolve_extern_crates_for_build_script,
     };
+    let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let dir = tempdir().unwrap();
     let manifest_path = dir.path().join("Cargo.toml");

@@ -18,14 +18,16 @@
 //! dependency, never by name and version.
 //!
 //! Cargo writes `.cargo-ok` after the last file is unpacked, so every entry of an untouched
-//! copy is older than that marker (`lstat`, so a replaced symlink counts too). Editing,
-//! adding or removing a file moves the mtime of the file or of its directory past it.
+//! copy changed before that marker (`lstat`, so a replaced symlink counts too). Editing,
+//! adding, removing or `chmod`-ing a file moves the status-change time of the file or of
+//! its directory past it, and no tool can set that time back.
+//! A copy whose mtimes moved is then compared with Cargo's archive of the package
+//! (`cargo_registry_verify`): only different files make it an edited copy.
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::SystemTime;
 
 /// The marker Cargo writes once a package is fully unpacked.
 pub const CARGO_OK_MARKER: &str = ".cargo-ok";
@@ -103,18 +105,98 @@ pub fn is_edited(dir: &Path) -> bool {
     dir.join(CARGO_OK_MARKER).is_file() && !is_pristine(dir)
 }
 
+/// When the entry last changed. On Unix the status-change time: every write, rename,
+/// link and `chmod` moves it, and unlike the mtime nothing can set it back (`touch -r`,
+/// `cp -p`, a restore that keeps timestamps). Elsewhere the mtime.
+pub(crate) fn stamp(meta: &fs::Metadata) -> u128 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let secs = u128::try_from(meta.ctime()).unwrap_or(0);
+        let nanos = u128::try_from(meta.ctime_nsec()).unwrap_or(0);
+        secs * 1_000_000_000 + nanos
+    }
+    #[cfg(not(unix))]
+    {
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+            .map_or(u128::MAX, |d| d.as_nanos())
+    }
+}
+
+/// The owner's execute bit: a build helper that lost it no longer runs.
+pub(crate) fn executable(meta: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o100 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        false
+    }
+}
+
 fn check(dir: &Path) -> bool {
-    let Ok(unpacked) = fs::metadata(dir.join(CARGO_OK_MARKER)).and_then(|m| m.modified()) else {
+    let Ok(unpacked) = fs::metadata(dir.join(CARGO_OK_MARKER)).map(|m| stamp(&m)) else {
         return false;
     };
     // The package directory itself: a removed top-level file leaves only that trace.
-    let top_changed = fs::symlink_metadata(dir)
-        .and_then(|m| m.modified())
-        .map_or(true, |t| t > unpacked);
-    !top_changed && !changed_after(dir, unpacked)
+    let top_changed = fs::symlink_metadata(dir).map_or(true, |m| stamp(&m) > unpacked);
+    if !top_changed && !changed_after(dir, true, unpacked) {
+        return true;
+    }
+    // Rewritten files are not yet different files: compare with Cargo's archive.
+    let mut entries = Vec::new();
+    collect(dir, Path::new(""), &mut entries)
+        && super::cargo_registry_verify::matches_published(dir, &entries)
 }
 
-fn changed_after(dir: &Path, unpacked: SystemTime) -> bool {
+fn collect(dir: &Path, rel: &Path, out: &mut Vec<super::cargo_registry_verify::Entry>) -> bool {
+    let Ok(read) = fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in read {
+        let Ok(entry) = entry else {
+            return false;
+        };
+        let name = entry.file_name();
+        if rel.as_os_str().is_empty() && name == CARGO_OK_MARKER {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            return false;
+        };
+        let child = rel.join(&name);
+        let kind = meta.file_type();
+        if kind.is_dir() {
+            if !collect(&entry.path(), &child, out) {
+                return false;
+            }
+            continue;
+        }
+        // A FIFO, socket or device is never part of a published package.
+        if !kind.is_file() && !kind.is_symlink() {
+            return false;
+        }
+        out.push(super::cargo_registry_verify::Entry {
+            rel: child,
+            path: entry.path(),
+            stamp_ns: stamp(&meta),
+            len: meta.len(),
+            is_file: kind.is_file(),
+            is_symlink: kind.is_symlink(),
+            executable: executable(&meta),
+        });
+    }
+    true
+}
+
+/// Any entry changed after `unpacked`; only the package root's `.cargo-ok` is Cargo's
+/// (a package may ship a file of that name deeper down).
+fn changed_after(dir: &Path, root: bool, unpacked: u128) -> bool {
     let Ok(entries) = fs::read_dir(dir) else {
         return true;
     };
@@ -122,17 +204,17 @@ fn changed_after(dir: &Path, unpacked: SystemTime) -> bool {
         let Ok(entry) = entry else {
             return true;
         };
-        if entry.file_name() == CARGO_OK_MARKER {
+        if root && entry.file_name() == CARGO_OK_MARKER {
             continue;
         }
         // Relative to the open directory and without following a symlink.
         let Ok(meta) = entry.metadata() else {
             return true;
         };
-        if meta.modified().map_or(true, |t| t > unpacked) {
+        if stamp(&meta) > unpacked {
             return true;
         }
-        if meta.is_dir() && changed_after(&entry.path(), unpacked) {
+        if meta.is_dir() && changed_after(&entry.path(), false, unpacked) {
             return true;
         }
     }

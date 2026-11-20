@@ -30,9 +30,9 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
     // `mitts explain` reaches the planner without the builder: the toolchain probe cache
     // has to be pointed at the cache root here too (after the manifest resolved, so a
     // failing call leaves the process-wide cache root alone).
-    super::toolchain_probes::set_cache_root(&crate::core::cache_root::resolve(
-        opt.cache_dir.as_deref(),
-    ));
+    let cache_root = crate::core::cache_root::resolve(opt.cache_dir.as_deref());
+    super::toolchain_probes::set_cache_root(&cache_root);
+    crate::core::cargo_registry_verify::set_verdict_dir(Some(cache_root.join("registry-copies")));
     let target_dir = RustAdapter::resolve_target_dir(&manifest_path, opt)?;
     let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
     let ws_root = super::compiler_resolve::find_workspace_root(&manifest_path);
