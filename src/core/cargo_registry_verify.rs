@@ -19,7 +19,6 @@
 use super::hash::Sha256;
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -58,12 +57,13 @@ pub fn matches_published(dir: &Path, entries: &[Entry]) -> bool {
             }
         }
     }
-    let published = matches_archive(dir, entries);
-    if let Some(memo) = memo {
-        let verdict = if published { "published" } else { "edited" };
-        write_atomically(&memo, &format!("{verdict}\n{signature}"));
+    let verdict = compare_with_archive(dir, entries);
+    // A read that failed proves nothing: not remembered, so the next plan looks again.
+    if let (Some(memo), Some(published)) = (memo, verdict) {
+        let word = if published { "published" } else { "edited" };
+        write_atomically(&memo, &format!("{word}\n{signature}"));
     }
-    published
+    verdict.unwrap_or(false)
 }
 
 fn write_atomically(path: &Path, contents: &str) {
@@ -132,33 +132,33 @@ enum Published {
     Link(PathBuf),
 }
 
-fn matches_archive(dir: &Path, entries: &[Entry]) -> bool {
-    let Some(published) = archive_path(dir).and_then(|a| read_archive(&a)) else {
-        return false;
-    };
+/// `Some(true)` the archive's files exactly, `Some(false)` a difference or no archive to
+/// compare with, `None` a read failed (no verdict).
+fn compare_with_archive(dir: &Path, entries: &[Entry]) -> Option<bool> {
+    let archive = archive_path(dir)?;
+    if !archive.is_file() {
+        return Some(false);
+    }
+    let published = read_archive(&archive)?;
     let mut seen = 0usize;
     for e in entries {
         if e.is_symlink {
-            let Ok(target) = fs::read_link(&e.path) else {
-                return false;
-            };
+            let target = fs::read_link(&e.path).ok()?;
             match published.get(&e.rel) {
                 Some(Published::Link(t)) if *t == target => seen += 1,
-                _ => return false,
+                _ => return Some(false),
             }
         } else if e.is_file {
-            let Ok(digest) = Sha256::digest_file(&e.path) else {
-                return false;
-            };
+            let digest = Sha256::digest_file(&e.path).ok()?;
             // Cargo unpacks the archive's modes (umask aside); only Unix has the bit.
             let same_mode = |exec: bool| !cfg!(unix) || exec == e.executable;
             match published.get(&e.rel) {
                 Some(Published::File(d, exec)) if *d == digest && same_mode(*exec) => seen += 1,
-                _ => return false,
+                _ => return Some(false),
             }
         }
     }
-    seen == published.len()
+    Some(seen == published.len())
 }
 
 fn read_archive(path: &Path) -> Option<HashMap<PathBuf, Published>> {
@@ -178,9 +178,9 @@ fn read_archive(path: &Path) -> Option<HashMap<PathBuf, Published>> {
             out.insert(rel, Published::Link(entry.link_name().ok()??.into_owned()));
         } else if kind.is_file() {
             let exec = entry.header().mode().is_ok_and(|m| m & 0o100 != 0);
-            let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes).ok()?;
-            out.insert(rel, Published::File(Sha256::digest(&bytes), exec));
+            // Streamed: a large member is never held in memory whole.
+            let digest = Sha256::digest_reader(&mut entry).ok()?;
+            out.insert(rel, Published::File(digest, exec));
         }
     }
     Some(out)
