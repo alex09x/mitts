@@ -11,7 +11,7 @@
 use mitts::adapter::rust::key_flags::{
     receives_target_rustflags, resolve_explicit_target_from_args_and_dir,
 };
-use mitts::adapter::rust::profile::resolve_unit_debuginfo;
+use mitts::adapter::rust::profile::{resolve_unit_debuginfo, DebugInfo};
 use mitts::adapter::rust::target_filter::is_target_cfg_incompatible_with_target;
 use mitts::adapter::rust::types::{PlannedCompilationUnit, RustAdapterError};
 use mitts::adapter::rust::RustcInvocation;
@@ -289,7 +289,8 @@ fn test_5c_profile_precedence_and_deep_merging() {
     )
     .unwrap();
     assert_eq!(
-        dbg_syn_host, 2,
+        dbg_syn_host,
+        DebugInfo::Full,
         "package.syn debug = 2 must take precedence over build-override for host unit"
     );
 
@@ -304,7 +305,8 @@ fn test_5c_profile_precedence_and_deep_merging() {
     )
     .unwrap();
     assert_eq!(
-        dbg_gen_host, 0,
+        dbg_gen_host,
+        DebugInfo::None,
         "generic host unit without package override must match build-override"
     );
 
@@ -319,7 +321,8 @@ fn test_5c_profile_precedence_and_deep_merging() {
     )
     .unwrap();
     assert_eq!(
-        dbg_app, 1,
+        dbg_app,
+        DebugInfo::Limited,
         "Workspace member must retain debug = 1 merged from Cargo.toml"
     );
 }

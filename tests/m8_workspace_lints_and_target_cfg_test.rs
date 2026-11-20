@@ -282,7 +282,8 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
     )
     .unwrap();
     assert_eq!(
-        dbg_target, 1,
+        dbg_target,
+        mitts::adapter::rust::profile::DebugInfo::Limited,
         "target dev debuginfo should read [profile.dev].debug"
     );
 
@@ -296,7 +297,8 @@ fn test_m8_host_and_target_cfg_and_profile_debuginfo() {
     )
     .unwrap();
     assert_eq!(
-        dbg_host, 0,
+        dbg_host,
+        mitts::adapter::rust::profile::DebugInfo::None,
         "host dev debuginfo should read [profile.dev.build-override].debug"
     );
 }

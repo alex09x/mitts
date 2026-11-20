@@ -47,7 +47,7 @@ pub(crate) fn is_host_unit(unit: &PlannedCompilationUnit) -> bool {
 
 /// The `-C split-debuginfo` value the profile gives a unit built for `triple`.
 pub(crate) fn effective(profile: &UnitProfileSettings, triple: &str) -> Option<String> {
-    if profile.debuginfo == 0 {
+    if !profile.debuginfo.is_on() {
         return None;
     }
     let value = profile

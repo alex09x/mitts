@@ -9,8 +9,10 @@
  */
 
 pub mod custom;
+pub mod debuginfo;
 mod ingest;
 pub use custom::{custom_profile, profile_dir, profile_name, set_custom_profile};
+pub use debuginfo::DebugInfo;
 use ingest::ingest_profiles_from_toml;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -26,7 +28,7 @@ pub struct ResolvedProfiles {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitProfileSettings {
-    pub debuginfo: u32,
+    pub debuginfo: DebugInfo,
     pub opt_level: String,
     pub panic: Option<String>,
     pub codegen_units: Option<u32>,
@@ -157,7 +159,12 @@ pub fn resolve_unit_profile_for(
     let chain: Vec<String> = custom::chain(&loaded, profile_name)?;
     let base_name = chain[0].as_str();
     let base_release = base_name == "release";
-    let default_debug = if base_release || for_host { 0 } else { 2 };
+    // Cargo's dev default is full debug info; Mitts' is line tables (see `debuginfo`).
+    let default_debug = if base_release || for_host {
+        DebugInfo::None
+    } else {
+        DebugInfo::LineTablesOnly
+    };
     let default_opt = if base_release && !for_host { "3" } else { "0" };
     let default_assertions = !base_release;
 
@@ -283,7 +290,7 @@ pub fn resolve_unit_debuginfo(
     for_host: bool,
     release: bool,
     ws_root: Option<&Path>,
-) -> anyhow::Result<u32> {
+) -> anyhow::Result<DebugInfo> {
     resolve_unit_profile(
         manifest_path,
         pkg_name,
@@ -302,22 +309,12 @@ fn read_env_non_empty(key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-pub fn parse_debug_str(s: &str) -> Option<u32> {
-    match s {
-        "false" | "none" | "0" => Some(0),
-        "limited" | "line-tables-only" | "1" => Some(1),
-        "true" | "full" | "2" => Some(2),
-        _ => None,
-    }
+pub fn parse_debug_str(s: &str) -> Option<DebugInfo> {
+    DebugInfo::parse_str(s)
 }
 
-pub fn parse_debug_value(val: &toml::Value, default_val: u32) -> u32 {
-    match val {
-        toml::Value::Boolean(b) => u32::from(*b) * 2,
-        toml::Value::Integer(i) => (*i).clamp(0, 2) as u32,
-        toml::Value::String(s) => parse_debug_str(s.as_str()).unwrap_or(default_val),
-        _ => default_val,
-    }
+pub fn parse_debug_value(val: &toml::Value, default_val: DebugInfo) -> DebugInfo {
+    DebugInfo::from_toml(val).unwrap_or(default_val)
 }
 
 fn parse_opt_level_value(val: &toml::Value) -> Option<String> {

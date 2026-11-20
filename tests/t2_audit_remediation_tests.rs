@@ -770,11 +770,15 @@ rpath = false
     .unwrap();
     let target_prof =
         resolve_unit_profile(&manifest, "f1_pkg", true, false, false, Some(dir.path())).unwrap();
-    assert_eq!(target_prof.debuginfo, 2);
+    assert_eq!(
+        target_prof.debuginfo,
+        mitts::adapter::rust::profile::DebugInfo::Full
+    );
     let host_prof =
         resolve_unit_profile(&manifest, "f1_pkg", true, true, false, Some(dir.path())).unwrap();
     assert_eq!(
-        host_prof.debuginfo, 0,
+        host_prof.debuginfo,
+        mitts::adapter::rust::profile::DebugInfo::None,
         "Host unit must default to debuginfo = 0 and not inherit top-level [profile.dev] debug"
     );
 

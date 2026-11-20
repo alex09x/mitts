@@ -85,7 +85,7 @@ pub fn compute_build_script_key(
         format!(
             ":run_env:{}:{}:",
             run_profile.opt_level,
-            run_profile.debuginfo > 0
+            run_profile.debuginfo.is_on()
         )
         .as_bytes(),
     );
