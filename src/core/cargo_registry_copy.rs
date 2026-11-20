@@ -20,6 +20,8 @@
 //! Cargo writes `.cargo-ok` after the last file is unpacked, so every entry of an untouched
 //! copy is older than that marker (`lstat`, so a replaced symlink counts too). Editing,
 //! adding or removing a file moves the mtime of the file or of its directory past it.
+//! A copy whose mtimes moved is then compared with Cargo's archive of the package
+//! (`cargo_registry_verify`): only different files make it an edited copy.
 
 use std::collections::HashMap;
 use std::fs;
@@ -111,7 +113,52 @@ fn check(dir: &Path) -> bool {
     let top_changed = fs::symlink_metadata(dir)
         .and_then(|m| m.modified())
         .map_or(true, |t| t > unpacked);
-    !top_changed && !changed_after(dir, unpacked)
+    if !top_changed && !changed_after(dir, unpacked) {
+        return true;
+    }
+    // Rewritten files are not yet different files: compare with Cargo's archive.
+    let mut entries = Vec::new();
+    collect(dir, Path::new(""), &mut entries)
+        && super::cargo_registry_verify::matches_published(dir, &entries)
+}
+
+fn collect(dir: &Path, rel: &Path, out: &mut Vec<super::cargo_registry_verify::Entry>) -> bool {
+    let Ok(read) = fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in read {
+        let Ok(entry) = entry else {
+            return false;
+        };
+        let name = entry.file_name();
+        if rel.as_os_str().is_empty() && name == CARGO_OK_MARKER {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            return false;
+        };
+        let child = rel.join(&name);
+        if meta.is_dir() {
+            if !collect(&entry.path(), &child, out) {
+                return false;
+            }
+            continue;
+        }
+        let mtime_ns = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos());
+        out.push(super::cargo_registry_verify::Entry {
+            rel: child,
+            path: entry.path(),
+            mtime_ns,
+            len: meta.len(),
+            is_file: meta.is_file(),
+            is_symlink: meta.file_type().is_symlink(),
+        });
+    }
+    true
 }
 
 fn changed_after(dir: &Path, unpacked: SystemTime) -> bool {

@@ -153,6 +153,75 @@ fn a_hand_edited_cargo_registry_copy_is_built_like_cargo_and_never_cached_as_pub
     );
 }
 
+/// Packs the copy's files as Cargo's cached `.crate` for that package.
+fn cache_archive(cargo_home: &Path, copy: &Path) {
+    let name = copy.file_name().unwrap().to_str().unwrap().to_string();
+    let mut tar_buf = Vec::new();
+    {
+        let enc = flate2::write::GzEncoder::new(&mut tar_buf, flate2::Compression::default());
+        let mut tar = tar::Builder::new(enc);
+        for file in ["Cargo.toml", "build.rs", "src/lib.rs", "tool/fetch"] {
+            let bytes = fs::read(copy.join(file)).unwrap();
+            let mut h = tar::Header::new_gnu();
+            h.set_size(bytes.len() as u64);
+            h.set_mode(0o644);
+            h.set_cksum();
+            tar.append_data(&mut h, format!("{name}/{file}"), bytes.as_slice())
+                .unwrap();
+        }
+        tar.into_inner().unwrap().finish().unwrap();
+    }
+    let dest = cargo_home.join("registry/cache").join(INDEX_DIR);
+    fs::create_dir_all(&dest).unwrap();
+    fs::write(dest.join(format!("{name}.crate")), tar_buf).unwrap();
+}
+
+fn rewrite_unchanged(path: &Path) {
+    let bytes = fs::read(path).unwrap();
+    fs::write(path, bytes).unwrap();
+}
+
+/// A tool that saves files unchanged (or an experiment that put them back) moves mtimes
+/// only: the copy still is the published package, compared against Cargo's archive.
+#[test]
+fn a_copy_rewritten_with_the_published_contents_stays_the_published_package() {
+    use mitts::core::cargo_registry_copy::{is_edited, is_pristine, reset};
+    use mitts::core::cargo_registry_verify::set_verdict_dir;
+    let temp = TempDir::new().unwrap();
+    let cargo_home = temp.path().join("cargo-home");
+    set_verdict_dir(Some(temp.path().join("verdicts")));
+
+    let dir = unpack_helper(&cargo_home);
+    cache_archive(&cargo_home, &dir);
+    rewrite_unchanged(&dir.join("src/lib.rs"));
+    reset();
+    assert!(is_pristine(&dir), "same contents as the archive");
+    reset();
+    assert!(is_pristine(&dir), "the remembered verdict");
+
+    fs::write(dir.join("tool/fetch"), "stub\n").unwrap();
+    reset();
+    assert!(is_edited(&dir), "a changed file");
+
+    let dir = unpack_helper(&cargo_home);
+    fs::write(dir.join("Cargo.lock"), "version = 3\n").unwrap();
+    reset();
+    assert!(is_edited(&dir), "a file the archive does not have");
+
+    let dir = unpack_helper(&cargo_home);
+    fs::remove_file(
+        cargo_home
+            .join("registry/cache")
+            .join(INDEX_DIR)
+            .join("helper-0.1.0.crate"),
+    )
+    .unwrap();
+    rewrite_unchanged(&dir.join("src/lib.rs"));
+    reset();
+    assert!(is_edited(&dir), "nothing to compare with");
+    set_verdict_dir(None);
+}
+
 /// The reporter had built with Mitts before, so the source store already held the published
 /// helper; the edit in Cargo's copy still wins, as it does for Cargo.
 #[test]
