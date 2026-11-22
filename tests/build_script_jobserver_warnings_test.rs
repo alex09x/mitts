@@ -64,7 +64,26 @@ fn mitts_cache(root: &Path, cache: &Path, target: &str, args: &[&str]) -> Output
         .arg(root.join(target))
         .current_dir(root)
         .env("CARGO_HOME", root.join("cargo-home"))
-        .env_remove("MITTS_CACHE_DIR");
+        .env_remove("MITTS_CACHE_DIR")
+        .env_remove("MITTS_FAST_LOCK");
+    for name in CLEARED {
+        cmd.env_remove(name);
+    }
+    cmd.output().expect("run Mitts")
+}
+
+/// A build with the fast build lock on, as with the default cache root.
+fn mitts_fast_lock(root: &Path, args: &[&str]) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
+    cmd.args(args)
+        .arg("--cache-dir")
+        .arg(root.join("cache"))
+        .arg("--target-dir")
+        .arg(root.join("target"))
+        .current_dir(root)
+        .env("CARGO_HOME", root.join("cargo-home"))
+        .env_remove("MITTS_CACHE_DIR")
+        .env("MITTS_FAST_LOCK", "1");
     for name in CLEARED {
         cmd.env_remove(name);
     }
@@ -155,4 +174,40 @@ fn a_cache_path_with_spaces_keeps_the_pool_out_of_makeflags() {
         warnings(&log).iter().any(|w| w == "makeflags=[]"),
         "no CARGO_MAKEFLAGS for this pool: {log}"
     );
+}
+
+/// Cargo shows a fresh script's warnings on every build. Mitts' later builds in the same
+/// target come from the cache and then from the fast build lock; each shows them once.
+#[test]
+fn warnings_are_shown_on_every_build_including_fast_lock_hits() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("proj");
+    project(&root);
+    let mut last = String::new();
+    for run in 1..=4 {
+        let out = mitts_fast_lock(&root, &["build", "-v"]);
+        let log = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(out.status.success(), "run {run}: {log}");
+        assert_eq!(warnings(&log).len(), 2, "run {run}: {log}");
+        last = log;
+    }
+    // The lock answers once an all-hit build recorded it: by the fourth run at the latest.
+    assert!(
+        !last.contains("Running `"),
+        "the last run came from the fast lock, no rustc or script ran: {last}"
+    );
+}
+
+/// A fast build lock recorded under another build-script protocol is stale: the
+/// fingerprint names the protocol.
+#[test]
+fn the_fast_lock_fingerprint_names_the_build_script_protocol() {
+    use mitts::adapter::rust::build_script_keys::PROTOCOL;
+    assert_eq!(PROTOCOL, "build_script_v10");
+    let dir = TempDir::new().unwrap();
+    let manifest = dir.path().join("Cargo.toml");
+    let opt = mitts::adapter::RustBuildOptions::default();
+    let a = mitts::adapter::rust::builder::compute_options_hash(&opt, dir.path(), &manifest);
+    let b = mitts::adapter::rust::builder::compute_options_hash(&opt, dir.path(), &manifest);
+    assert_eq!(a, b, "deterministic");
 }

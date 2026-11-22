@@ -16,6 +16,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// What a cached build-script result holds. v10: its `cargo:warning=` lines too. Also part of
+/// the fast build lock's fingerprint, so a lock recorded by an older protocol is stale.
+pub const PROTOCOL: &str = "build_script_v10";
+
 pub fn get_rustc_verbose_version() -> Result<String> {
     Ok(crate::adapter::rust::compiler_resolve::active_toolchain()?.verbose_version)
 }
@@ -31,8 +35,8 @@ pub fn compute_build_script_key(
 ) -> Result<String> {
     let target = platform.target.as_str();
     let mut hasher = Sha256::new();
-    // v10: cached results carry the script's `cargo:warning=` lines; older ones do not.
-    hasher.update(b"build_script_v10:");
+    hasher.update(PROTOCOL.as_bytes());
+    hasher.update(b":");
     hasher.update(format!(":jobs={}:", crate::core::jobs::limit()?).as_bytes());
     hasher.update(unit.package_id.as_bytes());
     hasher.update(b":");
