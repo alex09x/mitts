@@ -52,6 +52,10 @@ pub struct BuildScriptDirectives {
     /// From a `target.<triple>.<links>` override, not from running the script.
     #[serde(default)]
     pub overridden: bool,
+    /// `cargo:warning=` lines, kept with the result so a cache hit shows them again, as
+    /// Cargo replays them for a fresh build script.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 impl BuildScriptDirectives {
@@ -331,6 +335,8 @@ impl BuildScriptDirectives {
                 directives.rerun_if_changed.push(rest.to_string());
             } else if let Some(rest) = directive.strip_prefix("rerun-if-env-changed=") {
                 directives.rerun_if_env_changed.push(rest.to_string());
+            } else if let Some(rest) = directive.strip_prefix("warning=") {
+                directives.warnings.push(rest.to_string());
             } else {
                 let effective = directive.strip_prefix("metadata=").unwrap_or(directive);
                 if let Some((k, v)) = effective.split_once('=') {

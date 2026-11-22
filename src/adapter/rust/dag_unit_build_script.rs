@@ -219,6 +219,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 Some(&build_dep_env),
                 build_key_opt.as_deref(),
                 !ctx.opt.no_cache,
+                ctx.jobserver.and_then(|j| j.auth()),
             ) {
                 Ok(d) => d,
                 Err(err) => {
@@ -326,9 +327,39 @@ pub(crate) fn run_build_script_if_needed<'a>(
         }
     }
 
+    show_warnings(ctx, unit, &directives.warnings);
     register_directives_in_ctx(unit, &directives, ctx);
 
     Ok((Some(directives), staging_dir_opt, retained_job, stage_guard))
+}
+
+/// A build script's `cargo:warning=` lines, as Cargo shows them: `warning: <pkg>@<version>:
+/// <text>`, after a run and after a cache hit alike, and only for local packages (Cargo
+/// hides the warnings of registry and git packages unless `-vv`, which prints the
+/// script's whole output).
+fn show_warnings(ctx: &ExecutionContext, unit: &PlannedCompilationUnit, warnings: &[String]) {
+    let from_registry_or_git = !unit.is_workspace
+        && super::features::parse_package_id_source(&unit.package_id).is_some_and(|s| {
+            s.starts_with("registry+") || s.starts_with("sparse+") || s.starts_with("git+")
+        });
+    if warnings.is_empty() || from_registry_or_git {
+        return;
+    }
+    for text in warnings {
+        let line = format!("warning: {}@{}: {}", unit.package_name, unit.version, text);
+        // Every unit of the package reaches here with the same script result: once per build.
+        {
+            let mut shown = ctx.compiler_messages.lock().unwrap();
+            if shown.contains(&line) {
+                continue;
+            }
+            shown.push(line.clone());
+        }
+        match ctx.opt.progress {
+            Some(ref cb) => cb.0(super::types::BuildProgressEvent::CompilerMessage(line)),
+            None => eprintln!("{line}"),
+        }
+    }
 }
 
 /// Records build script directives into thread-safe maps for downstream compilation and doctests.
