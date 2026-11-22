@@ -31,7 +31,8 @@ pub fn compute_build_script_key(
 ) -> Result<String> {
     let target = platform.target.as_str();
     let mut hasher = Sha256::new();
-    hasher.update(b"build_script_v9:");
+    // v10: cached results carry the script's `cargo:warning=` lines; older ones do not.
+    hasher.update(b"build_script_v10:");
     hasher.update(format!(":jobs={}:", crate::core::jobs::limit()?).as_bytes());
     hasher.update(unit.package_id.as_bytes());
     hasher.update(b":");

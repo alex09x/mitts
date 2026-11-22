@@ -347,6 +347,14 @@ fn show_warnings(ctx: &ExecutionContext, unit: &PlannedCompilationUnit, warnings
     }
     for text in warnings {
         let line = format!("warning: {}@{}: {}", unit.package_name, unit.version, text);
+        // Every unit of the package reaches here with the same script result: once per build.
+        {
+            let mut shown = ctx.compiler_messages.lock().unwrap();
+            if shown.contains(&line) {
+                continue;
+            }
+            shown.push(line.clone());
+        }
         match ctx.opt.progress {
             Some(ref cb) => cb.0(super::types::BuildProgressEvent::CompilerMessage(line)),
             None => eprintln!("{line}"),

@@ -245,7 +245,9 @@ pub(crate) fn execute_build_script_with_key(
     // Like Cargo, the script gets the build's job pool, so make, ninja or cc-rs inside it
     // share the `-j` limit with the rest of the build instead of each assuming all of it.
     // Not part of the key: the pool's address is specific to this cache and process.
-    if let Some(auth) = jobserver_auth {
+    // A pool address with whitespace (a cache path with spaces) cannot be carried in the
+    // whitespace-separated MAKEFLAGS syntax; the script then gets NUM_JOBS only, as before.
+    if let Some(auth) = jobserver_auth.filter(|a| !a.contains(char::is_whitespace)) {
         run_cmd.env(
             "CARGO_MAKEFLAGS",
             super::build_script_env::cargo_makeflags(auth),
@@ -272,8 +274,15 @@ pub(crate) fn execute_build_script_with_key(
         }
     }
     if !run_status.status.success() {
-        let err = String::from_utf8_lossy(&run_status.stderr);
-        bail!("build.rs failed for '{}': {}", unit.package_name, err);
+        // Like Cargo, a failed script's whole output is shown, its `cargo:warning=` lines
+        // (on stdout) included.
+        bail!(
+            "build.rs failed for '{}' ({})\n--- stdout\n{}\n--- stderr\n{}",
+            unit.package_name,
+            run_status.status,
+            String::from_utf8_lossy(&run_status.stdout).trim_end(),
+            String::from_utf8_lossy(&run_status.stderr).trim_end()
+        );
     }
 
     let stdout_str = String::from_utf8_lossy(&run_status.stdout);

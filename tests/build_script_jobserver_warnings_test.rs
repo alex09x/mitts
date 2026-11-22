@@ -37,7 +37,9 @@ fn project(root: &Path) {
         "[package]\nname = \"jp\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    // A library and a binary: two units share the one script result.
+    fs::write(root.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() { jp::f() }\n").unwrap();
     fs::write(
         root.join("build.rs"),
         "fn main() {\n    \
@@ -50,10 +52,14 @@ fn project(root: &Path) {
 }
 
 fn mitts(root: &Path, target: &str, args: &[&str]) -> Output {
+    mitts_cache(root, &root.join("cache"), target, args)
+}
+
+fn mitts_cache(root: &Path, cache: &Path, target: &str, args: &[&str]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
     cmd.args(args)
         .arg("--cache-dir")
-        .arg(root.join("cache"))
+        .arg(cache)
         .arg("--target-dir")
         .arg(root.join(target))
         .current_dir(root)
@@ -109,5 +115,44 @@ fn makeflags_name_the_pool_in_cargo_form() {
     assert_eq!(
         cargo_makeflags("3,4"),
         "-j --jobserver-fds=3,4 --jobserver-auth=3,4"
+    );
+}
+
+/// A script that fails shows its whole output, warnings included, as Cargo does.
+#[test]
+fn a_failing_build_script_shows_its_output() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("proj");
+    project(&root);
+    fs::write(
+        root.join("build.rs"),
+        "fn main() {\n    println!(\"cargo:warning=about to fail\");\n    \
+         eprintln!(\"the reason\");\n    std::process::exit(3);\n}\n",
+    )
+    .unwrap();
+    let out = mitts(&root, "target", &["build"]);
+    let log = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(!out.status.success(), "{log}");
+    assert!(
+        log.contains("cargo:warning=about to fail"),
+        "stdout shown: {log}"
+    );
+    assert!(log.contains("the reason"), "stderr shown: {log}");
+}
+
+/// A pool address with a space (cache path with spaces) cannot be written into MAKEFLAGS:
+/// the script then runs with NUM_JOBS only, and the build still works.
+#[test]
+fn a_cache_path_with_spaces_keeps_the_pool_out_of_makeflags() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("proj");
+    project(&root);
+    let cache = temp.path().join("cache with spaces");
+    let out = mitts_cache(&root, &cache, "target", &["build", "-j", "3"]);
+    let log = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{log}");
+    assert!(
+        warnings(&log).iter().any(|w| w == "makeflags=[]"),
+        "no CARGO_MAKEFLAGS for this pool: {log}"
     );
 }
