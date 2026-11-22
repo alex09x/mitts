@@ -136,6 +136,7 @@ pub fn execute_build_script(
         extra_env,
         None,
         true,
+        None,
     )
 }
 
@@ -151,6 +152,7 @@ pub(crate) fn execute_build_script_with_key(
     extra_env: Option<&HashMap<String, String>>,
     precomputed_build_key: Option<&str>,
     cache_enabled: bool,
+    jobserver_auth: Option<&str>,
 ) -> Result<BuildScriptDirectives> {
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
@@ -240,6 +242,15 @@ pub(crate) fn execute_build_script_with_key(
     let mut run_cmd = super::build_script_env::configure_build_script_run_cmd(
         &bin_path, pkg_dir, unit, &pkg_toml, &out_dir, &platform, release, features, extra_env,
     );
+    // Like Cargo, the script gets the build's job pool, so make, ninja or cc-rs inside it
+    // share the `-j` limit with the rest of the build instead of each assuming all of it.
+    // Not part of the key: the pool's address is specific to this cache and process.
+    if let Some(auth) = jobserver_auth {
+        run_cmd.env(
+            "CARGO_MAKEFLAGS",
+            super::build_script_env::cargo_makeflags(auth),
+        );
+    }
 
     let verbosity = crate::core::verbosity::level();
     if verbosity >= 1 {

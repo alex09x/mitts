@@ -14,6 +14,17 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
+/// `CARGO_MAKEFLAGS` for a build script, in Cargo's form: `-j`, then the pool's address
+/// (`fifo:<path>`, or `<read>,<write>` descriptors, which old make reads as
+/// `--jobserver-fds`).
+pub fn cargo_makeflags(auth: &str) -> String {
+    if auth.starts_with("fifo:") {
+        format!("-j --jobserver-auth={auth}")
+    } else {
+        format!("-j --jobserver-fds={auth} --jobserver-auth={auth}")
+    }
+}
+
 /// Prepares the Command execution environment for running a compiled build.rs binary.
 #[allow(clippy::too_many_arguments)]
 pub fn configure_build_script_run_cmd(
