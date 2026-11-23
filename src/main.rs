@@ -124,6 +124,18 @@ fn main() -> ExitCode {
         Commands::Tree(ref args) => mitts::cli::tree::handle_tree(args),
         Commands::Add(ref args) => mitts::cli::manifest_edit::handle_add(args),
         Commands::Remove(ref args) => mitts::cli::manifest_edit::handle_remove(args),
+        Commands::Doc(ref args) => mitts::cli::doc::handle_doc(args),
+        Commands::Rustdoc(ref args) => mitts::cli::doc::handle_rustdoc(args),
+        Commands::Fix(ref args) => mitts::cli::fix::handle_fix(args),
+        Commands::Vendor(ref args) => mitts::cli::vendor::handle_vendor(args),
+        Commands::Search(ref args) => mitts::cli::registry_cmds::handle_search(args),
+        Commands::Info(ref args) => mitts::cli::registry_cmds::handle_info(args),
+        Commands::Login(ref args) => mitts::cli::registry_cmds::handle_login(args),
+        Commands::Logout(ref args) => mitts::cli::registry_cmds::handle_logout(args),
+        Commands::Owner(ref args) => mitts::cli::registry_cmds::handle_owner(args),
+        Commands::Yank(ref args) => mitts::cli::registry_cmds::handle_yank(args),
+        Commands::Install(ref args) => mitts::cli::install::handle_install(args),
+        Commands::Uninstall(ref args) => mitts::cli::install::handle_uninstall(args),
     };
 
     mitts::adapter::rust::cargo_config_cli::cleanup();

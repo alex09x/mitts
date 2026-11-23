@@ -457,3 +457,201 @@ fn test_selects_examples_and_benches_by_name() {
     let all = format!("{out}{err}");
     assert!(all.contains("speed_bench_test") && !all.contains("demo_example_test"), "{all}");
 }
+
+/// `[registries.mock]` for the API commands, beside the crates.io replacement.
+fn with_named_registry(app: &Path, registry: &Registry) {
+    let config = format!(
+        "{}\n[registries.mock]\nindex = \"{}\"\n",
+        registry.source_replacement(),
+        registry.index_url()
+    );
+    fs::write(app.join(".cargo/config.toml"), config).unwrap();
+}
+
+#[test]
+fn doc_documents_the_package_and_its_dependencies_once() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        files: vec![("src/lib.rs", "/// Says hello.\npub fn hello() {}\n".to_string())],
+        ..version("aa", "1.0.0")
+    }]);
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    fs::write(app.join("src/lib.rs"), "//! The app.\npub fn app() { aa::hello() }\n").unwrap();
+
+    let (_, err) = env.ok(&app, &["doc"]);
+    assert!(err.contains("Documenting aa v1.0.0"), "{err}");
+    assert!(err.contains("Documenting app v0.1.0"), "{err}");
+    assert!(err.contains("Generated"), "{err}");
+    assert!(app.join("target/doc/app/index.html").is_file());
+    assert!(app.join("target/doc/aa/index.html").is_file());
+    assert!(read(app.join("target/doc/aa/fn.hello.html")).contains("Says hello."));
+
+    let (_, err) = env.ok(&app, &["doc"]);
+    assert!(!err.contains("Documenting"), "nothing changed, nothing documented again: {err}");
+
+    fs::remove_dir_all(app.join("target/doc")).unwrap();
+    env.ok(&app, &["doc", "--no-deps"]);
+    assert!(app.join("target/doc/app/index.html").is_file());
+    assert!(!app.join("target/doc/aa").exists());
+
+    fs::write(app.join("src/lib.rs"), "//! The app.\nfn private_helper() {}\npub fn app() { private_helper() }\n").unwrap();
+    env.ok(&app, &["doc", "--no-deps", "--document-private-items"]);
+    assert!(app.join("target/doc/app/fn.private_helper.html").is_file());
+}
+
+#[test]
+fn fix_applies_machine_applicable_suggestions_and_guards_uncommitted_work() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "");
+    fs::write(app.join("src/main.rs"), "fn main() {\n    let mut x = 1;\n    println!(\"{x}\");\n}\n").unwrap();
+
+    let err = env.fails(&app, &["fix"]);
+    assert!(err.contains("no VCS found"), "{err}");
+    let (_, err) = env.ok(&app, &["fix", "--allow-no-vcs"]);
+    assert!(err.contains("Fixed src/main.rs (1 fix)"), "{err}");
+    assert_eq!(read(app.join("src/main.rs")), "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}\n");
+
+    if has_git() {
+        let git = |args: &[&str]| {
+            let ok = Command::new("git").args(args).current_dir(&app)
+                .env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .status().unwrap().success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "init"]);
+        fs::write(app.join("src/main.rs"), "fn main() {\n    let mut y = 2;\n    println!(\"{y}\");\n}\n").unwrap();
+        let err = env.fails(&app, &["fix"]);
+        assert!(err.contains("uncommitted changes") && err.contains("src/main.rs (dirty)"), "{err}");
+        env.ok(&app, &["fix", "--allow-dirty"]);
+        assert!(read(app.join("src/main.rs")).contains("let y = 2;"));
+    }
+}
+
+#[test]
+fn vendor_copies_sources_with_checksums_and_the_copy_builds() {
+    let env = Env::new();
+    let mut aa = version("aa", "1.0.0");
+    aa.deps = vec![dep("bb", "1")];
+    let registry = serve(vec![aa, version("bb", "1.0.0")]);
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    fs::write(app.join("src/main.rs"), "fn main() { println!(\"{}\", aa::hello()); }\n").unwrap();
+
+    let (out, err) = env.ok(&app, &["vendor"]);
+    assert!(err.contains("Vendoring aa v1.0.0"), "{err}");
+    assert!(out.contains("[source.crates-io]\nreplace-with = \"vendored-sources\""), "{out}");
+    assert!(out.contains("[source.vendored-sources]\ndirectory = \"vendor\""), "{out}");
+    let checksum: serde_json::Value =
+        serde_json::from_str(&read(app.join("vendor/aa/.cargo-checksum.json"))).unwrap();
+    assert_eq!(checksum["package"].as_str().unwrap().len(), 64);
+    assert!(checksum["files"]["Cargo.toml"].is_string());
+    assert!(app.join("vendor/bb/src/lib.rs").is_file());
+
+    // The printed configuration is all the project needs to build offline.
+    fs::write(app.join(".cargo/config.toml"), out).unwrap();
+    let (stdout, _) = env.ok(&app, &["run", "-q", "--offline"]);
+    assert_eq!(stdout, "aa\n");
+
+    // A stale copy goes, unless --no-delete.
+    fs::create_dir_all(app.join("vendor/old")).unwrap();
+    fs::write(app.join("vendor/old/.cargo-checksum.json"), "{}").unwrap();
+    env.ok(&app, &["vendor", "--offline", "--no-delete"]);
+    assert!(app.join("vendor/old").exists());
+    env.ok(&app, &["vendor", "--offline"]);
+    assert!(!app.join("vendor/old").exists());
+}
+
+#[test]
+fn registry_api_commands_send_what_cargo_sends() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            features: "{\"default\":[\"std\"],\"std\":[],\"extra\":[]}",
+            manifest_extra: "description = \"The aa crate, for tests\"\nlicense = \"MIT\"\n",
+            ..version("aa", "1.0.0")
+        },
+        version("aab", "0.2.0"),
+    ]);
+    let app = env.app(&registry, "");
+    with_named_registry(&app, &registry);
+
+    let (out, _) = env.ok(&app, &["search", "aa", "--registry", "mock"]);
+    assert!(out.contains("aa = \"1.0.0\"") && out.contains("# The aa crate"), "{out}");
+    assert!(out.contains("aab = \"0.2.0\""), "{out}");
+
+    let (out, _) = env.ok(&app, &["info", "aa", "--registry", "mock"]);
+    assert!(out.starts_with("aa\nThe aa crate, for tests\nversion: 1.0.0\nlicense: MIT\n"), "{out}");
+    assert!(out.contains(" +default = [std]") && out.contains(" +std     = []") && out.contains("  extra   = []"), "{out}");
+
+    let err = env.fails(&app, &["yank", "aa@1.0.0", "--registry", "mock"]);
+    assert!(err.contains("no token found"), "{err}");
+
+    let (_, err) = env.ok(&app, &["login", "--registry", "mock", "secret-token"]);
+    assert!(err.contains("Login token for `mock` saved"), "{err}");
+    let creds = read(env.path("cargo-home/credentials.toml"));
+    assert!(creds.contains("[registries.mock]") && creds.contains("token = \"secret-token\""), "{creds}");
+
+    let (out, _) = env.ok(&app, &["owner", "--list", "aa", "--registry", "mock"]);
+    assert_eq!(out, "alice (Alice)\n");
+    env.ok(&app, &["owner", "--add", "bob", "aa", "--registry", "mock"]);
+    env.ok(&app, &["yank", "aa@1.0.0", "--registry", "mock"]);
+    env.ok(&app, &["yank", "aa", "--version", "1.0.0", "--undo", "--registry", "mock"]);
+    let sent = registry.requests();
+    let put_owner = sent
+        .iter()
+        .find(|r| r.method == "PUT" && r.path == "/api/v1/crates/aa/owners")
+        .expect("owner add request");
+    assert_eq!(put_owner.headers.get("authorization").map(String::as_str), Some("secret-token"));
+    let body: serde_json::Value = serde_json::from_slice(&put_owner.body).unwrap();
+    assert_eq!(body["users"], serde_json::json!(["bob"]));
+    assert!(sent.iter().any(|r| r.method == "DELETE" && r.path == "/api/v1/crates/aa/1.0.0/yank"
+        && r.headers.get("authorization").map(String::as_str) == Some("secret-token")));
+    assert!(sent.iter().any(|r| r.method == "PUT" && r.path == "/api/v1/crates/aa/1.0.0/unyank"));
+
+    let (_, err) = env.ok(&app, &["logout", "--registry", "mock"]);
+    assert!(err.contains("has been removed from local storage"), "{err}");
+    assert!(!read(env.path("cargo-home/credentials.toml")).contains("secret-token"));
+}
+
+#[test]
+fn install_builds_records_and_uninstalls_binaries() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        files: vec![("src/main.rs", "fn main() { println!(\"tool works\"); }\n".to_string())],
+        ..version("tool", "1.0.0")
+    }]);
+    let app = env.app(&registry, "");
+    with_named_registry(&app, &registry);
+    let root = env.path("install-root");
+    let root_s = root.to_str().unwrap();
+
+    let (_, err) = env.ok(&app, &["install", "tool", "--registry", "mock", "--root", root_s]);
+    assert!(err.contains("Installed package `tool v1.0.0` (executable `tool`)"), "{err}");
+    let out = Command::new(root.join("bin/tool")).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "tool works\n");
+    assert!(read(root.join(".crates.toml")).contains("tool 1.0.0 (sparse+"));
+    let v2: serde_json::Value = serde_json::from_str(&read(root.join(".crates2.json"))).unwrap();
+    assert_eq!(v2["installs"].as_object().unwrap().len(), 1);
+
+    let (out, _) = env.ok(&app, &["install", "--list", "--root", root_s]);
+    assert_eq!(out, "tool v1.0.0:\n    tool\n");
+    let (_, err) = env.ok(&app, &["install", "tool", "--registry", "mock", "--root", root_s]);
+    assert!(err.contains("is already installed, use --force to override"), "{err}");
+
+    // A local package by path, then both uninstalled.
+    fs::write(app.join("src/main.rs"), "fn main() { println!(\"app works\"); }\n").unwrap();
+    let (_, err) = env.ok(&app, &["install", "--path", ".", "--root", root_s]);
+    assert!(err.contains("Installed package `app v0.1.0`"), "{err}");
+    assert!(root.join("bin/app").is_file());
+    let (_, err) = env.ok(&app, &["uninstall", "tool", "--root", root_s]);
+    assert!(err.contains("Removing"), "{err}");
+    assert!(!root.join("bin/tool").exists());
+    env.ok(&app, &["uninstall", "app", "--root", root_s]);
+    let (out, _) = env.ok(&app, &["install", "--list", "--root", root_s]);
+    assert_eq!(out, "");
+    let err = env.fails(&app, &["uninstall", "tool", "--root", root_s]);
+    assert!(err.contains("did not match any packages"), "{err}");
+}

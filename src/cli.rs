@@ -157,6 +157,43 @@ pub enum Commands {
     /// Remove dependencies from a Cargo.toml manifest file
     #[command(visible_alias = "rm")]
     Remove(manifest_edit::RemoveArgs),
+
+    /// Build a package's documentation
+    #[command(visible_alias = "d")]
+    Doc(doc::DocArgs),
+
+    /// Build a package's documentation, using specified custom flags
+    Rustdoc(doc::DocArgs),
+
+    /// Automatically fix lint warnings reported by rustc
+    Fix(fix::FixArgs),
+
+    /// Vendor all dependencies for a project locally
+    Vendor(vendor::VendorArgs),
+
+    /// Search packages in the registry
+    Search(registry_cmds::SearchArgs),
+
+    /// Display information about a package
+    Info(registry_cmds::InfoArgs),
+
+    /// Log in to a registry
+    Login(registry_cmds::LoginArgs),
+
+    /// Remove an API token from the registry locally
+    Logout(registry_cmds::LogoutArgs),
+
+    /// Manage the owners of a crate on the registry
+    Owner(registry_cmds::OwnerArgs),
+
+    /// Remove a pushed crate from the index
+    Yank(registry_cmds::YankArgs),
+
+    /// Install a Rust binary
+    Install(install::InstallArgs),
+
+    /// Remove a Rust binary
+    Uninstall(install::UninstallArgs),
 }
 
 /// `mitts 0.4.0 (<commit>)`, as `--version` prints it.
@@ -198,6 +235,7 @@ impl Commands {
             Commands::Bench(args) => args.jobs,
             Commands::Coverage(args) | Commands::LlvmCov(args) => args.jobs,
             Commands::Run(args) => args.build_args.jobs,
+            Commands::Doc(args) | Commands::Rustdoc(args) => args.jobs,
             _ => None,
         };
         jobs.and_then(|n| usize::try_from(n).ok())
@@ -213,6 +251,7 @@ impl Commands {
             Commands::Bench(args) => args.verbose,
             Commands::Coverage(args) | Commands::LlvmCov(args) => args.verbose,
             Commands::Run(args) => args.build_args.verbose,
+            Commands::Doc(args) | Commands::Rustdoc(args) => args.verbose,
             _ => 0,
         }
     }
@@ -228,6 +267,7 @@ impl Commands {
             Commands::Bench(args) => Some(args.cache_dir.clone()),
             Commands::Coverage(args) | Commands::LlvmCov(args) => Some(args.cache_dir.clone()),
             Commands::Run(args) => Some(args.build_args.cache_dir.clone()),
+            Commands::Doc(args) | Commands::Rustdoc(args) => Some(args.cache_dir.clone()),
             _ => None,
         }
     }
@@ -536,8 +576,11 @@ pub mod coverage;
 pub mod coverage_tools;
 pub mod coverage_types;
 pub mod diagnostic;
+pub mod doc;
+pub mod fix;
 pub mod fmt;
 pub mod handlers;
+pub mod install;
 pub mod lock_cmds;
 pub mod manifest_discovery;
 pub mod manifest_edit;
@@ -545,6 +588,7 @@ pub mod project_info;
 pub mod project_new;
 pub mod tree;
 pub mod tree_graph;
+pub mod vendor;
 pub mod message_format;
 pub mod metadata;
 mod package;
@@ -553,6 +597,8 @@ mod package_directory;
 mod package_lock;
 mod package_patterns;
 pub mod profile_flag;
+pub mod registry_api;
+pub mod registry_cmds;
 mod registry_metadata;
 mod registry_protocol;
 mod registry_upload;
