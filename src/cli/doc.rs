@@ -61,6 +61,38 @@ pub struct DocArgs {
     #[arg(long)]
     pub bins: bool,
 
+    /// Document only the specified example
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub example: Vec<String>,
+
+    /// Document all examples
+    #[arg(long)]
+    pub examples: bool,
+
+    /// Document only the specified test target (`mitts rustdoc`)
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub test: Vec<String>,
+
+    /// Document all targets that have `test = true` set
+    #[arg(long)]
+    pub tests: bool,
+
+    /// Document only the specified bench target
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub bench: Vec<String>,
+
+    /// Document all targets that have `bench = true` set
+    #[arg(long)]
+    pub benches: bool,
+
+    /// Document all targets
+    #[arg(long)]
+    pub all_targets: bool,
+
+    /// The output type for the documentation: html, or json (needs a nightly rustdoc)
+    #[arg(long, value_parser = ["html", "json"])]
+    pub output_format: Option<String>,
+
     /// Space or comma separated list of features to activate
     #[arg(short = 'F', long, value_delimiter = ',', num_args = 1..)]
     pub features: Vec<String>,
@@ -181,7 +213,13 @@ fn options(args: &DocArgs) -> RustBuildOptions {
         exclude: args.exclude.clone(),
         lib_only: args.lib,
         bin_targets: args.bin.clone(),
-        all_bins: args.bins,
+        all_bins: args.bins || args.all_targets,
+        example_targets: args.example.clone(),
+        all_examples: args.examples || args.all_targets,
+        test_targets: args.test.clone(),
+        all_tests: args.tests || args.all_targets,
+        bench_targets: args.bench.clone(),
+        all_benches: args.benches || args.all_targets,
         keep_going: args.keep_going,
         quiet: true,
         // rustdoc needs every crate's metadata path: a fast-lock hit reports none.
@@ -247,7 +285,7 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         let crate_name = unit.target_name.replace('-', "_");
         let crate_type = if unit.kind == "proc-macro" {
             "proc-macro"
-        } else if unit.kind == "bin" {
+        } else if matches!(unit.kind.as_str(), "bin" | "example" | "test" | "custom-test") {
             "bin"
         } else {
             "lib"
@@ -292,6 +330,15 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         }
         argv.push("--crate-version".into());
         argv.push(unit.version.clone());
+        if matches!(unit.kind.as_str(), "test" | "custom-test") {
+            argv.push("--cfg".into());
+            argv.push("test".into());
+        }
+        if args.output_format.as_deref() == Some("json") {
+            argv.push("-Zunstable-options".into());
+            argv.push("--output-format".into());
+            argv.push("json".into());
+        }
         if !local {
             argv.push("--cap-lints".into());
             argv.push("allow".into());
@@ -349,7 +396,11 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
                 "{crate_name}-{}",
                 crate::core::hash::bytes_to_hex(&hasher.finalize())
             ));
-        let index = doc_dir.join(&crate_name).join("index.html");
+        let index = if args.output_format.as_deref() == Some("json") {
+            doc_dir.join(format!("{crate_name}.json"))
+        } else {
+            doc_dir.join(&crate_name).join("index.html")
+        };
         if unit.is_primary {
             generated.push(index.clone());
         }
@@ -431,6 +482,16 @@ fn selected_units(
             unit.is_primary
                 && !args.lib
                 && !lib_names.contains(&(unit.package_name.clone(), unit.target_name.replace('-', "_")))
+        } else if unit.kind == "example" {
+            unit.is_primary
+                && (args.examples || args.all_targets || args.example.contains(&unit.target_name))
+        } else if matches!(unit.kind.as_str(), "test" | "custom-test") {
+            unit.is_primary
+                && (args.tests
+                    || args.benches
+                    || args.all_targets
+                    || args.test.contains(&unit.target_name)
+                    || args.bench.contains(&unit.target_name))
         } else {
             false
         };

@@ -65,6 +65,7 @@ fn test_m8_cli_explain_and_fetch() {
         locked: false,
         frozen: false,
         cache_dir: Some(tmp.path().join("cache")),
+        ..Default::default()
     };
     assert_eq!(handle_fetch(&fetch_args), 0);
 }

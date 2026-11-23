@@ -156,6 +156,14 @@ pub struct FixArgs {
     /// Use verbose output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// Do not abort the build as soon as there is an error
+    #[arg(long)]
+    pub keep_going: bool,
+
+    /// Error format of the diagnostics left after fixing: human, short, json…
+    #[arg(long, value_name = "FMT")]
+    pub message_format: Option<String>,
 }
 
 const MAX_PASSES: usize = 4;
@@ -299,6 +307,11 @@ fn run_check(args: &FixArgs, lint_flags: &[String], json: bool) -> Result<std::p
     cmd.arg("check");
     if json {
         cmd.args(["--message-format", "json"]);
+    } else if let Some(format) = &args.message_format {
+        cmd.args(["--message-format", format]);
+    }
+    if args.keep_going {
+        cmd.arg("--keep-going");
     }
     let selected = args.lib
         || args.bins

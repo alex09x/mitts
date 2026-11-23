@@ -211,6 +211,11 @@ pub fn serve(published: Vec<Published>) -> Registry {
                     serde_json::json!({"ok": true, "msg": "owners updated"})
                 };
                 ("200 OK", body.to_string().into_bytes())
+            } else if request.method == "PUT" && path_only == "/api/v1/crates/new" {
+                (
+                    "200 OK",
+                    b"{\"warnings\":{\"invalid_categories\":[],\"invalid_badges\":[],\"other\":[]}}".to_vec(),
+                )
             } else if path_only.ends_with("/yank") || path_only.ends_with("/unyank") {
                 ("200 OK", b"{\"ok\":true}".to_vec())
             } else {

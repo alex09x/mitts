@@ -194,6 +194,9 @@ pub enum Commands {
 
     /// Remove a Rust binary
     Uninstall(install::UninstallArgs),
+
+    /// Generate and display various kinds of reports
+    Report(future_incompat::ReportArgs),
 }
 
 /// `mitts 0.4.0 (<commit>)`, as `--version` prints it.
@@ -222,6 +225,50 @@ pub struct CleanArgs {
     /// Directory for the shared artifact and action cache
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
+
+    /// Package to clean artifacts for (repeatable)
+    #[arg(short = 'p', long = "package", value_name = "SPEC", action = clap::ArgAction::Append)]
+    pub packages: Vec<String>,
+
+    /// Clean artifacts of the workspace members only
+    #[arg(long)]
+    pub workspace: bool,
+
+    /// Whether or not to clean just the documentation directory
+    #[arg(long)]
+    pub doc: bool,
+
+    /// Display what would be deleted without deleting anything
+    #[arg(short = 'n', long)]
+    pub dry_run: bool,
+
+    /// Clean artifacts of the specified profile
+    #[arg(long, value_name = "PROFILE-NAME", conflicts_with = "release")]
+    pub profile: Option<String>,
+
+    /// Target triple to clean output for
+    #[arg(long)]
+    pub target: Option<String>,
+
+    /// Do not print Mitts log messages
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// Require Cargo.lock is up to date (accepted for Cargo compatibility)
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Run without accessing the network (accepted for Cargo compatibility)
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Equivalent to specifying both --locked and --offline
+    #[arg(long)]
+    pub frozen: bool,
 }
 
 impl Commands {
@@ -423,6 +470,10 @@ pub struct BuildArgs {
     #[arg(long)]
     pub all_targets: bool,
 
+    /// Copy final artifacts to this directory (unstable in Cargo: needs -Z unstable-options)
+    #[arg(long, visible_alias = "out-dir", value_name = "PATH")]
+    pub artifact_dir: Option<PathBuf>,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -525,6 +576,18 @@ pub struct MetadataArgs {
     /// Directory for the shared artifact and source cache
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
+
+    /// Output information only about the workspace members and don't fetch dependencies
+    #[arg(long)]
+    pub no_deps: bool,
+
+    /// Do not print Mitts log messages
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -548,6 +611,18 @@ pub struct FetchArgs {
     /// Require Cargo.lock to be unchanged
     #[arg(long)]
     pub frozen: bool,
+
+    /// Fetch for the target triple (all sources in Cargo.lock are fetched either way)
+    #[arg(long)]
+    pub target: Option<String>,
+
+    /// Do not print Mitts log messages
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -579,6 +654,7 @@ pub mod diagnostic;
 pub mod doc;
 pub mod fix;
 pub mod fmt;
+pub mod future_incompat;
 pub mod handlers;
 pub mod install;
 pub mod lock_cmds;

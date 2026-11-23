@@ -68,7 +68,16 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
         ..Default::default()
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, true);
-    metadata_for(&opt, args.package.clone())
+    let mut doc = metadata_for(&opt, args.package.clone())?;
+    if args.no_deps {
+        // Only the workspace members, and no resolve graph, as Cargo prints it.
+        let members: Vec<Value> = doc["workspace_members"].as_array().cloned().unwrap_or_default();
+        if let Some(packages) = doc["packages"].as_array_mut() {
+            packages.retain(|p| members.contains(&p["id"]));
+        }
+        doc["resolve"] = Value::Null;
+    }
+    Ok(doc)
 }
 
 /// The `cargo metadata` document for a plan made with `opt` (`mitts tree` plans in test

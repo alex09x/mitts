@@ -145,6 +145,18 @@ pub struct InstallArgs {
     /// Use verbose output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// Perform all checks without installing
+    #[arg(short = 'n', long)]
+    pub dry_run: bool,
+
+    /// Do not abort the build as soon as there is an error
+    #[arg(long)]
+    pub keep_going: bool,
+
+    /// Error format: human, short, json…
+    #[arg(long, value_name = "FMT")]
+    pub message_format: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -578,6 +590,12 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
     if let Some(c) = &args.cache_dir {
         cmd.arg("--cache-dir").arg(c);
     }
+    if args.keep_going {
+        cmd.arg("--keep-going");
+    }
+    if let Some(format) = &args.message_format {
+        cmd.args(["--message-format", format]);
+    }
     let ok = cmd.status().context("run mitts build")?.success();
     let cleanup = |dir: &Path| {
         if args.target_dir.is_none() {
@@ -602,6 +620,13 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
         out_dir = out_dir.join("examples");
     }
     let bin_dir = root.join("bin");
+    if args.dry_run {
+        cleanup(&build_root);
+        if !args.quiet {
+            eprintln!("warning: aborting install due to dry run");
+        }
+        return Ok(());
+    }
     std::fs::create_dir_all(&bin_dir)?;
     let suffix = if args.target.as_deref().map_or(cfg!(windows), |t| t.contains("windows")) {
         ".exe"

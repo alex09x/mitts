@@ -136,7 +136,11 @@ fn main() -> ExitCode {
         Commands::Yank(ref args) => mitts::cli::registry_cmds::handle_yank(args),
         Commands::Install(ref args) => mitts::cli::install::handle_install(args),
         Commands::Uninstall(ref args) => mitts::cli::install::handle_uninstall(args),
+        Commands::Report(ref args) => mitts::cli::future_incompat::handle_report(args),
     };
+    if cli.future_incompat_report && code == 0 && cli.command.cache_use().is_some() {
+        mitts::cli::future_incompat::run_after_build();
+    }
 
     mitts::adapter::rust::cargo_config_cli::cleanup();
     match mitts::core::unit_timings::finish_recorded() {

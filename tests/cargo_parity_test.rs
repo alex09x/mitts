@@ -655,3 +655,112 @@ fn install_builds_records_and_uninstalls_binaries() {
     let err = env.fails(&app, &["uninstall", "tool", "--root", root_s]);
     assert!(err.contains("did not match any packages"), "{err}");
 }
+
+#[test]
+fn clean_narrows_by_package_doc_and_dry_run() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    fs::write(app.join("src/lib.rs"), "pub fn app() {}\n").unwrap();
+    env.ok(&app, &["build", "-q"]);
+    env.ok(&app, &["doc", "-q", "--no-deps"]);
+    let deps = || -> Vec<String> {
+        fs::read_dir(app.join("target/debug/deps"))
+            .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .unwrap_or_default()
+    };
+    assert!(deps().iter().any(|f| f.starts_with("libaa-")), "{:?}", deps());
+
+    let (_, err) = env.ok(&app, &["clean", "-p", "aa", "--dry-run"]);
+    assert!(err.contains("Summary") && err.contains("no files deleted due to --dry-run"), "{err}");
+    assert!(deps().iter().any(|f| f.starts_with("libaa-")));
+
+    let (_, err) = env.ok(&app, &["clean", "-p", "aa"]);
+    assert!(err.contains("Removed"), "{err}");
+    assert!(!deps().iter().any(|f| f.starts_with("libaa-")), "{:?}", deps());
+    assert!(deps().iter().any(|f| f.starts_with("libapp-")), "{:?}", deps());
+    assert!(app.join("target/doc/app/index.html").is_file());
+
+    env.ok(&app, &["clean", "--doc"]);
+    assert!(!app.join("target/doc").exists());
+    assert!(deps().iter().any(|f| f.starts_with("libapp-")));
+    // The build is whole again afterwards.
+    env.ok(&app, &["build", "-q"]);
+}
+
+#[test]
+fn every_command_takes_config_and_more_cargo_flags() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    fs::write(app.join("src/lib.rs"), "pub fn app() -> &'static str { aa::hello() }\n").unwrap();
+    // `--config` on commands that have no use for it is accepted, as in Cargo.
+    env.ok(&app, &["tree", "--config", "net.retry=1", "-e", "normal"]);
+    env.ok(&app, &["locate-project", "--config=net.retry=1"]);
+    env.ok(&app, &["fetch", "--target", "x86_64-unknown-linux-gnu", "-q"]);
+
+    let (out, _) = env.ok(&app, &["metadata", "--no-deps", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(doc["packages"].as_array().unwrap().len(), 1);
+    assert!(doc["resolve"].is_null());
+
+    let out_dir = env.path("artifacts");
+    env.ok(&app, &["build", "-q", "-Z", "unstable-options", "--artifact-dir", out_dir.to_str().unwrap()]);
+    assert!(out_dir.join("app").is_file(), "binary copied");
+    assert!(out_dir.join("libapp.rlib").is_file(), "library copied");
+
+    let err = env.fails(&app, &["report", "future-incompatibilities"]);
+    assert!(err.contains("no reports are currently available"), "{err}");
+    let (_, err) = env.ok(&app, &["check", "-q", "--future-incompat-report"]);
+    assert!(err.contains("0 dependencies had future-incompatible warnings"), "{err}");
+
+    let err = env.fails(&app, &["generate-lockfile", "--publish-time", "2025-01-01T00:00:00Z"]);
+    assert!(err.contains("unstable"), "{err}");
+}
+
+#[test]
+fn package_lists_guards_dirty_trees_and_publishes_to_a_named_registry() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "");
+    with_named_registry(&app, &registry);
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"\n",
+        "edition = \"2021\"\nlicense = \"MIT\"\ndescription = \"test app\"\npublish = [\"mock\"]\n",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    fs::write(app.join(".gitignore"), "/target\n").unwrap();
+
+    let (out, _) = env.ok(&app, &["package", "--list", "--allow-dirty"]);
+    assert!(out.lines().any(|l| l == "Cargo.toml") && out.lines().any(|l| l == "src/main.rs"), "{out}");
+    assert!(!app.join("target/package").exists(), "--list writes nothing");
+
+    if has_git() {
+        let git = |args: &[&str]| {
+            assert!(Command::new("git").args(args).current_dir(&app)
+                .env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .status().unwrap().success());
+        };
+        git(&["init", "-q"]);
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "init"]);
+        fs::write(app.join("src/main.rs"), "fn main() { println!(\"changed\"); }\n").unwrap();
+        let err = env.fails(&app, &["package", "--no-verify"]);
+        assert!(err.contains("contain changes that were not yet committed") && err.contains("src/main.rs"), "{err}");
+        env.ok(&app, &["package", "--no-verify", "--allow-dirty"]);
+        assert!(app.join("target/package/app-0.1.0.crate").is_file());
+        git(&["commit", "-q", "-am", "change"]);
+    }
+
+    let err = env.fails(&app, &["publish", "--no-verify", "--allow-dirty"]);
+    assert!(err.contains("does not allow publication to crates-io"), "{err}");
+    let (_, err) = env.ok(&app, &["publish", "--no-verify", "--allow-dirty", "--registry", "mock", "--token", "pub-token"]);
+    assert!(err.contains("Uploaded app v0.1.0 to registry `mock`"), "{err}");
+    let upload = registry
+        .requests()
+        .into_iter()
+        .find(|r| r.method == "PUT" && r.path == "/api/v1/crates/new")
+        .expect("upload request");
+    assert_eq!(upload.headers.get("authorization").map(String::as_str), Some("pub-token"));
+}

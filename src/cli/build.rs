@@ -284,6 +284,14 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
         );
     }
 
+    if let (Some(dir), Ok((plan, result))) = (&args.artifact_dir, &build_res) {
+        if result.success {
+            if let Err(error) = copy_final_artifacts(&opt, plan, dir) {
+                eprintln!("error: {error:#}");
+                return 101;
+            }
+        }
+    }
     match build_res {
         Ok((_plan, result)) if args.quiet && result.success => 0,
         Ok((plan, result)) => render_build_result(&plan, &result, profile, start, is_verbose),
@@ -292,6 +300,69 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
             1
         }
     }
+}
+
+/// `--artifact-dir`: the selected packages' final binaries and libraries copied there,
+/// as Cargo's unstable option does.
+fn copy_final_artifacts(
+    opt: &crate::adapter::RustBuildOptions,
+    plan: &crate::core::action::BuildPlan,
+    dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    let mut explain_opt = opt.clone();
+    explain_opt.progress = None;
+    let explanation = RustAdapter::explain_plan(&explain_opt)?;
+    let mut out_dir = plan.target_directory.clone();
+    if let Some(t) = &opt.target_triple {
+        out_dir = out_dir.join(t);
+    }
+    out_dir = out_dir.join(crate::adapter::rust::profile::custom::profile_dir(opt.release));
+    let windows = opt
+        .target_triple
+        .as_deref()
+        .map_or(cfg!(windows), |t| t.contains("windows"));
+    let apple = opt
+        .target_triple
+        .as_deref()
+        .map_or(cfg!(target_vendor = "apple"), |t| t.contains("apple"));
+    std::fs::create_dir_all(dir)?;
+    for unit in explanation.units.iter().filter(|u| u.is_primary && !u.for_host) {
+        let name = unit.target_name.replace('-', "_");
+        let mut files: Vec<String> = Vec::new();
+        match unit.kind.as_str() {
+            "bin" => files.push(format!("{}{}", unit.target_name, if windows { ".exe" } else { "" })),
+            "example" => {}
+            _ => {
+                let mut crate_types = vec![unit.kind.clone()];
+                crate_types.extend(opt.crate_types.iter().cloned());
+                for crate_type in &crate_types {
+                    match crate_type.as_str() {
+                        "rlib" | "lib" => files.push(format!("lib{name}.rlib")),
+                        "cdylib" | "dylib" => files.push(if windows {
+                            format!("{name}.dll")
+                        } else if apple {
+                            format!("lib{name}.dylib")
+                        } else {
+                            format!("lib{name}.so")
+                        }),
+                        "staticlib" => files.push(if windows {
+                            format!("{name}.lib")
+                        } else {
+                            format!("lib{name}.a")
+                        }),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        for file in files {
+            let from = out_dir.join(&file);
+            if from.is_file() {
+                std::fs::copy(&from, dir.join(&file))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

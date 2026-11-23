@@ -76,6 +76,30 @@ fn config_values(args: &[OsString], from: usize) -> Vec<String> {
     values
 }
 
+/// `args` without the `--config X` / `--config=X` words after `from`, up to a `--`.
+fn without_config(args: Vec<OsString>, from: usize) -> Vec<OsString> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut i = 0;
+    let mut passthrough = false;
+    while i < args.len() {
+        let word = args[i].to_str().unwrap_or("");
+        if i >= from && !passthrough {
+            if word == "--" {
+                passthrough = true;
+            } else if word == "--config" {
+                i += 2;
+                continue;
+            } else if word.starts_with("--config=") {
+                i += 1;
+                continue;
+            }
+        }
+        out.push(args[i].clone());
+        i += 1;
+    }
+    out
+}
+
 fn is_builtin(name: &str) -> bool {
     crate::cli::Cli::command().find_subcommand(name).is_some()
 }
@@ -190,6 +214,11 @@ pub fn apply(mut args: Vec<OsString>) -> Result<Vec<OsString>> {
     // An alias may have added `--config` values of its own.
     cargo_config_cli::set(&config_values(&args, at + 1))?;
     let has_option = |id: &str| command.get_arguments().any(|arg| arg.get_id() == id);
+    // Every Cargo command takes `--config`; the values are installed above, so a command
+    // without its own option just drops them.
+    if !has_option("config") {
+        args = without_config(args, at + 1);
+    }
     let cwd = std::env::current_dir()?;
     let mut inserted: Vec<OsString> = Vec::new();
     if cargo_config_tools::offline()

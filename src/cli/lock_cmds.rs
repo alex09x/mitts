@@ -48,6 +48,10 @@ pub struct GenerateLockfileArgs {
     /// Use verbose output
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// Latest publish time allowed for registry packages (unstable in Cargo)
+    #[arg(long, value_name = "TIME")]
+    pub publish_time: Option<String>,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -107,6 +111,9 @@ fn refuse_locked(common: &GenerateLockfileArgs, root: &Path) -> Result<()> {
 
 pub fn handle_generate_lockfile(args: &GenerateLockfileArgs) -> i32 {
     report((|| {
+        if args.publish_time.is_some() {
+            bail!("`--publish-time` is unstable in Cargo and not supported by Mitts");
+        }
         let root = workspace_root_manifest(&args.manifest_path)?;
         refuse_locked(args, &root)?;
         let previous = CargoLock::from_file(&root.with_file_name("Cargo.lock")).ok();

@@ -93,6 +93,18 @@ pub struct AddArgs {
     #[arg(long)]
     pub dry_run: bool,
 
+    /// The path base to use when adding from a local crate (unstable in Cargo)
+    #[arg(long)]
+    pub base: Option<String>,
+
+    /// Mark the dependency as public (unstable in Cargo)
+    #[arg(long)]
+    pub public: bool,
+
+    /// Mark the dependency as private (unstable in Cargo)
+    #[arg(long)]
+    pub no_public: bool,
+
     #[command(flatten)]
     pub common: EditCommon,
 }
@@ -240,6 +252,9 @@ pub fn handle_add(args: &AddArgs) -> i32 {
 }
 
 fn run_add(args: &AddArgs) -> Result<()> {
+    if args.base.is_some() || args.public || args.no_public {
+        bail!("`--base`, `--public` and `--no-public` are unstable in Cargo and not supported by Mitts");
+    }
     let manifest = target_manifest(&args.common, args.package.as_deref())?;
     let text = std::fs::read_to_string(&manifest)?;
     let mut doc: DocumentMut = text.parse().context("failed to parse Cargo.toml")?;

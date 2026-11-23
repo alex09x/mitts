@@ -33,6 +33,10 @@ pub struct LocateProjectArgs {
     /// Do not print Mitts log messages
     #[arg(short, long)]
     pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -68,6 +72,10 @@ pub struct PkgidArgs {
     /// Do not print Mitts log messages
     #[arg(short, long)]
     pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 #[derive(Args, Debug, Clone, Default)]

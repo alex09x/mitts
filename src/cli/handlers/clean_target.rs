@@ -54,15 +54,63 @@ fn matches_record(path: &Path, record: &TargetArtifactRecord) -> bool {
         && Sha256::digest_file(path).is_ok_and(|hash| hash == record.cas_hash)
 }
 
+/// What `mitts clean` removes, as `cargo clean` options say.
+#[derive(Debug, Default, Clone)]
+pub struct CleanFilter {
+    /// One profile directory (`release`, `debug`, a custom name), or all of them.
+    pub only_profile: Option<String>,
+    /// Crate names whose artifacts go; every artifact when empty.
+    pub packages: Vec<String>,
+    /// Count only, delete nothing.
+    pub dry_run: bool,
+    /// Print each removed path.
+    pub verbose: bool,
+}
+
+/// Whether an artifact file name belongs to one of `crates` (`libfoo-<hash>.rlib`,
+/// `foo-<hash>.d`, the binary `foo`, `build/foo-<hash>/…`).
+pub fn belongs_to(relative: &Path, crates: &[String]) -> bool {
+    let words: Vec<String> = relative
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    crates.iter().any(|name| {
+        let snake = name.replace('-', "_");
+        words.iter().any(|w| {
+            [name.as_str(), snake.as_str()].iter().any(|n| {
+                let lib = format!("lib{n}");
+                [n.to_string(), lib].iter().any(|stem| {
+                    w == stem
+                        || w.starts_with(&format!("{stem}-"))
+                        || w.starts_with(&format!("{stem}."))
+                })
+            })
+        })
+    })
+}
+
 pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Result<usize> {
+    let filter = CleanFilter {
+        only_profile: release_only.then(|| "release".to_string()),
+        ..Default::default()
+    };
+    remove_matching(target, &filter).map(|(count, _)| count)
+}
+
+/// Removes (or with `dry_run` counts) the owned artifacts `filter` selects; returns the
+/// number of files and their total size.
+pub(super) fn remove_matching(target: &Path, filter: &CleanFilter) -> Result<(usize, u64)> {
     let canonical_root = target.canonicalize()?;
-    let mut profiles: Vec<String> = if release_only {
-        vec!["release".to_string()]
-    } else {
-        vec!["debug".to_string(), "release".to_string()]
+    let release_only = filter.only_profile.as_deref() == Some("release");
+    let mut profiles: Vec<String> = match filter.only_profile.as_deref() {
+        Some(p) => vec![p.to_string()],
+        None => vec!["debug".to_string(), "release".to_string()],
     };
     // Custom profiles (`--profile NAME`) left an artifact index `.artifacts-NAME.json`.
-    if !release_only {
+    if filter.only_profile.is_none() {
         for entry in fs::read_dir(target).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if let Some(profile) = name
@@ -110,15 +158,22 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
         _cargo_guards.push(guard);
     }
     let mut removed = 0;
+    let mut bytes = 0u64;
+    let selective = !filter.packages.is_empty();
     for profile in &profiles {
-        let index = TargetArtifactIndex::load(target, profile);
-        for (relative, record) in index.artifacts {
-            let relative = Path::new(&relative);
+        let mut index = TargetArtifactIndex::load(target, profile);
+        let mut kept = Vec::new();
+        for (relative_text, record) in std::mem::take(&mut index.artifacts) {
+            let relative = Path::new(&relative_text);
             if !relative
                 .components()
                 .all(|c| matches!(c, Component::Normal(_)))
                 || !relative.starts_with(profile)
             {
+                continue;
+            }
+            if selective && !belongs_to(relative, &filter.packages) {
+                kept.push((relative_text.clone(), record));
                 continue;
             }
             let path = target.join(relative);
@@ -129,8 +184,15 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
             {
                 continue;
             }
-            fs::remove_file(&path)?;
             removed += 1;
+            bytes += record.size;
+            if filter.verbose {
+                eprintln!("{:>12} {}", "Removing", path.display());
+            }
+            if filter.dry_run {
+                continue;
+            }
+            fs::remove_file(&path)?;
             let mut parent = path.parent();
             while let Some(dir) = parent.filter(|dir| *dir != target) {
                 if fs::remove_dir(dir).is_err() {
@@ -138,6 +200,16 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
                 }
                 parent = dir.parent();
             }
+        }
+        if filter.dry_run {
+            continue;
+        }
+        if selective {
+            // The index keeps the artifacts of the packages that stay.
+            index.artifacts = kept.into_iter().collect();
+            index.dirty = true;
+            let _ = index.save(target, profile);
+            continue;
         }
         let _ = fs::remove_file(TargetArtifactIndex::index_path(target, profile));
 
@@ -154,6 +226,9 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
             removed += 1;
         }
     }
+    if selective || filter.dry_run {
+        return Ok((removed, bytes));
+    }
 
     // Older versions kept all outputs in this dedicated directory. Its lock
     // also protects old-version builds while the new layout uses the parent.
@@ -168,7 +243,7 @@ pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Resul
             fs::remove_dir_all(legacy)?;
         }
     }
-    Ok(removed)
+    Ok((removed, bytes))
 }
 
 pub(super) fn prune_cache(cache_dir: Option<&std::path::PathBuf>) {

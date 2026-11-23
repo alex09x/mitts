@@ -95,6 +95,7 @@ path = "src/lib.rs"
         offline: true,
         locked: true,
         frozen: true,
+        ..Default::default()
     };
     let code_fetch_err = handle_fetch(&fetch_args);
     assert_eq!(code_fetch_err, 1);

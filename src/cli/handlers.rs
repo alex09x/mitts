@@ -301,7 +301,25 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     }
     let legacy_mitts_dir = project_dir.join(".mitts");
 
-    Ui::header("clean");
+    let selective = args.doc
+        || !args.packages.is_empty()
+        || args.workspace
+        || args.profile.is_some()
+        || args.target.is_some()
+        || args.dry_run;
+    if selective {
+        return match clean_selective(args, &mitts_dir, &manifest_path) {
+            Ok(()) => 0,
+            Err(err) => {
+                eprintln!("error: {err:#}");
+                101
+            }
+        };
+    }
+
+    if !args.quiet {
+        Ui::header("clean");
+    }
     let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
     let _clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
         Ok(guard) => guard,
@@ -383,6 +401,113 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     let ws_msg = format!("workspace: {}", project_dir.display());
     Ui::finish("clean", "ok", &ws_msg);
     0
+}
+
+/// `1.5MiB`, as Cargo writes sizes.
+pub fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes}B")
+    } else {
+        format!("{value:.1}{}", UNITS[unit])
+    }
+}
+
+/// `mitts clean` with Cargo's narrowing options: `--doc`, `-p`, `--workspace`, `--profile`,
+/// `--target`, `--dry-run`. Only artifacts Mitts recorded are removed.
+fn clean_selective(
+    args: &CleanArgs,
+    target_dir: &std::path::Path,
+    manifest: &std::path::Path,
+) -> anyhow::Result<()> {
+    let root = match &args.target {
+        Some(triple) => target_dir.join(triple),
+        None => target_dir.to_path_buf(),
+    };
+    let (count, bytes) = if args.doc {
+        let doc = root.join("doc");
+        let mut count = 0usize;
+        let mut bytes = 0u64;
+        fn walk(dir: &std::path::Path, count: &mut usize, bytes: &mut u64) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                match entry.file_type() {
+                    Ok(t) if t.is_dir() => walk(&entry.path(), count, bytes),
+                    Ok(_) => {
+                        *count += 1;
+                        *bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+        walk(&doc, &mut count, &mut bytes);
+        if !args.dry_run && doc.is_dir() {
+            std::fs::remove_dir_all(&doc)?;
+        }
+        (count, bytes)
+    } else if !root.exists() {
+        (0, 0)
+    } else {
+        let mut packages: Vec<String> = args
+            .packages
+            .iter()
+            .map(|s| super::project_info::parse_spec(s).0.to_string())
+            .collect();
+        if args.workspace {
+            let ws = super::project_info::workspace_root(manifest)?;
+            packages.extend(
+                super::project_info::local_package_dirs(&ws)?
+                    .into_iter()
+                    .map(|(name, _)| name),
+            );
+        }
+        let only_profile = match (args.profile.as_deref(), args.release) {
+            (Some("dev") | Some("test"), _) => Some("debug".to_string()),
+            (Some("release") | Some("bench"), _) | (None, true) => Some("release".to_string()),
+            (Some(other), _) => Some(other.to_string()),
+            (None, false) => None,
+        };
+        let filter = clean_target::CleanFilter {
+            only_profile,
+            packages,
+            dry_run: args.dry_run,
+            verbose: args.verbose > 0,
+        };
+        let result = clean_target::remove_matching(&root, &filter)?;
+        if !args.dry_run {
+            for entry in std::fs::read_dir(target_dir).into_iter().flatten().flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with("build-") && name.ends_with(".lock") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+            let _ = std::fs::remove_file(FastBuildLock::lock_path_in_target(target_dir, "dev"));
+            let _ = std::fs::remove_file(FastBuildLock::lock_path_in_target(target_dir, "release"));
+        }
+        result
+    };
+    if args.quiet {
+        return Ok(());
+    }
+    let noun = if count == 1 { "file" } else { "files" };
+    let total = if count > 0 {
+        format!(", {} total", human_bytes(bytes))
+    } else {
+        String::new()
+    };
+    if args.dry_run {
+        eprintln!("{:>12} {count} {noun}{total}", "Summary");
+        eprintln!("warning: no files deleted due to --dry-run");
+    } else {
+        eprintln!("{:>12} {count} {noun}{total}", "Removed");
+    }
+    Ok(())
 }
 
 fn is_pid_stale(pid: u32) -> bool {

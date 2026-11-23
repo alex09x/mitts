@@ -65,6 +65,14 @@ pub struct InfoArgs {
     #[arg(long)]
     pub offline: bool,
 
+    /// Require Cargo.lock is up to date
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Equivalent to specifying both --locked and --offline
+    #[arg(long)]
+    pub frozen: bool,
+
     #[command(flatten)]
     pub registry: RegistryChoice,
 }
@@ -220,7 +228,12 @@ fn run_info(args: &InfoArgs) -> Result<()> {
     let resolver =
         crate::adapter::rust::resolver::NativeResolver::for_cache_dir(args.cache_dir.as_deref())?;
     let versions = resolver
-        .registry_versions(&dir, args.registry.registry.as_deref(), name, args.offline)
+        .registry_versions(
+            &dir,
+            args.registry.registry.as_deref(),
+            name,
+            args.offline || args.frozen,
+        )
         .with_context(|| format!("could not find `{name}` in registry"))?;
     if versions.is_empty() {
         bail!("could not find `{name}` in registry");
