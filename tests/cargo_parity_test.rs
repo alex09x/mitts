@@ -412,7 +412,13 @@ fn tree_prints_like_cargo() {
         "app v0.1.0 ({})\n├── aa v1.0.0\n│   └── bb v1.0.0\n└── bb v1.0.0\n[build-dependencies]\n└── cc v1.0.0\n[dev-dependencies]\n└── dd v1.0.0\n",
         canonical.display()
     );
-    let shown = out.replace(&app.display().to_string(), &canonical.display().to_string());
+    // macOS: the temp dir is /var/…, its canonical form /private/var/….
+    let canonical_text = canonical.display().to_string();
+    let shown = if out.contains(&canonical_text) {
+        out.clone()
+    } else {
+        out.replace(&app.display().to_string(), &canonical_text)
+    };
     assert_eq!(shown, expected);
 
     let (out, _) = env.ok(
