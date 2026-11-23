@@ -316,7 +316,9 @@ fn copy_final_artifacts(
     if let Some(t) = &opt.target_triple {
         out_dir = out_dir.join(t);
     }
-    out_dir = out_dir.join(crate::adapter::rust::profile::custom::profile_dir(opt.release));
+    out_dir = out_dir.join(crate::adapter::rust::profile::custom::profile_dir(
+        opt.release,
+    ));
     let windows = opt
         .target_triple
         .as_deref()
@@ -326,11 +328,19 @@ fn copy_final_artifacts(
         .as_deref()
         .map_or(cfg!(target_vendor = "apple"), |t| t.contains("apple"));
     std::fs::create_dir_all(dir)?;
-    for unit in explanation.units.iter().filter(|u| u.is_primary && !u.for_host) {
+    for unit in explanation
+        .units
+        .iter()
+        .filter(|u| u.is_primary && !u.for_host)
+    {
         let name = unit.target_name.replace('-', "_");
         let mut files: Vec<String> = Vec::new();
         match unit.kind.as_str() {
-            "bin" => files.push(format!("{}{}", unit.target_name, if windows { ".exe" } else { "" })),
+            "bin" => files.push(format!(
+                "{}{}",
+                unit.target_name,
+                if windows { ".exe" } else { "" }
+            )),
             "example" => {}
             _ => {
                 let mut crate_types = vec![unit.kind.clone()];

@@ -201,7 +201,9 @@ fn test_args(args: &BenchArgs) -> TestArgs {
         config: args.config.clone(),
         filter: args.filter.clone(),
         // Every benchmark target unless targets are named or selected otherwise.
-        benches: args.benches || args.all_targets || (args.bench.is_empty() && !selects_other(args)),
+        benches: args.benches
+            || args.all_targets
+            || (args.bench.is_empty() && !selects_other(args)),
         bench_names: args.bench.clone(),
         lib: args.lib,
         bin: args.bin.clone(),

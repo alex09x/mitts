@@ -40,7 +40,7 @@ pub struct NewArgs {
     pub edition: Option<String>,
 
     /// Initialize a new repository for the given version control system: git or none
-    #[arg(long, value_parser = ["git", "none"])]
+    #[arg(long, value_parser = ["git", "hg", "pijul", "fossil", "none"])]
     pub vcs: Option<String>,
 
     /// Registry to use (recorded as `package.publish`)
@@ -113,9 +113,8 @@ fn run(args: &NewArgs, init: bool) -> Result<()> {
         init_git(&dir)?;
     }
 
-    let mut manifest = format!(
-        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n"
-    );
+    let mut manifest =
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n");
     if let Some(registry) = &args.registry {
         manifest.push_str(&format!("publish = [\"{registry}\"]\n"));
     }
@@ -282,11 +281,22 @@ fn default_edition() -> String {
     .to_string()
 }
 
-/// `--vcs`, else git unless the directory is already inside a git work tree, as Cargo does.
+/// `--vcs`, else `cargo-new.vcs`, else git unless the directory is already inside a git
+/// work tree, as Cargo does.
 fn choose_vcs(flag: Option<&str>, dir: &Path, init: bool) -> &'static str {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| dir.to_path_buf());
+    let configured = crate::adapter::rust::cargo_config_value::get(&cwd, "cargo-new.vcs")
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().ok().map(str::to_string));
+    let flag = flag.or(configured.as_deref());
     match flag {
         Some("none") => "none",
-        Some(_) => "git",
+        Some("git") => "git",
+        Some(other) => {
+            eprintln!("warning: version control `{other}` is not supported by Mitts; no repository created");
+            "none"
+        }
         None => {
             if init && dir.join(".git").exists() {
                 return "git";
@@ -313,7 +323,10 @@ fn init_git(dir: &Path) -> Result<()> {
             .current_dir(dir)
             .status();
         if !status.is_ok_and(|s| s.success()) {
-            eprintln!("warning: `git init` failed in {}; no repository created", dir.display());
+            eprintln!(
+                "warning: `git init` failed in {}; no repository created",
+                dir.display()
+            );
             return Ok(());
         }
     }
@@ -350,9 +363,11 @@ fn join_enclosing_workspace(dir: &Path) -> Result<Option<PathBuf>> {
             .to_string_lossy()
             .replace('\\', "/");
         let listed = |key: &str, ws: &dyn toml_edit::TableLike| -> bool {
-            ws.get(key)
-                .and_then(|m| m.as_array())
-                .is_some_and(|a| a.iter().filter_map(|v| v.as_str()).any(|p| glob_match(p, &relative)))
+            ws.get(key).and_then(|m| m.as_array()).is_some_and(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|p| glob_match(p, &relative))
+            })
         };
         if listed("members", ws) || listed("exclude", ws) {
             return Ok(None);
@@ -370,15 +385,26 @@ fn join_enclosing_workspace(dir: &Path) -> Result<Option<PathBuf>> {
 /// `members` glob: `*` and `?` within one path component, compared component by component.
 pub fn glob_match(pattern: &str, path: &str) -> bool {
     let pattern = pattern.trim_end_matches('/');
-    let p: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
-    let s: Vec<&str> = path.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
-    p.len() == s.len() && p.iter().zip(&s).all(|(p, s)| component_match(p.as_bytes(), s.as_bytes()))
+    let p: Vec<&str> = pattern
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
+    let s: Vec<&str> = path
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
+    p.len() == s.len()
+        && p.iter()
+            .zip(&s)
+            .all(|(p, s)| component_match(p.as_bytes(), s.as_bytes()))
 }
 
 fn component_match(p: &[u8], s: &[u8]) -> bool {
     match (p.first(), s.first()) {
         (None, None) => true,
-        (Some(b'*'), _) => component_match(&p[1..], s) || (!s.is_empty() && component_match(p, &s[1..])),
+        (Some(b'*'), _) => {
+            component_match(&p[1..], s) || (!s.is_empty() && component_match(p, &s[1..]))
+        }
         (Some(b'?'), Some(_)) => component_match(&p[1..], &s[1..]),
         (Some(a), Some(b)) if a == b => component_match(&p[1..], &s[1..]),
         _ => false,

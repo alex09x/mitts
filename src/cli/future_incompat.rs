@@ -99,7 +99,11 @@ pub fn collect(stdout: &str) -> BTreeMap<String, Vec<String>> {
             let rendered = diagnostic["rendered"].as_str().unwrap_or("").to_string();
             let package = diagnostic["spans"]
                 .as_array()
-                .and_then(|spans| spans.iter().find_map(|s| s["file_name"].as_str().and_then(package_of_path)))
+                .and_then(|spans| {
+                    spans
+                        .iter()
+                        .find_map(|s| s["file_name"].as_str().and_then(package_of_path))
+                })
                 .or_else(|| fallback.clone())
                 .unwrap_or_else(|| "unknown package".to_string());
             let entry = out.entry(package).or_default();
@@ -117,7 +121,8 @@ fn package_of_path(file: &str) -> Option<String> {
         let word = c.as_os_str().to_string_lossy();
         let (name, version) = word.rsplit_once('-')?;
         let mut parts = version.split('.');
-        let numeric = parts.clone().count() >= 3 && parts.all(|p| p.chars().next().is_some_and(|ch| ch.is_ascii_digit()));
+        let numeric = parts.clone().count() >= 3
+            && parts.all(|p| p.chars().next().is_some_and(|ch| ch.is_ascii_digit()));
         numeric.then(|| format!("{name} v{version}"))
     })
 }
@@ -177,7 +182,14 @@ fn run_after_build_inner() -> Result<()> {
     }
     flags.push_str("--json=future-incompat");
     let output = Command::new(exe)
-        .args(["check", "--workspace", "--all-targets", "--message-format", "json", "-q"])
+        .args([
+            "check",
+            "--workspace",
+            "--all-targets",
+            "--message-format",
+            "json",
+            "-q",
+        ])
         .env("RUSTFLAGS", flags)
         .output()
         .context("run mitts check")?;
@@ -233,11 +245,17 @@ fn show(args: &FutureArgs) -> Result<()> {
                     .iter()
                     .filter_map(|r| r["id"].as_u64().map(|i| i.to_string()))
                     .collect();
-                format!("could not find report with ID {id}\nAvailable IDs are: {}", ids.join(", "))
+                format!(
+                    "could not find report with ID {id}\nAvailable IDs are: {}",
+                    ids.join(", ")
+                )
             })?,
-        None => reports.last().context("no reports are currently available")?,
+        None => reports
+            .last()
+            .context("no reports are currently available")?,
     };
-    let mut per_package: BTreeMap<String, Vec<String>> = serde_json::from_value(report["per_package"].clone())?;
+    let mut per_package: BTreeMap<String, Vec<String>> =
+        serde_json::from_value(report["per_package"].clone())?;
     if let Some(spec) = &args.package {
         let (name, _) = super::project_info::parse_spec(spec);
         per_package.retain(|k, _| k.split(' ').next() == Some(name));
@@ -245,7 +263,10 @@ fn show(args: &FutureArgs) -> Result<()> {
             bail!("could not find package with ID `{spec}`");
         }
     }
-    print!("{}", render(&per_package, report["id"].as_u64().unwrap_or(0)));
+    print!(
+        "{}",
+        render(&per_package, report["id"].as_u64().unwrap_or(0))
+    );
     Ok(())
 }
 

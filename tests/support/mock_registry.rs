@@ -87,8 +87,15 @@ pub fn archive(p: &Published) -> (Vec<u8>, String) {
                 ),
             ),
         ];
-        if !p.files.iter().any(|(path, _)| *path == "src/lib.rs" || *path == "src/main.rs") {
-            files.push(("src/lib.rs".to_string(), format!("pub fn hello() -> &'static str {{ \"{}\" }}\n", p.name)));
+        if !p
+            .files
+            .iter()
+            .any(|(path, _)| *path == "src/lib.rs" || *path == "src/main.rs")
+        {
+            files.push((
+                "src/lib.rs".to_string(),
+                format!("pub fn hello() -> &'static str {{ \"{}\" }}\n", p.name),
+            ));
         }
         for (path, data) in &p.files {
             files.push((path.to_string(), data.clone()));
@@ -221,7 +228,10 @@ pub fn serve(published: Vec<Published>) -> Registry {
             } else {
                 match routes.get(&path_only) {
                     Some(body) => ("200 OK", body.clone()),
-                    None => ("404 Not Found", b"{\"errors\":[{\"detail\":\"Not Found\"}]}".to_vec()),
+                    None => (
+                        "404 Not Found",
+                        b"{\"errors\":[{\"detail\":\"Not Found\"}]}".to_vec(),
+                    ),
                 }
             };
             let _ = write!(

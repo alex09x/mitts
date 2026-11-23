@@ -258,14 +258,23 @@ fn roots(graph: &Graph, args: &TreeArgs) -> Result<Vec<String>> {
             return Ok(vec![root.clone()]);
         }
     }
-    let excluded: HashSet<String> = args.exclude.iter().flat_map(|s| graph.matching(s)).collect();
+    let excluded: HashSet<String> = args
+        .exclude
+        .iter()
+        .flat_map(|s| graph.matching(s))
+        .collect();
     let mut members: Vec<String> = graph
         .members
         .iter()
         .filter(|m| !excluded.contains(*m))
         .cloned()
         .collect();
-    members.sort_by_key(|id| graph.packages.get(id).map(|p| (p.name.clone(), p.version.clone())));
+    members.sort_by_key(|id| {
+        graph
+            .packages
+            .get(id)
+            .map(|p| (p.name.clone(), p.version.clone()))
+    });
     Ok(members)
 }
 
@@ -297,7 +306,15 @@ pub fn render_all(graph: &Graph, roots: &[String], style: &Style) -> String {
         let mut visited = HashSet::new();
         let mut levels = Vec::new();
         let mut stack = Vec::new();
-        node(graph, root, style, &mut levels, &mut visited, &mut stack, &mut out);
+        node(
+            graph,
+            root,
+            style,
+            &mut levels,
+            &mut visited,
+            &mut stack,
+            &mut out,
+        );
     }
     out
 }
@@ -404,7 +421,7 @@ pub fn describe(pkg: &Package, format: &str) -> String {
         None => {
             let _ = write!(p, " ({})", pkg.dir.display());
         }
-        Some(s) if s == "registry+https://github.com/rust-lang/crates.io-index" => {}
+        Some("registry+https://github.com/rust-lang/crates.io-index") => {}
         Some(s) if s.starts_with("git+") => {
             let _ = write!(p, " ({})", &s[4..]);
         }
@@ -526,7 +543,10 @@ mod tests {
             text.starts_with("d v0.3.0\n└── b v1.0.0\n    ├── a v1.0.0\n"),
             "{text}"
         );
-        assert!(text.ends_with("[dev-dependencies]\n└── app v0.1.0 (/w/app)\n"), "{text}");
+        assert!(
+            text.ends_with("[dev-dependencies]\n└── app v0.1.0 (/w/app)\n"),
+            "{text}"
+        );
     }
 
     #[test]

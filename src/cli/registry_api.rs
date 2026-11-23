@@ -44,8 +44,9 @@ impl RegistryApi {
             std::env::var("MITTS_CRATES_IO_API").unwrap_or_else(|_| "https://crates.io".into())
         } else {
             let config_url = format!("{}/config.json", index.trim_end_matches('/'));
-            let doc = get_json(&config_url, None)
-                .with_context(|| format!("failed to read the registry configuration at {config_url}"))?;
+            let doc = get_json(&config_url, None).with_context(|| {
+                format!("failed to read the registry configuration at {config_url}")
+            })?;
             match doc["api"].as_str() {
                 Some(api) => api.trim_end_matches('/').to_string(),
                 None => bail!("the registry `{name}` does not support API commands (no `api` in its config.json)"),
@@ -100,14 +101,18 @@ impl RegistryApi {
     /// A PUT or DELETE with a JSON body and the registry's token.
     pub fn send(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
         let token = self.token()?;
-        let agent = crate::adapter::rust::http_client::agent_builder().redirects(0).build();
+        let agent = crate::adapter::rust::http_client::agent_builder()
+            .redirects(0)
+            .build();
         let request = agent
             .request(method, &self.url(path))
             .set("Authorization", &token)
             .set("Accept", "application/json")
             .set("User-Agent", "mitts");
         let response = match body {
-            Some(b) => request.set("Content-Type", "application/json").send_string(&b.to_string()),
+            Some(b) => request
+                .set("Content-Type", "application/json")
+                .send_string(&b.to_string()),
             None => request.call(),
         };
         read_response(response)
@@ -141,7 +146,10 @@ fn read_response(response: Result<ureq::Response, ureq::Error>) -> Result<Value>
         Err(e) => bail!("the request failed: {e}"),
     };
     let mut bytes = Vec::new();
-    response.into_reader().take(8 * 1024 * 1024).read_to_end(&mut bytes)?;
+    response
+        .into_reader()
+        .take(8 * 1024 * 1024)
+        .read_to_end(&mut bytes)?;
     let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     if !(200..300).contains(&status) || value.get("errors").is_some_and(|e| !e.is_null()) {
         let detail = value["errors"]
@@ -162,8 +170,16 @@ fn read_response(response: Result<ureq::Response, ureq::Error>) -> Result<Value>
 
 /// The `.crate` archive of `name` `version` from the registry whose sparse index is
 /// `index`, checked against `checksum` when one is given.
-pub fn download_crate(index: &str, name: &str, version: &str, checksum: Option<&str>) -> Result<Vec<u8>> {
-    let doc = get_json(&format!("{}/config.json", index.trim_end_matches('/')), None)?;
+pub fn download_crate(
+    index: &str,
+    name: &str,
+    version: &str,
+    checksum: Option<&str>,
+) -> Result<Vec<u8>> {
+    let doc = get_json(
+        &format!("{}/config.json", index.trim_end_matches('/')),
+        None,
+    )?;
     let dl = doc["dl"].as_str().context("the registry has no `dl` URL")?;
     let lower = name.to_lowercase();
     let prefix = match lower.len() {
@@ -172,9 +188,15 @@ pub fn download_crate(index: &str, name: &str, version: &str, checksum: Option<&
         3 => format!("3/{}", &lower[..1]),
         _ => format!("{}/{}", &lower[..2], &lower[2..4]),
     };
-    let url = if ["{crate}", "{version}", "{prefix}", "{lowerprefix}", "{sha256-checksum}"]
-        .iter()
-        .any(|m| dl.contains(m))
+    let url = if [
+        "{crate}",
+        "{version}",
+        "{prefix}",
+        "{lowerprefix}",
+        "{sha256-checksum}",
+    ]
+    .iter()
+    .any(|m| dl.contains(m))
     {
         dl.replace("{crate}", name)
             .replace("{version}", version)
@@ -191,7 +213,10 @@ pub fn download_crate(index: &str, name: &str, version: &str, checksum: Option<&
         .call()
         .map_err(|e| anyhow::anyhow!("failed to download {name} v{version}: {e}"))?;
     let mut bytes = Vec::new();
-    response.into_reader().take(512 * 1024 * 1024).read_to_end(&mut bytes)?;
+    response
+        .into_reader()
+        .take(512 * 1024 * 1024)
+        .read_to_end(&mut bytes)?;
     if let Some(expected) = checksum {
         let actual = crate::core::hash::Sha256::digest(&bytes);
         if actual != expected {

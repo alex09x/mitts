@@ -62,9 +62,10 @@ impl Graph {
             let id = p["id"].as_str().unwrap_or_default().to_string();
             let targets = p["targets"].as_array().cloned().unwrap_or_default();
             let lib = targets.iter().find(|t| {
-                t["kind"]
-                    .as_array()
-                    .is_some_and(|k| k.iter().any(|k| k == "lib" || k == "proc-macro" || k == "rlib"))
+                t["kind"].as_array().is_some_and(|k| {
+                    k.iter()
+                        .any(|k| k == "lib" || k == "proc-macro" || k == "rlib")
+                })
             });
             let manifest = PathBuf::from(p["manifest_path"].as_str().unwrap_or_default());
             graph.packages.insert(
@@ -79,7 +80,9 @@ impl Graph {
                     license: p["license"].as_str().map(str::to_string),
                     repository: p["repository"].as_str().map(str::to_string),
                     features: Vec::new(),
-                    lib_name: lib.and_then(|t| t["name"].as_str()).map(|n| n.replace('-', "_")),
+                    lib_name: lib
+                        .and_then(|t| t["name"].as_str())
+                        .map(|n| n.replace('-', "_")),
                 },
             );
         }
@@ -161,7 +164,9 @@ impl Graph {
         self.packages
             .iter()
             .filter(|(_, p)| {
-                p.name == name && version.is_none_or(|v| p.version == v || p.version.starts_with(&format!("{v}.")))
+                p.name == name
+                    && version
+                        .is_none_or(|v| p.version == v || p.version.starts_with(&format!("{v}.")))
             })
             .map(|(id, _)| id.clone())
             .collect()

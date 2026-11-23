@@ -100,7 +100,11 @@ fn report(result: Result<()>) -> i32 {
 
 fn refuse_locked(common: &GenerateLockfileArgs, root: &Path) -> Result<()> {
     if common.locked || common.frozen {
-        let flag = if common.frozen { "--frozen" } else { "--locked" };
+        let flag = if common.frozen {
+            "--frozen"
+        } else {
+            "--locked"
+        };
         bail!(
             "the lock file {} needs to be updated but {flag} was passed to prevent this",
             root.with_file_name("Cargo.lock").display()
@@ -148,12 +152,22 @@ fn run_update(args: &UpdateArgs) -> Result<()> {
     // packages, or nothing (a plain update re-resolves the whole graph).
     // With --precise the package keeps its lock entry: its source tells the resolver
     // where the exact version comes from.
-    let keep = match (&previous, args.workspace || args.precise.is_some(), specs.is_empty()) {
+    let keep = match (
+        &previous,
+        args.workspace || args.precise.is_some(),
+        specs.is_empty(),
+    ) {
         (Some(prev), true, _) => Some(prev.clone()),
         (Some(prev), false, false) => Some(without(prev, &specs, args.recursive)?),
         _ => None,
     };
-    let mut lock = resolve_precise(&root, keep.as_ref(), args.precise.as_deref(), &specs, common)?;
+    let mut lock = resolve_precise(
+        &root,
+        keep.as_ref(),
+        args.precise.as_deref(),
+        &specs,
+        common,
+    )?;
     if let Some(prev) = &previous {
         lock.version = lock.version.max(prev.version);
     }
@@ -210,9 +224,11 @@ fn without(lock: &CargoLock, specs: &[String], recursive: bool) -> Result<CargoL
                 let mut words = dep.split(' ');
                 let dep_name = words.next().unwrap_or_default();
                 let dep_version = words.next();
-                for p in lock.packages.iter().filter(|p| {
-                    p.name == dep_name && dep_version.is_none_or(|v| p.version == v)
-                }) {
+                for p in lock
+                    .packages
+                    .iter()
+                    .filter(|p| p.name == dep_name && dep_version.is_none_or(|v| p.version == v))
+                {
                     if drop.insert((p.name.clone(), p.version.clone())) {
                         queue.push((p.name.clone(), p.version.clone()));
                     }
@@ -283,7 +299,9 @@ pub fn diff(old: Option<&CargoLock>, new: &CargoLock) -> Vec<Change> {
     let versions = |lock: &CargoLock| {
         let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for p in lock.packages.iter().filter(|p| p.source.is_some()) {
-            map.entry(p.name.clone()).or_default().push(p.version.clone());
+            map.entry(p.name.clone())
+                .or_default()
+                .push(p.version.clone());
         }
         map
     };
@@ -300,11 +318,21 @@ pub fn diff(old: Option<&CargoLock>, new: &CargoLock) -> Vec<Change> {
         let gone: Vec<&String> = b.iter().filter(|v| !a.contains(v)).collect();
         let came: Vec<&String> = a.iter().filter(|v| !b.contains(v)).collect();
         if gone.len() == 1 && came.len() == 1 {
-            out.push(Change::Updating(name.clone(), gone[0].clone(), came[0].clone()));
+            out.push(Change::Updating(
+                name.clone(),
+                gone[0].clone(),
+                came[0].clone(),
+            ));
             continue;
         }
-        out.extend(gone.into_iter().map(|v| Change::Removing(name.clone(), v.clone())));
-        out.extend(came.into_iter().map(|v| Change::Adding(name.clone(), v.clone())));
+        out.extend(
+            gone.into_iter()
+                .map(|v| Change::Removing(name.clone(), v.clone())),
+        );
+        out.extend(
+            came.into_iter()
+                .map(|v| Change::Adding(name.clone(), v.clone())),
+        );
     }
     out
 }

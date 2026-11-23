@@ -168,13 +168,25 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-Pour les projets Git, la création de paquets nécessite actuellement un dépôt propre avec le paquet à sa racine.
-Les motifs `include` du manifeste peuvent sélectionner des fichiers ignorés ; les paquets imbriqués dans l'espace de travail
-et les répertoires sous forme de liens symboliques ne sont pas encore pris en charge. `mitts publish` cible crates.io et lit
-le jeton depuis `CARGO_REGISTRY_TOKEN`.
+Toutes les autres commandes de Cargo sont là aussi, avec les options et la sortie de Cargo :
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+La liste complète, avec les rares différences avec Cargo, se trouve dans [docs/cargo-commands.md](../docs/cargo-commands.md).
+
+Pour les projets Git, l'empaquetage exige un dépôt propre, sauf avec `--allow-dirty`. Les motifs `include` du manifeste peuvent sélectionner des fichiers ignorés ; les paquets imbriqués de l'espace de travail et les répertoires sous forme de liens symboliques ne sont pas encore pris en charge. `mitts publish` publie sur crates.io, ou sur un autre registre avec `--registry`, et lit le jeton depuis `CARGO_REGISTRY_TOKEN`, `mitts login` ou `--token`.
 
 Mitts écrit les résultats de compilation dans les répertoires habituels de Cargo, `target/debug/` et `target/release/`.
 `CARGO_TARGET_DIR` et `--target-dir` permettent de sélectionner une racine de sortie différente.

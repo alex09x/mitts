@@ -275,7 +275,10 @@ fn run_add(args: &AddArgs) -> Result<()> {
         let dep_manifest = project_dir.join(path).join("Cargo.toml");
         let toml = crate::adapter::rust::manifest::CargoToml::from_file(&dep_manifest)
             .with_context(|| format!("failed to read `{}`", dep_manifest.display()))?;
-        let name = toml.package.map(|p| p.name).context("the path has no package")?;
+        let name = toml
+            .package
+            .map(|p| p.name)
+            .context("the path has no package")?;
         if specs.is_empty() {
             specs.push((name, None));
         }
@@ -306,7 +309,11 @@ fn run_add(args: &AddArgs) -> Result<()> {
         };
         let mut shown_version = None;
         let mut available: Option<SparseIndexEntry> = None;
-        if workspace_deps.contains(&name) && args.path.is_none() && args.git.is_none() && requested.is_none() {
+        if workspace_deps.contains(&name)
+            && args.path.is_none()
+            && args.git.is_none()
+            && requested.is_none()
+        {
             entry = InlineTable::new();
             entry.insert("workspace", true.into());
         } else if let Some(path) = &args.path {
@@ -314,7 +321,11 @@ fn run_add(args: &AddArgs) -> Result<()> {
             entry.insert("path", path.to_string_lossy().replace('\\', "/").into());
         } else if let Some(git) = &args.git {
             entry.insert("git", git.as_str().into());
-            for (k, v) in [("branch", &args.branch), ("tag", &args.tag), ("rev", &args.rev)] {
+            for (k, v) in [
+                ("branch", &args.branch),
+                ("tag", &args.tag),
+                ("rev", &args.rev),
+            ] {
                 if let Some(v) = v {
                     entry.insert(k, v.as_str().into());
                 }
@@ -323,10 +334,11 @@ fn run_add(args: &AddArgs) -> Result<()> {
             let versions = resolver
                 .registry_versions(&project_dir, args.registry.as_deref(), &name, offline)
                 .with_context(|| format!("could not find `{name}` in registry"))?;
-            let picked = pick(&versions, requested.as_deref()).with_context(|| match &requested {
-                Some(r) => format!("could not find `{name}` in registry with version `{r}`"),
-                None => format!("could not find `{name}` in registry"),
-            })?;
+            let picked =
+                pick(&versions, requested.as_deref()).with_context(|| match &requested {
+                    Some(r) => format!("could not find `{name}` in registry with version `{r}`"),
+                    None => format!("could not find `{name}` in registry"),
+                })?;
             let known = |f: &str| {
                 picked.features.contains_key(f)
                     || picked.features2.contains_key(f)
@@ -352,7 +364,10 @@ fn run_add(args: &AddArgs) -> Result<()> {
                 } else {
                     format!(
                         "available features: {}",
-                        all.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                        all.iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )
                 };
                 bail!(
@@ -389,7 +404,11 @@ fn run_add(args: &AddArgs) -> Result<()> {
             let mut list: Vec<String> = entry
                 .get("features")
                 .and_then(|f| f.as_array())
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
                 .unwrap_or_default();
             for f in args.features.iter().flat_map(|f| f.split_whitespace()) {
                 if !list.iter().any(|x| x == f) {
@@ -550,7 +569,11 @@ fn update_lock(root: &Path, common: &EditCommon) -> Result<()> {
         }
     }
     if common.locked || common.frozen {
-        let flag = if common.frozen { "--frozen" } else { "--locked" };
+        let flag = if common.frozen {
+            "--frozen"
+        } else {
+            "--locked"
+        };
         bail!(
             "the lock file {} needs to be updated but {flag} was passed to prevent this",
             lock_path.display()
@@ -700,18 +723,30 @@ mod tests {
 
     #[test]
     fn edits_keep_layout_and_sorting() {
-        let mut doc: DocumentMut = "[package]\nname = \"a\"\n\n# deps\n[dependencies]\nanyhow = \"1\"\nzip = \"2\"\n"
-            .parse()
-            .unwrap();
+        let mut doc: DocumentMut =
+            "[package]\nname = \"a\"\n\n# deps\n[dependencies]\nanyhow = \"1\"\nzip = \"2\"\n"
+                .parse()
+                .unwrap();
         let table = dep_table(&mut doc, None, "dependencies");
         insert_sorted(table, "serde", "1.0.200".into());
         let text = doc.to_string();
-        assert!(text.contains("# deps\n[dependencies]\nanyhow = \"1\"\nserde = \"1.0.200\"\nzip = \"2\"\n"), "{text}");
+        assert!(
+            text.contains(
+                "# deps\n[dependencies]\nanyhow = \"1\"\nserde = \"1.0.200\"\nzip = \"2\"\n"
+            ),
+            "{text}"
+        );
         let table = dep_table(&mut doc, Some("cfg(unix)"), "dev-dependencies");
         insert_sorted(table, "libc", "0.2".into());
-        assert!(doc.to_string().contains("[target.'cfg(unix)'.dev-dependencies]\nlibc = \"0.2\"\n")
-            || doc.to_string().contains("[target.\"cfg(unix)\".dev-dependencies]\nlibc = \"0.2\"\n"),
-            "{}", doc);
+        assert!(
+            doc.to_string()
+                .contains("[target.'cfg(unix)'.dev-dependencies]\nlibc = \"0.2\"\n")
+                || doc
+                    .to_string()
+                    .contains("[target.\"cfg(unix)\".dev-dependencies]\nlibc = \"0.2\"\n"),
+            "{}",
+            doc
+        );
     }
 
     #[test]

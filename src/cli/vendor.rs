@@ -120,8 +120,9 @@ fn run(args: &VendorArgs) -> Result<()> {
     // (name, version) -> (package, source dir)
     let mut packages: BTreeMap<(String, String), (CargoLockPackage, PathBuf)> = BTreeMap::new();
     for manifest in &manifests {
-        RustAdapter::fetch(manifest, &store, &fetch_opt, args.cache_dir.as_deref())
-            .with_context(|| format!("failed to fetch the dependencies of {}", manifest.display()))?;
+        RustAdapter::fetch(manifest, &store, &fetch_opt, args.cache_dir.as_deref()).with_context(
+            || format!("failed to fetch the dependencies of {}", manifest.display()),
+        )?;
         let lock = CargoLock::from_file(&manifest.with_file_name("Cargo.lock"))?;
         for pkg in lock.packages.into_iter().filter(|p| p.source.is_some()) {
             let dir = find_crate_source_dir_with_store(
@@ -130,7 +131,12 @@ fn run(args: &VendorArgs) -> Result<()> {
                 pkg.source.as_deref(),
                 Some(&store),
             )
-            .with_context(|| format!("the source of {} v{} is not available", pkg.name, pkg.version))?;
+            .with_context(|| {
+                format!(
+                    "the source of {} v{} is not available",
+                    pkg.name, pkg.version
+                )
+            })?;
             packages.insert((pkg.name.clone(), pkg.version.clone()), (pkg, dir));
         }
     }
@@ -157,7 +163,11 @@ fn run(args: &VendorArgs) -> Result<()> {
         if !args.quiet {
             status(
                 "Vendoring",
-                &format!("{name} v{version} ({}) to {}", src.display(), dest_rel.join(&dir_name).display()),
+                &format!(
+                    "{name} v{version} ({}) to {}",
+                    src.display(),
+                    dest_rel.join(&dir_name).display()
+                ),
             );
         }
         if target.exists() {
@@ -188,11 +198,12 @@ fn run(args: &VendorArgs) -> Result<()> {
         .strip_prefix(&ws_dir)
         .map(Path::to_path_buf)
         .unwrap_or_else(|_| dest_rel.clone());
-    let mut config = String::from(
-        "[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n",
-    );
+    let mut config = String::from("[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n");
     for url in &git_sources {
-        let (base, query) = url.trim_start_matches("git+").split_once('?').unwrap_or((url.trim_start_matches("git+"), ""));
+        let (base, query) = url
+            .trim_start_matches("git+")
+            .split_once('?')
+            .unwrap_or((url.trim_start_matches("git+"), ""));
         config.push_str(&format!("[source.\"{url}\"]\ngit = \"{base}\"\n"));
         for pair in query.split('&').filter(|p| !p.is_empty()) {
             if let Some((k, v)) = pair.split_once('=') {
@@ -206,7 +217,9 @@ fn run(args: &VendorArgs) -> Result<()> {
         shown.display().to_string().replace('\\', "/")
     ));
     if !args.quiet {
-        eprintln!("To use vendored sources, add this to your .cargo/config.toml for this project:\n");
+        eprintln!(
+            "To use vendored sources, add this to your .cargo/config.toml for this project:\n"
+        );
     }
     print!("{config}");
     Ok(())

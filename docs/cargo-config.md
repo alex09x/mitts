@@ -33,6 +33,9 @@ holds its `.cargo` directory.
 | `http.timeout` | `CARGO_HTTP_TIMEOUT` | Seconds to connect and between reads. |
 | `term.verbose`, `term.quiet` | `CARGO_TERM_VERBOSE`, `CARGO_TERM_QUIET` | The command line wins; both set is an error. |
 | `term.color` | `CARGO_TERM_COLOR` | `--color` wins. |
+| `doc.browser` | `CARGO_DOC_BROWSER` | Program for `mitts doc --open`; else `BROWSER`, else the system opener. |
+| `install.root` | `CARGO_INSTALL_ROOT` | Where `mitts install` puts `bin/`; `--root` wins. |
+| `cargo-new.vcs` | `CARGO_CARGO_NEW_VCS` | Default `--vcs` of `mitts new` / `init` (`git` or `none`). |
 
 ## Debug info: line tables by default
 
@@ -69,5 +72,4 @@ effect: `http.ssl-version`, `http.check-revoke`, `http.multiplexing`, `http.debu
 `term.unicode`, `cache.*`, `future-incompat-report.*`, `target.<triple>.ar` (Cargo ignores
 it as well), `build.build-dir` and `build.dep-info-basedir` (Mitts keeps intermediate files
 in its cache), `paths` (superseded by `[patch]`), `net.git-fetch-with-cli` (Mitts always uses
-the system `git`), `resolver.incompatible-rust-versions`. `doc.browser`, `install.root` and
-`cargo-new.*` belong to commands Mitts does not have yet.
+the system `git`), `resolver.incompatible-rust-versions`.

@@ -481,7 +481,11 @@ fn clean_selective(
         };
         let result = clean_target::remove_matching(&root, &filter)?;
         if !args.dry_run {
-            for entry in std::fs::read_dir(target_dir).into_iter().flatten().flatten() {
+            for entry in std::fs::read_dir(target_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if name.starts_with("build-") && name.ends_with(".lock") {
                     let _ = std::fs::remove_file(entry.path());

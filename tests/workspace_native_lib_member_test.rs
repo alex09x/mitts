@@ -71,5 +71,8 @@ fn workspace_check_covers_a_member_with_native_crate_types() {
         !out.status.success(),
         "the C API member is part of --workspace, so its type error fails the check:\n{text}"
     );
-    assert!(text.contains("capi"), "the failure names the member:\n{text}");
+    assert!(
+        text.contains("capi"),
+        "the failure names the member:\n{text}"
+    );
 }

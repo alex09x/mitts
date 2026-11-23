@@ -33,7 +33,11 @@ fn write_project(dir: &Path) {
          [dependencies]\nmid = { path = \"mid\" }\n\n[workspace]\nmembers = [\"mid\", \"nat\"]\n",
     )
     .unwrap();
-    fs::write(dir.join("src/lib.rs"), "pub fn answer() -> i32 { mid::value() }\n").unwrap();
+    fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn answer() -> i32 { mid::value() }\n",
+    )
+    .unwrap();
     fs::write(
         dir.join("tests/link.rs"),
         "#[test]\nfn links_the_native_library_of_a_dependency() { assert_eq!(app::answer(), 42); }\n",
@@ -45,7 +49,11 @@ fn write_project(dir: &Path) {
          [dependencies]\nnat = { path = \"../nat\" }\n",
     )
     .unwrap();
-    fs::write(dir.join("mid/src/lib.rs"), "pub fn value() -> i32 { unsafe { nat::forty_two() } }\n").unwrap();
+    fs::write(
+        dir.join("mid/src/lib.rs"),
+        "pub fn value() -> i32 { unsafe { nat::forty_two() } }\n",
+    )
+    .unwrap();
     fs::write(
         dir.join("nat/Cargo.toml"),
         "[package]\nname = \"nat\"\nversion = \"0.1.0\"\nedition = \"2021\"\nbuild = \"build.rs\"\n",
@@ -112,7 +120,10 @@ fn a_test_binary_links_a_dylib_found_through_a_dependency_build_script() {
         )
     };
     let (ok, text) = run();
-    assert!(ok, "the test executable links libforty through nat's search directory:\n{text}");
+    assert!(
+        ok,
+        "the test executable links libforty through nat's search directory:\n{text}"
+    );
 
     // Warm: `nat` and `mid` come back from the cache, only the edited test is compiled
     // and linked. The restored `mid` must still hand `nat`'s directory on.
@@ -122,5 +133,8 @@ fn a_test_binary_links_a_dylib_found_through_a_dependency_build_script() {
     )
     .unwrap();
     let (ok, text) = run();
-    assert!(ok, "a test linked against cached dependencies finds the library too:\n{text}");
+    assert!(
+        ok,
+        "a test linked against cached dependencies finds the library too:\n{text}"
+    );
 }

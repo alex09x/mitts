@@ -59,7 +59,11 @@ fn write_project(dir: &Path) {
         "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(dir.join("helper/src/lib.rs"), "pub fn seven() -> u64 { 7 }\n").unwrap();
+    fs::write(
+        dir.join("helper/src/lib.rs"),
+        "pub fn seven() -> u64 { 7 }\n",
+    )
+    .unwrap();
     fs::write(
         dir.join("pm/Cargo.toml"),
         "[package]\nname = \"pm\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\

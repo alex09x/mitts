@@ -169,13 +169,25 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-Für Git-Projekte erfordert das Paketieren derzeit ein sauberes Repository mit dem Paket im Stammverzeichnis.
-`include`-Muster im Manifest können ignorierte Dateien auswählen; verschachtelte Workspace-Pakete
-und Verzeichnisse mit symbolischen Links werden noch nicht unterstützt. `mitts publish` zielt auf crates.io ab und liest
-das Token aus `CARGO_REGISTRY_TOKEN`.
+Auch alle übrigen Cargo-Befehle sind vorhanden, mit Cargos Optionen und Ausgabe:
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+Die vollständige Liste mit den wenigen Abweichungen von Cargo steht in [docs/cargo-commands.md](../docs/cargo-commands.md).
+
+Bei Git-Projekten erfordert das Paketieren ein sauberes Repository, sofern nicht `--allow-dirty` angegeben ist. Manifest-`include`-Muster können ignorierte Dateien auswählen; verschachtelte Workspace-Pakete und Verzeichnisse mit symbolischen Links werden noch nicht unterstützt. `mitts publish` veröffentlicht auf crates.io oder mit `--registry` in einer anderen Registry und liest das Token aus `CARGO_REGISTRY_TOKEN`, `mitts login` oder `--token`.
 
 Mitts schreibt Build-Ausgaben in die von Cargo gewohnten Verzeichnisse `target/debug/` und `target/release/`.
 `CARGO_TARGET_DIR` und `--target-dir` wählen ein anderes Ausgabeverzeichnis.

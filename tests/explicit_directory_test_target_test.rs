@@ -33,7 +33,11 @@ fn write_project(dir: &Path) {
         "mod part;\n#[test]\nfn suite_root() { assert_eq!(app::v(), 7); }\n",
     )
     .unwrap();
-    fs::write(dir.join("tests/suite/part.rs"), "#[test]\nfn suite_part() {}\n").unwrap();
+    fs::write(
+        dir.join("tests/suite/part.rs"),
+        "#[test]\nfn suite_part() {}\n",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -55,6 +59,12 @@ fn explicit_test_without_path_resolves_to_the_directory_form() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(out.status.success(), "the directory test builds and passes:\n{text}");
-    assert!(text.contains("suite_root") && text.contains("suite_part"), "both tests ran:\n{text}");
+    assert!(
+        out.status.success(),
+        "the directory test builds and passes:\n{text}"
+    );
+    assert!(
+        text.contains("suite_root") && text.contains("suite_part"),
+        "both tests ran:\n{text}"
+    );
 }

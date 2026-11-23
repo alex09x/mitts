@@ -264,11 +264,7 @@ pub fn handle_version(args: &VersionArgs) -> i32 {
     if args.verbose > 0 {
         println!("release: {}", env!("CARGO_PKG_VERSION"));
         println!("commit-hash: {}", env!("MITTS_GIT_SHA"));
-        println!(
-            "host: {}-{}",
-            std::env::consts::ARCH,
-            std::env::consts::OS
-        );
+        println!("host: {}-{}", std::env::consts::ARCH, std::env::consts::OS);
         println!("os: {}", std::env::consts::OS);
     }
     0
@@ -308,7 +304,11 @@ mod tests {
             package_id(&reg, None),
             "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.200"
         );
-        let git = pkg("x", "0.2.0", Some("git+https://example.com/x?branch=main#abc123"));
+        let git = pkg(
+            "x",
+            "0.2.0",
+            Some("git+https://example.com/x?branch=main#abc123"),
+        );
         assert_eq!(
             package_id(&git, None),
             "git+https://example.com/x?branch=main#x@0.2.0"

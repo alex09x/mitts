@@ -33,7 +33,11 @@ fn write_project(dir: &Path) {
          [dependencies]\nshared = { path = \"../shared\" }\npm = { path = \"../pm\" }\n",
     )
     .unwrap();
-    fs::write(dir.join("app/src/lib.rs"), "pub fn v() -> u64 { shared::val() + pm::one!() }\n").unwrap();
+    fs::write(
+        dir.join("app/src/lib.rs"),
+        "pub fn v() -> u64 { shared::val() + pm::one!() }\n",
+    )
+    .unwrap();
     fs::write(
         dir.join("shared/Cargo.toml"),
         "[package]\nname = \"shared\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -77,9 +81,13 @@ fn a_warning_from_a_crate_compiled_for_host_and_target_is_shown_once() {
     );
     assert!(out.status.success(), "check passes:\n{text}");
     assert_eq!(
-        text.matches("warning: unused variable: `unused_in_shared`").count(),
+        text.matches("warning: unused variable: `unused_in_shared`")
+            .count(),
         1,
         "the shared crate's warning is shown once:\n{text}"
     );
-    assert!(text.contains("(1 duplicates)"), "the repeat is counted:\n{text}");
+    assert!(
+        text.contains("(1 duplicates)"),
+        "the repeat is counted:\n{text}"
+    );
 }

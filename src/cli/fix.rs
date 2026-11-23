@@ -198,7 +198,10 @@ fn run(args: &FixArgs) -> Result<i32> {
                 other => bail!("the edition {other} has no next edition to migrate to"),
             };
             if !args.quiet {
-                status("Migrating", &format!("{} from {edition} edition to {next}", manifest.display()));
+                status(
+                    "Migrating",
+                    &format!("{} from {edition} edition to {next}", manifest.display()),
+                );
             }
             lint_flags.push(format!("--force-warn=rust-{next}-compatibility"));
         }
@@ -363,9 +366,18 @@ fn run_check(args: &FixArgs, lint_flags: &[String], json: bool) -> Result<std::p
         ("--target", args.target.as_ref().map(|t| t.to_string())),
         ("--profile", args.profile.clone()),
         ("--jobs", args.jobs.map(|j| j.to_string())),
-        ("--manifest-path", args.manifest_path.as_ref().map(|p| p.display().to_string())),
-        ("--cache-dir", args.cache_dir.as_ref().map(|p| p.display().to_string())),
-        ("--target-dir", args.target_dir.as_ref().map(|p| p.display().to_string())),
+        (
+            "--manifest-path",
+            args.manifest_path.as_ref().map(|p| p.display().to_string()),
+        ),
+        (
+            "--cache-dir",
+            args.cache_dir.as_ref().map(|p| p.display().to_string()),
+        ),
+        (
+            "--target-dir",
+            args.target_dir.as_ref().map(|p| p.display().to_string()),
+        ),
     ] {
         if let Some(v) = value {
             cmd.args([flag, &v]);
@@ -450,7 +462,8 @@ fn collect(message: &Value, base: Option<&Path>, out: &mut Vec<Replacement>) {
         let path = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            base.map(|b| b.join(path)).unwrap_or_else(|| path.to_path_buf())
+            base.map(|b| b.join(path))
+                .unwrap_or_else(|| path.to_path_buf())
         };
         let path = path.canonicalize().unwrap_or(path);
         out.push(Replacement {
@@ -474,9 +487,9 @@ pub fn apply(groups: &[Vec<Replacement>]) -> Result<BTreeMap<PathBuf, usize>> {
     for group in groups {
         let clashes = group.iter().any(|r| {
             taken.get(&r.file).is_some_and(|ranges| {
-                ranges
-                    .iter()
-                    .any(|&(s, e)| r.start < e && s < r.end || (r.start == r.end && r.start == s && s == e))
+                ranges.iter().any(|&(s, e)| {
+                    r.start < e && s < r.end || (r.start == r.end && r.start == s && s == e)
+                })
             })
         });
         if clashes {
@@ -484,7 +497,10 @@ pub fn apply(groups: &[Vec<Replacement>]) -> Result<BTreeMap<PathBuf, usize>> {
         }
         let mut files = HashSet::new();
         for r in group {
-            taken.entry(r.file.clone()).or_default().push((r.start, r.end));
+            taken
+                .entry(r.file.clone())
+                .or_default()
+                .push((r.start, r.end));
             chosen.entry(r.file.clone()).or_default().push(r);
             files.insert(r.file.clone());
         }
@@ -494,10 +510,13 @@ pub fn apply(groups: &[Vec<Replacement>]) -> Result<BTreeMap<PathBuf, usize>> {
     }
     for (file, mut edits) in chosen {
         let mut text = std::fs::read(&file).with_context(|| format!("read {}", file.display()))?;
-        edits.sort_by(|a, b| b.start.cmp(&a.start));
+        edits.sort_by_key(|r| std::cmp::Reverse(r.start));
         for r in edits {
             if r.end > text.len() || r.start > r.end {
-                bail!("a suggestion for {} is out of range; the file changed", file.display());
+                bail!(
+                    "a suggestion for {} is out of range; the file changed",
+                    file.display()
+                );
             }
             text.splice(r.start..r.end, r.text.bytes());
         }
@@ -522,14 +541,13 @@ mod tests {
             end,
             text: text.into(),
         };
-        let groups = vec![
-            vec![r(4, 8, "")],
-            vec![r(19, 23, "")],
-            vec![r(4, 9, "x")],
-        ];
+        let groups = vec![vec![r(4, 8, "")], vec![r(19, 23, "")], vec![r(4, 9, "x")]];
         let counts = apply(&groups).unwrap();
         assert_eq!(counts[&file], 2);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "let a = 1; let b = 2;");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "let a = 1; let b = 2;"
+        );
     }
 
     #[test]

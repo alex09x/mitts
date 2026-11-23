@@ -168,7 +168,8 @@ impl RegistryConfig {
             .and_then(|r| r.get("token"))
             .and_then(|t| t.as_str())
         {
-            self.tokens.insert("crates-io".to_string(), token.to_string());
+            self.tokens
+                .insert("crates-io".to_string(), token.to_string());
         }
         if let Some(regs) = value.get("registries").and_then(|v| v.as_table()) {
             for (name, def) in regs {

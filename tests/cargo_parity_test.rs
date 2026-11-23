@@ -99,7 +99,11 @@ impl Env {
         let dir = self.path("app");
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::create_dir_all(dir.join(".cargo")).unwrap();
-        fs::write(dir.join(".cargo/config.toml"), registry.source_replacement()).unwrap();
+        fs::write(
+            dir.join(".cargo/config.toml"),
+            registry.source_replacement(),
+        )
+        .unwrap();
         fs::write(
             dir.join("Cargo.toml"),
             format!("[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n{manifest_tail}"),
@@ -111,7 +115,10 @@ impl Env {
 }
 
 fn has_git() -> bool {
-    Command::new("git").arg("--version").output().is_ok_and(|o| o.status.success())
+    Command::new("git")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 fn read(path: impl AsRef<Path>) -> String {
@@ -148,9 +155,15 @@ fn new_writes_cargos_files_and_checks_the_name() {
     fs::create_dir_all(&base).unwrap();
 
     let (_, err) = env.ok(&base, &["new", "hello"]);
-    assert!(err.contains("Creating binary (application) `hello` package"), "{err}");
+    assert!(
+        err.contains("Creating binary (application) `hello` package"),
+        "{err}"
+    );
     let manifest = read(base.join("hello/Cargo.toml"));
-    assert!(manifest.starts_with("[package]\nname = \"hello\"\nversion = \"0.1.0\"\nedition = \""), "{manifest}");
+    assert!(
+        manifest.starts_with("[package]\nname = \"hello\"\nversion = \"0.1.0\"\nedition = \""),
+        "{manifest}"
+    );
     assert!(manifest.ends_with("\n[dependencies]\n"), "{manifest}");
     assert_eq!(
         read(base.join("hello/src/main.rs")),
@@ -161,16 +174,32 @@ fn new_writes_cargos_files_and_checks_the_name() {
         assert_eq!(read(base.join("hello/.gitignore")), "/target\n");
     }
 
-    env.ok(&base, &["new", "--lib", "mylib", "--edition", "2021", "--vcs", "none"]);
+    env.ok(
+        &base,
+        &[
+            "new",
+            "--lib",
+            "mylib",
+            "--edition",
+            "2021",
+            "--vcs",
+            "none",
+        ],
+    );
     assert!(read(base.join("mylib/Cargo.toml")).contains("edition = \"2021\""));
-    assert!(read(base.join("mylib/src/lib.rs")).contains("pub fn add(left: u64, right: u64) -> u64"));
+    assert!(
+        read(base.join("mylib/src/lib.rs")).contains("pub fn add(left: u64, right: u64) -> u64")
+    );
     assert!(!base.join("mylib/.gitignore").exists());
     assert!(!base.join("mylib/.git").exists());
 
     let err = env.fails(&base, &["new", "2fast"]);
     assert!(err.contains("the name cannot start with a digit"), "{err}");
     let err = env.fails(&base, &["new", "hello"]);
-    assert!(err.contains("destination") && err.contains("already exists"), "{err}");
+    assert!(
+        err.contains("destination") && err.contains("already exists"),
+        "{err}"
+    );
     let err = env.fails(&base, &["new", "fn", "--vcs", "none"]);
     assert!(err.contains("it is a Rust keyword"), "{err}");
 
@@ -191,14 +220,23 @@ fn init_adopts_existing_sources_and_refuses_a_package() {
     assert!(read(dir.join("Cargo.toml")).contains("name = \"existing\""));
     assert!(!dir.join("src/main.rs").exists());
     let err = env.fails(&dir, &["init"]);
-    assert!(err.contains("cannot be run on existing Cargo packages"), "{err}");
+    assert!(
+        err.contains("cannot be run on existing Cargo packages"),
+        "{err}"
+    );
 
     let root_main = env.path("loose");
     fs::create_dir_all(&root_main).unwrap();
     fs::write(root_main.join("main.rs"), "fn main() {}\n").unwrap();
-    env.ok(&root_main, &["init", "--vcs", "none", "--name", "loose_bin"]);
+    env.ok(
+        &root_main,
+        &["init", "--vcs", "none", "--name", "loose_bin"],
+    );
     let manifest = read(root_main.join("Cargo.toml"));
-    assert!(manifest.contains("[[bin]]\nname = \"loose_bin\"\npath = \"main.rs\""), "{manifest}");
+    assert!(
+        manifest.contains("[[bin]]\nname = \"loose_bin\"\npath = \"main.rs\""),
+        "{manifest}"
+    );
 }
 
 #[test]
@@ -216,7 +254,10 @@ fn new_inside_a_workspace_joins_its_members() {
     assert!(err.contains("Adding `b` as member of workspace"), "{err}");
     let text = read(ws.join("Cargo.toml"));
     assert!(text.starts_with("# the workspace\n"), "{text}");
-    assert!(text.contains("\"crates/a\"") && text.contains("\"crates/b\""), "{text}");
+    assert!(
+        text.contains("\"crates/a\"") && text.contains("\"crates/b\""),
+        "{text}"
+    );
     assert_eq!(text.matches("crates/a").count(), 1, "{text}");
 
     fs::write(
@@ -225,7 +266,10 @@ fn new_inside_a_workspace_joins_its_members() {
     )
     .unwrap();
     env.ok(&ws, &["new", "--vcs", "none", "crates/c"]);
-    assert_eq!(read(ws.join("Cargo.toml")), "[workspace]\nresolver = \"2\"\nmembers = [\"crates/*\"]\n");
+    assert_eq!(
+        read(ws.join("Cargo.toml")),
+        "[workspace]\nresolver = \"2\"\nmembers = [\"crates/*\"]\n"
+    );
     // The workspace builds with its new members.
     env.ok(&ws, &["check", "--workspace", "-q"]);
 }
@@ -241,27 +285,53 @@ fn locate_project_pkgid_version_and_change_directory() {
     let (out, _) = env.ok(&nested, &["locate-project"]);
     let value: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
     assert_eq!(
-        Path::new(value["root"].as_str().unwrap()).canonicalize().unwrap(),
+        Path::new(value["root"].as_str().unwrap())
+            .canonicalize()
+            .unwrap(),
         canonical.join("Cargo.toml")
     );
-    let (out, _) = env.ok(&nested, &["locate-project", "--message-format", "plain", "--workspace"]);
-    assert_eq!(Path::new(out.trim()).canonicalize().unwrap(), canonical.join("Cargo.toml"));
+    let (out, _) = env.ok(
+        &nested,
+        &["locate-project", "--message-format", "plain", "--workspace"],
+    );
+    assert_eq!(
+        Path::new(out.trim()).canonicalize().unwrap(),
+        canonical.join("Cargo.toml")
+    );
 
     let parent = app.parent().unwrap().to_path_buf();
-    let (out, _) = env.ok(&parent, &["-C", "app", "locate-project", "--message-format", "plain"]);
-    assert_eq!(Path::new(out.trim()).canonicalize().unwrap(), canonical.join("Cargo.toml"));
+    let (out, _) = env.ok(
+        &parent,
+        &["-C", "app", "locate-project", "--message-format", "plain"],
+    );
+    assert_eq!(
+        Path::new(out.trim()).canonicalize().unwrap(),
+        canonical.join("Cargo.toml")
+    );
 
     let (out, _) = env.ok(&app, &["pkgid"]);
-    assert!(out.trim().starts_with("path+file://") && out.trim().ends_with("/app#0.1.0"), "{out}");
+    assert!(
+        out.trim().starts_with("path+file://") && out.trim().ends_with("/app#0.1.0"),
+        "{out}"
+    );
     let (out, _) = env.ok(&app, &["pkgid", "aa"]);
-    assert_eq!(out.trim(), "registry+https://github.com/rust-lang/crates.io-index#aa@1.0.0");
+    assert_eq!(
+        out.trim(),
+        "registry+https://github.com/rust-lang/crates.io-index#aa@1.0.0"
+    );
     let err = env.fails(&app, &["pkgid", "nope"]);
     assert!(err.contains("did not match any packages"), "{err}");
 
     let (out, _) = env.ok(&app, &["version"]);
-    assert!(out.starts_with(&format!("mitts {}", env!("CARGO_PKG_VERSION"))), "{out}");
+    assert!(
+        out.starts_with(&format!("mitts {}", env!("CARGO_PKG_VERSION"))),
+        "{out}"
+    );
     let (out, _) = env.ok(&app, &["version", "-v"]);
-    assert!(out.contains("\nrelease: ") && out.contains("\ncommit-hash: "), "{out}");
+    assert!(
+        out.contains("\nrelease: ") && out.contains("\ncommit-hash: "),
+        "{out}"
+    );
 }
 
 fn two_crates() -> Vec<Published> {
@@ -284,7 +354,10 @@ fn update_moves_only_what_is_asked() {
 
     let (_, err) = env.ok(&app, &["update", "aa", "--dry-run"]);
     assert!(err.contains("Updating aa v1.0.0 -> v1.0.1"), "{err}");
-    assert!(err.contains("warning: aborting update due to dry run"), "{err}");
+    assert!(
+        err.contains("warning: aborting update due to dry run"),
+        "{err}"
+    );
     assert_eq!(read(app.join("Cargo.lock")), OLD_LOCK);
 
     let err = env.fails(&app, &["update", "aa", "--locked"]);
@@ -304,7 +377,10 @@ fn update_moves_only_what_is_asked() {
     assert_eq!(locked(&app), [pair("aa", "1.0.0"), pair("bb", "1.0.0")]);
 
     let (_, err) = env.ok(&app, &["update"]);
-    assert!(err.contains("Locking 2 packages to latest compatible versions"), "{err}");
+    assert!(
+        err.contains("Locking 2 packages to latest compatible versions"),
+        "{err}"
+    );
     assert_eq!(locked(&app), [pair("aa", "1.0.1"), pair("bb", "1.0.1")]);
 
     fs::write(app.join("Cargo.lock"), OLD_LOCK).unwrap();
@@ -339,12 +415,32 @@ fn tree_prints_like_cargo() {
     let shown = out.replace(&app.display().to_string(), &canonical.display().to_string());
     assert_eq!(shown, expected);
 
-    let (out, _) = env.ok(&app, &["tree", "-e", "normal", "--prefix", "depth", "--charset", "ascii"]);
-    assert!(out.contains("\n1aa v1.0.0\n2bb v1.0.0\n1bb v1.0.0\n"), "{out}");
-    assert!(!out.contains("cc v1.0.0") && !out.contains("dd v1.0.0"), "{out}");
+    let (out, _) = env.ok(
+        &app,
+        &[
+            "tree",
+            "-e",
+            "normal",
+            "--prefix",
+            "depth",
+            "--charset",
+            "ascii",
+        ],
+    );
+    assert!(
+        out.contains("\n1aa v1.0.0\n2bb v1.0.0\n1bb v1.0.0\n"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("cc v1.0.0") && !out.contains("dd v1.0.0"),
+        "{out}"
+    );
 
     let (out, _) = env.ok(&app, &["tree", "-i", "bb", "-e", "normal"]);
-    assert!(out.starts_with("bb v1.0.0\n├── aa v1.0.0\n│   └── app v0.1.0"), "{out}");
+    assert!(
+        out.starts_with("bb v1.0.0\n├── aa v1.0.0\n│   └── app v0.1.0"),
+        "{out}"
+    );
     let (out, _) = env.ok(&app, &["tree", "--depth", "1", "-e", "normal"]);
     assert!(!out.contains("│   └── bb"), "{out}");
     let (out, _) = env.ok(&app, &["tree", "-e", "normal", "-f", "{p} [{l}]"]);
@@ -374,32 +470,61 @@ fn add_and_remove_edit_the_manifest_and_lock() {
     let app = env.app(&registry, "# keep this comment\n[dependencies]\n");
     let local = env.path("local");
     fs::create_dir_all(local.join("src")).unwrap();
-    fs::write(local.join("Cargo.toml"), "[package]\nname = \"local\"\nversion = \"0.2.0\"\nedition = \"2021\"\n").unwrap();
+    fs::write(
+        local.join("Cargo.toml"),
+        "[package]\nname = \"local\"\nversion = \"0.2.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
     fs::write(local.join("src/lib.rs"), "").unwrap();
 
     let (_, err) = env.ok(&app, &["add", "aa"]);
     assert!(err.contains("Adding aa v1.2.0 to dependencies"), "{err}");
     assert!(err.contains("+ std") && err.contains("- extra"), "{err}");
     let (_, err) = env.ok(&app, &["add", "bb@0.3", "--dev"]);
-    assert!(err.contains("Adding bb v0.3.0 to dev-dependencies"), "{err}");
-    env.ok(&app, &["add", "cc", "--build", "--no-default-features", "-F", "x"]);
+    assert!(
+        err.contains("Adding bb v0.3.0 to dev-dependencies"),
+        "{err}"
+    );
+    env.ok(
+        &app,
+        &["add", "cc", "--build", "--no-default-features", "-F", "x"],
+    );
     env.ok(&app, &["add", "cc", "--rename", "cc2"]);
     env.ok(&app, &["add", "--path", "../local"]);
     let text = read(app.join("Cargo.toml"));
-    assert!(text.contains("# keep this comment\n[dependencies]\naa = \"1.2.0\"\n"), "{text}");
-    assert!(text.contains("cc2 = { version = \"2.0.0\", package = \"cc\" }"), "{text}");
+    assert!(
+        text.contains("# keep this comment\n[dependencies]\naa = \"1.2.0\"\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("cc2 = { version = \"2.0.0\", package = \"cc\" }"),
+        "{text}"
+    );
     assert!(text.contains("local = { path = \"../local\" }"), "{text}");
-    assert!(text.contains("[dev-dependencies]\nbb = \"0.3\"\n"), "{text}");
+    assert!(
+        text.contains("[dev-dependencies]\nbb = \"0.3\"\n"),
+        "{text}"
+    );
     assert!(
         text.contains("[build-dependencies]\ncc = { version = \"2.0.0\", default-features = false, features = [\"x\"] }"),
         "{text}"
     );
-    assert_eq!(locked(&app), [pair("aa", "1.2.0"), pair("bb", "0.3.0"), pair("cc", "2.0.0")]);
+    assert_eq!(
+        locked(&app),
+        [
+            pair("aa", "1.2.0"),
+            pair("bb", "0.3.0"),
+            pair("cc", "2.0.0")
+        ]
+    );
 
     let err = env.fails(&app, &["add", "nosuch"]);
     assert!(err.contains("could not find `nosuch`"), "{err}");
     let err = env.fails(&app, &["add", "bb", "-F", "nope"]);
-    assert!(err.contains("unrecognized feature for crate bb: nope"), "{err}");
+    assert!(
+        err.contains("unrecognized feature for crate bb: nope"),
+        "{err}"
+    );
     env.ok(&app, &["add", "aa", "--dry-run", "-F", "extra"]);
     assert!(read(app.join("Cargo.toml")).contains("aa = \"1.2.0\"\n"));
 
@@ -410,7 +535,10 @@ fn add_and_remove_edit_the_manifest_and_lock() {
     assert!(!text.contains("aa =") && !text.contains("bb ="), "{text}");
     assert_eq!(locked(&app), [pair("cc", "2.0.0")]);
     let err = env.fails(&app, &["remove", "zz"]);
-    assert!(err.contains("the dependency `zz` could not be found in `dependencies`"), "{err}");
+    assert!(
+        err.contains("the dependency `zz` could not be found in `dependencies`"),
+        "{err}"
+    );
     env.ok(&app, &["check", "-q"]);
 }
 
@@ -425,7 +553,10 @@ fn rust_version_is_enforced_unless_ignored() {
     );
     fs::write(app.join("Cargo.toml"), manifest).unwrap();
     let err = env.fails(&app, &["check"]);
-    assert!(err.contains("is not supported by the following package"), "{err}");
+    assert!(
+        err.contains("is not supported by the following package"),
+        "{err}"
+    );
     assert!(err.contains("app@0.1.0 requires rustc 1.999"), "{err}");
     env.ok(&app, &["check", "--ignore-rust-version", "-q"]);
 }
@@ -455,7 +586,10 @@ fn test_selects_examples_and_benches_by_name() {
     assert!(format!("{out}{err}").contains("demo_example_test"));
     let (out, err) = env.ok(&app, &["test", "--bench", "speed"]);
     let all = format!("{out}{err}");
-    assert!(all.contains("speed_bench_test") && !all.contains("demo_example_test"), "{all}");
+    assert!(
+        all.contains("speed_bench_test") && !all.contains("demo_example_test"),
+        "{all}"
+    );
 }
 
 /// `[registries.mock]` for the API commands, beside the crates.io replacement.
@@ -472,11 +606,18 @@ fn with_named_registry(app: &Path, registry: &Registry) {
 fn doc_documents_the_package_and_its_dependencies_once() {
     let env = Env::new();
     let registry = serve(vec![Published {
-        files: vec![("src/lib.rs", "/// Says hello.\npub fn hello() {}\n".to_string())],
+        files: vec![(
+            "src/lib.rs",
+            "/// Says hello.\npub fn hello() {}\n".to_string(),
+        )],
         ..version("aa", "1.0.0")
     }]);
     let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
-    fs::write(app.join("src/lib.rs"), "//! The app.\npub fn app() { aa::hello() }\n").unwrap();
+    fs::write(
+        app.join("src/lib.rs"),
+        "//! The app.\npub fn app() { aa::hello() }\n",
+    )
+    .unwrap();
 
     let (_, err) = env.ok(&app, &["doc"]);
     assert!(err.contains("Documenting aa v1.0.0"), "{err}");
@@ -487,14 +628,21 @@ fn doc_documents_the_package_and_its_dependencies_once() {
     assert!(read(app.join("target/doc/aa/fn.hello.html")).contains("Says hello."));
 
     let (_, err) = env.ok(&app, &["doc"]);
-    assert!(!err.contains("Documenting"), "nothing changed, nothing documented again: {err}");
+    assert!(
+        !err.contains("Documenting"),
+        "nothing changed, nothing documented again: {err}"
+    );
 
     fs::remove_dir_all(app.join("target/doc")).unwrap();
     env.ok(&app, &["doc", "--no-deps"]);
     assert!(app.join("target/doc/app/index.html").is_file());
     assert!(!app.join("target/doc/aa").exists());
 
-    fs::write(app.join("src/lib.rs"), "//! The app.\nfn private_helper() {}\npub fn app() { private_helper() }\n").unwrap();
+    fs::write(
+        app.join("src/lib.rs"),
+        "//! The app.\nfn private_helper() {}\npub fn app() { private_helper() }\n",
+    )
+    .unwrap();
     env.ok(&app, &["doc", "--no-deps", "--document-private-items"]);
     assert!(app.join("target/doc/app/fn.private_helper.html").is_file());
 }
@@ -504,28 +652,48 @@ fn fix_applies_machine_applicable_suggestions_and_guards_uncommitted_work() {
     let env = Env::new();
     let registry = serve(Vec::new());
     let app = env.app(&registry, "");
-    fs::write(app.join("src/main.rs"), "fn main() {\n    let mut x = 1;\n    println!(\"{x}\");\n}\n").unwrap();
+    fs::write(
+        app.join("src/main.rs"),
+        "fn main() {\n    let mut x = 1;\n    println!(\"{x}\");\n}\n",
+    )
+    .unwrap();
 
     let err = env.fails(&app, &["fix"]);
     assert!(err.contains("no VCS found"), "{err}");
     let (_, err) = env.ok(&app, &["fix", "--allow-no-vcs"]);
     assert!(err.contains("Fixed src/main.rs (1 fix)"), "{err}");
-    assert_eq!(read(app.join("src/main.rs")), "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}\n");
+    assert_eq!(
+        read(app.join("src/main.rs")),
+        "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}\n"
+    );
 
     if has_git() {
         let git = |args: &[&str]| {
-            let ok = Command::new("git").args(args).current_dir(&app)
-                .env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@example.com")
-                .env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@example.com")
-                .status().unwrap().success();
+            let ok = Command::new("git")
+                .args(args)
+                .current_dir(&app)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .status()
+                .unwrap()
+                .success();
             assert!(ok, "git {args:?}");
         };
         git(&["init", "-q"]);
         git(&["add", "."]);
         git(&["commit", "-q", "-m", "init"]);
-        fs::write(app.join("src/main.rs"), "fn main() {\n    let mut y = 2;\n    println!(\"{y}\");\n}\n").unwrap();
+        fs::write(
+            app.join("src/main.rs"),
+            "fn main() {\n    let mut y = 2;\n    println!(\"{y}\");\n}\n",
+        )
+        .unwrap();
         let err = env.fails(&app, &["fix"]);
-        assert!(err.contains("uncommitted changes") && err.contains("src/main.rs (dirty)"), "{err}");
+        assert!(
+            err.contains("uncommitted changes") && err.contains("src/main.rs (dirty)"),
+            "{err}"
+        );
         env.ok(&app, &["fix", "--allow-dirty"]);
         assert!(read(app.join("src/main.rs")).contains("let y = 2;"));
     }
@@ -538,12 +706,22 @@ fn vendor_copies_sources_with_checksums_and_the_copy_builds() {
     aa.deps = vec![dep("bb", "1")];
     let registry = serve(vec![aa, version("bb", "1.0.0")]);
     let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
-    fs::write(app.join("src/main.rs"), "fn main() { println!(\"{}\", aa::hello()); }\n").unwrap();
+    fs::write(
+        app.join("src/main.rs"),
+        "fn main() { println!(\"{}\", aa::hello()); }\n",
+    )
+    .unwrap();
 
     let (out, err) = env.ok(&app, &["vendor"]);
     assert!(err.contains("Vendoring aa v1.0.0"), "{err}");
-    assert!(out.contains("[source.crates-io]\nreplace-with = \"vendored-sources\""), "{out}");
-    assert!(out.contains("[source.vendored-sources]\ndirectory = \"vendor\""), "{out}");
+    assert!(
+        out.contains("[source.crates-io]\nreplace-with = \"vendored-sources\""),
+        "{out}"
+    );
+    assert!(
+        out.contains("[source.vendored-sources]\ndirectory = \"vendor\""),
+        "{out}"
+    );
     let checksum: serde_json::Value =
         serde_json::from_str(&read(app.join("vendor/aa/.cargo-checksum.json"))).unwrap();
     assert_eq!(checksum["package"].as_str().unwrap().len(), 64);
@@ -579,12 +757,23 @@ fn registry_api_commands_send_what_cargo_sends() {
     with_named_registry(&app, &registry);
 
     let (out, _) = env.ok(&app, &["search", "aa", "--registry", "mock"]);
-    assert!(out.contains("aa = \"1.0.0\"") && out.contains("# The aa crate"), "{out}");
+    assert!(
+        out.contains("aa = \"1.0.0\"") && out.contains("# The aa crate"),
+        "{out}"
+    );
     assert!(out.contains("aab = \"0.2.0\""), "{out}");
 
     let (out, _) = env.ok(&app, &["info", "aa", "--registry", "mock"]);
-    assert!(out.starts_with("aa\nThe aa crate, for tests\nversion: 1.0.0\nlicense: MIT\n"), "{out}");
-    assert!(out.contains(" +default = [std]") && out.contains(" +std     = []") && out.contains("  extra   = []"), "{out}");
+    assert!(
+        out.starts_with("aa\nThe aa crate, for tests\nversion: 1.0.0\nlicense: MIT\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains(" +default = [std]")
+            && out.contains(" +std     = []")
+            && out.contains("  extra   = []"),
+        "{out}"
+    );
 
     let err = env.fails(&app, &["yank", "aa@1.0.0", "--registry", "mock"]);
     assert!(err.contains("no token found"), "{err}");
@@ -592,24 +781,44 @@ fn registry_api_commands_send_what_cargo_sends() {
     let (_, err) = env.ok(&app, &["login", "--registry", "mock", "secret-token"]);
     assert!(err.contains("Login token for `mock` saved"), "{err}");
     let creds = read(env.path("cargo-home/credentials.toml"));
-    assert!(creds.contains("[registries.mock]") && creds.contains("token = \"secret-token\""), "{creds}");
+    assert!(
+        creds.contains("[registries.mock]") && creds.contains("token = \"secret-token\""),
+        "{creds}"
+    );
 
     let (out, _) = env.ok(&app, &["owner", "--list", "aa", "--registry", "mock"]);
     assert_eq!(out, "alice (Alice)\n");
     env.ok(&app, &["owner", "--add", "bob", "aa", "--registry", "mock"]);
     env.ok(&app, &["yank", "aa@1.0.0", "--registry", "mock"]);
-    env.ok(&app, &["yank", "aa", "--version", "1.0.0", "--undo", "--registry", "mock"]);
+    env.ok(
+        &app,
+        &[
+            "yank",
+            "aa",
+            "--version",
+            "1.0.0",
+            "--undo",
+            "--registry",
+            "mock",
+        ],
+    );
     let sent = registry.requests();
     let put_owner = sent
         .iter()
         .find(|r| r.method == "PUT" && r.path == "/api/v1/crates/aa/owners")
         .expect("owner add request");
-    assert_eq!(put_owner.headers.get("authorization").map(String::as_str), Some("secret-token"));
+    assert_eq!(
+        put_owner.headers.get("authorization").map(String::as_str),
+        Some("secret-token")
+    );
     let body: serde_json::Value = serde_json::from_slice(&put_owner.body).unwrap();
     assert_eq!(body["users"], serde_json::json!(["bob"]));
-    assert!(sent.iter().any(|r| r.method == "DELETE" && r.path == "/api/v1/crates/aa/1.0.0/yank"
+    assert!(sent.iter().any(|r| r.method == "DELETE"
+        && r.path == "/api/v1/crates/aa/1.0.0/yank"
         && r.headers.get("authorization").map(String::as_str) == Some("secret-token")));
-    assert!(sent.iter().any(|r| r.method == "PUT" && r.path == "/api/v1/crates/aa/1.0.0/unyank"));
+    assert!(sent
+        .iter()
+        .any(|r| r.method == "PUT" && r.path == "/api/v1/crates/aa/1.0.0/unyank"));
 
     let (_, err) = env.ok(&app, &["logout", "--registry", "mock"]);
     assert!(err.contains("has been removed from local storage"), "{err}");
@@ -620,7 +829,10 @@ fn registry_api_commands_send_what_cargo_sends() {
 fn install_builds_records_and_uninstalls_binaries() {
     let env = Env::new();
     let registry = serve(vec![Published {
-        files: vec![("src/main.rs", "fn main() { println!(\"tool works\"); }\n".to_string())],
+        files: vec![(
+            "src/main.rs",
+            "fn main() { println!(\"tool works\"); }\n".to_string(),
+        )],
         ..version("tool", "1.0.0")
     }]);
     let app = env.app(&registry, "");
@@ -628,8 +840,14 @@ fn install_builds_records_and_uninstalls_binaries() {
     let root = env.path("install-root");
     let root_s = root.to_str().unwrap();
 
-    let (_, err) = env.ok(&app, &["install", "tool", "--registry", "mock", "--root", root_s]);
-    assert!(err.contains("Installed package `tool v1.0.0` (executable `tool`)"), "{err}");
+    let (_, err) = env.ok(
+        &app,
+        &["install", "tool", "--registry", "mock", "--root", root_s],
+    );
+    assert!(
+        err.contains("Installed package `tool v1.0.0` (executable `tool`)"),
+        "{err}"
+    );
     let out = Command::new(root.join("bin/tool")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout), "tool works\n");
     assert!(read(root.join(".crates.toml")).contains("tool 1.0.0 (sparse+"));
@@ -638,11 +856,21 @@ fn install_builds_records_and_uninstalls_binaries() {
 
     let (out, _) = env.ok(&app, &["install", "--list", "--root", root_s]);
     assert_eq!(out, "tool v1.0.0:\n    tool\n");
-    let (_, err) = env.ok(&app, &["install", "tool", "--registry", "mock", "--root", root_s]);
-    assert!(err.contains("is already installed, use --force to override"), "{err}");
+    let (_, err) = env.ok(
+        &app,
+        &["install", "tool", "--registry", "mock", "--root", root_s],
+    );
+    assert!(
+        err.contains("is already installed, use --force to override"),
+        "{err}"
+    );
 
     // A local package by path, then both uninstalled.
-    fs::write(app.join("src/main.rs"), "fn main() { println!(\"app works\"); }\n").unwrap();
+    fs::write(
+        app.join("src/main.rs"),
+        "fn main() { println!(\"app works\"); }\n",
+    )
+    .unwrap();
     let (_, err) = env.ok(&app, &["install", "--path", ".", "--root", root_s]);
     assert!(err.contains("Installed package `app v0.1.0`"), "{err}");
     assert!(root.join("bin/app").is_file());
@@ -666,19 +894,38 @@ fn clean_narrows_by_package_doc_and_dry_run() {
     env.ok(&app, &["doc", "-q", "--no-deps"]);
     let deps = || -> Vec<String> {
         fs::read_dir(app.join("target/debug/deps"))
-            .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .map(|d| {
+                d.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
             .unwrap_or_default()
     };
-    assert!(deps().iter().any(|f| f.starts_with("libaa-")), "{:?}", deps());
+    assert!(
+        deps().iter().any(|f| f.starts_with("libaa-")),
+        "{:?}",
+        deps()
+    );
 
     let (_, err) = env.ok(&app, &["clean", "-p", "aa", "--dry-run"]);
-    assert!(err.contains("Summary") && err.contains("no files deleted due to --dry-run"), "{err}");
+    assert!(
+        err.contains("Summary") && err.contains("no files deleted due to --dry-run"),
+        "{err}"
+    );
     assert!(deps().iter().any(|f| f.starts_with("libaa-")));
 
     let (_, err) = env.ok(&app, &["clean", "-p", "aa"]);
     assert!(err.contains("Removed"), "{err}");
-    assert!(!deps().iter().any(|f| f.starts_with("libaa-")), "{:?}", deps());
-    assert!(deps().iter().any(|f| f.starts_with("libapp-")), "{:?}", deps());
+    assert!(
+        !deps().iter().any(|f| f.starts_with("libaa-")),
+        "{:?}",
+        deps()
+    );
+    assert!(
+        deps().iter().any(|f| f.starts_with("libapp-")),
+        "{:?}",
+        deps()
+    );
     assert!(app.join("target/doc/app/index.html").is_file());
 
     env.ok(&app, &["clean", "--doc"]);
@@ -693,11 +940,18 @@ fn every_command_takes_config_and_more_cargo_flags() {
     let env = Env::new();
     let registry = serve(vec![version("aa", "1.0.0")]);
     let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
-    fs::write(app.join("src/lib.rs"), "pub fn app() -> &'static str { aa::hello() }\n").unwrap();
+    fs::write(
+        app.join("src/lib.rs"),
+        "pub fn app() -> &'static str { aa::hello() }\n",
+    )
+    .unwrap();
     // `--config` on commands that have no use for it is accepted, as in Cargo.
     env.ok(&app, &["tree", "--config", "net.retry=1", "-e", "normal"]);
     env.ok(&app, &["locate-project", "--config=net.retry=1"]);
-    env.ok(&app, &["fetch", "--target", "x86_64-unknown-linux-gnu", "-q"]);
+    env.ok(
+        &app,
+        &["fetch", "--target", "x86_64-unknown-linux-gnu", "-q"],
+    );
 
     let (out, _) = env.ok(&app, &["metadata", "--no-deps", "--format-version", "1"]);
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -705,16 +959,36 @@ fn every_command_takes_config_and_more_cargo_flags() {
     assert!(doc["resolve"].is_null());
 
     let out_dir = env.path("artifacts");
-    env.ok(&app, &["build", "-q", "-Z", "unstable-options", "--artifact-dir", out_dir.to_str().unwrap()]);
+    env.ok(
+        &app,
+        &[
+            "build",
+            "-q",
+            "-Z",
+            "unstable-options",
+            "--artifact-dir",
+            out_dir.to_str().unwrap(),
+        ],
+    );
     assert!(out_dir.join("app").is_file(), "binary copied");
     assert!(out_dir.join("libapp.rlib").is_file(), "library copied");
 
     let err = env.fails(&app, &["report", "future-incompatibilities"]);
     assert!(err.contains("no reports are currently available"), "{err}");
     let (_, err) = env.ok(&app, &["check", "-q", "--future-incompat-report"]);
-    assert!(err.contains("0 dependencies had future-incompatible warnings"), "{err}");
+    assert!(
+        err.contains("0 dependencies had future-incompatible warnings"),
+        "{err}"
+    );
 
-    let err = env.fails(&app, &["generate-lockfile", "--publish-time", "2025-01-01T00:00:00Z"]);
+    let err = env.fails(
+        &app,
+        &[
+            "generate-lockfile",
+            "--publish-time",
+            "2025-01-01T00:00:00Z",
+        ],
+    );
     assert!(err.contains("unstable"), "{err}");
 }
 
@@ -732,35 +1006,75 @@ fn package_lists_guards_dirty_trees_and_publishes_to_a_named_registry() {
     fs::write(app.join(".gitignore"), "/target\n").unwrap();
 
     let (out, _) = env.ok(&app, &["package", "--list", "--allow-dirty"]);
-    assert!(out.lines().any(|l| l == "Cargo.toml") && out.lines().any(|l| l == "src/main.rs"), "{out}");
-    assert!(!app.join("target/package").exists(), "--list writes nothing");
+    assert!(
+        out.lines().any(|l| l == "Cargo.toml") && out.lines().any(|l| l == "src/main.rs"),
+        "{out}"
+    );
+    assert!(
+        !app.join("target/package").exists(),
+        "--list writes nothing"
+    );
 
     if has_git() {
         let git = |args: &[&str]| {
-            assert!(Command::new("git").args(args).current_dir(&app)
-                .env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@example.com")
-                .env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@example.com")
-                .status().unwrap().success());
+            assert!(Command::new("git")
+                .args(args)
+                .current_dir(&app)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .status()
+                .unwrap()
+                .success());
         };
         git(&["init", "-q"]);
         git(&["add", "."]);
         git(&["commit", "-q", "-m", "init"]);
-        fs::write(app.join("src/main.rs"), "fn main() { println!(\"changed\"); }\n").unwrap();
+        fs::write(
+            app.join("src/main.rs"),
+            "fn main() { println!(\"changed\"); }\n",
+        )
+        .unwrap();
         let err = env.fails(&app, &["package", "--no-verify"]);
-        assert!(err.contains("contain changes that were not yet committed") && err.contains("src/main.rs"), "{err}");
+        assert!(
+            err.contains("contain changes that were not yet committed")
+                && err.contains("src/main.rs"),
+            "{err}"
+        );
         env.ok(&app, &["package", "--no-verify", "--allow-dirty"]);
         assert!(app.join("target/package/app-0.1.0.crate").is_file());
         git(&["commit", "-q", "-am", "change"]);
     }
 
     let err = env.fails(&app, &["publish", "--no-verify", "--allow-dirty"]);
-    assert!(err.contains("does not allow publication to crates-io"), "{err}");
-    let (_, err) = env.ok(&app, &["publish", "--no-verify", "--allow-dirty", "--registry", "mock", "--token", "pub-token"]);
-    assert!(err.contains("Uploaded app v0.1.0 to registry `mock`"), "{err}");
+    assert!(
+        err.contains("does not allow publication to crates-io"),
+        "{err}"
+    );
+    let (_, err) = env.ok(
+        &app,
+        &[
+            "publish",
+            "--no-verify",
+            "--allow-dirty",
+            "--registry",
+            "mock",
+            "--token",
+            "pub-token",
+        ],
+    );
+    assert!(
+        err.contains("Uploaded app v0.1.0 to registry `mock`"),
+        "{err}"
+    );
     let upload = registry
         .requests()
         .into_iter()
         .find(|r| r.method == "PUT" && r.path == "/api/v1/crates/new")
         .expect("upload request");
-    assert_eq!(upload.headers.get("authorization").map(String::as_str), Some("pub-token"));
+    assert_eq!(
+        upload.headers.get("authorization").map(String::as_str),
+        Some("pub-token")
+    );
 }

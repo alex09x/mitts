@@ -164,7 +164,11 @@ fn project_dir() -> PathBuf {
 }
 
 fn open(choice: &RegistryChoice) -> Result<RegistryApi> {
-    RegistryApi::open(&project_dir(), choice.registry.as_deref(), choice.index.as_deref())
+    RegistryApi::open(
+        &project_dir(),
+        choice.registry.as_deref(),
+        choice.index.as_deref(),
+    )
 }
 
 pub fn handle_search(args: &SearchArgs) -> i32 {
@@ -172,7 +176,10 @@ pub fn handle_search(args: &SearchArgs) -> i32 {
         let api = open(&args.registry)?;
         let limit = args.limit.clamp(1, 100);
         let query = args.query.join(" ");
-        let doc = api.get(&format!("/crates?q={}&per_page={limit}", encode(&query)), None)?;
+        let doc = api.get(
+            &format!("/crates?q={}&per_page={limit}", encode(&query)),
+            None,
+        )?;
         let crates = doc["crates"].as_array().cloned().unwrap_or_default();
         let lines: Vec<(String, String)> = crates
             .iter()
@@ -243,9 +250,14 @@ fn run_info(args: &InfoArgs) -> Result<()> {
         .ok()
         .and_then(|m| super::project_info::workspace_root(&m).ok())
         .and_then(|root| {
-            crate::adapter::rust::lockfile::CargoLock::from_file(&root.with_file_name("Cargo.lock")).ok()
+            crate::adapter::rust::lockfile::CargoLock::from_file(&root.with_file_name("Cargo.lock"))
+                .ok()
         })
-        .and_then(|lock| lock.packages.into_iter().find(|p| p.name == name && p.source.is_some()))
+        .and_then(|lock| {
+            lock.packages
+                .into_iter()
+                .find(|p| p.name == name && p.source.is_some())
+        })
         .map(|p| p.version);
     let chosen = versions
         .iter()
@@ -255,9 +267,7 @@ fn run_info(args: &InfoArgs) -> Result<()> {
         })
         .filter(|e| !e.yanked || wanted.is_some())
         .filter_map(|e| semver::Version::parse(&e.vers).ok().map(|v| (v, e)))
-        .max_by(|a, b| {
-            (a.0.pre.is_empty(), &a.0).cmp(&(b.0.pre.is_empty(), &b.0))
-        })
+        .max_by(|a, b| (a.0.pre.is_empty(), &a.0).cmp(&(b.0.pre.is_empty(), &b.0)))
         .map(|(_, e)| e.clone())
         .with_context(|| format!("could not find `{}` in registry", args.spec))?;
 
@@ -304,9 +314,16 @@ fn run_info(args: &InfoArgs) -> Result<()> {
             out.push_str(&format!("{label}: {value}\n"));
         }
     }
-    let crates_io = args.registry.registry.as_deref().is_none_or(|r| r == "crates-io");
+    let crates_io = args
+        .registry
+        .registry
+        .as_deref()
+        .is_none_or(|r| r == "crates-io");
     if crates_io {
-        out.push_str(&format!("crates.io: https://crates.io/crates/{name}/{}\n", chosen.vers));
+        out.push_str(&format!(
+            "crates.io: https://crates.io/crates/{name}/{}\n",
+            chosen.vers
+        ));
     }
     let mut features: Vec<(&String, &Vec<String>)> = chosen
         .features
@@ -376,7 +393,10 @@ fn download_manifest(choice: &RegistryChoice, name: &str, version: &str) -> Resu
         Some(i) => i.trim_start_matches("sparse+").to_string(),
         None => config.index_url_for(choice.registry.as_deref())?,
     };
-    let doc = super::registry_api::get_json(&format!("{}/config.json", index.trim_end_matches('/')), None)?;
+    let doc = super::registry_api::get_json(
+        &format!("{}/config.json", index.trim_end_matches('/')),
+        None,
+    )?;
     let dl = doc["dl"].as_str().context("the registry has no `dl` URL")?;
     let url = if dl.contains("{crate}") || dl.contains("{version}") {
         dl.replace("{crate}", name).replace("{version}", version)
@@ -386,7 +406,10 @@ fn download_manifest(choice: &RegistryChoice, name: &str, version: &str) -> Resu
     let agent = crate::adapter::rust::http_client::agent_builder().build();
     let response = agent.get(&url).set("User-Agent", "mitts").call()?;
     let mut bytes = Vec::new();
-    response.into_reader().take(64 * 1024 * 1024).read_to_end(&mut bytes)?;
+    response
+        .into_reader()
+        .take(64 * 1024 * 1024)
+        .read_to_end(&mut bytes)?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(&bytes[..]));
     let wanted = format!("{name}-{version}/Cargo.toml");
     for entry in archive.entries()? {
@@ -408,21 +431,20 @@ fn write_credentials(registry: Option<&str>, token: Option<&str>) -> Result<bool
     let path = home.join("credentials.toml");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let mut doc: toml_edit::DocumentMut = text.parse().unwrap_or_default();
-    let changed;
-    match registry.filter(|r| *r != "crates-io") {
+    let changed = match registry.filter(|r| *r != "crates-io") {
         None => {
             let table = doc
                 .entry("registry")
                 .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
                 .as_table_mut()
                 .context("[registry] in credentials.toml is not a table")?;
-            changed = match token {
+            match token {
                 Some(t) => {
                     table.insert("token", toml_edit::value(t));
                     true
                 }
                 None => table.remove("token").is_some(),
-            };
+            }
         }
         Some(name) => {
             let regs = doc
@@ -439,15 +461,15 @@ fn write_credentials(registry: Option<&str>, token: Option<&str>) -> Result<bool
                 .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
                 .as_table_mut()
                 .context("the registry entry in credentials.toml is not a table")?;
-            changed = match token {
+            match token {
                 Some(t) => {
                     table.insert("token", toml_edit::value(t));
                     true
                 }
                 None => table.remove("token").is_some(),
-            };
+            }
         }
-    }
+    };
     if changed {
         std::fs::write(&path, doc.to_string())?;
         #[cfg(unix)]
@@ -461,7 +483,11 @@ fn write_credentials(registry: Option<&str>, token: Option<&str>) -> Result<bool
 
 pub fn handle_login(args: &LoginArgs) -> i32 {
     report((|| {
-        let name = args.registry.registry.clone().unwrap_or_else(|| "crates-io".into());
+        let name = args
+            .registry
+            .registry
+            .clone()
+            .unwrap_or_else(|| "crates-io".into());
         let token = match &args.token {
             Some(t) => t.clone(),
             None => {
@@ -492,13 +518,20 @@ pub fn handle_login(args: &LoginArgs) -> i32 {
 
 pub fn handle_logout(args: &LogoutArgs) -> i32 {
     report((|| {
-        let name = args.registry.registry.clone().unwrap_or_else(|| "crates-io".into());
+        let name = args
+            .registry
+            .registry
+            .clone()
+            .unwrap_or_else(|| "crates-io".into());
         let removed = write_credentials(args.registry.registry.as_deref(), None)?;
         if args.registry.quiet {
             return Ok(());
         }
         if removed {
-            status("Logout", &format!("token for `{name}` has been removed from local storage"));
+            status(
+                "Logout",
+                &format!("token for `{name}` has been removed from local storage"),
+            );
             if name == "crates-io" {
                 eprintln!(
                     "note: This does not revoke the token on the registry server.\n    \
@@ -546,7 +579,10 @@ pub fn handle_owner(args: &OwnerArgs) -> i32 {
         }
         if !args.remove.is_empty() {
             if !args.registry.quiet {
-                status("Owner", &format!("removing {:?} from crate {krate}", args.remove));
+                status(
+                    "Owner",
+                    &format!("removing {:?} from crate {krate}", args.remove),
+                );
             }
             let reply = api.send("DELETE", &path, Some(&json!({ "users": args.remove })))?;
             print_msg(&reply, args.registry.quiet);
@@ -581,7 +617,10 @@ pub fn handle_yank(args: &YankArgs) -> i32 {
             (Some(spec), version) => {
                 let (name, from_spec) = super::project_info::parse_spec(spec);
                 match (from_spec, version) {
-                    (Some(_), Some(_)) => bail!("cannot specify both `@{}` and `--version`", from_spec.unwrap_or_default()),
+                    (Some(_), Some(_)) => bail!(
+                        "cannot specify both `@{}` and `--version`",
+                        from_spec.unwrap_or_default()
+                    ),
                     (Some(v), None) => (name.to_string(), v.to_string()),
                     (None, Some(v)) => (name.to_string(), v.clone()),
                     (None, None) => bail!("`--version` is required"),

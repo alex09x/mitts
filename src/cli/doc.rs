@@ -285,13 +285,19 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         let crate_name = unit.target_name.replace('-', "_");
         let crate_type = if unit.kind == "proc-macro" {
             "proc-macro"
-        } else if matches!(unit.kind.as_str(), "bin" | "example" | "test" | "custom-test") {
+        } else if matches!(
+            unit.kind.as_str(),
+            "bin" | "example" | "test" | "custom-test"
+        ) {
             "bin"
         } else {
             "lib"
         };
         let mut argv: Vec<String> = vec![
-            format!("--edition={}", unit.edition.clone().unwrap_or_else(|| "2015".into())),
+            format!(
+                "--edition={}",
+                unit.edition.clone().unwrap_or_else(|| "2015".into())
+            ),
             "--crate-type".into(),
             crate_type.into(),
             "--crate-name".into(),
@@ -378,7 +384,8 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         }
         // A registry or git package is immutable at its version; a local one is read
         // from its directory.
-        if unit.is_workspace || unit.package_id.contains("path+") || !unit.package_id.contains(" (") {
+        if unit.is_workspace || unit.package_id.contains("path+") || !unit.package_id.contains(" (")
+        {
             if let Some(dir) = unit.manifest_path.parent() {
                 inputs.push_str(&format!("\nsources {}", tree_digest(dir)));
             }
@@ -390,12 +397,10 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         }
         let mut hasher = Sha256::new();
         hasher.update(inputs.as_bytes());
-        let stamp = doc_dir
-            .join(".mitts-stamps")
-            .join(format!(
-                "{crate_name}-{}",
-                crate::core::hash::bytes_to_hex(&hasher.finalize())
-            ));
+        let stamp = doc_dir.join(".mitts-stamps").join(format!(
+            "{crate_name}-{}",
+            crate::core::hash::bytes_to_hex(&hasher.finalize())
+        ));
         let index = if args.output_format.as_deref() == Some("json") {
             doc_dir.join(format!("{crate_name}.json"))
         } else {
@@ -411,7 +416,10 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
             continue;
         }
         if !args.quiet {
-            status("Documenting", &format!("{} v{}", unit.package_name, unit.version));
+            status(
+                "Documenting",
+                &format!("{} v{}", unit.package_name, unit.version),
+            );
         }
         cmd.args(&argv).envs(&env);
         if let Some(dir) = unit.manifest_path.parent() {
@@ -424,10 +432,7 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
             .status()
             .with_context(|| format!("failed to run `{}`", rustdoc.display()))?;
         if !status_code.success() {
-            bail!(
-                "could not document `{}`",
-                unit.package_name
-            );
+            bail!("could not document `{}`", unit.package_name);
         }
         let _ = std::fs::write(&stamp, inputs.as_bytes());
     }
@@ -435,7 +440,10 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         let profile = crate::adapter::rust::profile::profile_name(opt.release);
         status(
             "Finished",
-            &format!("`{profile}` profile target(s) in {:.2}s", started.elapsed().as_secs_f64()),
+            &format!(
+                "`{profile}` profile target(s) in {:.2}s",
+                started.elapsed().as_secs_f64()
+            ),
         );
         match generated.as_slice() {
             [] => {}
@@ -481,7 +489,10 @@ fn selected_units(
         } else if unit.kind == "bin" {
             unit.is_primary
                 && !args.lib
-                && !lib_names.contains(&(unit.package_name.clone(), unit.target_name.replace('-', "_")))
+                && !lib_names.contains(&(
+                    unit.package_name.clone(),
+                    unit.target_name.replace('-', "_"),
+                ))
         } else if unit.kind == "example" {
             unit.is_primary
                 && (args.examples || args.all_targets || args.example.contains(&unit.target_name))
@@ -498,7 +509,11 @@ fn selected_units(
         if !wanted {
             continue;
         }
-        let key = (unit.package_name.clone(), unit.version.clone(), unit.target_name.clone());
+        let key = (
+            unit.package_name.clone(),
+            unit.version.clone(),
+            unit.target_name.clone(),
+        );
         if seen.insert(key) {
             out.push(unit.clone());
         }
@@ -527,7 +542,11 @@ fn tree_digest(dir: &Path) -> String {
             match entry.file_type() {
                 Ok(t) if t.is_dir() => walk(base, &path, out),
                 Ok(t) if t.is_file() => {
-                    let rel = path.strip_prefix(base).unwrap_or(&path).display().to_string();
+                    let rel = path
+                        .strip_prefix(base)
+                        .unwrap_or(&path)
+                        .display()
+                        .to_string();
                     out.push((rel, file_digest(&path)));
                 }
                 _ => {}
@@ -554,11 +573,25 @@ fn open(path: &Path, quiet: bool) {
     if !quiet {
         status("Opening", &path.display().to_string());
     }
-    let browser = std::env::var("BROWSER").ok().filter(|b| !b.is_empty());
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let configured = crate::adapter::rust::cargo_config_value::get(&cwd, "doc.browser")
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_string_list().ok())
+        .filter(|l| !l.is_empty());
+    let browser = configured.or_else(|| {
+        std::env::var("BROWSER")
+            .ok()
+            .filter(|b| !b.is_empty())
+            .map(|b| vec![b])
+    });
     let result = match browser {
-        Some(b) => Command::new(b).arg(path).status(),
+        Some(b) => Command::new(&b[0]).args(&b[1..]).arg(path).status(),
         None if cfg!(target_os = "macos") => Command::new("open").arg(path).status(),
-        None if cfg!(windows) => Command::new("cmd").args(["/C", "start", ""]).arg(path).status(),
+        None if cfg!(windows) => Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(path)
+            .status(),
         None => Command::new("xdg-open").arg(path).status(),
     };
     if !result.is_ok_and(|s| s.success()) {

@@ -95,7 +95,10 @@ mod tests {
 
     #[test]
     fn reads_rustc_and_manifest_versions() {
-        assert_eq!(parse("rustc 1.85.0 (4d91de4e4 2025-02-17)"), Some((1, 85, 0)));
+        assert_eq!(
+            parse("rustc 1.85.0 (4d91de4e4 2025-02-17)"),
+            Some((1, 85, 0))
+        );
         assert_eq!(parse("1.86.0-nightly"), Some((1, 86, 0)));
         assert_eq!(parse("1.70"), Some((1, 70, 0)));
         assert_eq!(parse("one"), None);

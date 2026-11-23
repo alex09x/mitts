@@ -28,7 +28,11 @@ fn write_project(dir: &Path) {
          [dependencies]\nrand_core = { path = \"../shim03\", version = \"0.3.0\" }\n",
     )
     .unwrap();
-    fs::write(dir.join("app/src/lib.rs"), "pub fn v() -> u32 { rand_core::three() }\n").unwrap();
+    fs::write(
+        dir.join("app/src/lib.rs"),
+        "pub fn v() -> u32 { rand_core::three() }\n",
+    )
+    .unwrap();
     fs::write(
         dir.join("shim03/Cargo.toml"),
         "[package]\nname = \"rand_core\"\nversion = \"0.3.0\"\nedition = \"2021\"\n\n\
@@ -45,7 +49,11 @@ fn write_project(dir: &Path) {
         "[package]\nname = \"rand_core\"\nversion = \"0.4.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(dir.join("shim04/src/lib.rs"), "pub fn four() -> u32 { 4 }\n").unwrap();
+    fs::write(
+        dir.join("shim04/src/lib.rs"),
+        "pub fn four() -> u32 { 4 }\n",
+    )
+    .unwrap();
 }
 
 #[test]

@@ -71,7 +71,10 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
     let mut doc = metadata_for(&opt, args.package.clone())?;
     if args.no_deps {
         // Only the workspace members, and no resolve graph, as Cargo prints it.
-        let members: Vec<Value> = doc["workspace_members"].as_array().cloned().unwrap_or_default();
+        let members: Vec<Value> = doc["workspace_members"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         if let Some(packages) = doc["packages"].as_array_mut() {
             packages.retain(|p| members.contains(&p["id"]));
         }

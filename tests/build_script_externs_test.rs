@@ -43,7 +43,10 @@ fn workspace(root: &Path) {
         &root.join("bdep/Cargo.toml"),
         "[package]\nname = \"bdep\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    write(&root.join("bdep/src/lib.rs"), "pub fn answer() -> u32 { 42 }\n");
+    write(
+        &root.join("bdep/src/lib.rs"),
+        "pub fn answer() -> u32 { 42 }\n",
+    );
     write(
         &root.join("app/Cargo.toml"),
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nregular = { path = \"../regular\" }\n\n[build-dependencies]\nbdep = { path = \"../bdep\" }\n",

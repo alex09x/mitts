@@ -219,7 +219,8 @@ pub fn install_root(flag: &Option<PathBuf>) -> Result<PathBuf> {
 /// Cargo's install records: `.crates.toml` (package id -> binaries).
 fn read_tracking(root: &Path) -> BTreeMap<String, Vec<String>> {
     let text = std::fs::read_to_string(root.join(".crates.toml")).unwrap_or_default();
-    let value: toml::Value = toml::from_str(&text).unwrap_or(toml::Value::Table(Default::default()));
+    let value: toml::Value =
+        toml::from_str(&text).unwrap_or(toml::Value::Table(Default::default()));
     value
         .get("v1")
         .and_then(|v| v.as_table())
@@ -228,7 +229,11 @@ fn read_tracking(root: &Path) -> BTreeMap<String, Vec<String>> {
                 .map(|(k, v)| {
                     let bins = v
                         .as_array()
-                        .map(|a| a.iter().filter_map(|b| b.as_str().map(str::to_string)).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|b| b.as_str().map(str::to_string))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     (k.clone(), bins)
                 })
@@ -237,12 +242,20 @@ fn read_tracking(root: &Path) -> BTreeMap<String, Vec<String>> {
         .unwrap_or_default()
 }
 
-fn write_tracking(root: &Path, entries: &BTreeMap<String, Vec<String>>, extra: Option<(&str, Value)>) -> Result<()> {
+fn write_tracking(
+    root: &Path,
+    entries: &BTreeMap<String, Vec<String>>,
+    extra: Option<(&str, Value)>,
+) -> Result<()> {
     let mut v1 = toml::value::Table::new();
     for (id, bins) in entries {
         v1.insert(
             id.clone(),
-            toml::Value::Array(bins.iter().map(|b| toml::Value::String(b.clone())).collect()),
+            toml::Value::Array(
+                bins.iter()
+                    .map(|b| toml::Value::String(b.clone()))
+                    .collect(),
+            ),
         );
     }
     let mut doc = toml::value::Table::new();
@@ -326,7 +339,10 @@ fn scratch(label: &str) -> Result<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("mitts-install-{label}-{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "mitts-install-{label}-{}-{nanos}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -351,9 +367,20 @@ fn package_of(dir: &Path, wanted: Option<&str>) -> Result<(PathBuf, String, Stri
             if wanted.is_some_and(|w| !w.is_empty() && w != name) {
                 continue;
             }
-            let m = crate::adapter::rust::manifest::CargoToml::from_file(&member_dir.join("Cargo.toml"))?;
-            if m.discover_targets(&member_dir).iter().any(|t| t.kind == "bin") {
-                with_bins.push((member_dir, name, m.package.and_then(|p| p.version).unwrap_or_else(|| "0.0.0".into())));
+            let m = crate::adapter::rust::manifest::CargoToml::from_file(
+                &member_dir.join("Cargo.toml"),
+            )?;
+            if m.discover_targets(&member_dir)
+                .iter()
+                .any(|t| t.kind == "bin")
+            {
+                with_bins.push((
+                    member_dir,
+                    name,
+                    m.package
+                        .and_then(|p| p.version)
+                        .unwrap_or_else(|| "0.0.0".into()),
+                ));
             }
         }
         match with_bins.len() {
@@ -362,7 +389,11 @@ fn package_of(dir: &Path, wanted: Option<&str>) -> Result<(PathBuf, String, Stri
             _ => bail!("multiple packages with binaries found; name the one to install"),
         }
     }
-    bail!("could not find `{}` in `{}`", wanted.unwrap_or("a package"), dir.display())
+    bail!(
+        "could not find `{}` in `{}`",
+        wanted.unwrap_or("a package"),
+        dir.display()
+    )
 }
 
 fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
@@ -433,12 +464,21 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
     }
     let cwd = std::env::current_dir()?;
     let config = crate::adapter::rust::registry_config::RegistryConfig::load(&cwd)?;
-    let resolver = crate::adapter::rust::resolver::NativeResolver::for_cache_dir(args.cache_dir.as_deref())?;
+    let resolver =
+        crate::adapter::rust::resolver::NativeResolver::for_cache_dir(args.cache_dir.as_deref())?;
     if !args.quiet && !args.offline {
-        status("Updating", &format!("{} index", args.registry.as_deref().unwrap_or("crates.io")));
+        status(
+            "Updating",
+            &format!("{} index", args.registry.as_deref().unwrap_or("crates.io")),
+        );
     }
     let versions = resolver
-        .registry_versions(&cwd, args.registry.as_deref(), wanted_name, args.offline || args.frozen)
+        .registry_versions(
+            &cwd,
+            args.registry.as_deref(),
+            wanted_name,
+            args.offline || args.frozen,
+        )
         .with_context(|| format!("could not find `{wanted_name}` in registry"))?;
     let req = spec_version
         .map(|v| {
@@ -451,7 +491,10 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
         .or_else(|| args.version.clone());
     let req = req
         .as_deref()
-        .map(|r| semver::VersionReq::parse(r).with_context(|| format!("invalid version requirement `{r}`")))
+        .map(|r| {
+            semver::VersionReq::parse(r)
+                .with_context(|| format!("invalid version requirement `{r}`"))
+        })
         .transpose()?;
     let entry = versions
         .iter()
@@ -503,7 +546,10 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
         return Ok(());
     }
     if !args.quiet {
-        status("Installing", &format!("{} v{}", source.name, source.version));
+        status(
+            "Installing",
+            &format!("{} v{}", source.name, source.version),
+        );
     }
     if !args.locked && !args.frozen && source.temp.is_some() {
         let _ = std::fs::remove_file(source.dir.join("Cargo.lock"));
@@ -535,7 +581,11 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
     }
     for bin in args.bin.iter().chain(args.example.iter()) {
         if !chosen.contains(bin) {
-            bail!("no {} target named `{bin}` in `{}`", if examples { "example" } else { "bin" }, source.name);
+            bail!(
+                "no {} target named `{bin}` in `{}`",
+                if examples { "example" } else { "bin" },
+                source.name
+            );
         }
     }
     // Refuse to overwrite another package's binaries unless forced, as Cargo does.
@@ -556,7 +606,11 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
     };
     let exe = std::env::current_exe()?;
     let mut cmd = Command::new(exe);
-    cmd.arg("build").arg("--manifest-path").arg(&manifest).arg("--target-dir").arg(&build_root);
+    cmd.arg("build")
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .arg("--target-dir")
+        .arg(&build_root);
     let profile = match (&args.profile, args.debug) {
         (Some(p), _) => p.clone(),
         (None, true) => "dev".to_string(),
@@ -604,7 +658,12 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
     };
     if !ok {
         cleanup(&build_root);
-        bail!("failed to compile `{} v{}`, intermediate artifacts can be found at `{}`", source.name, source.version, build_root.display());
+        bail!(
+            "failed to compile `{} v{}`, intermediate artifacts can be found at `{}`",
+            source.name,
+            source.version,
+            build_root.display()
+        );
     }
     let profile_dir = match profile.as_str() {
         "dev" | "test" => "debug".to_string(),
@@ -628,7 +687,11 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(&bin_dir)?;
-    let suffix = if args.target.as_deref().map_or(cfg!(windows), |t| t.contains("windows")) {
+    let suffix = if args
+        .target
+        .as_deref()
+        .map_or(cfg!(windows), |t| t.contains("windows"))
+    {
         ".exe"
     } else {
         ""
@@ -647,7 +710,10 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
         std::fs::copy(&from, &tmp)?;
         std::fs::rename(&tmp, &to)?;
         if !args.quiet {
-            status(if replacing { "Replacing" } else { "Installing" }, &to.display().to_string());
+            status(
+                if replacing { "Replacing" } else { "Installing" },
+                &to.display().to_string(),
+            );
         }
         installed.push(file);
     }
@@ -669,11 +735,20 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
         write_tracking(root, &tracking, Some((&id, info)))?;
     }
     if !args.quiet {
-        let noun = if installed.len() == 1 { "executable" } else { "executables" };
+        let noun = if installed.len() == 1 {
+            "executable"
+        } else {
+            "executables"
+        };
         let names: Vec<String> = installed.iter().map(|b| format!("`{b}`")).collect();
         status(
             "Installed",
-            &format!("package `{} v{}` ({noun} {})", source.name, source.version, names.join(", ")),
+            &format!(
+                "package `{} v{}` ({noun} {})",
+                source.name,
+                source.version,
+                names.join(", ")
+            ),
         );
     }
     Ok(())
@@ -699,7 +774,8 @@ pub fn handle_uninstall(args: &UninstallArgs) -> i32 {
                 .keys()
                 .filter(|id| {
                     let mut w = id.split(' ');
-                    w.next() == Some(name) && version.is_none_or(|v| w.next().is_some_and(|x| x.starts_with(v)))
+                    w.next() == Some(name)
+                        && version.is_none_or(|v| w.next().is_some_and(|x| x.starts_with(v)))
                 })
                 .cloned()
                 .collect();
@@ -713,7 +789,10 @@ pub fn handle_uninstall(args: &UninstallArgs) -> i32 {
                 args.bin.is_empty() || args.bin.iter().any(|x| x == b || format!("{x}.exe") == *b)
             });
             if remove.is_empty() {
-                bail!("binary `{}` not installed as part of `{id}`", args.bin.join(", "));
+                bail!(
+                    "binary `{}` not installed as part of `{id}`",
+                    args.bin.join(", ")
+                );
             }
             for bin in &remove {
                 let path = root.join("bin").join(bin);

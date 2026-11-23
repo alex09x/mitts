@@ -59,6 +59,12 @@ fn tested_examples_run_with_tests_and_plain_ones_do_not() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(out.status.success(), "the tested example passes:\n{text}");
-    assert!(text.contains("example_answer"), "the example's test ran:\n{text}");
-    assert!(!text.contains("never_selected"), "a plain example is not a test:\n{text}");
+    assert!(
+        text.contains("example_answer"),
+        "the example's test ran:\n{text}"
+    );
+    assert!(
+        !text.contains("never_selected"),
+        "a plain example is not a test:\n{text}"
+    );
 }

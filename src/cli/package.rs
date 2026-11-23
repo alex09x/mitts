@@ -228,10 +228,14 @@ fn lock_path_for(manifest: &Path) -> PathBuf {
 /// package `--manifest-path` (or the current directory) names.
 fn selected_manifests(args: &PackageArgs) -> Result<Vec<PathBuf>> {
     if args.exclude_lockfile {
-        anyhow::bail!("the `--exclude-lockfile` flag is unstable in Cargo and not supported by Mitts");
+        anyhow::bail!(
+            "the `--exclude-lockfile` flag is unstable in Cargo and not supported by Mitts"
+        );
     }
     if args.message_format.is_some() {
-        anyhow::bail!("`--message-format` for packaging is unstable in Cargo and not supported by Mitts");
+        anyhow::bail!(
+            "`--message-format` for packaging is unstable in Cargo and not supported by Mitts"
+        );
     }
     if args.packages.is_empty() && !args.workspace {
         return Ok(vec![args.manifest()?]);
@@ -245,7 +249,10 @@ fn selected_manifests(args: &PackageArgs) -> Result<Vec<PathBuf>> {
             .packages
             .iter()
             .any(|spec| super::project_info::parse_spec(spec).0 == name);
-        let excluded = args.exclude.iter().any(|spec| super::project_info::parse_spec(spec).0 == name);
+        let excluded = args
+            .exclude
+            .iter()
+            .any(|spec| super::project_info::parse_spec(spec).0 == name);
         if (args.workspace || named) && !excluded {
             out.push(std::fs::canonicalize(dir.join("Cargo.toml"))?);
         }
@@ -614,14 +621,20 @@ fn publish_one(args: &PublishArgs, manifest: &Path) -> Result<()> {
             return Ok(());
         }
         let project_dir = manifest.parent().unwrap_or(Path::new("."));
-        let crates_io = args.package.registry.as_deref().is_none_or(|r| r == "crates-io")
+        let crates_io = args
+            .package
+            .registry
+            .as_deref()
+            .is_none_or(|r| r == "crates-io")
             && args.package.index.is_none();
         if crates_io && std::env::var_os("MITTS_CRATES_IO_API").is_none() {
             let token = match &args.token {
                 Some(t) => t.clone(),
                 None => crate::adapter::rust::registry_config::RegistryConfig::load(project_dir)?
                     .token_for_registry(None)?
-                    .context("no token found, please run `mitts login` or set CARGO_REGISTRY_TOKEN")?,
+                    .context(
+                        "no token found, please run `mitts login` or set CARGO_REGISTRY_TOKEN",
+                    )?,
             };
             registry_upload::upload(&metadata, &archive, &token)?;
         } else {
