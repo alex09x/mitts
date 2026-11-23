@@ -134,6 +134,46 @@ fn has_flag(args: &[OsString], from: usize, flags: &[&str]) -> bool {
         })
 }
 
+/// `-C DIR` (or `-CDIR`) before the subcommand, as in Cargo: the process moves to DIR
+/// and the option is dropped, so configuration and manifest discovery start there.
+pub fn change_directory(mut args: Vec<OsString>) -> Result<Vec<OsString>> {
+    let mut i = 1;
+    while i < args.len() {
+        let Some(word) = args[i].to_str().map(str::to_string) else {
+            return Ok(args);
+        };
+        if word == "--" || !word.starts_with('-') {
+            return Ok(args);
+        }
+        let dir = if word == "-C" {
+            let Some(dir) = args.get(i + 1).cloned() else {
+                bail!("a value is required for '-C <DIRECTORY>' but none was supplied");
+            };
+            args.drain(i..i + 2);
+            dir
+        } else if let Some(dir) = word.strip_prefix("-C").filter(|d| !d.is_empty()) {
+            let dir = OsString::from(dir);
+            args.remove(i);
+            dir
+        } else {
+            i += if GLOBAL_WITH_VALUE.contains(&word.as_str()) {
+                2
+            } else {
+                1
+            };
+            continue;
+        };
+        std::env::set_current_dir(&dir).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to change working directory to `{}`: {e}",
+                std::path::Path::new(&dir).display()
+            )
+        })?;
+        return Ok(args);
+    }
+    Ok(args)
+}
+
 /// Rewrites `args` (with `argv[0]`, without a `+toolchain`) as the configuration says.
 pub fn apply(mut args: Vec<OsString>) -> Result<Vec<OsString>> {
     let Some(at) = subcommand_index(&args) else {

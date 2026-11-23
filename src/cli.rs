@@ -19,7 +19,7 @@ const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS
 #[command(version = MITTS_VERSION)]
 #[command(
     about = "Rust-first build and package tooling with a shared artifact cache",
-    after_help = "Toolchain:\n  mitts +TOOLCHAIN <COMMAND>  Use that rustup toolchain, like cargo +nightly (sets RUSTUP_TOOLCHAIN)\n\nEnvironment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_SLOW_UNITS=DURATION Report units still running after DURATION, with their command (default 5m; off = never; --slow-units wins)\n  MITTS_LINK_TIMING=0   Do not measure link times (Mitts otherwise runs the cc-style linker driver for rustc)\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_NET_RETRY=N     Retries of a registry request after a network error, 408, 429 or 5xx, after 1, 3 and 5 s (default 3; 0 = none)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
+    after_help = "Toolchain:\n  mitts +TOOLCHAIN <COMMAND>  Use that rustup toolchain, like cargo +nightly (sets RUSTUP_TOOLCHAIN)\n  mitts -C DIR <COMMAND>      Run as if Mitts was started in DIR\n\nEnvironment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_SLOW_UNITS=DURATION Report units still running after DURATION, with their command (default 5m; off = never; --slow-units wins)\n  MITTS_LINK_TIMING=0   Do not measure link times (Mitts otherwise runs the cc-style linker driver for rustc)\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_NET_RETRY=N     Retries of a registry request after a network error, 408, 429 or 5xx, after 1, 3 and 5 s (default 3; 0 = none)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
 )]
 pub struct Cli {
     /// Coloring of Mitts' output: auto, always or never (default: CARGO_TERM_COLOR, else auto)
@@ -37,6 +37,14 @@ pub struct Cli {
     /// Unstable Cargo flags: `-Z unstable-options` is accepted; rustc's -Z flags go in RUSTFLAGS
     #[arg(short = 'Z', global = true, value_name = "FLAG", action = clap::ArgAction::Append)]
     pub unstable: Vec<String>,
+
+    /// Build even when a package's `rust-version` is newer than the rustc in use
+    #[arg(long, global = true)]
+    pub ignore_rust_version: bool,
+
+    /// Print a report of future-incompatibility warnings at the end of the build
+    #[arg(long, global = true)]
+    pub future_incompat_report: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -118,6 +126,42 @@ pub enum Commands {
 
     /// Remove generated artifacts and fast build lock for the workspace
     Clean(CleanArgs),
+
+    /// Create a new Cargo package
+    New(project_new::NewArgs),
+
+    /// Create a new Cargo package in an existing directory
+    Init(project_new::NewArgs),
+
+    /// Print a JSON representation of a Cargo.toml file's location
+    LocateProject(project_info::LocateProjectArgs),
+
+    /// Print a fully qualified package specification
+    Pkgid(project_info::PkgidArgs),
+
+    /// Show version information
+    Version(project_info::VersionArgs),
+
+    /// Generate the lockfile for a package
+    GenerateLockfile(lock_cmds::GenerateLockfileArgs),
+
+    /// Update dependencies as recorded in the local lock file
+    Update(lock_cmds::UpdateArgs),
+
+    /// Display a tree visualization of a dependency graph
+    Tree(tree::TreeArgs),
+
+    /// Add dependencies to a Cargo.toml manifest file
+    Add(manifest_edit::AddArgs),
+
+    /// Remove dependencies from a Cargo.toml manifest file
+    #[command(visible_alias = "rm")]
+    Remove(manifest_edit::RemoveArgs),
+}
+
+/// `mitts 0.4.0 (<commit>)`, as `--version` prints it.
+pub fn version_string() -> &'static str {
+    MITTS_VERSION
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -494,7 +538,13 @@ pub mod coverage_types;
 pub mod diagnostic;
 pub mod fmt;
 pub mod handlers;
+pub mod lock_cmds;
 pub mod manifest_discovery;
+pub mod manifest_edit;
+pub mod project_info;
+pub mod project_new;
+pub mod tree;
+pub mod tree_graph;
 pub mod message_format;
 pub mod metadata;
 mod package;

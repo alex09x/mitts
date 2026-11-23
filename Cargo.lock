@@ -687,6 +687,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "toml_edit",
  "ureq",
 ]
 

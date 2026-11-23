@@ -39,6 +39,14 @@ fn main() -> ExitCode {
             return ExitCode::from(101);
         }
     };
+    // `-C DIR` before the command: work as if started in DIR (config, manifest discovery).
+    let args = match mitts::cli::argv_config::change_directory(args) {
+        Ok(args) => args,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            return ExitCode::from(101);
+        }
+    };
     // `--config`, `[alias]`, `net.offline`, `term.quiet` / `term.verbose`, as Cargo does.
     let args = match mitts::cli::argv_config::apply(args) {
         Ok(args) => args,
@@ -50,6 +58,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     mitts::core::verbosity::set(cli.command.verbose());
+    mitts::adapter::rust::rust_version::set_ignored(cli.ignore_rust_version);
     if std::env::var("MITTS_LINK_TIMING").as_deref() != Ok("0") {
         mitts::adapter::rust::link_timing::enable();
     }
@@ -103,6 +112,18 @@ fn main() -> ExitCode {
         Commands::Publish(ref args) => handle_publish(args),
         Commands::Gc(ref args) => handle_gc(args),
         Commands::Clean(ref args) => handle_clean(args),
+        Commands::New(ref args) => mitts::cli::project_new::handle_new(args),
+        Commands::Init(ref args) => mitts::cli::project_new::handle_init(args),
+        Commands::LocateProject(ref args) => mitts::cli::project_info::handle_locate_project(args),
+        Commands::Pkgid(ref args) => mitts::cli::project_info::handle_pkgid(args),
+        Commands::Version(ref args) => mitts::cli::project_info::handle_version(args),
+        Commands::GenerateLockfile(ref args) => {
+            mitts::cli::lock_cmds::handle_generate_lockfile(args)
+        }
+        Commands::Update(ref args) => mitts::cli::lock_cmds::handle_update(args),
+        Commands::Tree(ref args) => mitts::cli::tree::handle_tree(args),
+        Commands::Add(ref args) => mitts::cli::manifest_edit::handle_add(args),
+        Commands::Remove(ref args) => mitts::cli::manifest_edit::handle_remove(args),
     };
 
     mitts::adapter::rust::cargo_config_cli::cleanup();

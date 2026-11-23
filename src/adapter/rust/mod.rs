@@ -82,6 +82,7 @@ pub mod project_config;
 pub mod registry_config;
 pub mod resolve_graph;
 pub mod resolver;
+pub mod rust_version;
 pub mod single_flight;
 pub mod source_lookup;
 pub mod sparse_index;

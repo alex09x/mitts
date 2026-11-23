@@ -190,9 +190,17 @@ pub struct TestArgs {
     #[arg(last = true)]
     pub test_args: Vec<String>,
 
-    /// Benchmark targets selected by name; set by `mitts bench`, not a `mitts test` option.
-    #[arg(skip)]
+    /// Test the named benchmark target (repeatable)
+    #[arg(long = "bench", value_name = "NAME", action = clap::ArgAction::Append)]
     pub bench_names: Vec<String>,
+
+    /// Test the named example target (repeatable)
+    #[arg(long = "example", value_name = "NAME", action = clap::ArgAction::Append)]
+    pub example: Vec<String>,
+
+    /// Test all example targets
+    #[arg(long)]
+    pub examples: bool,
 
     /// Run as `mitts bench`: benchmark targets only, no doctests.
     #[arg(skip)]
@@ -251,13 +259,13 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         all_tests: args.tests || args.all_targets,
         all_benches: args.benches || args.all_targets,
         bench_targets: args.bench_names.clone(),
-        all_examples: args.all_targets,
+        all_examples: args.all_targets || args.examples,
         bin_targets: args.bin.clone(),
         all_bins: args.bins || args.all_targets,
         lib_only: args.lib || args.all_targets,
         doc_only: args.doc,
         exclude: args.exclude.clone(),
-        example_targets: Vec::new(),
+        example_targets: args.example.clone(),
         keep_going: args.keep_going,
         crate_types: Vec::new(),
         quiet: args.quiet,

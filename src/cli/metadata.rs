@@ -68,7 +68,13 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
         ..Default::default()
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, true);
-    let plan = RustAdapter::explain_plan(&opt)?;
+    metadata_for(&opt, args.package.clone())
+}
+
+/// The `cargo metadata` document for a plan made with `opt` (`mitts tree` plans in test
+/// mode, so that dev-dependencies are part of the graph).
+pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> Result<Value> {
+    let plan = RustAdapter::explain_plan(opt)?;
     let mut packages = BTreeMap::<String, PackageEntry>::new();
     let mut unit_packages = HashMap::<String, String>::new();
 
@@ -178,7 +184,7 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
         .map(|entry| entry.cargo_id.clone())
         .collect::<Vec<_>>();
     let root_manifest = CargoToml::from_file(&plan.manifest_path)?;
-    let root_name = args.package.clone().or_else(|| {
+    let root_name = package.or_else(|| {
         root_manifest
             .package
             .as_ref()
