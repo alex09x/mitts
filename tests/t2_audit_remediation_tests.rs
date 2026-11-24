@@ -253,7 +253,8 @@ edition = "2021"
     assert!(custom_target
         .join(format!("debug/a{}", std::env::consts::EXE_SUFFIX))
         .is_file());
-    assert!(!custom_target.join("debug/b").is_file());
+    let exe = std::env::consts::EXE_SUFFIX;
+    assert!(!custom_target.join(format!("debug/b{exe}")).is_file());
     assert!(
         FastBuildLock::lock_path_in_target(&custom_target, "dev").is_file(),
         "Lockfile must be written inside custom target_dir"
@@ -264,7 +265,7 @@ edition = "2021"
     opt_b.bin_targets = vec!["b".to_string()];
     RustAdapter::build(&opt_b).unwrap();
     assert!(
-        custom_target.join("debug/b").is_file(),
+        custom_target.join(format!("debug/b{exe}")).is_file(),
         "--bin b must be built instead of falsely returning fast_lock=1 from --bin a"
     );
 }

@@ -146,7 +146,10 @@ fn test_m8_pkg_version_env_dep_same_clone_and_cross_clone_hit() {
         "Clone B must achieve a cross-worktree CAS HIT for env!(\"CARGO_PKG_VERSION\")"
     );
 
-    let bin_b = clone_b.path().join("target/debug/ver_app");
+    let bin_b = clone_b.path().join(format!(
+        "target/debug/ver_app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(bin_b.is_file());
     let out_b = Command::new(&bin_b).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_b.stdout), "VER:0.1.0");

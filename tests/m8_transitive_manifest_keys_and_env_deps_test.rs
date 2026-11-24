@@ -111,7 +111,10 @@ fn test_m8_transitive_dependent_dynamic_keys_across_clones() {
     let (_, res_b) = RustAdapter::build_native(&opt_b).expect("Clone B build failed");
     assert_eq!(res_b.exit_code, 0);
 
-    let bin_b = clone_b.path().join("target/debug/bin_b");
+    let bin_b = clone_b.path().join(format!(
+        "target/debug/bin_b{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(bin_b.is_file(), "Binary in Clone B must exist");
     let out_b = Command::new(&bin_b).output().unwrap();
     // CRITICAL (P0): bin_b MUST print V2! It must NOT hit stale cache of bin_b from Clone A!

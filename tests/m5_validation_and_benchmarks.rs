@@ -59,7 +59,10 @@ fn test_m5_cli_and_adapter_share_target() {
         result.stderr
     );
 
-    let mitts_bin = project_dir.join("target").join("debug").join("hello-rust");
+    let mitts_bin = project_dir
+        .join("target")
+        .join("debug")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(
         mitts_bin.is_file(),
         "Mitts binary must exist in target/debug"
@@ -341,7 +344,7 @@ fn test_m5_release_and_features_profile_coexistence() {
     assert!(temp_target
         .path()
         .join("release")
-        .join("hello-rust")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX))
         .is_file());
 
     // 3. Verify BOTH binaries coexist simultaneously on disk
@@ -353,7 +356,7 @@ fn test_m5_release_and_features_profile_coexistence() {
     assert!(temp_target
         .path()
         .join("release")
-        .join("hello-rust")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX))
         .is_file());
 
     // 4. Switch back to dev: must be 100% warm cache hit!

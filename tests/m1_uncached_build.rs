@@ -170,7 +170,9 @@ fn test_cli_and_adapter_share_standard_target() {
 
     let mitts_target = fixture_dir.join("target");
     assert_eq!(plan.target_directory, mitts_target);
-    let mitts_bin = mitts_target.join("debug").join("hello-rust");
+    let mitts_bin = mitts_target
+        .join("debug")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(mitts_bin.exists(), "Mitts binary must exist");
 
     // 3. Verify the shared executable path is usable after the Mitts build

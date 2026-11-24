@@ -83,7 +83,14 @@ fn deps(root: &Path) -> Vec<String> {
         .map(|entries| {
             entries
                 .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
+                // Executables by their name without the platform's suffix (`.exe`).
+                .map(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    match name.strip_suffix(std::env::consts::EXE_SUFFIX) {
+                        Some(stem) if !std::env::consts::EXE_SUFFIX.is_empty() => stem.into(),
+                        _ => name,
+                    }
+                })
                 .collect()
         })
         .unwrap_or_default();

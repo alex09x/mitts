@@ -259,12 +259,12 @@ bridge_dep = { package = "bridge-dep", path = "bridge", optional = true }
             "libissue17_native.a"
         })
         .is_file());
-    let dylib_ext = if cfg!(target_os = "macos") {
-        "dylib"
+    let dylib = if cfg!(windows) {
+        "deps/issue17_native.dll"
+    } else if cfg!(target_os = "macos") {
+        "deps/libissue17_native.dylib"
     } else {
-        "so"
+        "deps/libissue17_native.so"
     };
-    assert!(debug
-        .join(format!("deps/libissue17_native.{dylib_ext}"))
-        .is_file());
+    assert!(debug.join(dylib).is_file());
 }

@@ -497,7 +497,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-external_dep = {{ path = "{}" }}
+external_dep = {{ path = '{}' }}
 "#,
                 ext_dir.display()
             ),

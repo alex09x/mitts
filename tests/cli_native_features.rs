@@ -294,6 +294,9 @@ fn metadata_json_filters_optional_and_foreign_target_dependencies() {
         .is_some_and(|target| target.contains("target_os") && target.contains("macos")));
 }
 
+// The consumer is linked with `cc`, which cannot link an MSVC static library (on Windows
+// runners `cc` is MinGW's gcc).
+#[cfg(not(target_env = "msvc"))]
 #[test]
 fn rustc_native_static_libs_output_links_a_c_consumer() {
     let temp = TempDir::new().unwrap();

@@ -118,7 +118,11 @@ pub fn compute_unit_rustc_env_with_target(
                         .as_ref()
                         .is_none_or(|reqs| reqs.iter().all(|r| unit.features.contains(r)));
                     if req_ok {
-                        let mitts_bin = mitts_profile_dir.join(&b.name);
+                        let mitts_bin = mitts_profile_dir.join(format!(
+                            "{}{}",
+                            b.name,
+                            exe_suffix_in(&mitts_profile_dir)
+                        ));
                         env.insert(
                             format!("CARGO_BIN_EXE_{}", b.name),
                             mitts_bin.to_string_lossy().to_string(),
@@ -194,6 +198,27 @@ pub fn unit_has_build_script(unit: &PlannedCompilationUnit) -> bool {
     }
 }
 
+/// The executable suffix of binaries placed in `profile_dir`: an explicit `--target` names
+/// its directory (`target/x86_64-pc-windows-msvc/debug`), so a Windows triple there means
+/// `.exe` and any other triple none; without one the binaries are the host's.
+fn exe_suffix_in(profile_dir: &Path) -> &'static str {
+    let triple = profile_dir.components().find_map(|c| {
+        let name = c.as_os_str().to_str()?;
+        (name.matches('-').count() >= 2
+            && [
+                "-windows", "-linux", "-apple", "-unknown", "-none", "-android",
+            ]
+            .iter()
+            .any(|os| name.contains(os)))
+        .then_some(name)
+    });
+    match triple {
+        Some(t) if t.contains("-windows") => ".exe",
+        Some(_) => "",
+        None => std::env::consts::EXE_SUFFIX,
+    }
+}
+
 /// Applies `CARGO_BIN_EXE_<name>` and `CARGO_TARGET_TMPDIR` environment variables for test units.
 pub fn apply_test_binary_env(
     cmd: &mut std::process::Command,
@@ -220,7 +245,11 @@ pub fn apply_test_binary_env(
                 if req_ok {
                     cmd.env(
                         format!("CARGO_BIN_EXE_{}", b.name),
-                        mitts_profile_dir.join(&b.name),
+                        mitts_profile_dir.join(format!(
+                            "{}{}",
+                            b.name,
+                            exe_suffix_in(&mitts_profile_dir)
+                        )),
                     );
                 }
             }

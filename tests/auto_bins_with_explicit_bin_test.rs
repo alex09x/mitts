@@ -81,7 +81,10 @@ fn build_produces_the_inferred_binary_and_the_table_binary() {
     assert!(output.status.success(), "{}", text(&output));
     for name in ["explicit", "auto"] {
         assert!(
-            dir.path().join("target/debug").join(name).is_file(),
+            dir.path()
+                .join("target/debug")
+                .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+                .is_file(),
             "{name} is not built:\n{}",
             text(&output)
         );

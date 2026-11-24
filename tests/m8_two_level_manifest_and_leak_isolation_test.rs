@@ -86,7 +86,9 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     };
     let (plan_b, res_b) = RustAdapter::build(&opt_b).expect("Clone B build failed");
     assert!(res_b.success, "Build failed with stderr: {}", res_b.stderr);
-    let bin_b = clone_b.path().join("target/debug/app");
+    let bin_b = clone_b
+        .path()
+        .join(format!("target/debug/app{}", std::env::consts::EXE_SUFFIX));
     assert!(bin_b.is_file());
     let out_b = Command::new(&bin_b).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_b.stdout), "ASSET:v2");
