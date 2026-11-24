@@ -240,7 +240,7 @@ fn targets_sharing_a_crate_name_get_separate_sessions_and_clean_removes_them() {
         "fn main() {}\n#[cfg(test)]\nmod t { #[test] fn a() {} }\n",
     );
     write(&root, "tests/tool.rs", "#[test]\nfn b() {}\n");
-    // Cargo's own directory must survive `mitts clean`.
+    // Cargo's own directory goes with `mitts clean`, as with `cargo clean`.
     write(&temp.path().join("target"), "debug/incremental/keep", "");
     mitts(&root, temp.path(), &["test"]);
     let incr = temp.path().join("target/debug/mitts-incremental");
@@ -255,5 +255,5 @@ fn targets_sharing_a_crate_name_get_separate_sessions_and_clean_removes_them() {
         !incr.exists(),
         "mitts clean must remove Mitts' incremental sessions"
     );
-    assert!(temp.path().join("target/debug/incremental/keep").is_file());
+    assert!(!temp.path().join("target").exists());
 }

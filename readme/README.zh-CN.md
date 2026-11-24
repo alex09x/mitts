@@ -139,7 +139,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 Cargo 的其他所有命令也都在，选项和输出与 Cargo 相同：
@@ -366,7 +366,7 @@ Mitts 读取现有的 Cargo 清单与 lockfile，并为本项目提供 Rust 构�
 可以。本代码仓库的 CI 会安装最新稳定版 Mitts，然后将其用于原生构建、测试、覆盖率、格式化和 Clippy。共享工件存储对于每个 runner 都是本地的；跨机器的远程缓存目前尚不可用。
 
 **它会与 rust-analyzer 或现有的 Cargo 输出冲突吗？**
-Mitts 使用与 Cargo 相同的默认输出路径。其共享工件存储保持独立，且 `mitts clean` 仅移除与记录内容仍相符的已索引 Mitts 输出；它会保留无关的或被替换的 Cargo 文件。如果 Cargo 持有某个 profile 的构建目录锁，清理操作将跳过，直至该构建完成。
+Mitts 使用与 Cargo 相同的默认输出路径。其共享工件存储保持独立，且 `mitts clean` 与 `cargo clean` 一样删除目标目录，并等待正在运行的 Cargo 构建；共享存储不受影响。
 
 **缓存放在哪里，如何清理？**
 `--cache-dir`，否则为 `$MITTS_CACHE_DIR`、`$XDG_CACHE_HOME/mitts` 或 `~/.cache/mitts`；Mitts 缓存的所有内容均位于该单一根路径下。使用 `mitts gc` 在配额内进行清理；在没有构建运行时直接删除该目录也是安全的。

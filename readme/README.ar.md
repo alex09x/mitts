@@ -156,7 +156,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 </div>
@@ -405,7 +405,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 نعم. يثبت التكامل المستمر في هذا المستودع أحدث إصدار مستقر من Mitts، ثم يستخدمه لعمليات البناء الأصلية والاختبارات والتغطية وتنسيق الأكواد و Clippy. ويكون مستودع المخرجات المشترك محلياً لكل بيئة تشغيل؛ ولا تتوفر ذاكرة مؤقتة عن بُعد عبر الأجهزة حتى الآن.
 
 **هل يتعارض مع rust-analyzer أو مخرجات Cargo الحالية؟**
-يستخدم Mitts نفس مسارات المخرجات الافتراضية مثل Cargo. ويبقى مستودع المخرجات المشترك الخاص به منفصلاً، بينما يزيل الأمر `mitts clean` فقط مخرجات Mitts المفهرسة التي لا تزال تطابق محتواها المسجل؛ ويحافظ على ملفات Cargo غير المرتبطة أو المستبدلة. وإذا كان Cargo يحتفظ بقفل دليل البناء لملف تعريفي معين، يتم تخطي التنظيف حتى تنتهي عملية البناء تلك.
+يستخدم Mitts نفس مسارات المخرجات الافتراضية مثل Cargo. ويبقى مستودع المخرجات المشترك الخاص به منفصلاً، بينما يزيل الأمر `mitts clean` دليل الهدف كما يفعل `cargo clean`، منتظراً أي بناء Cargo قيد التشغيل؛ ولا يمس المستودع المشترك.
 
 **أين تقع الذاكرة المؤقتة وكيف يمكنني مسحها؟**
 عبر <bdi>`--cache-dir`</bdi>، وإلا <bdi>`$MITTS_CACHE_DIR`</bdi>، أو <bdi>`$XDG_CACHE_HOME/mitts`</bdi>، أو <bdi>`~/.cache/mitts`</bdi>؛ يستقر كل ما يخزنه Mitts تحت هذا الجذر الموحد. استخدم `mitts gc` للتقليم في حدود الحصص المحددة؛ كما يُعد حذف الدليل آمناً أيضاً عند عدم تشغيل أي عملية بناء.

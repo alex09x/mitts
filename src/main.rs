@@ -55,7 +55,6 @@ fn main() -> ExitCode {
             return ExitCode::from(101);
         }
     };
-    let original_args = args.clone();
     // `mitts --list`, like `cargo --list`: built-in commands, aliases, cargo-NAME tools; it
     // may follow other global flags (`mitts -v --list`), but not a subcommand.
     if mitts::cli::external::wants_list(&args) {
@@ -145,9 +144,8 @@ fn main() -> ExitCode {
         Commands::Report(ref args) => mitts::cli::future_incompat::handle_report(args),
         Commands::External(ref args) => mitts::cli::external::run(args),
     };
-    if cli.future_incompat_report && code == 0 && cli.command.cache_use().is_some() {
-        let test_like = matches!(cli.command, Commands::Test(_) | Commands::Bench(_));
-        mitts::cli::future_incompat::run_after_build(&original_args, test_like);
+    if cli.command.cache_use().is_some() {
+        mitts::cli::future_incompat::report_after_build(cli.future_incompat_report);
     }
 
     mitts::adapter::rust::cargo_config_cli::cleanup();

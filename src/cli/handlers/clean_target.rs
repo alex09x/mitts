@@ -15,6 +15,176 @@ use std::fs;
 use std::path::{Component, Path};
 use std::time::UNIX_EPOCH;
 
+/// Files and bytes under `dir` (symlinks counted, not followed), for Cargo's summary.
+fn tally(dir: &Path) -> (u64, u64) {
+    let mut files = 0;
+    let mut bytes = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).into_iter().flatten().flatten() {
+            let Ok(meta) = entry.path().symlink_metadata() else {
+                continue;
+            };
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else {
+                files += 1;
+                bytes += meta.len();
+            }
+        }
+    }
+    (files, bytes)
+}
+
+/// The `.cargo-lock` files of Cargo's profile directories under `dir` (`<profile>/` and
+/// `<triple>/<profile>/`), locked as Cargo's own clean locks them: a running Cargo build is
+/// waited for, with Cargo's message.
+fn lock_cargo_profiles(dir: &Path) -> Result<Vec<(std::path::PathBuf, FileLock)>> {
+    let mut locks = Vec::new();
+    let mut candidates = Vec::new();
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        candidates.push(path.join(".cargo-lock"));
+        for inner in fs::read_dir(&path).into_iter().flatten().flatten() {
+            if inner.file_type().is_ok_and(|t| t.is_dir()) {
+                candidates.push(inner.path().join(".cargo-lock"));
+            }
+        }
+    }
+    if dir.file_name().is_some_and(|n| n != "target") {
+        candidates.push(dir.join(".cargo-lock"));
+    }
+    for path in candidates {
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() {
+            bail!(
+                "Refusing a Cargo profile lock that is not a file: {}",
+                path.display()
+            );
+        }
+        let guard = match FileLock::try_acquire_exclusive(&path)? {
+            Some(g) => g,
+            None => {
+                eprintln!(
+                    "{:>12} waiting for file lock on build directory",
+                    "Blocking"
+                );
+                FileLock::acquire_exclusive(&path)?
+            }
+        };
+        locks.push((path, guard));
+    }
+    Ok(locks)
+}
+
+/// Removes everything under `dir` except the files in `keep` (locks this process holds;
+/// on Windows a held lock file cannot be deleted).
+fn remove_all_but(dir: &Path, keep: &[std::path::PathBuf]) -> Result<()> {
+    for entry in fs::read_dir(dir)?.flatten() {
+        let path = entry.path();
+        if keep.contains(&path) {
+            continue;
+        }
+        let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+        let result = if is_dir && keep.iter().any(|k| k.starts_with(&path)) {
+            remove_all_but(&path, keep).map_err(std::io::Error::other)
+        } else if is_dir {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        result.map_err(|e| anyhow::anyhow!("failed to remove {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// After the locks are released: the lock files and the directories they kept, emptied.
+fn remove_kept(dir: &Path, keep: &[std::path::PathBuf]) {
+    for path in keep {
+        let _ = fs::remove_file(path);
+        let mut parent = path.parent();
+        while let Some(p) = parent {
+            if !p.starts_with(dir) || fs::remove_dir(p).is_err() {
+                break;
+            }
+            parent = p.parent();
+        }
+    }
+}
+
+/// Removes `dirs` (whole) under `root` as Cargo's clean does: Cargo builds running in them
+/// are waited for. `(files, bytes)` removed.
+fn remove_dirs(root: &Path, dirs: &[std::path::PathBuf]) -> Result<(u64, u64)> {
+    let (mut files, mut bytes) = (0, 0);
+    for dir in dirs.iter().filter(|d| d.is_dir()) {
+        let locks = lock_cargo_profiles(dir)?;
+        let keep: Vec<_> = locks.iter().map(|(p, _)| p.clone()).collect();
+        let (f, b) = tally(dir);
+        remove_all_but(dir, &keep)?;
+        drop(locks);
+        remove_kept(root, &keep);
+        let _ = fs::remove_dir(dir);
+        files += f;
+        bytes += b;
+    }
+    Ok((files, bytes))
+}
+
+/// `cargo clean`: the whole target directory, except the clean lock `keep`, which this
+/// process holds; the caller removes it and the then empty directory after releasing it.
+/// `(files, bytes)` removed.
+pub(super) fn remove_target_dir(target: &Path, keep: &Path) -> Result<(u64, u64)> {
+    if !target.exists() {
+        return Ok((0, 0));
+    }
+    let locks = lock_cargo_profiles(target)?;
+    let mut kept: Vec<_> = locks.iter().map(|(p, _)| p.clone()).collect();
+    kept.push(keep.to_path_buf());
+    let (files, bytes) = tally(target);
+    remove_all_but(target, &kept)?;
+    drop(locks);
+    kept.pop();
+    remove_kept(target, &kept);
+    Ok((files.saturating_sub(1), bytes))
+}
+
+/// `cargo clean --release`: `target/release` and `target/<triple>/release` (and the
+/// release directory of the older `target/mitts/` layout).
+pub(super) fn remove_release_dirs(target: &Path) -> Result<(u64, u64)> {
+    let mut dirs = vec![target.join("release"), target.join("mitts").join("release")];
+    for entry in fs::read_dir(target).into_iter().flatten().flatten() {
+        let triple_release = entry.path().join("release");
+        if entry.file_type().is_ok_and(|t| t.is_dir())
+            && entry.file_name().to_string_lossy().matches('-').count() >= 2
+            && triple_release.is_dir()
+        {
+            dirs.push(triple_release);
+        }
+    }
+    remove_dirs(target, &dirs)
+}
+
+/// `1.2GiB`, `340.0KiB`, `12B`: the units Cargo's clean summary uses.
+pub(super) fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes}B")
+    } else {
+        format!("{value:.1}{}", UNITS[unit])
+    }
+}
+
 fn owns_directory(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
         && [
@@ -25,10 +195,6 @@ fn owns_directory(path: &Path) -> bool {
         ]
         .iter()
         .any(|name| path.join(name).is_file())
-}
-
-pub(super) fn has_owned_state(target: &Path) -> bool {
-    target.join(".mitts-target").is_file() || owns_directory(&target.join("mitts"))
 }
 
 fn matches_record(path: &Path, record: &TargetArtifactRecord) -> bool {
@@ -98,14 +264,6 @@ pub fn belongs_to(relative: &Path, crates: &[String]) -> bool {
             })
         })
     })
-}
-
-pub(super) fn remove_owned_artifacts(target: &Path, release_only: bool) -> Result<usize> {
-    let filter = CleanFilter {
-        only_profile: release_only.then(|| "release".to_string()),
-        ..Default::default()
-    };
-    remove_matching(target, &filter).map(|(count, _)| count)
 }
 
 /// Removes (or with `dry_run` counts) the owned artifacts `filter` selects; returns the

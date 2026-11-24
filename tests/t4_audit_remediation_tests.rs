@@ -363,7 +363,7 @@ fn test_nb1_nb2_check_metadata_only_and_build_upgrade_plus_all_targets() {
 }
 
 #[test]
-fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
+fn test_nb4_clean_respects_target_dir_and_refuses_the_project() {
     let isolated_cache = tempfile::tempdir().expect("isolated cache dir");
     let tmp = TempDir::new().unwrap();
     let proj = tmp.path().join("clean_proj");
@@ -385,8 +385,11 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
         cache_dir: Some(isolated_cache.path().to_path_buf()),
         ..Default::default()
     };
-    assert_eq!(handle_clean(&bad_clean), 1);
-    assert!(unowned_dir.join("precious.txt").exists());
+    // As `cargo clean --target-dir DIR`: the named directory is the target directory and
+    // goes, whoever wrote it.
+    assert_eq!(handle_clean(&bad_clean), 0);
+    assert!(!unowned_dir.exists());
+    // The project itself, the home directory or `/` are still refused.
     assert_eq!(
         handle_clean(&CleanArgs {
             cache_dir: Some(isolated_cache.path().to_path_buf()),
@@ -434,8 +437,8 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
         0
     );
     assert!(owned.iter().all(|path| !path.exists()));
-    assert_eq!(
-        fs::read_to_string(custom_td.join("debug/cargo-output")).unwrap(),
-        "preserve Cargo output"
+    assert!(
+        !custom_td.exists(),
+        "Cargo's output goes too, as with cargo clean"
     );
 }

@@ -100,8 +100,10 @@ fn record(index: &mut TargetArtifactIndex, target: &Path, relative: &str, conten
     );
 }
 
+/// As `cargo clean`: `--release` removes the release profile, a plain clean the whole
+/// target directory, Cargo's own files included.
 #[test]
-fn clean_preserves_cargo_files_and_replaced_outputs_in_a_shared_root() {
+fn clean_removes_the_target_directory_as_cargo_does() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fixture(root);
@@ -142,20 +144,13 @@ fn clean_preserves_cargo_files_and_replaced_outputs_in_a_shared_root() {
         ..Default::default()
     };
     assert_eq!(handle_clean(&args), 0);
-    assert!(!target.join("release/owned").exists());
+    assert!(!target.join("release").exists());
     assert!(target.join("debug/owned").exists());
+    assert!(target.join("debug/cargo-only").exists());
     args.release = false;
     assert_eq!(handle_clean(&args), 0);
-    assert!(!target.join("debug/owned").exists());
-    assert!(!target.join("debug/deps/libowned.rlib").exists());
-    assert_eq!(
-        fs::read(target.join("debug/replaced")).unwrap(),
-        b"Cargo replacement"
-    );
-    assert_eq!(
-        fs::read(target.join("debug/cargo-only")).unwrap(),
-        b"Cargo output"
-    );
+    assert!(!target.exists(), "the whole target directory goes");
+    // Again, with nothing left: still fine.
     assert_eq!(handle_clean(&args), 0);
 }
 
@@ -189,8 +184,10 @@ fn clean_rejects_parent_traversal_and_symlinked_parents() {
     assert_eq!(fs::read(outside).unwrap(), b"preserve");
 }
 
+/// A running Cargo build (its profile `.cargo-lock` held) is waited for, as `cargo clean`
+/// waits, with Cargo's message; then everything goes.
 #[test]
-fn clean_skips_a_locked_profile_and_preserves_foreign_replacement() {
+fn clean_waits_for_an_active_cargo_build() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fixture(root);
@@ -202,23 +199,23 @@ fn clean_skips_a_locked_profile_and_preserves_foreign_replacement() {
     let guard =
         mitts::core::lock::FileLock::acquire_exclusive(&root.join("target/debug/.cargo-lock"))
             .unwrap();
-    let mut clean = Command::new(env!("CARGO_BIN_EXE_mitts"));
-    clean
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mitts"))
         .current_dir(root)
         .args(["clean", "--target-dir"])
         .arg(root.join("target"))
-        .env_remove("CARGO_TARGET_DIR");
-    let attempt = clean.output().unwrap();
-    let skipped = !attempt.status.success()
-        && String::from_utf8_lossy(&attempt.stderr).contains("Cargo build is active");
-    let preserved = binary.exists();
+        .env_remove("CARGO_TARGET_DIR")
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
     assert!(
-        skipped && preserved,
-        "clean must skip an active Cargo build without deleting its output"
+        child.try_wait().unwrap().is_none(),
+        "clean waits while the Cargo build runs"
     );
-    fs::remove_file(&binary).unwrap();
-    fs::write(&binary, b"foreign replacement").unwrap();
+    assert!(binary.exists(), "nothing is removed while it waits");
     drop(guard);
-    assert!(clean.output().unwrap().status.success());
-    assert_eq!(fs::read(&binary).unwrap(), b"foreign replacement");
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Blocking waiting for file lock"));
+    assert!(!root.join("target").exists());
 }
