@@ -55,6 +55,7 @@ pub mod fetcher;
 pub mod git_resolve;
 pub mod git_source;
 pub mod http_client;
+pub mod http_routing;
 pub mod inputs;
 pub mod key;
 pub mod key_flags;

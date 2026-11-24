@@ -20,12 +20,15 @@ pub enum EdgeKind {
     Normal,
     Build,
     Dev,
+    /// Inside the `-e features` graph (feature to its package, to features it enables):
+    /// followed whatever kinds are selected, printed without a header.
+    Feature,
 }
 
 impl EdgeKind {
     pub fn header(self) -> Option<&'static str> {
         match self {
-            EdgeKind::Normal => None,
+            EdgeKind::Normal | EdgeKind::Feature => None,
             EdgeKind::Build => Some("[build-dependencies]"),
             EdgeKind::Dev => Some("[dev-dependencies]"),
         }

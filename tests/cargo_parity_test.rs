@@ -1995,3 +1995,180 @@ fn resolver_3_prefers_versions_the_projects_rust_version_supports() {
     );
     assert!(read(app.join("Cargo.lock")).contains("name = \"aa\"\nversion = \"1.1.0\""));
 }
+
+#[cfg(unix)]
+#[test]
+fn vcs_setup_keeps_existing_files_and_finishes_a_half_done_fossil() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin2");
+    fs::create_dir_all(&bin).unwrap();
+    // fossil `open` into a non-empty directory needs --force, like the real tool.
+    let fossil = "#!/bin/sh\nif [ \"$1\" = init ]; then : > \"$3\"; fi\nif [ \"$1\" = open ]; then [ \"$2\" = --force ] || exit 1; : > .fslckout; fi\n";
+    let hg = "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n";
+    for (tool, script) in [("fossil", fossil), ("hg", hg)] {
+        let path = bin.join(tool);
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let init = |dir: &std::path::Path, vcs: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["init", "--vcs", vcs])
+            .current_dir(dir)
+            .env("PATH", &path)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+
+    // Fossil into a directory with files, and a repository whose checkout was never opened.
+    let fossil_dir = env.path("fossil-proj");
+    fs::create_dir_all(&fossil_dir).unwrap();
+    fs::write(fossil_dir.join("notes.txt"), "keep\n").unwrap();
+    fs::write(fossil_dir.join(".fossil"), "").unwrap();
+    let out = init(&fossil_dir, "fossil");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        fossil_dir.join(".fslckout").is_file(),
+        "the missing checkout was opened"
+    );
+    assert_eq!(read(fossil_dir.join("notes.txt")), "keep\n");
+
+    // An .hgignore that ends in glob syntax gets `syntax: regexp` before `^target$`.
+    let hg_dir = env.path("hg-proj");
+    fs::create_dir_all(&hg_dir).unwrap();
+    fs::write(hg_dir.join(".hgignore"), "syntax: glob\n*.o\n").unwrap();
+    assert!(init(&hg_dir, "hg").status.success());
+    assert_eq!(
+        read(hg_dir.join(".hgignore")),
+        "syntax: glob\n*.o\nsyntax: regexp\n^target$\n"
+    );
+
+    // An ignore file that is not text stops the command and stays as it was.
+    let bad_dir = env.path("hg-bad");
+    fs::create_dir_all(&bad_dir).unwrap();
+    fs::write(bad_dir.join(".hgignore"), [0xff, 0xfe, b'\n']).unwrap();
+    let out = init(&bad_dir, "hg");
+    assert!(!out.status.success());
+    assert_eq!(
+        fs::read(bad_dir.join(".hgignore")).unwrap(),
+        [0xff, 0xfe, b'\n']
+    );
+}
+
+#[test]
+fn tree_features_shows_requested_features_and_prunes_them_with_their_package() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        features: "{\"default\":[\"std\"],\"std\":[]}",
+        // The crate's own manifest declares them too (metadata reads it).
+        manifest_extra: "[features]\ndefault = [\"std\"]\nstd = []\n",
+        ..version("aa", "1.0.0")
+    }]);
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    let (out, _) = env.ok(&app, &["tree", "-e", "features"]);
+    assert!(out.contains("── aa feature \"default\"\n"), "{out}");
+    assert!(out.contains("── aa feature \"std\"\n"), "{out}");
+    assert!(out.contains("── aa v1.0.0"), "{out}");
+    let (out, _) = env.ok(&app, &["tree", "-e", "features", "--prune", "aa"]);
+    assert!(!out.contains("aa"), "{out}");
+}
+
+#[test]
+fn msrv_limit_counts_path_members_and_falls_back_when_nothing_fits() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+        // bb 1.0.0 fits the limit but needs a crate that does not exist.
+        Published {
+            rust_version: Some("1.40"),
+            deps: vec![dep("missing", "=9")],
+            ..version("bb", "1.0.0")
+        },
+        Published {
+            rust_version: Some("99.0"),
+            ..version("bb", "1.1.0")
+        },
+    ]);
+    // The root says 1.70; an in-tree path dependency (an implicit member) says 1.50.
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nbb = \"1\"\nlow = { path = \"crates/low\" }\n\n[workspace]\nresolver = \"3\"\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    fs::create_dir_all(app.join("crates/low/src")).unwrap();
+    fs::write(
+        app.join("crates/low/Cargo.toml"),
+        "[package]\nname = \"low\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("crates/low/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    // Nothing fits 1.50 for bb with a working graph, so the whole resolve falls back.
+    assert!(
+        lock.contains("name = \"bb\"\nversion = \"1.1.0\""),
+        "{lock}"
+    );
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.1.0\""),
+        "{lock}"
+    );
+}
+
+#[test]
+fn msrv_limit_counts_in_tree_path_members() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nlow = { path = \"crates/low\" }\n\n[workspace]\nresolver = \"3\"\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    fs::create_dir_all(app.join("crates/low/src")).unwrap();
+    fs::write(
+        app.join("crates/low/Cargo.toml"),
+        "[package]\nname = \"low\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("crates/low/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.0.0\""),
+        "1.50 from the path member: {lock}"
+    );
+}

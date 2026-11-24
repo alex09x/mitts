@@ -358,8 +358,11 @@ fn node(
     };
     prefix_line(style, levels, out);
     out.push_str(&text);
-    let followed: Vec<EdgeKind> = style.kinds.clone();
-    let has_deps = !style.prune.contains(id) && graph.has_edges(id, &followed);
+    let mut followed: Vec<EdgeKind> = style.kinds.clone();
+    followed.push(EdgeKind::Feature);
+    // Package filters apply to a feature node through the package it belongs to.
+    let owner = |node: &str| super::tree_features::owner(node).to_string();
+    let has_deps = !style.prune.contains(&owner(id)) && graph.has_edges(id, &followed);
     let in_cycle = stack.iter().any(|s| s == id);
     let new = style.no_dedupe || visited.insert(id.to_string());
     if (!new || in_cycle) && has_deps {
@@ -370,7 +373,12 @@ fn node(
         return;
     }
     stack.push(id.to_string());
-    for kind in [EdgeKind::Normal, EdgeKind::Build, EdgeKind::Dev] {
+    for kind in [
+        EdgeKind::Normal,
+        EdgeKind::Build,
+        EdgeKind::Dev,
+        EdgeKind::Feature,
+    ] {
         if !followed.contains(&kind) {
             continue;
         }
@@ -380,10 +388,11 @@ fn node(
             .into_iter()
             .flatten()
             .filter(|(child, k)| {
+                let child_pkg = owner(child);
                 *k == kind
-                    && !style.prune.contains(child)
+                    && !style.prune.contains(&child_pkg)
                     && !(style.hide_proc_macro
-                        && graph.packages.get(child).is_some_and(|p| p.proc_macro))
+                        && graph.packages.get(&child_pkg).is_some_and(|p| p.proc_macro))
             })
             .map(|(child, _)| child)
             .collect();

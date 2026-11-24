@@ -53,8 +53,12 @@ fn executable_name(name: &str) -> String {
     format!("{PREFIX}{name}{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// The first `cargo-NAME` in [`search_dirs`].
+/// The first `cargo-NAME` in [`search_dirs`]. A name with a path separator or `..` is a
+/// path, not a command name, and is never looked up.
 pub fn find(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    if name.is_empty() || name.contains(['/', '\\']) || name.contains("..") {
+        return None;
+    }
     let file = executable_name(name);
     dirs.iter()
         .map(|dir| dir.join(&file))
@@ -200,6 +204,14 @@ pub fn list() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_with_path_parts_are_not_looked_up() {
+        let dir = std::env::temp_dir();
+        for name in ["x/../../tmp/tool", "a\\b", "..", ""] {
+            assert_eq!(find(name, std::slice::from_ref(&dir)), None, "{name}");
+        }
+    }
 
     #[test]
     fn suggests_a_close_builtin() {

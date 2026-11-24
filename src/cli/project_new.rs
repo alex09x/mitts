@@ -374,7 +374,19 @@ fn init_other_vcs(vcs: &str, dir: &Path) -> Result<()> {
             if !dir.join(".hg").exists() {
                 run("hg", &["init".as_ref(), dir.as_os_str()], dir)?;
             }
-            (dir.join(".hgignore"), "^target$")
+            let ignore = dir.join(".hgignore");
+            // `^target$` is a regexp: when the file's last `syntax:` line switched to glob,
+            // switch back before adding it.
+            let existing = read_existing(&ignore)?;
+            let glob_last = existing
+                .lines()
+                .rev()
+                .find_map(|l| l.trim().strip_prefix("syntax:"))
+                .is_some_and(|s| s.trim() != "regexp");
+            if glob_last && !existing.lines().any(|l| l.trim() == "^target$") {
+                append_line(&ignore, "syntax: regexp")?;
+            }
+            (ignore, "^target$")
         }
         "pijul" => {
             if !dir.join(".pijul").exists() {
@@ -383,14 +395,23 @@ fn init_other_vcs(vcs: &str, dir: &Path) -> Result<()> {
             (dir.join(".ignore"), "/target")
         }
         _ => {
-            if !dir.join(".fossil").exists() {
-                let db = dir.join(".fossil");
+            let db = dir.join(".fossil");
+            if !db.exists() {
                 run(
                     "fossil",
                     &["init".as_ref(), "--empty".as_ref(), db.as_os_str()],
                     dir,
                 )?;
-                run("fossil", &["open".as_ref(), ".fossil".as_ref()], dir)?;
+            }
+            // The checkout is separate from the repository: a run whose `open` failed opens
+            // it now. `--force` opens into a directory that already has files (`init`).
+            let checked_out = dir.join(".fslckout").exists() || dir.join("_FOSSIL_").exists();
+            if !checked_out {
+                run(
+                    "fossil",
+                    &["open".as_ref(), "--force".as_ref(), ".fossil".as_ref()],
+                    dir,
+                )?;
             }
             let settings = dir.join(".fossil-settings");
             fs::create_dir_all(&settings)?;
@@ -401,9 +422,19 @@ fn init_other_vcs(vcs: &str, dir: &Path) -> Result<()> {
     append_line(&ignore, line)
 }
 
+/// The file's text; a missing file is empty, any other failure (unreadable, not UTF-8) is
+/// an error, so the file is never rewritten from less than it holds.
+fn read_existing(path: &Path) -> Result<String> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
+    }
+}
+
 /// Adds `line` to the file unless one of its lines already is `line`.
 fn append_line(path: &Path, line: &str) -> Result<()> {
-    let existing = fs::read_to_string(path).unwrap_or_default();
+    let existing = read_existing(path)?;
     if existing.lines().any(|l| l.trim() == line) {
         return Ok(());
     }

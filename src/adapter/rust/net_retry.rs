@@ -68,7 +68,7 @@ enum Attempt {
     Transient(anyhow::Error, String),
 }
 
-fn attempt(request: &impl Fn() -> ureq::Request) -> Attempt {
+fn attempt(request: &impl Fn() -> super::http_client::Request) -> Attempt {
     let response = match request().call() {
         Ok(response) => response,
         Err(error) if is_transient(&error) => {
@@ -90,7 +90,7 @@ fn attempt(request: &impl Fn() -> ureq::Request) -> Attempt {
 /// Sends the GET built by `request` and reads the whole body, retrying transient
 /// failures. A final HTTP error keeps its `ureq::Error` (callers match on the status via
 /// [`status_code`]).
-pub fn get_bytes(url: &str, request: impl Fn() -> ureq::Request) -> Result<Vec<u8>> {
+pub fn get_bytes(url: &str, request: impl Fn() -> super::http_client::Request) -> Result<Vec<u8>> {
     let retries = retries();
     let mut attempt_no = 0;
     loop {
@@ -162,7 +162,7 @@ mod tests {
     fn a_transient_server_error_is_retried_until_it_succeeds() {
         fast_retries();
         let (url, server) = serve(vec![500, 503, 200]);
-        let agent = ureq::agent();
+        let agent = super::super::http_client::agent_builder().build();
         let bytes = get_bytes(&url, || agent.get(&url)).unwrap();
         assert_eq!(bytes, b"payload");
         assert_eq!(server.join().unwrap(), 3);
@@ -172,7 +172,7 @@ mod tests {
     fn a_missing_crate_is_not_retried() {
         fast_retries();
         let (url, server) = serve(vec![404]);
-        let agent = ureq::agent();
+        let agent = super::super::http_client::agent_builder().build();
         let error = get_bytes(&url, || agent.get(&url)).unwrap_err();
         assert_eq!(status_code(&error), Some(404));
         assert_eq!(server.join().unwrap(), 1);
@@ -182,7 +182,7 @@ mod tests {
     fn retries_stop_after_the_last_attempt() {
         fast_retries();
         let (url, server) = serve(vec![500, 500, 500, 500]);
-        let agent = ureq::agent();
+        let agent = super::super::http_client::agent_builder().build();
         let error = get_bytes(&url, || agent.get(&url)).unwrap_err();
         assert_eq!(status_code(&error), Some(500));
         // One request and three retries.

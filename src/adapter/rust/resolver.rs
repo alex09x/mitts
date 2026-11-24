@@ -76,7 +76,10 @@ fn rust_limit_for(manifest_path: &Path, dir: &Path) -> Result<Option<(u64, u64, 
     let Ok(toml) = CargoToml::from_file(manifest_path) else {
         return Ok(None);
     };
-    let configured = super::cargo_config_value::get(dir, "resolver.incompatible-rust-versions")?
+    // Cargo reads its configuration from where it was started (`-C` already moved there),
+    // not from the manifest's directory.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| dir.to_path_buf());
+    let configured = super::cargo_config_value::get(&cwd, "resolver.incompatible-rust-versions")?
         .map(|v| v.as_str().map(str::to_string))
         .transpose()?;
     let resolver = toml
@@ -85,22 +88,7 @@ fn rust_limit_for(manifest_path: &Path, dir: &Path) -> Result<Option<(u64, u64, 
         .and_then(|w| w.resolver.clone())
         .or_else(|| toml.package.as_ref().and_then(|p| p.resolver.clone()));
     let edition = toml.package.as_ref().and_then(|p| p.edition.clone());
-    let mut versions: Vec<String> = toml
-        .package
-        .as_ref()
-        .and_then(|p| p.rust_version.clone())
-        .into_iter()
-        .collect();
-    if toml.workspace.is_some() {
-        for (_, member) in toml.discover_workspace_members(dir).unwrap_or_default() {
-            if let Some(rv) = CargoToml::from_file(&member.join("Cargo.toml"))
-                .ok()
-                .and_then(|m| m.package.and_then(|p| p.rust_version))
-            {
-                versions.push(rv);
-            }
-        }
-    }
+    let versions = workspace_rust_versions(dir, &toml);
     let refs: Vec<&str> = versions.iter().map(String::as_str).collect();
     super::rust_version::resolver_limit(
         configured.as_deref(),
@@ -113,6 +101,72 @@ fn rust_limit_for(manifest_path: &Path, dir: &Path) -> Result<Option<(u64, u64, 
                 .map(|t| t.version)
         },
     )
+}
+
+/// The `rust-version` of every workspace member: the root package, the listed members,
+/// and, as Cargo counts them, path dependencies inside the workspace root that `exclude`
+/// does not name.
+fn workspace_rust_versions(root: &Path, toml: &CargoToml) -> Vec<String> {
+    let root = &super::planner_paths::normalize_lexically(root);
+    let mut out: Vec<String> = toml
+        .package
+        .as_ref()
+        .and_then(|p| p.rust_version.clone())
+        .into_iter()
+        .collect();
+    let Some(workspace) = &toml.workspace else {
+        return out;
+    };
+    let excluded: Vec<PathBuf> = workspace.exclude.iter().map(|e| root.join(e)).collect();
+    let mut queue: Vec<PathBuf> = vec![root.to_path_buf()];
+    queue.extend(
+        toml.discover_workspace_members(root)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, dir)| dir),
+    );
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    while let Some(dir) = queue.pop() {
+        let dir = super::planner_paths::normalize_lexically(&dir);
+        if !seen.insert(dir.clone()) {
+            continue;
+        }
+        let Ok(member) = CargoToml::from_file(&dir.join("Cargo.toml")) else {
+            continue;
+        };
+        if dir != *root {
+            if let Some(rv) = member.package.as_ref().and_then(|p| p.rust_version.clone()) {
+                out.push(rv);
+            }
+        }
+        let mut tables = vec![
+            &member.dependencies,
+            &member.build_dependencies,
+            &member.dev_dependencies,
+        ];
+        for spec in member.target.values() {
+            tables.extend([
+                &spec.dependencies,
+                &spec.build_dependencies,
+                &spec.dev_dependencies,
+            ]);
+        }
+        for table in tables {
+            for dep in table.values() {
+                let TomlDependency::Detailed(d) = dep else {
+                    continue;
+                };
+                let Some(path) = &d.path else {
+                    continue;
+                };
+                let target = super::planner_paths::normalize_lexically(&dir.join(path));
+                if target.starts_with(root) && !excluded.iter().any(|e| target.starts_with(e)) {
+                    queue.push(target);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Standalone native dependency resolver evaluating crates.io sparse index.

@@ -160,7 +160,7 @@ impl VendorDir {
             push(&spec.dev_dependencies, Some("dev"), Some(target));
         }
         Ok(SparseIndexEntry {
-            rust_version: None,
+            rust_version: toml.package.as_ref().and_then(|p| p.rust_version.clone()),
             name: p.name.clone(),
             vers: p.version.clone(),
             deps,

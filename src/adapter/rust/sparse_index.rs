@@ -148,7 +148,7 @@ impl SparseIndexClient {
         std::time::Duration::from_secs(secs)
     }
 
-    fn request(&self, url: &str) -> ureq::Request {
+    fn request(&self, url: &str) -> super::http_client::Request {
         let req = self.agent.get(url);
         match &self.token {
             Some(t) => req.set("Authorization", t),

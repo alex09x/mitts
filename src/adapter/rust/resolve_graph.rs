@@ -311,6 +311,21 @@ impl NativeResolver {
         roots: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
+        let result = self.resolve_graph_with_limit(roots, offline);
+        // `fallback` is a preference: when the versions that fit the Rust limit lead to no
+        // graph, resolve again without it rather than fail where Cargo finds one.
+        if result.is_err() && self.rust_limit.lock().unwrap().is_some() {
+            *self.rust_limit.lock().unwrap() = None;
+            return self.resolve_graph_with_limit(roots, offline);
+        }
+        result
+    }
+
+    fn resolve_graph_with_limit(
+        &self,
+        roots: &[ManifestDirectDep],
+        offline: bool,
+    ) -> Result<CargoLock> {
         // Requirements and features learnt from conflicts, per crate and compatibility
         // range; a conflict restarts the resolution with them.
         let mut pins: HashMap<PinKey, Pin> = HashMap::new();

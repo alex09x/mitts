@@ -9,11 +9,13 @@
  */
 
 //! `mitts tree -e features`: Cargo's feature graph. A dependency edge goes through the
-//! features the dependent asks for (`log feature "default"`); a feature node leads to its
+//! features its declaration asks for (`log feature "default"`); a feature node leads to its
 //! package and to the features, optional dependencies and dependency features it enables.
-//! Only features that are active in the resolve appear.
+//! Only features that are active in the resolve appear. Edges inside the feature graph are
+//! of kind `Feature`, which every edge filter follows.
 
 use super::tree_graph::{EdgeKind, Graph};
+use semver::{Version, VersionReq};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,67 +32,120 @@ pub fn split_feature_id(id: &str) -> Option<(&str, &str)> {
     rest.split_once(SEP)
 }
 
-struct Declared {
-    name: String,
-    rename: Option<String>,
+/// The package a node belongs to: itself, or the owner of a feature node.
+pub fn owner(id: &str) -> &str {
+    split_feature_id(id).map_or(id, |(pkg, _)| pkg)
+}
+
+/// One resolved dependency edge with the declaration it came from.
+struct DepEdge {
+    child: String,
     kind: EdgeKind,
+    /// The name the manifest knows it by (`rename`, else the package name).
+    key: String,
     features: Vec<String>,
     default: bool,
 }
 
-struct Builder<'a> {
+struct Builder {
     graph: Graph,
-    declared: BTreeMap<String, Vec<Declared>>,
+    deps: BTreeMap<String, Vec<DepEdge>>,
     tables: BTreeMap<String, BTreeMap<String, Vec<String>>>,
-    package_edges: BTreeMap<String, Vec<(String, EdgeKind)>>,
     done: BTreeSet<String>,
-    _doc: &'a Value,
+}
+
+fn kind_of(value: &Value) -> EdgeKind {
+    match value.as_str() {
+        Some("build") => EdgeKind::Build,
+        Some("dev") => EdgeKind::Dev,
+        _ => EdgeKind::Normal,
+    }
+}
+
+fn strings(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect()
 }
 
 /// The package graph of `doc` with feature nodes between packages.
 pub fn graph(doc: &Value) -> Graph {
     let base = Graph::from_metadata(doc);
-    let mut declared: BTreeMap<String, Vec<Declared>> = BTreeMap::new();
+    let packages: BTreeMap<&str, &Value> = doc["packages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| Some((p["id"].as_str()?, p)))
+        .collect();
     let mut tables = BTreeMap::new();
-    for p in doc["packages"].as_array().into_iter().flatten() {
-        let id = p["id"].as_str().unwrap_or_default().to_string();
-        let mut list = Vec::new();
-        for d in p["dependencies"].as_array().into_iter().flatten() {
-            list.push(Declared {
-                name: d["name"].as_str().unwrap_or_default().to_string(),
-                rename: d["rename"].as_str().map(str::to_string),
-                kind: match d["kind"].as_str() {
-                    Some("build") => EdgeKind::Build,
-                    Some("dev") => EdgeKind::Dev,
-                    _ => EdgeKind::Normal,
-                },
-                features: d["features"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|f| f.as_str().map(str::to_string))
-                    .collect(),
-                default: d["uses_default_features"].as_bool().unwrap_or(true),
-            });
-        }
-        declared.insert(id.clone(), list);
+    for (id, p) in &packages {
         let table: BTreeMap<String, Vec<String>> = p["features"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(k, v)| {
-                let values = v
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .collect();
-                (k.clone(), values)
-            })
+            .map(|(k, v)| (k.clone(), strings(v)))
             .collect();
-        tables.insert(id, table);
+        tables.insert(id.to_string(), table);
     }
-    let package_edges = base.edges.clone();
+    let mut deps: BTreeMap<String, Vec<DepEdge>> = BTreeMap::new();
+    for node in doc["resolve"]["nodes"].as_array().into_iter().flatten() {
+        let parent = node["id"].as_str().unwrap_or_default();
+        let declared = packages
+            .get(parent)
+            .and_then(|p| p["dependencies"].as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut list = Vec::new();
+        for dep in node["deps"].as_array().into_iter().flatten() {
+            let child = dep["pkg"].as_str().unwrap_or_default();
+            let extern_name = dep["name"].as_str().unwrap_or_default();
+            let Some(child_pkg) = base.packages.get(child) else {
+                continue;
+            };
+            let child_version = Version::parse(&child_pkg.version).ok();
+            for dk in dep["dep_kinds"].as_array().into_iter().flatten() {
+                let kind = kind_of(&dk["kind"]);
+                let target = dk["target"].as_str();
+                // The declaration this edge comes from: same kind and target, and either
+                // its rename is the extern name, or (no rename) it names this package and
+                // its requirement admits this version.
+                let decl = declared.iter().find(|d| {
+                    kind_of(&d["kind"]) == kind
+                        && d["target"].as_str() == target
+                        && match d["rename"].as_str() {
+                            Some(rename) => rename.replace('-', "_") == extern_name,
+                            None => {
+                                d["name"].as_str() == Some(child_pkg.name.as_str())
+                                    && match (d["req"].as_str(), &child_version) {
+                                        (Some(req), Some(v)) => {
+                                            VersionReq::parse(req).map_or(true, |r| r.matches(v))
+                                        }
+                                        _ => true,
+                                    }
+                            }
+                        }
+                });
+                let Some(decl) = decl else {
+                    continue;
+                };
+                list.push(DepEdge {
+                    child: child.to_string(),
+                    kind,
+                    key: decl["rename"]
+                        .as_str()
+                        .or(decl["name"].as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    features: strings(&decl["features"]),
+                    default: decl["uses_default_features"].as_bool().unwrap_or(true),
+                });
+            }
+        }
+        deps.insert(parent.to_string(), list);
+    }
     let mut builder = Builder {
         graph: Graph {
             packages: base.packages.clone(),
@@ -99,13 +154,23 @@ pub fn graph(doc: &Value) -> Graph {
             members: base.members.clone(),
             labels: BTreeMap::new(),
         },
-        declared,
+        deps,
         tables,
-        package_edges,
         done: BTreeSet::new(),
-        _doc: doc,
     };
-    let ids: Vec<String> = builder.package_edges.keys().cloned().collect();
+    // The roots' own active features, so `-i` can show what enabled a dependency.
+    for member in base.members.clone() {
+        let active = builder
+            .graph
+            .packages
+            .get(&member)
+            .map(|p| p.features.clone())
+            .unwrap_or_default();
+        for feature in active {
+            builder.feature(&member, &feature);
+        }
+    }
+    let ids: Vec<String> = builder.deps.keys().cloned().collect();
     for id in ids {
         builder.package(&id);
     }
@@ -114,20 +179,12 @@ pub fn graph(doc: &Value) -> Graph {
     graph
 }
 
-impl Builder<'_> {
+impl Builder {
     fn active(&self, pkg: &str, feature: &str) -> bool {
         self.graph
             .packages
             .get(pkg)
             .is_some_and(|p| p.features.iter().any(|f| f == feature))
-    }
-
-    fn name_of(&self, pkg: &str) -> &str {
-        self.graph
-            .packages
-            .get(pkg)
-            .map(|p| p.name.as_str())
-            .unwrap_or_default()
     }
 
     fn edge(&mut self, from: &str, to: String, kind: EdgeKind) {
@@ -137,33 +194,33 @@ impl Builder<'_> {
         }
     }
 
-    /// The resolved dependency of `pkg` that `name` (package name or rename) refers to.
-    fn dependency(&self, pkg: &str, name: &str) -> Option<String> {
-        let declared = self.declared.get(pkg)?;
-        let package_name = declared
-            .iter()
-            .find(|d| d.rename.as_deref() == Some(name) || (d.rename.is_none() && d.name == name))
-            .map(|d| d.name.clone())?;
-        self.package_edges
-            .get(pkg)?
-            .iter()
-            .map(|(child, _)| child)
-            .find(|child| self.name_of(child) == package_name)
-            .cloned()
+    /// The resolved dependencies of `pkg` its manifest calls `name`.
+    fn dependency(&self, pkg: &str, name: &str) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .deps
+            .get(pkg)
+            .into_iter()
+            .flatten()
+            .filter(|d| d.key == name)
+            .map(|d| d.child.clone())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 
     fn package(&mut self, id: &str) {
-        let children = self.package_edges.get(id).cloned().unwrap_or_default();
-        for (child, kind) in children {
-            let child_name = self.name_of(&child).to_string();
-            let mut requested: BTreeSet<String> = BTreeSet::new();
-            for d in self.declared.get(id).into_iter().flatten() {
-                if d.name == child_name && d.kind == kind {
-                    requested.extend(d.features.iter().cloned());
-                    if d.default {
-                        requested.insert("default".to_string());
-                    }
-                }
+        let edges: Vec<(String, EdgeKind, Vec<String>, bool)> = self
+            .deps
+            .get(id)
+            .into_iter()
+            .flatten()
+            .map(|d| (d.child.clone(), d.kind, d.features.clone(), d.default))
+            .collect();
+        for (child, kind, features, default) in edges {
+            let mut requested: BTreeSet<String> = features.into_iter().collect();
+            if default {
+                requested.insert("default".to_string());
             }
             requested.retain(|f| self.active(&child, f));
             if requested.is_empty() {
@@ -182,83 +239,44 @@ impl Builder<'_> {
         if !self.done.insert(id.clone()) {
             return;
         }
-        let name = self.name_of(pkg).to_string();
+        let name = self
+            .graph
+            .packages
+            .get(pkg)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
         self.graph
             .labels
             .insert(id.clone(), format!("{name} feature \"{feature}\""));
-        self.edge(&id, pkg.to_string(), EdgeKind::Normal);
+        self.edge(&id, pkg.to_string(), EdgeKind::Feature);
         let values = self.tables.get(pkg).and_then(|t| t.get(feature)).cloned();
         let Some(values) = values else {
             // An optional dependency's implicit feature.
-            if let Some(dep) = self.dependency(pkg, feature) {
-                self.edge(&id, dep, EdgeKind::Normal);
+            for dep in self.dependency(pkg, feature) {
+                self.edge(&id, dep, EdgeKind::Feature);
             }
             return;
         };
         for value in values {
             if let Some(dep_name) = value.strip_prefix("dep:") {
-                if let Some(dep) = self.dependency(pkg, dep_name) {
-                    self.edge(&id, dep, EdgeKind::Normal);
+                for dep in self.dependency(pkg, dep_name) {
+                    self.edge(&id, dep, EdgeKind::Feature);
                 }
             } else if let Some((dep_name, dep_feature)) = value.split_once('/') {
-                let dep_name = dep_name.trim_end_matches('?');
-                if let Some(dep) = self.dependency(pkg, dep_name) {
+                for dep in self.dependency(pkg, dep_name.trim_end_matches('?')) {
                     if self.active(&dep, dep_feature) {
                         self.feature(&dep, dep_feature);
-                        self.edge(&id, feature_id(&dep, dep_feature), EdgeKind::Normal);
+                        self.edge(&id, feature_id(&dep, dep_feature), EdgeKind::Feature);
                     }
                 }
             } else if self.active(pkg, &value) {
                 self.feature(pkg, &value);
-                self.edge(&id, feature_id(pkg, &value), EdgeKind::Normal);
+                self.edge(&id, feature_id(pkg, &value), EdgeKind::Feature);
             }
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn dependency_edges_go_through_requested_features() {
-        let doc = json!({
-            "packages": [
-                {"id": "app", "name": "app", "version": "0.1.0", "manifest_path": "/w/app/Cargo.toml",
-                 "targets": [], "features": {},
-                 "dependencies": [
-                    {"name": "log", "kind": null, "features": [], "uses_default_features": true},
-                    {"name": "plain", "kind": null, "features": [], "uses_default_features": true}
-                 ]},
-                {"id": "log", "name": "log", "version": "0.4.0", "source": "registry+x",
-                 "manifest_path": "/r/log/Cargo.toml", "targets": [],
-                 "features": {"default": ["std"], "std": [], "kv": []}, "dependencies": []},
-                {"id": "plain", "name": "plain", "version": "1.0.0", "source": "registry+x",
-                 "manifest_path": "/r/plain/Cargo.toml", "targets": [], "features": {}, "dependencies": []}
-            ],
-            "workspace_members": ["app"],
-            "resolve": {"root": "app", "nodes": [
-                {"id": "app", "features": [], "deps": [
-                    {"pkg": "log", "dep_kinds": [{"kind": null}]},
-                    {"pkg": "plain", "dep_kinds": [{"kind": null}]}
-                ]},
-                {"id": "log", "features": ["default", "std"], "deps": []},
-                {"id": "plain", "features": [], "deps": []}
-            ]}
-        });
-        let g = graph(&doc);
-        let app: Vec<&str> = g.edges["app"].iter().map(|(c, _)| c.as_str()).collect();
-        assert_eq!(app, [feature_id("log", "default").as_str(), "plain"]);
-        let default: Vec<&str> = g.edges[&feature_id("log", "default")]
-            .iter()
-            .map(|(c, _)| c.as_str())
-            .collect();
-        assert_eq!(default, ["log", feature_id("log", "std").as_str()]);
-        assert_eq!(g.labels[&feature_id("log", "std")], "log feature \"std\"");
-        assert!(
-            !g.labels.contains_key(&feature_id("log", "kv")),
-            "inactive features are left out"
-        );
-    }
-}
+#[path = "tree_features_tests.rs"]
+mod tests;
