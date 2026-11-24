@@ -339,6 +339,28 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .map(|(name, (dir, toml))| super::target_validation::SelectedPackage { name, dir, toml })
         .collect();
     super::target_validation::validate_named_targets(opt, &units, &selected)?;
+    if !opt.inspect_only {
+        let in_build: std::collections::HashSet<(&str, &str)> = units
+            .iter()
+            .map(|u| (u.package_name.as_str(), u.version.as_str()))
+            .collect();
+        let requirements: Vec<super::rust_version::Requirement<'_>> = resolved_packages
+            .iter()
+            .filter(|(pkg, ..)| in_build.contains(&(pkg.name.as_str(), pkg.version.as_str())))
+            .filter_map(|(pkg, _, _, toml)| {
+                let rust_version = toml.package.as_ref()?.rust_version.as_deref()?;
+                Some(super::rust_version::Requirement {
+                    name: pkg.name.as_str(),
+                    version: pkg.version.as_str(),
+                    rust_version,
+                    local: pkg.source.is_none(),
+                })
+            })
+            .collect();
+        if let Some(message) = super::rust_version::check(&toolchain.version, &requirements) {
+            anyhow::bail!(message);
+        }
+    }
     if opt.mode == super::types::BuildMode::Build {
         super::lto_plan::assign(&mut units, opt.release, Some(ws_root.as_path()))?;
     }

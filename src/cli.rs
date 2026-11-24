@@ -19,7 +19,7 @@ const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS
 #[command(version = MITTS_VERSION)]
 #[command(
     about = "Rust-first build and package tooling with a shared artifact cache",
-    after_help = "Toolchain:\n  mitts +TOOLCHAIN <COMMAND>  Use that rustup toolchain, like cargo +nightly (sets RUSTUP_TOOLCHAIN)\n\nEnvironment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_SLOW_UNITS=DURATION Report units still running after DURATION, with their command (default 5m; off = never; --slow-units wins)\n  MITTS_LINK_TIMING=0   Do not measure link times (Mitts otherwise runs the cc-style linker driver for rustc)\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_NET_RETRY=N     Retries of a registry request after a network error, 408, 429 or 5xx, after 1, 3 and 5 s (default 3; 0 = none)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
+    after_help = "Toolchain:\n  mitts +TOOLCHAIN <COMMAND>  Use that rustup toolchain, like cargo +nightly (sets RUSTUP_TOOLCHAIN)\n  mitts -C DIR <COMMAND>      Run as if Mitts was started in DIR\n\nEnvironment Variables:\n  MITTS_JOBS=N          Limit concurrent native build units to a positive integer (-j/--jobs N overrides it)\n  MITTS_TIMINGS=1       Enable sub-millisecond phase timings and I/O metrics on stderr\n  MITTS_SLOW_UNITS=DURATION Report units still running after DURATION, with their command (default 5m; off = never; --slow-units wins)\n  MITTS_LINK_TIMING=0   Do not measure link times (Mitts otherwise runs the cc-style linker driver for rustc)\n  MITTS_NO_REFLINK=1    Disable CoW reflink (FICLONE/clonefile) to force byte copying\n  MITTS_NO_HARDLINK=1   Disable intra-workspace zero-copy hardlinks\n  MITTS_VERIFY_RESTORE=1 Re-hash every cache object before restoring it\n  MITTS_CACHE_IO_BUDGET=N Cache readers allowed at once (0 = unbounded; default 1 on macOS)\n  MITTS_STORE_HARDLINKS=0|1 Store objects reach target/ by reflink, else read-only hardlink (default); 0 = copy instead, 1 = always link\n  MITTS_GIT=<path>      git binary used to clone git dependencies (default: git on PATH)\n  MITTS_INDEX_TTL_SECS=N  How long cached sparse-index entries are trusted when online (default 900)\n  MITTS_NET_RETRY=N     Retries of a registry request after a network error, 408, 429 or 5xx, after 1, 3 and 5 s (default 3; 0 = none)\n  MITTS_FAST_LOCK=0|1   Fast build lock with an explicit --cache-dir (default: on only for the default cache root)"
 )]
 pub struct Cli {
     /// Coloring of Mitts' output: auto, always or never (default: CARGO_TERM_COLOR, else auto)
@@ -37,6 +37,14 @@ pub struct Cli {
     /// Unstable Cargo flags: `-Z unstable-options` is accepted; rustc's -Z flags go in RUSTFLAGS
     #[arg(short = 'Z', global = true, value_name = "FLAG", action = clap::ArgAction::Append)]
     pub unstable: Vec<String>,
+
+    /// Build even when a package's `rust-version` is newer than the rustc in use
+    #[arg(long, global = true)]
+    pub ignore_rust_version: bool,
+
+    /// Print a report of future-incompatibility warnings at the end of the build
+    #[arg(long, global = true)]
+    pub future_incompat_report: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -118,6 +126,82 @@ pub enum Commands {
 
     /// Remove generated artifacts and fast build lock for the workspace
     Clean(CleanArgs),
+
+    /// Create a new Cargo package
+    New(project_new::NewArgs),
+
+    /// Create a new Cargo package in an existing directory
+    Init(project_new::NewArgs),
+
+    /// Print a JSON representation of a Cargo.toml file's location
+    LocateProject(project_info::LocateProjectArgs),
+
+    /// Print a fully qualified package specification
+    Pkgid(project_info::PkgidArgs),
+
+    /// Show version information
+    Version(project_info::VersionArgs),
+
+    /// Generate the lockfile for a package
+    GenerateLockfile(lock_cmds::GenerateLockfileArgs),
+
+    /// Update dependencies as recorded in the local lock file
+    Update(lock_cmds::UpdateArgs),
+
+    /// Display a tree visualization of a dependency graph
+    Tree(tree::TreeArgs),
+
+    /// Add dependencies to a Cargo.toml manifest file
+    Add(manifest_edit::AddArgs),
+
+    /// Remove dependencies from a Cargo.toml manifest file
+    #[command(visible_alias = "rm")]
+    Remove(manifest_edit::RemoveArgs),
+
+    /// Build a package's documentation
+    #[command(visible_alias = "d")]
+    Doc(doc::DocArgs),
+
+    /// Build a package's documentation, using specified custom flags
+    Rustdoc(doc::DocArgs),
+
+    /// Automatically fix lint warnings reported by rustc
+    Fix(fix::FixArgs),
+
+    /// Vendor all dependencies for a project locally
+    Vendor(vendor::VendorArgs),
+
+    /// Search packages in the registry
+    Search(registry_cmds::SearchArgs),
+
+    /// Display information about a package
+    Info(registry_cmds::InfoArgs),
+
+    /// Log in to a registry
+    Login(registry_cmds::LoginArgs),
+
+    /// Remove an API token from the registry locally
+    Logout(registry_cmds::LogoutArgs),
+
+    /// Manage the owners of a crate on the registry
+    Owner(registry_cmds::OwnerArgs),
+
+    /// Remove a pushed crate from the index
+    Yank(registry_cmds::YankArgs),
+
+    /// Install a Rust binary
+    Install(install::InstallArgs),
+
+    /// Remove a Rust binary
+    Uninstall(install::UninstallArgs),
+
+    /// Generate and display various kinds of reports
+    Report(future_incompat::ReportArgs),
+}
+
+/// `mitts 0.4.0 (<commit>)`, as `--version` prints it.
+pub fn version_string() -> &'static str {
+    MITTS_VERSION
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -141,6 +225,50 @@ pub struct CleanArgs {
     /// Directory for the shared artifact and action cache
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
+
+    /// Package to clean artifacts for (repeatable)
+    #[arg(short = 'p', long = "package", value_name = "SPEC", action = clap::ArgAction::Append)]
+    pub packages: Vec<String>,
+
+    /// Clean artifacts of the workspace members only
+    #[arg(long)]
+    pub workspace: bool,
+
+    /// Whether or not to clean just the documentation directory
+    #[arg(long)]
+    pub doc: bool,
+
+    /// Display what would be deleted without deleting anything
+    #[arg(short = 'n', long)]
+    pub dry_run: bool,
+
+    /// Clean artifacts of the specified profile
+    #[arg(long, value_name = "PROFILE-NAME", conflicts_with = "release")]
+    pub profile: Option<String>,
+
+    /// Target triple to clean output for
+    #[arg(long)]
+    pub target: Option<String>,
+
+    /// Do not print Mitts log messages
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// Require Cargo.lock is up to date (accepted for Cargo compatibility)
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Run without accessing the network (accepted for Cargo compatibility)
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Equivalent to specifying both --locked and --offline
+    #[arg(long)]
+    pub frozen: bool,
 }
 
 impl Commands {
@@ -154,6 +282,7 @@ impl Commands {
             Commands::Bench(args) => args.jobs,
             Commands::Coverage(args) | Commands::LlvmCov(args) => args.jobs,
             Commands::Run(args) => args.build_args.jobs,
+            Commands::Doc(args) | Commands::Rustdoc(args) => args.jobs,
             _ => None,
         };
         jobs.and_then(|n| usize::try_from(n).ok())
@@ -169,6 +298,7 @@ impl Commands {
             Commands::Bench(args) => args.verbose,
             Commands::Coverage(args) | Commands::LlvmCov(args) => args.verbose,
             Commands::Run(args) => args.build_args.verbose,
+            Commands::Doc(args) | Commands::Rustdoc(args) => args.verbose,
             _ => 0,
         }
     }
@@ -184,6 +314,7 @@ impl Commands {
             Commands::Bench(args) => Some(args.cache_dir.clone()),
             Commands::Coverage(args) | Commands::LlvmCov(args) => Some(args.cache_dir.clone()),
             Commands::Run(args) => Some(args.build_args.cache_dir.clone()),
+            Commands::Doc(args) | Commands::Rustdoc(args) => Some(args.cache_dir.clone()),
             _ => None,
         }
     }
@@ -339,6 +470,10 @@ pub struct BuildArgs {
     #[arg(long)]
     pub all_targets: bool,
 
+    /// Copy final artifacts to this directory (unstable in Cargo: needs -Z unstable-options)
+    #[arg(long, visible_alias = "out-dir", value_name = "PATH")]
+    pub artifact_dir: Option<PathBuf>,
+
     /// Additional arguments passed to the underlying builder
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -441,6 +576,18 @@ pub struct MetadataArgs {
     /// Directory for the shared artifact and source cache
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
+
+    /// Output information only about the workspace members and don't fetch dependencies
+    #[arg(long)]
+    pub no_deps: bool,
+
+    /// Do not print Mitts log messages
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -464,6 +611,18 @@ pub struct FetchArgs {
     /// Require Cargo.lock to be unchanged
     #[arg(long)]
     pub frozen: bool,
+
+    /// Fetch for the target triple (all sources in Cargo.lock are fetched either way)
+    #[arg(long)]
+    pub target: Option<String>,
+
+    /// Do not print Mitts log messages
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 #[derive(Args, Debug, Clone, Default)]
@@ -492,9 +651,15 @@ pub mod coverage;
 pub mod coverage_tools;
 pub mod coverage_types;
 pub mod diagnostic;
+pub mod doc;
+pub mod fix;
 pub mod fmt;
+pub mod future_incompat;
 pub mod handlers;
+pub mod install;
+pub mod lock_cmds;
 pub mod manifest_discovery;
+pub mod manifest_edit;
 pub mod message_format;
 pub mod metadata;
 mod package;
@@ -503,6 +668,10 @@ mod package_directory;
 mod package_lock;
 mod package_patterns;
 pub mod profile_flag;
+pub mod project_info;
+pub mod project_new;
+pub mod registry_api;
+pub mod registry_cmds;
 mod registry_metadata;
 mod registry_protocol;
 mod registry_upload;
@@ -514,7 +683,10 @@ pub mod test_doctest;
 pub mod test_parallel;
 mod test_progress;
 pub mod test_runner;
+pub mod tree;
+pub mod tree_graph;
 pub mod ui;
+pub mod vendor;
 
 pub use bench::{handle_bench, BenchArgs};
 pub use build::handle_build;

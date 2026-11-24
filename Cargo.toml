@@ -1,6 +1,6 @@
 [package]
 name = "mitts"
-version = "0.3.39"
+version = "0.4.0"
 edition = "2021"
 authors = ["Alexander Panasenko <alex@prod.codes>"]
 license = "MIT OR Apache-2.0"
@@ -21,6 +21,8 @@ anstream = "1.0"
 console = "0.15"
 miette = { version = "7.6", features = ["fancy", "derive"] }
 toml = "0.8"
+# Already in the graph through toml; edits Cargo.toml in place for `add`, `remove`, `new`.
+toml_edit = "0.22"
 flate2 = "1.0"
 tar = "0.4"
 ureq = "2.10"

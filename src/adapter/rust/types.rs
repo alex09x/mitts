@@ -217,6 +217,12 @@ pub struct RustBuildOptions {
     /// `--keep-going`: a failed unit skips only the units that depend on it; the rest still runs
     /// and the build fails at the end. Not part of any key: it does not change what a unit produces.
     pub keep_going: bool,
+    /// The plan is only inspected (`metadata`, `tree`, `explain`), nothing is compiled:
+    /// `package.rust-version` is not enforced, as in Cargo.
+    pub inspect_only: bool,
+    /// `mitts test --examples`: every example is tested, `test = true` or not (with
+    /// `--tests` / `--all-targets` alone only `test = true` examples are).
+    pub test_all_examples: bool,
 }
 
 impl RustBuildOptions {

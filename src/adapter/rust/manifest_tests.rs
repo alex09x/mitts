@@ -102,36 +102,27 @@ impl CargoToml {
             }
         }
 
-        // Examples are not tests by default; one declared with `test = true` is, and
-        // Cargo builds it with `--tests` like any other test target.
-        for ex in &self.example {
-            if ex.test != Some(true) {
-                continue;
-            }
-            let src = match ex.path {
-                Some(ref p) => pkg_dir.join(p),
-                None => {
-                    let flat = pkg_dir.join("examples").join(format!("{}.rs", ex.name));
-                    if flat.is_file() {
-                        flat
-                    } else {
-                        pkg_dir.join("examples").join(&ex.name).join("main.rs")
-                    }
-                }
-            };
-            if src.is_file() {
-                targets.push(DiscoveredTarget {
-                    name: ex.name.clone(),
-                    kind: "test".to_string(),
-                    src_path: src,
-                    edition: edition.clone(),
-                    crate_types: vec!["bin".to_string()],
-                    required_features: ex.required_features.clone(),
-                    harness: ex.harness.unwrap_or(true),
-                    test_role: Some(TestRole::Example(ex.name.clone())),
-                    explicit_only: false,
-                });
-            }
+        // Examples are not tests by default: one declared with `test = true` is, and Cargo
+        // builds it with `--tests` like any other test target. The others are tested only
+        // when named (`--example NAME`) or with `--examples`.
+        for ex in self
+            .discover_targets(pkg_dir)
+            .into_iter()
+            .filter(|t| t.kind == "example")
+        {
+            let declared = self.example.iter().find(|e| e.name == ex.name);
+            let tested = declared.is_some_and(|e| e.test == Some(true));
+            targets.push(DiscoveredTarget {
+                name: ex.name.clone(),
+                kind: "test".to_string(),
+                src_path: ex.src_path,
+                edition: ex.edition.clone().or_else(|| edition.clone()),
+                crate_types: vec!["bin".to_string()],
+                required_features: ex.required_features.clone(),
+                harness: declared.and_then(|e| e.harness).unwrap_or(true),
+                test_role: Some(TestRole::Example(ex.name.clone())),
+                explicit_only: !tested,
+            });
         }
 
         let autotests = self

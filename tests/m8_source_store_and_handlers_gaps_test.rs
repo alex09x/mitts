@@ -131,6 +131,7 @@ fn test_m8_handlers_invalid_default_stores_and_terminal() {
         offline: false,
         frozen: false,
         locked: false,
+        ..Default::default()
     };
     let code_fetch = handle_fetch(&fetch_args);
     assert_eq!(code_fetch, 1);

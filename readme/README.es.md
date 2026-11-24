@@ -140,10 +140,25 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-Para proyectos de Git, el empaquetado requiere actualmente un repositorio limpio con el paquete en su raíz. Los patrones `include` del manifiesto pueden seleccionar archivos ignorados; los paquetes anidados del espacio de trabajo y los directorios con enlaces simbólicos aún no son compatibles. `mitts publish` tiene como destino crates.io y lee el token de `CARGO_REGISTRY_TOKEN`.
+Todos los demás comandos de Cargo también están, con las opciones y la salida de Cargo:
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+La lista completa, con los pocos puntos en que Mitts difiere, está en [docs/cargo-commands.md](../docs/cargo-commands.md).
+
+Para proyectos de Git, el empaquetado requiere un repositorio limpio salvo que se indique `--allow-dirty`. Los patrones `include` del manifiesto pueden seleccionar archivos ignorados; los paquetes anidados del espacio de trabajo y los directorios con enlaces simbólicos aún no son compatibles. `mitts publish` publica en crates.io, o en otro registro con `--registry`, y lee el token de `CARGO_REGISTRY_TOKEN`, `mitts login` o `--token`.
 
 Mitts escribe las salidas de compilación en los directorios habituales de Cargo `target/debug/` y `target/release/`. `CARGO_TARGET_DIR` y `--target-dir` seleccionan una raíz de salida diferente. Su caché compartida es independiente (`--cache-dir`, si no `$MITTS_CACHE_DIR`, si no `$XDG_CACHE_HOME/mitts`, si no `~/.cache/mitts`). El almacén de artefactos, la caché de acciones, los bloqueos, el jobserver, el almacén de fuentes, los espejos de git y la caché de índices residen bajo esa única raíz.
 

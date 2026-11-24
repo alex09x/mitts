@@ -34,6 +34,7 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
         no_default_features: args.no_default_features,
         all_features: args.all_features,
         cache_dir: args.cache_dir.clone(),
+        inspect_only: true,
         ..Default::default()
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, false);
@@ -290,7 +291,14 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         return 1;
     }
     if mitts_dir.exists() {
-        let has_marker = clean_target::has_owned_state(&mitts_dir);
+        // A build with `--target` marks the target's own directory.
+        let has_marker = clean_target::has_owned_state(&mitts_dir)
+            || args.target.as_ref().is_some_and(|t| {
+                std::path::Path::new(t)
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+                    && clean_target::has_owned_state(&mitts_dir.join(t))
+            });
         if !has_marker {
             eprintln!(
                 "mitts error: refusing to clean unowned directory without Mitts marker (.mitts-target): {}",
@@ -301,7 +309,23 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     }
     let legacy_mitts_dir = project_dir.join(".mitts");
 
-    Ui::header("clean");
+    let selective = args.doc
+        || !args.packages.is_empty()
+        || args.workspace
+        || args.profile.is_some()
+        || args.target.is_some()
+        || args.dry_run;
+    // Nothing built yet: a narrowed clean (a dry run above all) has nothing to remove and
+    // must not create the target directory by taking its lock.
+    if selective && !mitts_dir.exists() {
+        if !args.quiet {
+            let word = if args.dry_run { "Summary" } else { "Removed" };
+            eprintln!("{word:>12} 0 files");
+        }
+        return 0;
+    }
+    // Builds hold this lock shared while they write the target directory: every clean,
+    // the narrowed ones too, waits for them.
     let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
     let _clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
         Ok(guard) => guard,
@@ -310,6 +334,19 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
             return 1;
         }
     };
+    if selective {
+        return match clean_selective(args, &mitts_dir, &manifest_path) {
+            Ok(()) => 0,
+            Err(err) => {
+                eprintln!("error: {err:#}");
+                101
+            }
+        };
+    }
+
+    if !args.quiet {
+        Ui::header("clean");
+    }
 
     if mitts_dir.exists() {
         match clean_target::remove_owned_artifacts(&mitts_dir, args.release) {
@@ -383,6 +420,165 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     let ws_msg = format!("workspace: {}", project_dir.display());
     Ui::finish("clean", "ok", &ws_msg);
     0
+}
+
+/// `1.5MiB`, as Cargo writes sizes.
+pub fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes}B")
+    } else {
+        format!("{value:.1}{}", UNITS[unit])
+    }
+}
+
+/// `mitts clean` with Cargo's narrowing options: `--doc`, `-p`, `--workspace`, `--profile`,
+/// `--target`, `--dry-run`. Only artifacts Mitts recorded are removed.
+fn clean_selective(
+    args: &CleanArgs,
+    target_dir: &std::path::Path,
+    manifest: &std::path::Path,
+) -> anyhow::Result<()> {
+    // The target's outputs are where a build puts them: the target directory joined with
+    // the `--target` spec as given (a triple, or a target JSON path). It must stay inside
+    // the owned target directory, symbolic links resolved.
+    let root = match &args.target {
+        Some(spec) => {
+            let path = std::path::Path::new(spec);
+            let lexical_ok = !spec.is_empty()
+                && path
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)));
+            if !lexical_ok {
+                anyhow::bail!("`{spec}` is not a target triple or a relative target file");
+            }
+            target_dir.join(path)
+        }
+        None => target_dir.to_path_buf(),
+    };
+    let inside = |path: &std::path::Path| -> anyhow::Result<()> {
+        if let (Ok(owned), Ok(real)) = (target_dir.canonicalize(), path.canonicalize()) {
+            if !real.starts_with(&owned) || (real == owned && path != target_dir) {
+                anyhow::bail!(
+                    "refusing to clean {}: it is not inside the target directory",
+                    path.display()
+                );
+            }
+        }
+        Ok(())
+    };
+    inside(&root)?;
+    // A target (or profile root) that was never built: nothing to remove, nothing created.
+    if !root.exists() {
+        if !args.quiet {
+            let word = if args.dry_run { "Summary" } else { "Removed" };
+            eprintln!("{word:>12} 0 files");
+        }
+        return Ok(());
+    }
+    let (count, bytes) = if args.doc {
+        let doc = root.join("doc");
+        // What is deleted must be inside the owned target directory.
+        inside(&doc)?;
+        let mut count = 0usize;
+        let mut bytes = 0u64;
+        fn walk(dir: &std::path::Path, count: &mut usize, bytes: &mut u64) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                match entry.file_type() {
+                    Ok(t) if t.is_dir() => walk(&entry.path(), count, bytes),
+                    Ok(_) => {
+                        *count += 1;
+                        *bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+        walk(&doc, &mut count, &mut bytes);
+        if !args.dry_run && doc.is_dir() {
+            std::fs::remove_dir_all(&doc)?;
+        }
+        (count, bytes)
+    } else if !root.exists() {
+        (0, 0)
+    } else {
+        let mut packages: Vec<String> = args
+            .packages
+            .iter()
+            .map(|s| super::project_info::parse_spec(s).0.to_string())
+            .collect();
+        let ws = super::project_info::workspace_root(manifest)?;
+        let members = super::project_info::local_package_dirs(&ws)?;
+        if args.workspace {
+            packages.extend(members.iter().map(|(name, _)| name.clone()));
+        }
+        // A local package's outputs carry its target names too (`[[bin]] name = "tool"`).
+        let mut names = packages.clone();
+        for (name, dir) in &members {
+            if !packages.contains(name) {
+                continue;
+            }
+            if let Ok(toml) =
+                crate::adapter::rust::manifest::CargoToml::from_file(&dir.join("Cargo.toml"))
+            {
+                names.extend(toml.discover_targets(dir).into_iter().map(|t| t.name));
+            }
+        }
+        names.sort();
+        names.dedup();
+        let packages = names;
+        let only_profile = match (args.profile.as_deref(), args.release) {
+            (Some("dev") | Some("test"), _) => Some("debug".to_string()),
+            (Some("release") | Some("bench"), _) | (None, true) => Some("release".to_string()),
+            (Some(other), _) => Some(other.to_string()),
+            (None, false) => None,
+        };
+        let filter = clean_target::CleanFilter {
+            only_profile,
+            packages,
+            dry_run: args.dry_run,
+            verbose: args.verbose > 0,
+            parent_lock_held: args.target.is_some(),
+        };
+        let result = clean_target::remove_matching(&root, &filter)?;
+        if !args.dry_run {
+            for entry in std::fs::read_dir(target_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with("build-") && name.ends_with(".lock") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+            let _ = std::fs::remove_file(FastBuildLock::lock_path_in_target(target_dir, "dev"));
+            let _ = std::fs::remove_file(FastBuildLock::lock_path_in_target(target_dir, "release"));
+        }
+        result
+    };
+    if args.quiet {
+        return Ok(());
+    }
+    let noun = if count == 1 { "file" } else { "files" };
+    let total = if count > 0 {
+        format!(", {} total", human_bytes(bytes))
+    } else {
+        String::new()
+    };
+    if args.dry_run {
+        eprintln!("{:>12} {count} {noun}{total}", "Summary");
+        eprintln!("warning: no files deleted due to --dry-run");
+    } else {
+        eprintln!("{:>12} {count} {noun}{total}", "Removed");
+    }
+    Ok(())
 }
 
 fn is_pid_stale(pid: u32) -> bool {

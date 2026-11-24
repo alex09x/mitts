@@ -367,6 +367,7 @@ fn test_nb4_clean_respects_target_dir_and_refuses_unowned_dirs() {
         release: false,
         cache: false,
         cache_dir: Some(isolated_cache.path().to_path_buf()),
+        ..Default::default()
     };
     assert_eq!(handle_clean(&bad_clean), 1);
     assert!(unowned_dir.join("precious.txt").exists());

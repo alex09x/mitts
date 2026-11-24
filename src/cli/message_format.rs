@@ -265,6 +265,24 @@ pub fn finish_json(outcome: anyhow::Result<(bool, i32)>) -> i32 {
 
 /// Executes `opt` when `format` is `short` or any `json*` variant, returning the exit code.
 pub fn run_non_human_build(opt: &mut RustBuildOptions, format: MessageFormat) -> i32 {
+    run_non_human_build_then(opt, format, |_| Ok(()))
+}
+
+/// Like [`run_non_human_build`], with `after` run once the build succeeded and before the
+/// single closing `build-finished` record, so that record reports the whole command
+/// (`--artifact-dir` export included). A failing `after` makes the command fail with 101.
+pub fn run_non_human_build_then(
+    opt: &mut RustBuildOptions,
+    format: MessageFormat,
+    after: impl FnOnce(&RustBuildOptions) -> anyhow::Result<()>,
+) -> i32 {
+    let after_ok = |opt: &RustBuildOptions| match after(opt) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            false
+        }
+    };
     opt.diagnostic_format = format.diagnostic_format();
     opt.json_diagnostics = format.is_json();
     if format.is_json() {
@@ -285,6 +303,16 @@ pub fn run_non_human_build(opt: &mut RustBuildOptions, format: MessageFormat) ->
             }
             (result.success, result.exit_code)
         });
+        let outcome = match outcome {
+            Ok((true, 0)) => {
+                if after_ok(opt) {
+                    Ok((true, 0))
+                } else {
+                    Ok((false, 101))
+                }
+            }
+            other => other,
+        };
         finish_json(outcome)
     } else {
         let emitted = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -296,6 +324,9 @@ pub fn run_non_human_build(opt: &mut RustBuildOptions, format: MessageFormat) ->
                     && !result.stderr.trim().is_empty()
                 {
                     eprintln!("{}", result.stderr.trim());
+                }
+                if result.exit_code == 0 && !after_ok(opt) {
+                    return 101;
                 }
                 result.exit_code
             }

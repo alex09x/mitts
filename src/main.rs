@@ -39,6 +39,14 @@ fn main() -> ExitCode {
             return ExitCode::from(101);
         }
     };
+    // `-C DIR` before the command: work as if started in DIR (config, manifest discovery).
+    let args = match mitts::cli::argv_config::change_directory(args) {
+        Ok(args) => args,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            return ExitCode::from(101);
+        }
+    };
     // `--config`, `[alias]`, `net.offline`, `term.quiet` / `term.verbose`, as Cargo does.
     let args = match mitts::cli::argv_config::apply(args) {
         Ok(args) => args,
@@ -47,9 +55,11 @@ fn main() -> ExitCode {
             return ExitCode::from(101);
         }
     };
+    let original_args = args.clone();
     let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     mitts::core::verbosity::set(cli.command.verbose());
+    mitts::adapter::rust::rust_version::set_ignored(cli.ignore_rust_version);
     if std::env::var("MITTS_LINK_TIMING").as_deref() != Ok("0") {
         mitts::adapter::rust::link_timing::enable();
     }
@@ -103,7 +113,36 @@ fn main() -> ExitCode {
         Commands::Publish(ref args) => handle_publish(args),
         Commands::Gc(ref args) => handle_gc(args),
         Commands::Clean(ref args) => handle_clean(args),
+        Commands::New(ref args) => mitts::cli::project_new::handle_new(args),
+        Commands::Init(ref args) => mitts::cli::project_new::handle_init(args),
+        Commands::LocateProject(ref args) => mitts::cli::project_info::handle_locate_project(args),
+        Commands::Pkgid(ref args) => mitts::cli::project_info::handle_pkgid(args),
+        Commands::Version(ref args) => mitts::cli::project_info::handle_version(args),
+        Commands::GenerateLockfile(ref args) => {
+            mitts::cli::lock_cmds::handle_generate_lockfile(args)
+        }
+        Commands::Update(ref args) => mitts::cli::lock_cmds::handle_update(args),
+        Commands::Tree(ref args) => mitts::cli::tree::handle_tree(args),
+        Commands::Add(ref args) => mitts::cli::manifest_edit::handle_add(args),
+        Commands::Remove(ref args) => mitts::cli::manifest_edit::handle_remove(args),
+        Commands::Doc(ref args) => mitts::cli::doc::handle_doc(args),
+        Commands::Rustdoc(ref args) => mitts::cli::doc::handle_rustdoc(args),
+        Commands::Fix(ref args) => mitts::cli::fix::handle_fix(args),
+        Commands::Vendor(ref args) => mitts::cli::vendor::handle_vendor(args),
+        Commands::Search(ref args) => mitts::cli::registry_cmds::handle_search(args),
+        Commands::Info(ref args) => mitts::cli::registry_cmds::handle_info(args),
+        Commands::Login(ref args) => mitts::cli::registry_cmds::handle_login(args),
+        Commands::Logout(ref args) => mitts::cli::registry_cmds::handle_logout(args),
+        Commands::Owner(ref args) => mitts::cli::registry_cmds::handle_owner(args),
+        Commands::Yank(ref args) => mitts::cli::registry_cmds::handle_yank(args),
+        Commands::Install(ref args) => mitts::cli::install::handle_install(args),
+        Commands::Uninstall(ref args) => mitts::cli::install::handle_uninstall(args),
+        Commands::Report(ref args) => mitts::cli::future_incompat::handle_report(args),
     };
+    if cli.future_incompat_report && code == 0 && cli.command.cache_use().is_some() {
+        let test_like = matches!(cli.command, Commands::Test(_) | Commands::Bench(_));
+        mitts::cli::future_incompat::run_after_build(&original_args, test_like);
+    }
 
     mitts::adapter::rust::cargo_config_cli::cleanup();
     match mitts::core::unit_timings::finish_recorded() {

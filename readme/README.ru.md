@@ -169,13 +169,25 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-Для Git-проектов упаковка в настоящее время требует чистого репозитория с пакетом в его корне.
-Шаблоны `include` в манифесте могут выбирать игнорируемые файлы; вложенные пакеты воркспейса
-и каталоги по символическим ссылкам пока не поддерживаются. `mitts publish` нацелен на crates.io и считывает
-токен из `CARGO_REGISTRY_TOKEN`.
+Есть и все остальные команды Cargo, с теми же параметрами и выводом:
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+Полный список и немногие отличия от Cargo — в [docs/cargo-commands.md](../docs/cargo-commands.md).
+
+Для проектов в Git упаковка требует чистого репозитория, если не указан `--allow-dirty`. Шаблоны `include` в манифесте могут выбирать игнорируемые файлы; вложенные пакеты рабочей области и каталоги по символическим ссылкам пока не поддерживаются. `mitts publish` публикует на crates.io или в другой реестр через `--registry` и берёт токен из `CARGO_REGISTRY_TOKEN`, `mitts login` или `--token`.
 
 Mitts записывает результаты сборки в стандартные каталоги Cargo `target/debug/` и `target/release/`.
 `CARGO_TARGET_DIR` и `--target-dir` задают другой корневой каталог для вывода.

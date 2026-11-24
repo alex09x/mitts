@@ -249,7 +249,13 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
         return code;
     }
     if args.message_format != MessageFormat::Human {
-        return message_format::run_non_human_build(&mut opt, args.message_format);
+        // The export runs before the one closing `build-finished`, which covers it.
+        return message_format::run_non_human_build_then(&mut opt, args.message_format, |opt| {
+            match &args.artifact_dir {
+                Some(dir) => copy_final_artifacts(opt, dir),
+                None => Ok(()),
+            }
+        });
     }
     let start = std::time::Instant::now();
     let profile = &crate::adapter::rust::profile::profile_name(opt.release);
@@ -284,6 +290,14 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
         );
     }
 
+    if let (Some(dir), Ok((_, result))) = (&args.artifact_dir, &build_res) {
+        if result.success {
+            if let Err(error) = copy_final_artifacts(&opt, dir) {
+                eprintln!("error: {error:#}");
+                return 101;
+            }
+        }
+    }
     match build_res {
         Ok((_plan, result)) if args.quiet && result.success => 0,
         Ok((plan, result)) => render_build_result(&plan, &result, profile, start, is_verbose),
@@ -292,6 +306,96 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
             1
         }
     }
+}
+
+/// `--artifact-dir`: the selected packages' final binaries and libraries copied there,
+/// as Cargo's unstable option does.
+fn copy_final_artifacts(
+    opt: &crate::adapter::RustBuildOptions,
+    dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    let mut explain_opt = opt.clone();
+    explain_opt.progress = None;
+    explain_opt.inspect_only = true;
+    let explanation = RustAdapter::explain_plan(&explain_opt)?;
+    // The plan's target directory already names an explicit `--target`.
+    let out_dir =
+        explanation
+            .target_directory
+            .join(crate::adapter::rust::profile::custom::profile_dir(
+                opt.release,
+            ));
+    let windows = opt
+        .target_triple
+        .as_deref()
+        .map_or(cfg!(windows), |t| t.contains("windows"));
+    let apple = opt
+        .target_triple
+        .as_deref()
+        .map_or(cfg!(target_vendor = "apple"), |t| t.contains("apple"));
+    std::fs::create_dir_all(dir)?;
+    // Every output lands in one flat directory: two with the same file name (a binary and
+    // an example both called `demo`) would overwrite each other, so that is an error.
+    let mut copied: std::collections::BTreeMap<std::path::PathBuf, std::path::PathBuf> =
+        std::collections::BTreeMap::new();
+    for unit in explanation
+        .units
+        .iter()
+        .filter(|u| u.is_primary && !u.for_host)
+    {
+        let name = unit.target_name.replace('-', "_");
+        let mut files: Vec<String> = Vec::new();
+        let exe = if windows { ".exe" } else { "" };
+        match unit.kind.as_str() {
+            "bin" => files.push(format!("{}{exe}", unit.target_name)),
+            "example" => files.push(format!("examples/{}{exe}", unit.target_name)),
+            _ => {
+                let mut crate_types = vec![unit.kind.clone()];
+                crate_types.extend(opt.crate_types.iter().cloned());
+                for crate_type in &crate_types {
+                    match crate_type.as_str() {
+                        "rlib" | "lib" => files.push(format!("lib{name}.rlib")),
+                        "cdylib" | "dylib" => files.push(if windows {
+                            format!("{name}.dll")
+                        } else if apple {
+                            format!("lib{name}.dylib")
+                        } else {
+                            format!("lib{name}.so")
+                        }),
+                        "staticlib" => files.push(if windows {
+                            format!("{name}.lib")
+                        } else {
+                            format!("lib{name}.a")
+                        }),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        for file in files {
+            let from = out_dir.join(&file);
+            if from.is_file() {
+                let name = std::path::Path::new(&file)
+                    .file_name()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| file.clone().into());
+                if let Some(first) = copied.get(&name) {
+                    if *first != from {
+                        anyhow::bail!(
+                            "`--artifact-dir` would get two files named `{}`: {} and {}",
+                            name.display(),
+                            first.display(),
+                            from.display()
+                        );
+                    }
+                    continue;
+                }
+                copied.insert(name.clone(), from.clone());
+                std::fs::copy(&from, dir.join(name))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

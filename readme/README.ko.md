@@ -134,10 +134,25 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-Git 프로젝트의 경우, 패키징에는 현재 패키지가 루트에 위치한 깨끗한 상태의 저장소가 필요합니다. 매니페스트 `include` 패턴으로 무시된 파일을 선택할 수 있으며, 중첩된 워크스페이스 패키지 및 심볼릭 링크 디렉터리는 아직 지원되지 않습니다. `mitts publish`는 crates.io를 대상으로 하며 `CARGO_REGISTRY_TOKEN`에서 토큰을 읽습니다.
+Cargo의 나머지 명령도 모두 있으며, 옵션과 출력은 Cargo와 같습니다.
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+전체 목록과 Mitts가 Cargo와 다른 몇 가지 점은 [docs/cargo-commands.md](../docs/cargo-commands.md)에 있습니다.
+
+Git 프로젝트의 경우, `--allow-dirty`를 지정하지 않으면 패키징에 깨끗한 상태의 저장소가 필요합니다. 매니페스트 `include` 패턴으로 무시된 파일을 선택할 수 있으며, 중첩된 워크스페이스 패키지 및 심볼릭 링크 디렉터리는 아직 지원되지 않습니다. `mitts publish`는 crates.io 또는 `--registry`로 지정한 다른 레지스트리를 대상으로 하며 `CARGO_REGISTRY_TOKEN`, `mitts login` 또는 `--token`에서 토큰을 읽습니다.
 
 Mitts는 빌드 출력물을 Cargo의 일반적인 `target/debug/` 및 `target/release/` 디렉터리에 작성합니다. `CARGO_TARGET_DIR` 및 `--target-dir`을 통해 다른 출력 루트를 선택할 수 있습니다. 공유 캐시는 별도로 분리되어 있습니다(`--cache-dir`, 미지정 시 `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts`, 또는 `~/.cache/mitts`). 아티팩트 저장소, 액션 캐시, 잠금, jobserver, 소스 저장소, git 미러 및 인덱스 캐시가 모두 이 단일 루트 아래에 상주합니다.
 

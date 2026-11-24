@@ -162,6 +162,15 @@ impl RegistryConfig {
     }
 
     fn merge_tokens(&mut self, value: &toml::Value) {
+        // crates.io's token lives under `[registry]` in credentials.toml.
+        if let Some(token) = value
+            .get("registry")
+            .and_then(|r| r.get("token"))
+            .and_then(|t| t.as_str())
+        {
+            self.tokens
+                .insert("crates-io".to_string(), token.to_string());
+        }
         if let Some(regs) = value.get("registries").and_then(|v| v.as_table()) {
             for (name, def) in regs {
                 if let Some(token) = def.get("token").and_then(|t| t.as_str()) {
@@ -238,6 +247,68 @@ impl RegistryConfig {
             .rev()
             .map(|spec| self.expand_alias(spec))
             .collect()
+    }
+
+    /// The token for a registry's web API (`publish`, `owner`, `yank`), as Cargo finds it:
+    /// `CARGO_REGISTRY_TOKEN` / `CARGO_REGISTRIES_<NAME>_TOKEN`, credentials.toml, then the
+    /// configured credential providers.
+    pub fn token_for_registry(&self, name: Option<&str>) -> Result<Option<String>> {
+        match name.filter(|n| *n != "crates-io") {
+            None => {
+                if let Ok(token) = std::env::var("CARGO_REGISTRY_TOKEN") {
+                    if !token.is_empty() {
+                        return Ok(Some(token));
+                    }
+                }
+                if let Some(token) = self.tokens.get("crates-io") {
+                    return Ok(Some(token.clone()));
+                }
+                self.token_for_index(CRATES_IO_LOCK_SOURCE)
+            }
+            Some(name) => {
+                let source = self.lock_source_for_registry(Some(name))?;
+                self.token_for_index(&source)
+            }
+        }
+    }
+
+    /// The configured registry name whose index is `index` (`crates-io` for crates.io's).
+    /// Only a name whose effective index (after `CARGO_REGISTRIES_<NAME>_INDEX`) is this
+    /// one counts: a name whose index the environment moved elsewhere is not this
+    /// registry, and its token must not go here.
+    pub fn registry_name_for_index(&self, index: &str) -> Option<String> {
+        let source = index_to_lock_source(index);
+        if is_crates_io(&source) {
+            return Some("crates-io".to_string());
+        }
+        let mut names: Vec<&String> = self.registries.keys().collect();
+        names.sort();
+        let matching: Vec<String> = names
+            .into_iter()
+            .filter(|name| {
+                self.lock_source_for_registry(Some(name.as_str()))
+                    .is_ok_and(|effective| effective == source)
+            })
+            .cloned()
+            .collect();
+        // Two names for one index are ambiguous: neither token is chosen.
+        match matching.as_slice() {
+            [one] => Some(one.clone()),
+            _ => None,
+        }
+    }
+
+    /// The index URL (without `sparse+`) of a registry name (`None` = crates.io).
+    pub fn index_url_for(&self, name: Option<&str>) -> Result<String> {
+        let source = self.lock_source_for_registry(name)?;
+        if is_crates_io(&source) {
+            return Ok(std::env::var("MITTS_SPARSE_INDEX_URL")
+                .unwrap_or_else(|_| CRATES_IO_INDEX_URL.to_string()));
+        }
+        Ok(source
+            .trim_start_matches("sparse+")
+            .trim_start_matches("registry+")
+            .to_string())
     }
 
     /// The token for a sparse index through the configured credential providers.

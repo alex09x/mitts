@@ -230,6 +230,104 @@ jobs:
       - uses: ./save
         with:
           max-bytes: '1073741824'
+  # Real RISC-V hardware: RISE RISC-V Runners (https://ci.riseproject.dev), free for open
+  # source. The x86_64 job cross-builds the exact-source Mitts driver; the riscv64 job runs
+  # the end-to-end smoke set with it on a physical board. Not part of the gate: the shared
+  # pool can queue, and it must not hold up merges. No secrets reach these jobs.
+  riscv-driver:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          targets: riscv64gc-unknown-linux-gnu
+      - name: Install the riscv64 cross linker
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-riscv64-linux-gnu libc6-dev-riscv64-cross
+      - name: Install latest stable Mitts
+        env:
+          MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
+        run: |
+          sh site/install.sh
+          binary="$MITTS_INSTALL_ROOT/bin/mitts"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\n' "$binary" >> "$GITHUB_ENV"
+      - name: Cross-build the exact-source Mitts driver for riscv64
+        working-directory: source
+        env:
+          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+        run: |
+          set -euo pipefail
+          "$MITTS_CI_BIN" build --locked --release --bin mitts --target riscv64gc-unknown-linux-gnu \
+            --cache-dir "$RUNNER_TEMP/mitts-ci-cache" --target-dir "$RUNNER_TEMP/rv"
+          mkdir -p "$RUNNER_TEMP/driver"
+          cp "$RUNNER_TEMP/rv/riscv64gc-unknown-linux-gnu/release/mitts" "$RUNNER_TEMP/driver/mitts"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mitts-riscv64-driver
+          path: ${{ runner.temp }}/driver/mitts
+          if-no-files-found: error
+  riscv64:
+    needs: riscv-driver
+    # Shared hardware outside GitHub: only code this repository's own writers pushed runs
+    # there (main, release calls, pull requests from branches of this repository), never a
+    # fork's pull request. RISE runners are ephemeral pods, one fresh environment per job.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04-riscv
+    timeout-minutes: 240
+    env:
+      RUST_TEST_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mitts-riscv64-driver
+          path: ${{ runner.temp }}/driver
+      - name: End-to-end smoke set on riscv64 hardware
+        working-directory: source
+        run: |
+          set -euo pipefail
+          uname -m
+          chmod 755 "$RUNNER_TEMP/driver/mitts"
+          export MITTS_CI_BIN="$RUNNER_TEMP/driver/mitts"
+          export MITTS_CI_CACHE_DIR="$RUNNER_TEMP/mitts-ci-cache"
+          "$MITTS_CI_BIN" --version
+          mkdir -p .ci-tools
+          cp "$GITHUB_WORKSPACE/scripts/run_tests_isolated.sh" .ci-tools/run-tests.sh
+          bash .ci-tools/run-tests.sh --test cargo_parity_test --test cli_native_features \
+            --test cli_dependency_features_test --test m8_jobserver_pool_test \
+            --test build_script_jobserver_warnings_test --test verbose_toolchain_summary_test
+      - name: Source manifests and lockfile remain unchanged
+        if: always()
+        working-directory: source
+        run: git diff --exit-code -- Cargo.toml Cargo.lock
   gate:
     if: always()
     needs: [automation, native, probe, action]

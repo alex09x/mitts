@@ -162,13 +162,30 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-For Git projects, packaging currently requires a clean repository with the package at its root.
+Every other Cargo command is there too, with Cargo's options and output:
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+The full list, with the few places Mitts differs, is in
+[docs/cargo-commands.md](docs/cargo-commands.md).
+
+For Git projects, packaging requires a clean repository unless `--allow-dirty` is given.
 Manifest `include` patterns can select ignored files; nested workspace packages
-and symlinked directories are not yet supported. `mitts publish` targets crates.io and reads
-the token from `CARGO_REGISTRY_TOKEN`.
+and symlinked directories are not yet supported. `mitts publish` targets crates.io, or
+another registry with `--registry`, and reads the token from `CARGO_REGISTRY_TOKEN`,
+`mitts login` or `--token`.
 
 Mitts writes build outputs to Cargo's usual `target/debug/` and `target/release/`
 directories. `CARGO_TARGET_DIR` and `--target-dir` select a different output root.

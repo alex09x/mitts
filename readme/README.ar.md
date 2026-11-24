@@ -150,12 +150,31 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
 </div>
 
-بالنسبة لمشاريع Git، تتطلب عملية تحزيم الحزم حالياً مستودعاً نظيفاً مع وجود الحزمة في جذره. يمكن لأنماط `include` في ملف البيان تحديد الملفات المتجاهلة؛ ولا يتم دعم حزم مساحة العمل المتداخلة والدلائل ذات الروابط الرمزية حتى الآن. يستهدف الأمر `mitts publish` موقع crates.io ويقرأ الرمز المميز من `CARGO_REGISTRY_TOKEN`.
+وتتوفر أيضاً جميع أوامر Cargo الأخرى، بخيارات Cargo ومخرجاته نفسها:
+
+<div dir="ltr">
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+</div>
+
+القائمة الكاملة، مع المواضع القليلة التي يختلف فيها Mitts، موجودة في [docs/cargo-commands.md](../docs/cargo-commands.md).
+
+بالنسبة لمشاريع Git، تتطلب عملية تحزيم الحزم مستودعاً نظيفاً ما لم يُستخدم الخيار `--allow-dirty`. يمكن لأنماط `include` في ملف البيان تحديد الملفات المتجاهلة؛ ولا يتم دعم حزم مساحة العمل المتداخلة والدلائل ذات الروابط الرمزية حتى الآن. ينشر الأمر `mitts publish` على crates.io أو على سجل آخر عبر `--registry`، ويقرأ الرمز المميز من `CARGO_REGISTRY_TOKEN` أو `mitts login` أو `--token`.
 
 يكتب Mitts مخرجات البناء في أدلة Cargo المعتادة <bdi>`target/debug/`</bdi> و <bdi>`target/release/`</bdi>. يحدد `CARGO_TARGET_DIR` و <bdi>`--target-dir`</bdi> جذراً مختلفاً للمخرجات. ذاكرته المؤقتة المشتركة منفصلة (<bdi>`--cache-dir`</bdi>، وإلا <bdi>`$MITTS_CACHE_DIR`</bdi>، وإلا <bdi>`$XDG_CACHE_HOME/mitts`</bdi>، وإلا <bdi>`~/.cache/mitts`</bdi>). ويستقر مستودع المخرجات، والذاكرة المؤقتة للإجراءات، والأقفال، وخادم المهام، ومستودع المصادر، ومرايا git، وفهرس الذاكرة المؤقتة تحت ذلك الجذر الموحد.
 

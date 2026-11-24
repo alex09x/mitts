@@ -133,10 +133,25 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-对于 Git 项目，打包目前要求代码仓库整洁且 package 位于其根目录。清单的 `include` 模式可以选择被忽略的文件；嵌套的工作区 package 以及符号链接目录目前尚不支持。`mitts publish` 面向 crates.io 并从 `CARGO_REGISTRY_TOKEN` 读取令牌。
+Cargo 的其他所有命令也都在，选项和输出与 Cargo 相同：
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+完整列表以及 Mitts 与 Cargo 的少数差异见 [docs/cargo-commands.md](../docs/cargo-commands.md)。
+
+对于 Git 项目，除非给出 `--allow-dirty`，打包要求代码仓库整洁。清单的 `include` 模式可以选择被忽略的文件；嵌套的工作区 package 以及符号链接目录目前尚不支持。`mitts publish` 面向 crates.io，或通过 `--registry` 面向其他注册表，并从 `CARGO_REGISTRY_TOKEN`、`mitts login` 或 `--token` 读取令牌。
 
 Mitts 将构建输出写入 Cargo 常规的 `target/debug/` 和 `target/release/` 目录。`CARGO_TARGET_DIR` 和 `--target-dir` 可用于选择不同的输出根路径。其共享缓存是分开的（`--cache-dir`，否则为 `$MITTS_CACHE_DIR`，否则为 `$XDG_CACHE_HOME/mitts`，否则为 `~/.cache/mitts`）。工件存储、动作缓存、锁、jobserver、源码存储、git 镜像与索引缓存全部位于该单一根路径下。
 

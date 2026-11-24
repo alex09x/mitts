@@ -128,6 +128,56 @@ impl NativeResolver {
         self
     }
 
+    /// `update --precise`: `name` at exactly `version` from every registry source, in place
+    /// of any version the lock pinned for it.
+    pub fn prefer_version(self, name: &str, version: &str) -> Self {
+        let mut preferred = self.preferred.lock().unwrap();
+        let mut sources: Vec<String> = preferred
+            .keys()
+            .filter(|(_, n)| n == name)
+            .map(|(s, _)| s.clone())
+            .collect();
+        if sources.is_empty() {
+            sources.push("registry+https://github.com/rust-lang/crates.io-index".to_string());
+        }
+        preferred.retain(|(_, n), _| n != name);
+        for source in sources {
+            preferred.insert((source, name.to_string()), vec![version.to_string()]);
+        }
+        drop(preferred);
+        self
+    }
+
+    /// Every published version of `name` in `registry` (crates.io when `None`), with the
+    /// project's `[registries]`, mirrors and vendor directories applied.
+    pub fn registry_versions(
+        &self,
+        project_dir: &Path,
+        registry: Option<&str>,
+        name: &str,
+        offline: bool,
+    ) -> Result<Vec<super::sparse_index::SparseIndexEntry>> {
+        let config = RegistryConfig::load(project_dir)?;
+        let lock_source = config.lock_source_for_registry(registry)?;
+        *self.config.lock().unwrap() = config;
+        self.sources.lock().unwrap().clear();
+        self.source_for(&lock_source)?.versions(name, offline)
+    }
+
+    /// The same for a registry named by its lock source id (an `--index` URL).
+    pub fn registry_versions_at(
+        &self,
+        project_dir: &Path,
+        lock_source: &str,
+        name: &str,
+        offline: bool,
+    ) -> Result<Vec<super::sparse_index::SparseIndexEntry>> {
+        let config = RegistryConfig::load(project_dir)?;
+        *self.config.lock().unwrap() = config;
+        self.sources.lock().unwrap().clear();
+        self.source_for(lock_source)?.versions(name, offline)
+    }
+
     /// Uses `[registries]`, mirrors and vendor directories from this config.
     pub fn with_registry_config(self, config: RegistryConfig) -> Self {
         *self.config.lock().unwrap() = config;

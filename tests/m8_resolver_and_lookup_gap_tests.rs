@@ -143,6 +143,7 @@ fn test_m8_handlers_fetch_custom_cache_and_errors() {
         offline: true,
         locked: false,
         frozen: false,
+        ..Default::default()
     };
     let code = handle_fetch(&fetch_args);
     assert_eq!(code, 0);
@@ -153,6 +154,7 @@ fn test_m8_handlers_fetch_custom_cache_and_errors() {
         offline: true,
         locked: false,
         frozen: false,
+        ..Default::default()
     };
     assert_eq!(handle_fetch(&err_args), 1);
 }

@@ -34,6 +34,8 @@ pub fn has_target_selection(opt: &RustBuildOptions) -> bool {
         || opt.all_bins
         || !opt.test_targets.is_empty()
         || !opt.bin_targets.is_empty()
+        || (opt.mode == super::types::BuildMode::Test
+            && (opt.test_all_examples || !opt.example_targets.is_empty()))
 }
 
 /// Selects test targets like Cargo: selection options combine as a union and,
@@ -87,7 +89,13 @@ pub fn select_test_targets(targets: &mut Vec<DiscoveredTarget>, opt: &RustBuildO
                 }
             }
             // `--test NAME` never names an example; `--tests` takes every tested example.
-            TestRole::Example(_) => opt.all_tests && !t.explicit_only,
+            // In `mitts test`, `--example NAME` and `--examples` test examples too; with
+            // `--all-targets` (which also sets --tests) only `test = true` ones are tested.
+            TestRole::Example(ref ex) => {
+                (test_mode
+                    && (opt.test_all_examples || opt.example_targets.iter().any(|n| n == ex)))
+                    || (opt.all_tests && !t.explicit_only)
+            }
             // `mitts bench --bench NAME` names targets; `--benches` takes every one.
             TestRole::Bench => {
                 opt.bench_targets.contains(&t.name) || (opt.all_benches && !t.explicit_only)

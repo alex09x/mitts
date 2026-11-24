@@ -23,6 +23,11 @@ pub fn upload(metadata: &Value, archive: &[u8], token: &str) -> Result<()> {
     )
 }
 
+/// The same upload to another registry's `/api/v1/crates/new`.
+pub fn upload_to_api(url: &str, metadata: &Value, archive: &[u8], token: &str) -> Result<()> {
+    upload_to(url, metadata, archive, token)
+}
+
 fn upload_to(url: &str, metadata: &Value, archive: &[u8], token: &str) -> Result<()> {
     if token.trim().is_empty() || token.contains(['\r', '\n']) {
         bail!("registry token is missing or invalid");

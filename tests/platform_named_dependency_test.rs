@@ -20,7 +20,12 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn write_project(dir: &Path) {
-    for sub in ["app/src", "app/tests", "windows-bindgen/src", "core-foundation/src"] {
+    for sub in [
+        "app/src",
+        "app/tests",
+        "windows-bindgen/src",
+        "core-foundation/src",
+    ] {
         fs::create_dir_all(dir.join(sub)).unwrap();
     }
     fs::write(
@@ -50,13 +55,21 @@ fn write_project(dir: &Path) {
         "[package]\nname = \"windows-bindgen\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(dir.join("windows-bindgen/src/lib.rs"), "pub fn bindgen() -> u32 { 7 }\n").unwrap();
+    fs::write(
+        dir.join("windows-bindgen/src/lib.rs"),
+        "pub fn bindgen() -> u32 { 7 }\n",
+    )
+    .unwrap();
     fs::write(
         dir.join("core-foundation/Cargo.toml"),
         "[package]\nname = \"core-foundation\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(dir.join("core-foundation/src/lib.rs"), "pub fn forty() -> u32 { 40 }\n").unwrap();
+    fs::write(
+        dir.join("core-foundation/src/lib.rs"),
+        "pub fn forty() -> u32 { 40 }\n",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -78,6 +91,12 @@ fn unconditional_dependencies_named_like_platform_crates_are_built() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(out.status.success(), "mitts test links both path crates whatever their names:\n{text}");
-    assert!(text.contains("uses_the_generator"), "the integration test ran:\n{text}");
+    assert!(
+        out.status.success(),
+        "mitts test links both path crates whatever their names:\n{text}"
+    );
+    assert!(
+        text.contains("uses_the_generator"),
+        "the integration test ran:\n{text}"
+    );
 }

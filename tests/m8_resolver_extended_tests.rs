@@ -174,7 +174,12 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     }];
 
     let lock = resolver.resolve_dependencies(&root_deps, true).unwrap();
-    assert_eq!(lock.packages.len(), 2, "opt_dep is off: {:?}", lock.packages);
+    assert_eq!(
+        lock.packages.len(),
+        2,
+        "opt_dep is off: {:?}",
+        lock.packages
+    );
 
     let pkg_main = lock
         .packages

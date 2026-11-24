@@ -45,6 +45,32 @@ pub fn set(values: &[String]) -> Result<()> {
     super::http_client::refresh(&cwd)
 }
 
+/// The `--config` values in effect, as given on the command line (for a Mitts process
+/// this one starts, so it sees the same configuration).
+pub fn current_values() -> Vec<String> {
+    let overrides = OVERRIDES.read().unwrap_or_else(|e| e.into_inner());
+    overrides
+        .stamp
+        .split('\u{1f}')
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Arguments that give a child Mitts process this process's configuration and policies:
+/// every `--config` value and `--ignore-rust-version` when it was given.
+pub fn child_args() -> Vec<String> {
+    let mut out = Vec::new();
+    for value in current_values() {
+        out.push("--config".to_string());
+        out.push(value);
+    }
+    if super::rust_version::is_ignored() {
+        out.push("--ignore-rust-version".to_string());
+    }
+    out
+}
+
 /// Checks the values and writes the inline ones to scratch files, without installing them.
 fn prepare(values: &[String]) -> Result<Overrides> {
     let mut overrides = Overrides {

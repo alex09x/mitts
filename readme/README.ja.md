@@ -137,10 +137,25 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts
+mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
 ```
 
-Gitプロジェクトの場合、パッケージングには現在、ルートにパッケージが存在するクリーンなリポジトリが必要です。マニフェストの `include` パターンによって無視対象のファイルを選択できます。ネストされたワークスペースパッケージやシンボリックリンクされたディレクトリはまだサポートされていません。`mitts publish` は crates.io を対象とし、`CARGO_REGISTRY_TOKEN` からトークンを読み取ります。
+Cargo のその他のコマンドもすべてあり、Cargo と同じオプションと出力です。
+
+```sh
+mitts new | init             # a package, its git repository, workspace membership
+mitts add serde -F derive    # edit Cargo.toml in place, then the lock
+mitts remove | update | generate-lockfile | tree | pkgid | locate-project
+mitts doc --open             # rustdoc for the package and its dependencies
+mitts fix --edition          # apply rustc's machine-applicable suggestions
+mitts vendor                 # copy every dependency into vendor/ for offline builds
+mitts install ripgrep        # build a binary with the shared cache into ~/.cargo/bin
+mitts search | info | login | logout | owner | yank | report | version
+```
+
+全コマンドの一覧と、Mitts が Cargo と異なる数少ない点は [docs/cargo-commands.md](../docs/cargo-commands.md) にあります。
+
+Gitプロジェクトの場合、`--allow-dirty` を指定しない限り、パッケージングにはクリーンなリポジトリが必要です。マニフェストの `include` パターンによって無視対象のファイルを選択できます。ネストされたワークスペースパッケージやシンボリックリンクされたディレクトリはまだサポートされていません。`mitts publish` は crates.io、または `--registry` で指定した別のレジストリを対象とし、`CARGO_REGISTRY_TOKEN`、`mitts login`、または `--token` からトークンを読み取ります。
 
 Mittsはビルド出力をCargoの通常の `target/debug/` および `target/release/` ディレクトリに書き込みます。`CARGO_TARGET_DIR` および `--target-dir` で別の出力ルートを選択できます。共有キャッシュは分離されています（`--cache-dir`、未指定なら `$MITTS_CACHE_DIR`、未指定なら `$XDG_CACHE_HOME/mitts`、未指定なら `~/.cache/mitts`）。アーティファクトストア、アクションキャッシュ、ロック、ジョブサーバー、ソースストア、gitミラー、インデックスキャッシュのすべてが、その単一のルートの下に配置されます。
 

@@ -53,6 +53,46 @@ pub struct BenchArgs {
     #[arg(long = "bench", value_name = "NAME", action = clap::ArgAction::Append)]
     pub bench: Vec<String>,
 
+    /// Benchmark all benchmark targets (the default when nothing is selected)
+    #[arg(long)]
+    pub benches: bool,
+
+    /// Benchmark only this package's library
+    #[arg(long)]
+    pub lib: bool,
+
+    /// Benchmark only the specified binary (repeatable)
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub bin: Vec<String>,
+
+    /// Benchmark all binaries
+    #[arg(long)]
+    pub bins: bool,
+
+    /// Benchmark only the specified example (repeatable)
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub example: Vec<String>,
+
+    /// Benchmark all examples
+    #[arg(long)]
+    pub examples: bool,
+
+    /// Benchmark only the specified test target (repeatable)
+    #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
+    pub test: Vec<String>,
+
+    /// Benchmark all targets that have `test = true` set
+    #[arg(long)]
+    pub tests: bool,
+
+    /// Benchmark all targets
+    #[arg(long)]
+    pub all_targets: bool,
+
+    /// Build artifacts with the specified profile (default: bench)
+    #[arg(long, value_name = "PROFILE-NAME")]
+    pub profile: Option<String>,
+
     /// Directory for all generated artifacts
     #[arg(long)]
     pub target_dir: Option<PathBuf>,
@@ -122,6 +162,16 @@ pub fn handle_bench(args: &BenchArgs) -> i32 {
     handle_test(&test_args(args))
 }
 
+fn selects_other(args: &BenchArgs) -> bool {
+    args.lib
+        || args.bins
+        || args.examples
+        || args.tests
+        || !args.bin.is_empty()
+        || !args.example.is_empty()
+        || !args.test.is_empty()
+}
+
 /// The `mitts test` invocation that `mitts bench` stands for.
 fn test_args(args: &BenchArgs) -> TestArgs {
     let mut passed = vec!["--bench".to_string()];
@@ -134,7 +184,9 @@ fn test_args(args: &BenchArgs) -> TestArgs {
         packages: args.packages.clone(),
         workspace: args.workspace,
         exclude: args.exclude.clone(),
-        release: true,
+        // Benchmarks build in release unless a profile is named (`--profile bench` is the
+        // bench profile itself).
+        release: args.profile.is_none(),
         target_dir: args.target_dir.clone(),
         features: args.features.clone(),
         no_default_features: args.no_default_features,
@@ -150,9 +202,20 @@ fn test_args(args: &BenchArgs) -> TestArgs {
         verbose: args.verbose,
         config: args.config.clone(),
         filter: args.filter.clone(),
-        // Every benchmark target unless some are named.
-        benches: args.bench.is_empty(),
+        // Every benchmark target unless targets are named or selected otherwise.
+        benches: args.benches
+            || args.all_targets
+            || (args.bench.is_empty() && !selects_other(args)),
         bench_names: args.bench.clone(),
+        lib: args.lib,
+        bin: args.bin.clone(),
+        bins: args.bins,
+        example: args.example.clone(),
+        examples: args.examples,
+        test: args.test.clone(),
+        tests: args.tests,
+        all_targets: args.all_targets,
+        profile: args.profile.clone(),
         bench_mode: true,
         test_args: passed,
         ..Default::default()

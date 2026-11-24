@@ -167,6 +167,7 @@ path = "src/lib.rs"
         offline: true,
         locked: false,
         frozen: false,
+        ..Default::default()
     };
     assert_eq!(handle_fetch(&fetch_args), 0);
 }
