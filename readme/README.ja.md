@@ -398,17 +398,17 @@ MittsはCargoと同じデフォルトの出力パスを使用します。共有�
 
 ## 引用
 
-Mitts を引用するには、アーカイブされたリリースを使用してください。コンセプト DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) は常に最新バージョンを指し、バージョン 0.4.0 のバージョン DOI は [10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190) です。GitHub の「Cite this repository」は [CITATION.cff](../CITATION.cff) を読み取ります。
+Mitts を引用するには、アーカイブされたリリースを使用してください。コンセプト DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) は常に最新バージョンを指し、バージョン 0.5.0 のバージョン DOI は [10.5281/zenodo.24512542](https://doi.org/10.5281/zenodo.24512542) です。GitHub の「Cite this repository」は [CITATION.cff](../CITATION.cff) を読み取ります。
 
 ```bibtex
-@software{panasenko_2026_24489190,
+@software{panasenko_2026_24512542,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.4.0},
-  doi       = {10.5281/zenodo.24489190},
-  url       = {https://doi.org/10.5281/zenodo.24489190}
+  version   = {0.5.0},
+  doi       = {10.5281/zenodo.24512542},
+  url       = {https://doi.org/10.5281/zenodo.24512542}
 }
 ```
 
