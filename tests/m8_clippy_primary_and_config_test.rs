@@ -401,7 +401,10 @@ fn test_corrupt_dependency_manifest_fails_closed_with_path() {
     };
     // Compared with `/` separators: the test joined `sources/broken-dep-0.1.0`, Mitts
     // names the path with the platform's separator.
-    let err = format!("{:#}", RustAdapter::explain_plan(&opt).unwrap_err()).replace('\\', "/");
+    // The message quotes the path (`{:?}`), which doubles each backslash.
+    let err = format!("{:#}", RustAdapter::explain_plan(&opt).unwrap_err())
+        .replace("\\\\", "/")
+        .replace('\\', "/");
     let expected = broken_toml.display().to_string().replace('\\', "/");
     assert!(err.contains(&expected), "{err}");
 }

@@ -247,8 +247,9 @@ rust-version = "1.75"
     fs::write(
         root.join("build.rs"),
         format!(
-            "fn main() {{\n    println!(\"cargo:rustc-env=CUSTOM_BUILD_VAR=from_build_script\");\n    println!(\"cargo:rustc-link-search=native={}\");\n}}\n",
-            custom_lib_dir.display()
+            // `{{}}` with an escaped literal: a Windows path's backslashes are no escapes.
+            "fn main() {{\n    println!(\"cargo:rustc-env=CUSTOM_BUILD_VAR=from_build_script\");\n    println!(\"cargo:rustc-link-search=native={{}}\", {:?});\n}}\n",
+            custom_lib_dir.display().to_string()
         ),
     )
     .unwrap();
