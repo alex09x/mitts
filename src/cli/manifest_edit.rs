@@ -746,6 +746,7 @@ mod tests {
 
     fn entry(vers: &str, yanked: bool) -> SparseIndexEntry {
         SparseIndexEntry {
+            rust_version: None,
             name: "x".into(),
             vers: vers.into(),
             deps: Vec::new(),

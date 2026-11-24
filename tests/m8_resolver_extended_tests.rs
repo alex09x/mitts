@@ -63,6 +63,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     fs::create_dir_all(p_sub.parent().unwrap()).unwrap();
 
     let e_1_0 = serde_json::to_string(&SparseIndexEntry {
+        rust_version: None,
         name: "dep_with_sub".to_string(),
         vers: "1.0.0".to_string(),
         deps: Vec::new(),
@@ -74,6 +75,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     .unwrap();
 
     let e_1_1 = serde_json::to_string(&SparseIndexEntry {
+        rust_version: None,
         name: "dep_with_sub".to_string(),
         vers: "1.1.0".to_string(),
         deps: vec![
@@ -119,6 +121,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     .unwrap();
 
     let e_1_2 = serde_json::to_string(&SparseIndexEntry {
+        rust_version: None,
         name: "dep_with_sub".to_string(),
         vers: "1.2.0".to_string(),
         deps: Vec::new(),
@@ -135,6 +138,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     let p_subdep = cache_dir.join("su").join("b_").join("sub_dep");
     fs::create_dir_all(p_subdep.parent().unwrap()).unwrap();
     let e_sub = serde_json::to_string(&SparseIndexEntry {
+        rust_version: None,
         name: "sub_dep".to_string(),
         vers: "0.1.5".to_string(),
         deps: Vec::new(),
@@ -151,6 +155,7 @@ fn test_m8_resolver_yanked_and_sub_dependencies() {
     let p_optdep = cache_dir.join("op").join("t_").join("opt_dep");
     fs::create_dir_all(p_optdep.parent().unwrap()).unwrap();
     let e_opt = serde_json::to_string(&SparseIndexEntry {
+        rust_version: None,
         name: "opt_dep".to_string(),
         vers: "0.1.0".to_string(),
         deps: Vec::new(),

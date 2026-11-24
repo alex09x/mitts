@@ -11,8 +11,8 @@
 //! Every registry request (sparse index, downloads, publish) goes through an agent built
 //! here, so Cargo's HTTP settings apply to all of them:
 //!
-//! - `http.proxy` / `CARGO_HTTP_PROXY`; without it the usual `HTTPS_PROXY`, `HTTP_PROXY`,
-//!   `ALL_PROXY` variables (either case), as libcurl reads them for Cargo;
+//! - `http.proxy` / `CARGO_HTTP_PROXY`; without it the proxy variables for the request's
+//!   scheme and `no_proxy`, as libcurl reads them for Cargo (see `http_routing`);
 //! - `http.cainfo` / `CARGO_HTTP_CAINFO`: a PEM bundle that replaces the built-in roots;
 //! - `http.timeout` / `CARGO_HTTP_TIMEOUT`: seconds to connect and between reads (default:
 //!   10 s to connect, 30 s per request).
@@ -22,6 +22,8 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+
+pub use super::http_routing::{Agent, Builder, NoProxy, Request};
 
 #[derive(Clone, Default)]
 pub struct HttpSettings {
@@ -111,35 +113,33 @@ pub fn settings() -> HttpSettings {
 }
 
 /// An agent builder with Cargo's HTTP settings; callers add their own pool sizes.
-pub fn agent_builder() -> ureq::AgentBuilder {
+pub fn agent_builder() -> Builder {
     builder(true)
 }
 
 /// The same for an upload, which has no whole-request deadline by default (a large crate
 /// may take longer than 30 s to send).
-pub fn upload_agent_builder() -> ureq::AgentBuilder {
+pub fn upload_agent_builder() -> Builder {
     builder(false)
 }
 
-fn builder(deadline: bool) -> ureq::AgentBuilder {
+fn builder(deadline: bool) -> Builder {
     let settings = settings();
-    let mut builder = ureq::AgentBuilder::new();
-    builder = match settings.timeout {
-        Some(t) => builder.timeout_connect(t).timeout_read(t),
-        None if deadline => builder
-            .timeout_connect(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30)),
-        None => builder,
+    let base = || {
+        let mut builder = ureq::AgentBuilder::new();
+        builder = match settings.timeout {
+            Some(t) => builder.timeout_connect(t).timeout_read(t),
+            None if deadline => builder
+                .timeout_connect(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30)),
+            None => builder,
+        };
+        if let Some(tls) = settings.tls.clone() {
+            builder = builder.tls_config(tls);
+        }
+        builder
     };
-    // `refresh` checked the URL, so a configured proxy always parses here.
-    builder = match settings.proxy.as_deref().map(ureq::Proxy::new) {
-        Some(Ok(proxy)) => builder.proxy(proxy),
-        _ => builder.try_proxy_from_env(true),
-    };
-    if let Some(tls) = settings.tls {
-        builder = builder.tls_config(tls);
-    }
-    builder
+    Builder::new(base, settings.proxy.as_deref())
 }
 
 #[cfg(test)]

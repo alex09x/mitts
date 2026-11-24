@@ -14,7 +14,7 @@
 //! Requirements that overlap one compatibility range share one version; incompatible
 //! ones get their own. A patched package replaces its registry version.
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use semver::{Version, VersionReq};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -255,13 +255,29 @@ fn has_features(entry: &SparseIndexEntry, wanted: &[String]) -> bool {
 
 /// The version for `reqs`: a version the existing lock pins (`preferred`) when one still
 /// satisfies them, even if yanked since, as Cargo keeps it; otherwise the highest
-/// non-yanked one. Either way it must offer the requested `features`.
+/// non-yanked one. Either way it must offer the requested `features`. With a Rust
+/// `limit` (`incompatible-rust-versions = "fallback"`), a fresh pick prefers the highest
+/// version whose `rust-version` fits it, and takes the highest overall when none does.
 fn pick_version<'a>(
     entries: &'a [SparseIndexEntry],
     reqs: &[String],
     features: &[String],
     preferred: &[String],
+    limit: Option<(u64, u64, u64)>,
 ) -> Option<&'a SparseIndexEntry> {
+    if let Some(limit) = limit {
+        let supported: Vec<SparseIndexEntry> = entries
+            .iter()
+            .filter(|e| {
+                preferred.contains(&e.vers)
+                    || super::rust_version::supported(e.rust_version.as_deref(), limit)
+            })
+            .cloned()
+            .collect();
+        if let Some(found) = pick_version(&supported, reqs, features, preferred, None) {
+            return entries.iter().find(|e| e.vers == found.vers);
+        }
+    }
     let parsed: Vec<VersionReq> = reqs.iter().map(|r| req_of(r)).collect();
     let fits = |e: &SparseIndexEntry, v: &Version| {
         parsed.iter().all(|r| r.matches(v)) && has_features(e, features)
@@ -289,33 +305,264 @@ fn pick_version<'a>(
     best.map(|(e, _)| e)
 }
 
+/// The graph has no solution under the current choices (no version satisfies a request,
+/// or conflicts did not settle) — as opposed to an index, network or configuration error.
+#[derive(Debug)]
+pub(crate) struct Unsatisfiable {
+    message: String,
+    /// The registry package version whose dependency could not be satisfied: resolving
+    /// again without that version is how the resolver backtracks.
+    blame: Vec<(Key, String)>,
+}
+
+impl Unsatisfiable {
+    pub(crate) fn new(message: String) -> Self {
+        Unsatisfiable {
+            message,
+            blame: Vec::new(),
+        }
+    }
+}
+
+impl std::fmt::Display for Unsatisfiable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Resolution attempts one `generate-lockfile` may spend across all backtracking branches.
+const RESOLVE_ATTEMPTS: usize = 1024;
+
+/// The search ran out of attempts before it settled: an error of its own, never
+/// `Unsatisfiable`, since unexplored choices may still resolve.
+#[derive(Debug)]
+pub(crate) struct SearchBudgetExhausted;
+
+impl std::fmt::Display for SearchBudgetExhausted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "dependency resolution did not finish within {RESOLVE_ATTEMPTS} attempts; the graph \
+             may still have a solution"
+        )
+    }
+}
+
+impl std::error::Error for SearchBudgetExhausted {}
+
+fn search_budget_exhausted() -> anyhow::Error {
+    anyhow::Error::new(SearchBudgetExhausted)
+}
+
+/// A backtracking branch's identity: its excluded versions, sorted.
+fn branch_signature(excluded: &HashSet<(Key, String)>) -> Vec<String> {
+    let mut signature: Vec<String> = excluded
+        .iter()
+        .map(|(k, v)| format!("{}\u{1f}{v}", key_string(k)))
+        .collect();
+    signature.sort();
+    signature
+}
+
+/// The resolver key as one string, for the sets of packages the Rust limit is relaxed for.
+fn key_string(k: &Key) -> String {
+    format!("{}\u{1f}{}", k.0, k.1)
+}
+
+impl std::error::Error for Unsatisfiable {}
+
 impl NativeResolver {
     pub(crate) fn resolve_graph(
         &self,
         roots: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
-        // Requirements and features learnt from conflicts, per crate and compatibility
-        // range; a conflict restarts the resolution with them.
-        let mut pins: HashMap<PinKey, Pin> = HashMap::new();
-        let mut index_cache: HashMap<Key, Vec<SparseIndexEntry>> = HashMap::new();
-        for _ in 0..64 {
-            match self.resolve_once(roots, offline, &pins, &mut index_cache)? {
-                Ok(lock) => return Ok(lock),
-                Err(restart) => {
-                    let pin = pins.entry(restart.key).or_default();
-                    if !pin.reqs.contains(&restart.req) {
-                        pin.reqs.push(restart.req);
-                    }
-                    for f in restart.features {
-                        if !pin.features.contains(&f) {
-                            pin.features.push(f);
-                        }
-                    }
-                }
+        self.rust_affected.lock().unwrap().clear();
+        self.set_relaxed(HashSet::new(), false);
+        let result = self.resolve_graph_with_limit(roots, offline);
+        // `fallback` is a preference. Only when the graph has no solution (not on a fetch or
+        // configuration error) is the limit relaxed, and only for packages where it changes
+        // the pick: one at a time, then all of them, then everywhere; a found graph is then
+        // narrowed back to the fewest relaxed packages that still resolve.
+        let limited = self.rust_limit.lock().unwrap().is_some();
+        let unsatisfiable = result
+            .as_ref()
+            .err()
+            .is_some_and(|e| e.downcast_ref::<Unsatisfiable>().is_some());
+        if !limited || !unsatisfiable {
+            return result;
+        }
+        let outcome = self.relax_until_resolved(roots, offline);
+        self.set_relaxed(HashSet::new(), false);
+        match outcome {
+            Ok(Some(lock)) => Ok(lock),
+            Ok(None) => result,
+            Err(other) => Err(other),
+        }
+    }
+
+    /// One attempt under the current relaxation: `Ok(None)` when the graph has no solution,
+    /// any other error (fetch, configuration) passed on unchanged.
+    fn try_relaxed(&self, roots: &[ManifestDirectDep], offline: bool) -> Result<Option<CargoLock>> {
+        match self.resolve_graph_with_limit(roots, offline) {
+            Ok(lock) => Ok(Some(lock)),
+            Err(e) if e.downcast_ref::<Unsatisfiable>().is_some() => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn relax_until_resolved(
+        &self,
+        roots: &[ManifestDirectDep],
+        offline: bool,
+    ) -> Result<Option<CargoLock>> {
+        let affected: Vec<String> = self.rust_affected.lock().unwrap().clone();
+        for one in &affected {
+            self.set_relaxed(HashSet::from([one.clone()]), false);
+            if let Some(lock) = self.try_relaxed(roots, offline)? {
+                return Ok(Some(lock));
             }
         }
-        bail!("dependency resolution did not converge after 64 attempts")
+        let mut relaxed: HashSet<String> = affected.iter().cloned().collect();
+        self.set_relaxed(relaxed.clone(), false);
+        let mut found = self.try_relaxed(roots, offline)?;
+        if found.is_none() {
+            // Everywhere; the run still records every decision the limit would change.
+            self.set_relaxed(HashSet::new(), true);
+            if self.try_relaxed(roots, offline)?.is_none() {
+                return Ok(None);
+            }
+            relaxed = self.rust_affected.lock().unwrap().iter().cloned().collect();
+            self.set_relaxed(relaxed.clone(), false);
+            found = self.try_relaxed(roots, offline)?;
+        }
+        let Some(mut lock) = found else {
+            return Ok(None);
+        };
+        // Narrow: every decision that still resolves under the limit goes back under it.
+        let mut candidates: Vec<String> = relaxed.iter().cloned().collect();
+        candidates.sort();
+        for decision in candidates {
+            let mut fewer = relaxed.clone();
+            fewer.remove(&decision);
+            self.set_relaxed(fewer.clone(), false);
+            // No solution, or a trial that could not be evaluated (budget, an index entry
+            // unavailable offline): narrowing is optional, the lock already found stands.
+            if let Ok(Some(smaller)) = self.try_relaxed(roots, offline) {
+                relaxed = fewer;
+                lock = smaller;
+            }
+        }
+        Ok(Some(lock))
+    }
+
+    fn set_relaxed(&self, keys: HashSet<String>, all: bool) {
+        *self.rust_relaxed.lock().unwrap() = keys;
+        *self.rust_relax_all.lock().unwrap() = all;
+    }
+
+    /// Backtracking search over version choices. A branch is a set of registry versions ruled
+    /// out; when it has no solution, each version that asked for the failing request opens
+    /// its own child branch with that version ruled out as well (those with another version
+    /// to fall back to first). Branches are explored depth first, each set once, so a wrong
+    /// guess in one branch never removes a version from another: the search ends at the
+    /// first graph that resolves, or with the original conflict once every branch failed.
+    fn resolve_graph_with_limit(
+        &self,
+        roots: &[ManifestDirectDep],
+        offline: bool,
+    ) -> Result<CargoLock> {
+        let mut index_cache: HashMap<Key, Vec<SparseIndexEntry>> = HashMap::new();
+        let mut budget = RESOLVE_ATTEMPTS;
+        let mut stack: Vec<HashSet<(Key, String)>> = vec![HashSet::new()];
+        let mut seen: HashSet<Vec<String>> = HashSet::new();
+        let mut first_error: Option<anyhow::Error> = None;
+        while let Some(excluded) = stack.pop() {
+            if !seen.insert(branch_signature(&excluded)) {
+                continue;
+            }
+            let error =
+                match self.resolve_branch(roots, offline, &mut index_cache, &excluded, &mut budget)
+                {
+                    Ok(lock) => return Ok(lock),
+                    Err(error) => error,
+                };
+            let Some(unsatisfiable) = error.downcast_ref::<Unsatisfiable>() else {
+                return Err(error);
+            };
+            let mut open: Vec<(Key, String)> = Vec::new();
+            for b in &unsatisfiable.blame {
+                if !excluded.contains(b) && !open.contains(b) {
+                    open.push(b.clone());
+                }
+            }
+            let has_alternative = |(k, v): &(Key, String)| {
+                index_cache.get(k).is_some_and(|entries| {
+                    entries.iter().any(|e| {
+                        !e.yanked
+                            && e.vers != *v
+                            && !excluded.contains(&(k.clone(), e.vers.clone()))
+                    })
+                })
+            };
+            // Stable: blame order within each group; pushed in reverse so the preferred
+            // child is explored first.
+            open.sort_by_key(|b| !has_alternative(b));
+            for b in open.into_iter().rev() {
+                let mut child = excluded.clone();
+                child.insert(b);
+                stack.push(child);
+            }
+            first_error.get_or_insert(error);
+            // Only branches not explored yet count as left over.
+            stack.retain(|s| !seen.contains(&branch_signature(s)));
+            if budget == 0 && !stack.is_empty() {
+                // Branches left unexplored: not a proof that the graph has no solution, so
+                // not `Unsatisfiable` (which would relax the Rust limit).
+                return Err(search_budget_exhausted());
+            }
+        }
+        Err(first_error.unwrap_or_else(search_budget_exhausted))
+    }
+
+    /// One branch of the search: resolution restarted with the requirements and features
+    /// learnt from conflicts (per crate and compatibility range) until it settles.
+    fn resolve_branch(
+        &self,
+        roots: &[ManifestDirectDep],
+        offline: bool,
+        index_cache: &mut HashMap<Key, Vec<SparseIndexEntry>>,
+        excluded: &HashSet<(Key, String)>,
+        budget: &mut usize,
+    ) -> Result<CargoLock> {
+        let mut pins: HashMap<PinKey, Pin> = HashMap::new();
+        loop {
+            if *budget == 0 {
+                return Err(search_budget_exhausted());
+            }
+            *budget -= 1;
+            let restart = match self.resolve_once(roots, offline, &pins, index_cache, excluded)? {
+                Ok(lock) => return Ok(lock),
+                Err(restart) => restart,
+            };
+            let pin = pins.entry(restart.key).or_default();
+            let mut learnt = false;
+            if !pin.reqs.contains(&restart.req) {
+                pin.reqs.push(restart.req);
+                learnt = true;
+            }
+            for f in restart.features {
+                if !pin.features.contains(&f) {
+                    pin.features.push(f);
+                    learnt = true;
+                }
+            }
+            if !learnt {
+                return Err(anyhow::Error::new(Unsatisfiable::new(
+                    "dependency resolution did not converge: a conflict repeats".to_string(),
+                )));
+            }
+        }
     }
 
     /// `Err(restart)` asks for a restart with more pinned on one crate.
@@ -325,10 +572,17 @@ impl NativeResolver {
         offline: bool,
         pins: &HashMap<PinKey, Pin>,
         index_cache: &mut HashMap<Key, Vec<SparseIndexEntry>>,
+        excluded: &HashSet<(Key, String)>,
     ) -> Result<std::result::Result<CargoLock, Restart>> {
         let patches = self.patches.lock().unwrap().clone();
         let config = self.config.lock().unwrap().clone();
         let preferred = self.preferred.lock().unwrap().clone();
+        let rust_limit = *self.rust_limit.lock().unwrap();
+        let relaxed = self.rust_relaxed.lock().unwrap().clone();
+        let relax_all = *self.rust_relax_all.lock().unwrap();
+        // For each registry package requested by another registry package: that parent and
+        // its version, to blame when the request has no solution.
+        let mut parent_of: HashMap<Key, Vec<(Key, String)>> = HashMap::new();
         let mut git = GitResolver::for_cache_dir(self.cache_dir.as_deref(), config.clone());
         let mut nodes: Vec<Node> = Vec::new();
         let mut by_key: HashMap<Key, Vec<usize>> = HashMap::new();
@@ -388,6 +642,18 @@ impl NativeResolver {
                     }
                     Some(Ok(i)) => i,
                     Some(Err(conflicting)) => {
+                        // A patched package has one version, which pins cannot move: a
+                        // request it does not satisfy is a conflict of this branch, blamed on
+                        // the versions that asked for it so the search can avoid them.
+                        if patches.get(&r.source, &r.name).is_some() {
+                            return Err(anyhow::Error::new(Unsatisfiable {
+                                message: format!(
+                                    "patch for `{}` has version {}, which does not satisfy the requirement `{}`",
+                                    r.name, nodes[conflicting].version, r.req
+                                ),
+                                blame: parent_of.get(&k).cloned().unwrap_or_default(),
+                            }));
+                        }
                         // Same compatibility range, no shared version yet: restart with both
                         // requirements pinned, as a unifying resolver would.
                         return Ok(Err(Restart {
@@ -406,16 +672,27 @@ impl NativeResolver {
                             if !Version::parse(&primary.version)
                                 .is_ok_and(|v| req_of(&r.req).matches(&v))
                             {
-                                bail!(
-                                    "patch for `{}` has version {}, which does not satisfy the requirement `{}`",
-                                    r.name, primary.version, r.req
-                                );
+                                // A conflict of this branch: a parent version that asked
+                                // for it may be ruled out and another branch tried.
+                                return Err(anyhow::Error::new(Unsatisfiable {
+                                    message: format!(
+                                        "patch for `{}` has version {}, which does not satisfy the requirement `{}`",
+                                        r.name, primary.version, r.req
+                                    ),
+                                    blame: parent_of.get(&k).cloned().unwrap_or_default(),
+                                }));
                             }
                             queue.extend(res.registry_deps);
                             extra.extend(res.packages);
                             Node::opaque(&primary)
                         } else {
-                            let entries = &index_cache[&k];
+                            // Without the versions ruled out by backtracking.
+                            let entries: Vec<SparseIndexEntry> = index_cache[&k]
+                                .iter()
+                                .filter(|e| !excluded.contains(&(k.clone(), e.vers.clone())))
+                                .cloned()
+                                .collect();
+                            let entries = &entries;
                             let locked = preferred.get(&k).cloned().unwrap_or_default();
                             let mut reqs = vec![r.req.clone()];
                             let mut wanted = r.features.clone();
@@ -424,8 +701,14 @@ impl NativeResolver {
                             // pin of the range the pick landed in, pick again, until a pick lands
                             // in a range whose pin is already applied (or has none).
                             let mut applied: HashSet<String> = HashSet::new();
+                            // A decision is this package for this requirement: relaxing one
+                            // version range leaves the package's other ranges under the limit.
+                            let k_str = format!("{}|{}", key_string(&k), r.req);
+                            let limit =
+                                rust_limit.filter(|_| !relax_all && !relaxed.contains(&k_str));
                             let chosen = loop {
-                                let Some(pick) = pick_version(entries, &reqs, &wanted, &locked)
+                                let Some(pick) =
+                                    pick_version(entries, &reqs, &wanted, &locked, limit)
                                 else {
                                     break None;
                                 };
@@ -439,16 +722,40 @@ impl NativeResolver {
                                 reqs.extend(pin.reqs.iter().cloned());
                                 wanted.extend(pin.features.iter().cloned());
                             };
-                            let chosen = chosen.with_context(|| {
+                            let chosen = chosen.ok_or_else(|| {
                                 let by = requested_by
                                     .get(&k)
                                     .map(|p| format!(" (required by {p})"))
                                     .unwrap_or_default();
-                                format!(
-                                    "resolving {} {}{by} from {}: no non-yanked version satisfies {}",
-                                    r.name, r.req, r.source, reqs.join(" and ")
-                                )
+                                let what = if index_cache[&k].is_empty() {
+                                    "the crate is not in the index".to_string()
+                                } else {
+                                    format!(
+                                        "no non-yanked version satisfies {}",
+                                        reqs.join(" and ")
+                                    )
+                                };
+                                anyhow::Error::new(Unsatisfiable {
+                                    message: format!(
+                                        "resolving {} {}{by} from {}: {what}",
+                                        r.name, r.req, r.source
+                                    ),
+                                    blame: parent_of.get(&k).cloned().unwrap_or_default(),
+                                })
                             })?;
+                            // Where the Rust limit changes the pick: a candidate for relaxing
+                            // it if the graph turns out to have no solution.
+                            if rust_limit.is_some() {
+                                let limited =
+                                    pick_version(entries, &reqs, &wanted, &locked, rust_limit);
+                                let free = pick_version(entries, &reqs, &wanted, &locked, None);
+                                if limited.map(|e| &e.vers) != free.map(|e| &e.vers) {
+                                    let mut affected = self.rust_affected.lock().unwrap();
+                                    if !affected.contains(&k_str) {
+                                        affected.push(k_str.clone());
+                                    }
+                                }
+                            }
                             Node::from_entry(chosen, &r.source)
                         };
                         nodes.push(node);
@@ -489,6 +796,21 @@ impl NativeResolver {
                     requested_by
                         .entry((source.clone(), pkg_name.clone()))
                         .or_insert_with(|| parent.clone());
+                    // A registry parent can be backtracked (another version tried); a path or
+                    // workspace one cannot.
+                    let parent_is_registry = nodes[idx]
+                        .source
+                        .as_deref()
+                        .is_some_and(|s| s.starts_with("registry+") || s.starts_with("sparse+"));
+                    if parent_is_registry {
+                        parent_of
+                            .entry((source.clone(), pkg_name.clone()))
+                            .or_default()
+                            .push((
+                                (parent_source.clone(), nodes[idx].name.clone()),
+                                nodes[idx].version.clone(),
+                            ));
+                    }
                     let mut features = d.features.clone();
                     features.extend(more);
                     queue.push_back(ManifestDirectDep {
@@ -589,9 +911,15 @@ impl NativeResolver {
         if keys.is_empty() {
             return Ok(());
         }
+        // A crate the index does not have (404) has no versions: the request fails at pick
+        // time, where the resolver can blame the version that asked for it and backtrack.
+        let none_if_missing = |res: Result<Vec<SparseIndexEntry>>| match res {
+            Err(e) if e.downcast_ref::<Unsatisfiable>().is_some() => Ok(Vec::new()),
+            other => other,
+        };
         if keys.len() == 1 {
             let k = &keys[0];
-            let entries = self.source_for(&k.0)?.versions(&k.1, offline)?;
+            let entries = none_if_missing(self.source_for(&k.0)?.versions(&k.1, offline))?;
             index_cache.insert(k.clone(), entries);
             return Ok(());
         }
@@ -614,7 +942,10 @@ impl NativeResolver {
             }
         });
         for (k, slot) in keys.iter().zip(results) {
-            index_cache.insert(k.clone(), slot.into_inner().unwrap().unwrap()?);
+            index_cache.insert(
+                k.clone(),
+                none_if_missing(slot.into_inner().unwrap().unwrap())?,
+            );
         }
         Ok(())
     }

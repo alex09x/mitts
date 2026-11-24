@@ -90,6 +90,7 @@ fn test_m8_resolver_detailed_remote_dependency() {
     fs::create_dir_all(cache_file.parent().unwrap()).unwrap();
 
     let entry = SparseIndexEntry {
+        rust_version: None,
         name: "demo-remote".into(),
         vers: "1.0.0".into(),
         deps: Vec::new(),

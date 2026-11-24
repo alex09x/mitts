@@ -373,8 +373,6 @@ Mitts is pre-release. Know these before you rely on it:
   `sparse+`) and `local-registry` sources are refused with advice.
 - **Tokens live where Cargo keeps them.** `mitts login` and `mitts logout` write
   `$CARGO_HOME/credentials.toml`, as Cargo does; `cargo:wincred` is Windows-only and skipped.
-- **No external subcommands.** `mitts nextest`, `mitts llvm-cov` and other `cargo-<name>`
-  tools are not dispatched; run those tools directly.
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.

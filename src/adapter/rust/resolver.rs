@@ -66,6 +66,112 @@ impl IndexSource {
     }
 }
 
+/// The Rust version new lock entries should support (`resolver.incompatible-rust-versions`
+/// = `fallback`, explicit or from resolver "3"); `None` with `allow` or
+/// `--ignore-rust-version`.
+fn rust_limit_for(manifest_path: &Path, dir: &Path) -> Result<Option<(u64, u64, u64)>> {
+    if super::rust_version::is_ignored() {
+        return Ok(None);
+    }
+    let Ok(toml) = CargoToml::from_file(manifest_path) else {
+        return Ok(None);
+    };
+    // Cargo reads its configuration from where it was started (`-C` already moved there),
+    // not from the manifest's directory.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| dir.to_path_buf());
+    let configured = super::cargo_config_value::get(&cwd, "resolver.incompatible-rust-versions")?
+        .map(|v| v.as_str().map(str::to_string))
+        .transpose()?;
+    let resolver = toml
+        .workspace
+        .as_ref()
+        .and_then(|w| w.resolver.clone())
+        .or_else(|| toml.package.as_ref().and_then(|p| p.resolver.clone()));
+    let edition = toml.package.as_ref().and_then(|p| p.edition.clone());
+    let versions = workspace_rust_versions(dir, &toml);
+    let refs: Vec<&str> = versions.iter().map(String::as_str).collect();
+    super::rust_version::resolver_limit(
+        configured.as_deref(),
+        resolver.as_deref(),
+        edition.as_deref(),
+        &refs,
+        || {
+            super::RustAdapter::detect_toolchain()
+                .ok()
+                .map(|t| t.version)
+        },
+    )
+}
+
+/// The `rust-version` of every workspace member: the root package, the listed members,
+/// and, as Cargo counts them, path dependencies inside the workspace root that `exclude`
+/// does not name.
+fn workspace_rust_versions(root: &Path, toml: &CargoToml) -> Vec<String> {
+    let root = &super::planner_paths::normalize_lexically(root);
+    let mut out: Vec<String> = toml
+        .package
+        .as_ref()
+        .and_then(|p| p.rust_version.clone())
+        .into_iter()
+        .collect();
+    let Some(workspace) = &toml.workspace else {
+        return out;
+    };
+    let mut queue: Vec<PathBuf> = vec![root.to_path_buf()];
+    queue.extend(
+        toml.discover_workspace_members(root)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, dir)| dir),
+    );
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    while let Some(dir) = queue.pop() {
+        let dir = super::planner_paths::normalize_lexically(&dir);
+        if !seen.insert(dir.clone()) {
+            continue;
+        }
+        let Ok(member) = CargoToml::from_file(&dir.join("Cargo.toml")) else {
+            continue;
+        };
+        if dir != *root {
+            if let Some(rv) = member.package.as_ref().and_then(|p| p.rust_version.clone()) {
+                out.push(rv);
+            }
+        }
+        let mut tables = vec![
+            &member.dependencies,
+            &member.build_dependencies,
+            &member.dev_dependencies,
+        ];
+        for spec in member.target.values() {
+            tables.extend([
+                &spec.dependencies,
+                &spec.build_dependencies,
+                &spec.dev_dependencies,
+            ]);
+        }
+        for table in tables {
+            for dep in table.values() {
+                let TomlDependency::Detailed(d) = dep else {
+                    continue;
+                };
+                let Some(path) = &d.path else {
+                    continue;
+                };
+                let target = super::planner_paths::normalize_lexically(&dir.join(path));
+                let Ok(rel) = target.strip_prefix(root) else {
+                    continue;
+                };
+                // Cargo's `is_excluded`: under an `exclude` path, not under a `members` one.
+                if !super::workspace_glob::excluded(&workspace.exclude, &workspace.members, rel) {
+                    queue.push(target);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Standalone native dependency resolver evaluating crates.io sparse index.
 pub struct NativeResolver {
     index_client: Arc<SparseIndexClient>,
@@ -79,6 +185,16 @@ pub struct NativeResolver {
     /// Versions the existing Cargo.lock pins, by `(source, name)`: kept whenever they still
     /// satisfy every requirement, as Cargo does when it updates a lock.
     pub(crate) preferred: Mutex<HashMap<(String, String), Vec<String>>>,
+    /// `resolver.incompatible-rust-versions = "fallback"`: the Rust version new picks
+    /// should support. `None`: any version (`allow`).
+    pub(crate) rust_limit: Mutex<Option<(u64, u64, u64)>>,
+    /// Packages (by name) whose pick the limit changed in the last resolution.
+    pub(crate) rust_affected: Mutex<Vec<String>>,
+    /// Packages the limit does not apply to in this attempt.
+    pub(crate) rust_relaxed: Mutex<HashSet<String>>,
+    /// The limit applies to no package in this attempt (it is still evaluated, to record
+    /// the packages it would change).
+    pub(crate) rust_relax_all: Mutex<bool>,
 }
 
 impl NativeResolver {
@@ -97,6 +213,10 @@ impl NativeResolver {
             sources: Mutex::new(HashMap::new()),
             patches: Mutex::new(Default::default()),
             preferred: Mutex::new(HashMap::new()),
+            rust_limit: Mutex::new(None),
+            rust_affected: Mutex::new(Vec::new()),
+            rust_relaxed: Mutex::new(HashSet::new()),
+            rust_relax_all: Mutex::new(false),
         })
     }
 
@@ -109,6 +229,10 @@ impl NativeResolver {
             sources: Mutex::new(HashMap::new()),
             patches: Mutex::new(Default::default()),
             preferred: Mutex::new(HashMap::new()),
+            rust_limit: Mutex::new(None),
+            rust_affected: Mutex::new(Vec::new()),
+            rust_relaxed: Mutex::new(HashSet::new()),
+            rust_relax_all: Mutex::new(false),
         }
     }
 
@@ -227,6 +351,7 @@ impl NativeResolver {
             .map(|t| super::patch_resolve::PatchSet::from_manifest(&t, manifest_dir, &config))
             .transpose()?
             .unwrap_or_default();
+        *self.rust_limit.lock().unwrap() = rust_limit_for(manifest_path, manifest_dir)?;
         let mut git_resolver = super::git_resolve::GitResolver::for_cache_dir(
             self.cache_dir.as_deref(),
             config.clone(),

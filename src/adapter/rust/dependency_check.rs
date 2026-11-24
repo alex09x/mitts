@@ -277,15 +277,11 @@ where
             return Ok(true);
         }
     }
-    if is_test
+    Ok(is_test
         && pkg_toml
             .dev_dependencies
             .iter()
-            .any(|(a, d)| check_dep(a, d))
-    {
-        return Ok(true);
-    }
-    Ok(false)
+            .any(|(a, d)| check_dep(a, d)))
 }
 
 /// Checks if a package manifest has an active dependency on `dep_name`,

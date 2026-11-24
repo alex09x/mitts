@@ -55,6 +55,7 @@ pub mod fetcher;
 pub mod git_resolve;
 pub mod git_source;
 pub mod http_client;
+pub mod http_routing;
 pub mod inputs;
 pub mod key;
 pub mod key_flags;
@@ -99,6 +100,7 @@ pub mod unit_inputs;
 pub mod unit_output;
 pub mod unit_watch;
 pub mod vendor_source;
+pub mod workspace_glob;
 pub(crate) mod wrapper_outputs;
 pub mod writable_out_dir;
 

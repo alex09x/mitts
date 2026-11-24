@@ -41,6 +41,41 @@ pub fn parse(text: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
+/// `resolver.incompatible-rust-versions`: with `fallback`, a new lock entry prefers the
+/// highest version whose `rust-version` the project supports. The limit is the lowest
+/// `rust-version` of the workspace members, else the rustc in use. `None` means `allow`.
+///
+/// The policy comes from the configuration key, else from the resolver: `fallback` for
+/// resolver "3" (the default of edition 2024), `allow` otherwise, as Cargo does.
+pub fn resolver_limit(
+    configured: Option<&str>,
+    resolver: Option<&str>,
+    edition: Option<&str>,
+    member_rust_versions: &[&str],
+    rustc: impl FnOnce() -> Option<String>,
+) -> anyhow::Result<Option<(u64, u64, u64)>> {
+    let fallback = match configured {
+        Some("fallback") => true,
+        Some("allow") => false,
+        Some(other) => anyhow::bail!(
+            "`resolver.incompatible-rust-versions` must be `allow` or `fallback`, not `{other}`"
+        ),
+        None => resolver == Some("3") || (resolver.is_none() && edition == Some("2024")),
+    };
+    if !fallback {
+        return Ok(None);
+    }
+    let lowest = member_rust_versions.iter().filter_map(|v| parse(v)).min();
+    Ok(lowest.or_else(|| rustc().and_then(|v| parse(&v))))
+}
+
+/// Whether a version declaring `rust_version` is supported under `limit`.
+pub fn supported(rust_version: Option<&str>, limit: (u64, u64, u64)) -> bool {
+    rust_version
+        .and_then(parse)
+        .is_none_or(|need| need <= limit)
+}
+
 /// A package of the build and the `rust-version` it declares.
 pub struct Requirement<'a> {
     pub name: &'a str,

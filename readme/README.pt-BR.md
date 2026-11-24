@@ -376,8 +376,6 @@ O Mitts está em pré-lançamento. Conheça estes pontos antes de confiar nele:
   `sparse+`) e fontes `local-registry` são recusados com orientação.
 - **Os tokens ficam onde o Cargo os guarda.** `mitts login` e `mitts logout` gravam
   `$CARGO_HOME/credentials.toml`, como o Cargo; `cargo:wincred` é exclusivo para Windows e é ignorado.
-- **Sem subcomandos externos.** `mitts nextest`, `mitts llvm-cov` e outras ferramentas `cargo-<name>`
-  não são repassados; execute essas ferramentas diretamente.
 - **Algumas unidades nunca são cacheadas:** crates do tipo `cdylib`, `dylib` ou
   `staticlib`, e crates cujas leituras de `env!` não podem ser rastreadas. Elas sempre
   são compiladas; elas são informadas pelo `mitts explain`.

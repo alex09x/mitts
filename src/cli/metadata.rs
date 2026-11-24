@@ -8,7 +8,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+use super::metadata_deps::package_dependencies;
+use super::metadata_inherit::Patches;
 use crate::adapter::rust::manifest::{CargoToml, DiscoveredTarget, TestRole, TomlDependency};
+use crate::adapter::rust::registry_config::RegistryConfig;
 use crate::adapter::rust::{RustAdapter, RustBuildOptions};
 use crate::cli::MetadataArgs;
 use anstream::{eprintln, println};
@@ -80,6 +83,7 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
     let start = super::project_info::starting_manifest(&opt.manifest_path)?;
     let root = super::project_info::workspace_root(&start)?;
     let root_manifest = CargoToml::from_file(&root)?;
+    let registries = RegistryConfig::load(root.parent().unwrap_or(Path::new(".")))?;
     let mut packages = Vec::new();
     let mut members = Vec::new();
     for (_, dir) in super::project_info::local_package_dirs(&root)? {
@@ -113,7 +117,7 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
             features: BTreeSet::new(),
         };
         members.push(entry.cargo_id.clone());
-        packages.push(package_json(&entry)?);
+        packages.push(package_json(&entry, &registries)?);
     }
     let workspace_root = root.parent().unwrap_or(Path::new(".")).to_path_buf();
     let target_directory = RustAdapter::resolve_target_dir_without_tags(&root, opt)
@@ -229,7 +233,49 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         .values()
         .map(|entry| (entry.cargo_id.clone(), entry.name.clone()))
         .collect();
+    let package_versions_by_id: HashMap<String, String> = packages
+        .values()
+        .map(|entry| (entry.cargo_id.clone(), entry.version.clone()))
+        .collect();
+    let package_sources_by_id: HashMap<String, Option<String>> = packages
+        .values()
+        .map(|entry| (entry.cargo_id.clone(), entry.source.clone()))
+        .collect();
 
+    // Per package: its directory and its library's crate name (`[lib] name`, else the
+    // package name), what path declarations and unrenamed extern names are matched by.
+    let package_dirs_by_id: HashMap<String, (PathBuf, String)> = packages
+        .values()
+        .map(|entry| {
+            let lib = entry
+                .manifest
+                .lib
+                .as_ref()
+                .and_then(|l| l.name.clone())
+                .unwrap_or_else(|| entry.name.clone())
+                .replace('-', "_");
+            let dir = entry
+                .manifest_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+            (entry.cargo_id.clone(), (dir, lib))
+        })
+        .collect();
+    // The workspace root's `[patch]` tables (none when the manifest cannot be read here).
+    // Lexically normalized as the planner normalizes it: `sub/../Cargo.toml` must not make
+    // the config of `sub/` apply.
+    let root_manifest_path = super::metadata_deps::lexical(&std::path::absolute(
+        super::project_info::starting_manifest(&opt.manifest_path)?,
+    )?);
+    let patches = match CargoToml::from_file(&root_manifest_path) {
+        Ok(root) => Patches::of(&root_manifest_path, &root),
+        Err(_) => Patches::of(&root_manifest_path, &CargoToml::default()),
+    };
+    // `registry = "<name>"` declarations are matched to the index the name stands for, in
+    // the configuration the resolver read: the one that applies to the workspace root,
+    // where the lockfile is resolved.
+    let registries = RegistryConfig::load(patches.root())?;
     let mut nodes = Vec::new();
     for (internal_id, entry) in &packages {
         let mut outgoing = BTreeMap::<String, BTreeSet<String>>::new();
@@ -263,15 +309,45 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 }
             }
         }
+        // One edge per extern crate name, as Cargo writes them: a package declared under two
+        // keys (`old = { package = "rand" }` next to `rand`) is two edges, each with the kinds
+        // of its own declarations.
         let deps = outgoing
             .into_iter()
-            .map(|(pkg, kinds)| {
-                let name = package_names_by_id.get(&pkg).cloned().unwrap_or_default();
-                let dep_kinds = kinds
-                    .into_iter()
-                    .map(|kind| serde_json::from_str::<Value>(&kind).unwrap_or(Value::Null))
-                    .collect::<Vec<_>>();
-                json!({"name": name, "pkg": pkg, "dep_kinds": dep_kinds})
+            .flat_map(|(pkg, kinds)| {
+                let package = package_names_by_id.get(&pkg).cloned().unwrap_or_default();
+                let version = package_versions_by_id
+                    .get(&pkg)
+                    .cloned()
+                    .unwrap_or_default();
+                let active: Vec<String> = kinds.into_iter().collect();
+                let source = package_sources_by_id.get(&pkg).cloned().flatten();
+                let (dir, lib_name) = package_dirs_by_id.get(&pkg).cloned().unwrap_or_default();
+                let child = EdgeTarget {
+                    name: &package,
+                    version: &version,
+                    source: source.as_deref(),
+                    dir: &dir,
+                    lib_name: &lib_name,
+                };
+                declaration_edges(
+                    &entry.manifest,
+                    entry.manifest_path.parent().unwrap_or(Path::new(".")),
+                    &patches,
+                    &entry.features,
+                    &registries,
+                    &child,
+                    &active,
+                )
+                .into_iter()
+                .map(move |(name, edge_kinds)| {
+                    let dep_kinds = edge_kinds
+                        .iter()
+                        .map(|kind| serde_json::from_str::<Value>(kind).unwrap_or(Value::Null))
+                        .collect::<Vec<_>>();
+                    json!({"name": name, "pkg": pkg.clone(), "dep_kinds": dep_kinds})
+                })
+                .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         let dependencies = deps
@@ -288,7 +364,7 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
 
     let package_values = packages
         .values()
-        .map(package_json)
+        .map(|entry| package_json(entry, &registries))
         .collect::<Result<Vec<_>>>()?;
     let workspace_members = packages
         .values()
@@ -355,7 +431,7 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
     }))
 }
 
-fn package_json(entry: &PackageEntry) -> Result<Value> {
+fn package_json(entry: &PackageEntry, registries: &RegistryConfig) -> Result<Value> {
     let package = entry.manifest.package.as_ref();
     let package_dir = entry
         .manifest_path
@@ -390,7 +466,7 @@ fn package_json(entry: &PackageEntry) -> Result<Value> {
             ))
     });
     let target_values = targets.iter().map(target_json).collect::<Vec<_>>();
-    let dependencies = package_dependencies(&entry.manifest);
+    let dependencies = package_dependencies(&entry.manifest, package_dir, registries);
     Ok(json!({
         "id": entry.cargo_id,
         "name": entry.name,
@@ -427,80 +503,196 @@ fn target_json(target: &DiscoveredTarget) -> Value {
     })
 }
 
-fn package_dependencies(manifest: &CargoToml) -> Vec<Value> {
-    let mut dependencies = Vec::new();
-    append_dependency_map(&mut dependencies, &manifest.dependencies, None, None);
-    append_dependency_map(
-        &mut dependencies,
-        &manifest.build_dependencies,
-        Some("build"),
-        None,
-    );
-    append_dependency_map(
-        &mut dependencies,
-        &manifest.dev_dependencies,
-        Some("dev"),
-        None,
-    );
-    for (target, spec) in &manifest.target {
-        append_dependency_map(&mut dependencies, &spec.dependencies, None, Some(target));
-        append_dependency_map(
-            &mut dependencies,
-            &spec.build_dependencies,
-            Some("build"),
-            Some(target),
-        );
-        append_dependency_map(
-            &mut dependencies,
-            &spec.dev_dependencies,
-            Some("dev"),
-            Some(target),
-        );
+/// Whether a non-path declaration is the one a resolved package (`source`: its lock source,
+/// `None` for a path package) came from (path declarations are matched by directory in
+/// `declaration_edges`): a git one the same
+/// repository at the same reference (`?branch=`, `?tag=`, `?rev=` or none); a registry one
+/// the exact index its registry name (crates.io when unnamed) stands for in `registries`.
+fn same_source(dep: &TomlDependency, source: Option<&str>, registries: &RegistryConfig) -> bool {
+    let detail = match dep {
+        TomlDependency::Simple(_) => None,
+        TomlDependency::Detailed(d) => Some(d),
+    };
+    let trim = |url: &str| {
+        url.trim_end_matches('/')
+            .trim_end_matches(".git")
+            .to_string()
+    };
+    match (detail, source) {
+        (Some(d), Some(s)) if d.git.is_some() => {
+            let Some(rest) = s.strip_prefix("git+") else {
+                return false;
+            };
+            let rest = rest.split('#').next().unwrap_or(rest);
+            let (base, query) = rest.split_once('?').unwrap_or((rest, ""));
+            let wanted = match (&d.branch, &d.tag, &d.rev) {
+                (Some(b), _, _) => format!("branch={b}"),
+                (_, Some(t), _) => format!("tag={t}"),
+                (_, _, Some(r)) => format!("rev={r}"),
+                _ => String::new(),
+            };
+            trim(base) == trim(d.git.as_deref().unwrap_or_default()) && query == wanted
+        }
+        (_, Some(s)) => {
+            let registry = detail.and_then(|d| d.registry.as_deref());
+            registries
+                .lock_source_for_registry(registry)
+                .is_ok_and(|expected| expected == s)
+        }
+        (_, None) => false,
     }
-    dependencies.sort_by_key(|dependency| {
-        (
-            dependency["name"].as_str().unwrap_or_default().to_string(),
-            dependency["kind"].as_str().unwrap_or_default().to_string(),
-            dependency["target"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
-        )
-    });
-    dependencies
 }
 
-fn append_dependency_map(
-    output: &mut Vec<Value>,
-    dependencies: &HashMap<String, TomlDependency>,
-    kind: Option<&str>,
-    target: Option<&str>,
-) {
-    for (name, dependency) in dependencies {
-        let (req, rename, optional, default_features, features, source) = match dependency {
-            TomlDependency::Simple(req) => (req.clone(), None, false, true, Vec::new(), None),
-            TomlDependency::Detailed(details) => (
-                details.version.clone().unwrap_or_else(|| "*".to_string()),
-                details.package_name.clone(),
-                details.optional.unwrap_or(false),
-                details.default_features.unwrap_or(true),
-                details.features.clone().unwrap_or_default(),
-                details.git.clone(),
-            ),
-        };
-        output.push(json!({
-            "name": name,
-            "source": source,
-            "req": req,
-            "kind": kind,
-            "rename": rename,
-            "optional": optional,
-            "uses_default_features": default_features,
-            "features": features,
-            "target": target,
-            "registry": null,
-        }));
+/// Whether the declaration under `key` is part of the build of a package with `features`
+/// enabled: a required one always; an optional one when a feature enables it (its implicit
+/// feature `key`, `dep:key`, or a non-weak `key/feature`), as Cargo activates it.
+fn declaration_active(
+    manifest: &CargoToml,
+    key: &str,
+    dep: &TomlDependency,
+    features: &BTreeSet<String>,
+) -> bool {
+    let optional = matches!(dep, TomlDependency::Detailed(d) if d.optional == Some(true));
+    if !optional {
+        return true;
     }
+    let explicit = format!("dep:{key}");
+    let through = format!("{key}/");
+    let named_explicitly = manifest.features.values().flatten().any(|v| *v == explicit);
+    // Without `dep:key` anywhere the dependency has an implicit feature of its own name.
+    if !named_explicitly && features.contains(key) {
+        return true;
+    }
+    features.iter().any(|f| {
+        manifest
+            .features
+            .get(f)
+            .into_iter()
+            .flatten()
+            .any(|v| *v == explicit || v.starts_with(&through))
+    })
+}
+
+/// The resolved package a dependency edge goes to, as declarations are matched against it.
+struct EdgeTarget<'a> {
+    name: &'a str,
+    version: &'a str,
+    /// Its lock source; `None` for a path package.
+    source: Option<&'a str>,
+    /// Its package directory (a path declaration must point there).
+    dir: &'a Path,
+    /// Its library's crate name: the extern name of an unrenamed declaration.
+    lib_name: &'a str,
+}
+
+/// Whether two package directories are the same one (symlinks and `..` resolved where the
+/// file system allows, else compared as written).
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+/// The edges from `manifest`'s package (in `parent_dir`, built with `features`) to
+/// `child`: one per extern crate name (the manifest key of a renamed declaration, else the
+/// child's library name), each with the kinds, among the `active` ones, of the declarations
+/// under that name that are part of the build, come from the child's source and whose
+/// requirement admits its version.
+///
+/// `manifest` is normalized (`workspace = true` resolved, see `metadata_inherit`); a
+/// registry declaration also matches the package a workspace `[patch]` puts in its place.
+fn declaration_edges(
+    manifest: &CargoToml,
+    parent_dir: &Path,
+    patches: &Patches,
+    features: &BTreeSet<String>,
+    registries: &RegistryConfig,
+    child: &EdgeTarget<'_>,
+    active: &[String],
+) -> Vec<(String, Vec<String>)> {
+    let (package, version, source) = (child.name, child.version, child.source);
+    // (table, kind, target)
+    type Table<'a> = (
+        &'a HashMap<String, TomlDependency>,
+        Option<&'a str>,
+        Option<&'a str>,
+    );
+    let mut tables: Vec<Table<'_>> = vec![
+        (&manifest.dependencies, None, None),
+        (&manifest.build_dependencies, Some("build"), None),
+        (&manifest.dev_dependencies, Some("dev"), None),
+    ];
+    for (target, spec) in &manifest.target {
+        tables.extend([
+            (&spec.dependencies, None, Some(target.as_str())),
+            (
+                &spec.build_dependencies,
+                Some("build"),
+                Some(target.as_str()),
+            ),
+            (&spec.dev_dependencies, Some("dev"), Some(target.as_str())),
+        ]);
+    }
+    let parsed = semver::Version::parse(version).ok();
+    let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (table, kind, target) in tables {
+        for (key, dep) in table {
+            let (real, req) = match dep {
+                TomlDependency::Simple(req) => (key.as_str(), Some(req.as_str())),
+                TomlDependency::Detailed(d) => (
+                    d.package_name.as_deref().unwrap_or(key),
+                    d.version.as_deref(),
+                ),
+            };
+            let from = |dep: &TomlDependency, base: &Path| match dep {
+                TomlDependency::Detailed(d) if d.path.is_some() && d.git.is_none() => {
+                    source.is_none()
+                        && same_dir(&base.join(d.path.as_deref().unwrap_or(".")), child.dir)
+                }
+                _ => same_source(dep, source, registries),
+            };
+            // A registry declaration whose package a workspace `[patch]` replaces: the edge
+            // goes to the patched package.
+            let registry_declared = match dep {
+                TomlDependency::Simple(_) => Some(None),
+                TomlDependency::Detailed(d) if d.path.is_none() && d.git.is_none() => {
+                    Some(d.registry.as_deref())
+                }
+                _ => None,
+            };
+            let from_child = from(dep, parent_dir)
+                || registry_declared.is_some_and(|registry| {
+                    patches
+                        .replacing(registry, real, registries)
+                        .is_some_and(|(patch, root)| from(patch, root))
+                });
+            if real != package || !from_child || !declaration_active(manifest, key, dep, features) {
+                continue;
+            }
+            // Renamed: the manifest key is the extern name; otherwise the library's name.
+            let extern_name = if real != key.as_str() {
+                key.replace('-', "_")
+            } else {
+                child.lib_name.to_string()
+            };
+            let admits = match (req.map(semver::VersionReq::parse), &parsed) {
+                (Some(Ok(r)), Some(v)) => r.matches(v),
+                _ => true,
+            };
+            let kind_json = json!({"kind": kind, "target": target}).to_string();
+            if admits && active.contains(&kind_json) {
+                edges.entry(extern_name).or_default().insert(kind_json);
+            }
+        }
+    }
+    if edges.is_empty() {
+        return vec![(child.lib_name.to_string(), active.to_vec())];
+    }
+    edges
+        .into_iter()
+        .map(|(name, kinds)| (name, kinds.into_iter().collect()))
+        .collect()
 }
 
 /// The kinds of an edge, from the declarations of `child_name` that are active on the

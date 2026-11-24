@@ -28,14 +28,15 @@ holds its `.cargo` directory.
 | `[registries]`, `[registry]`, `[source]`, `[credential-alias]`, `[patch]` | `CARGO_REGISTRIES_<NAME>_*` | |
 | `net.offline` | `CARGO_NET_OFFLINE` | Same as `--offline` on every command that has it. |
 | `net.retry` | `CARGO_NET_RETRY` | `MITTS_NET_RETRY` wins. |
-| `http.proxy` | `CARGO_HTTP_PROXY` | Without it: `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (either case). `NO_PROXY` is not read yet. |
+| `http.proxy` | `CARGO_HTTP_PROXY` | Without it: `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` (either case). Hosts in `NO_PROXY` / `no_proxy` (names with their subdomains, IP addresses, CIDR ranges, `*`) go direct, as with libcurl. |
 | `http.cainfo` | `CARGO_HTTP_CAINFO` | PEM bundle that replaces the built-in roots. |
 | `http.timeout` | `CARGO_HTTP_TIMEOUT` | Seconds to connect and between reads. |
 | `term.verbose`, `term.quiet` | `CARGO_TERM_VERBOSE`, `CARGO_TERM_QUIET` | The command line wins; both set is an error. |
 | `term.color` | `CARGO_TERM_COLOR` | `--color` wins. |
 | `doc.browser` | `CARGO_DOC_BROWSER` | Program for `mitts doc --open`; else `BROWSER`, else the system opener. |
 | `install.root` | `CARGO_INSTALL_ROOT` | Where `mitts install` puts `bin/`; `--root` wins. |
-| `cargo-new.vcs` | `CARGO_CARGO_NEW_VCS` | Default `--vcs` of `mitts new` / `init` (`git` or `none`). |
+| `cargo-new.vcs` | `CARGO_CARGO_NEW_VCS` | Default `--vcs` of `mitts new` / `init` (`git`, `hg`, `pijul`, `fossil` or `none`). |
+| `resolver.incompatible-rust-versions` | `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS` | `fallback`: a new lock entry prefers the highest version whose `rust-version` the workspace's lowest `rust-version` (else the rustc in use) supports; `allow`: the highest version. Default `fallback` with resolver "3" (edition 2024), else `allow`. `--ignore-rust-version` means `allow`. |
 
 ## Debug info: line tables by default
 
@@ -72,4 +73,4 @@ effect: `http.ssl-version`, `http.check-revoke`, `http.multiplexing`, `http.debu
 `term.unicode`, `cache.*`, `future-incompat-report.*`, `target.<triple>.ar` (Cargo ignores
 it as well), `build.build-dir` and `build.dep-info-basedir` (Mitts keeps intermediate files
 in its cache), `paths` (superseded by `[patch]`), `net.git-fetch-with-cli` (Mitts always uses
-the system `git`), `resolver.incompatible-rust-versions`.
+the system `git`).

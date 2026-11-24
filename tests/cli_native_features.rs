@@ -279,14 +279,15 @@ fn metadata_json_filters_optional_and_foreign_target_dependencies() {
         .iter()
         .filter_map(|dependency| dependency["name"].as_str())
         .collect::<Vec<_>>();
-    assert!(dependency_names.contains(&"optional-dep"));
-    assert!(dependency_names.contains(&"mac-dep"));
-    assert!(!dependency_names.contains(&"win-dep"));
+    // A resolve edge is named by the extern crate name, as Cargo writes it (`-` as `_`).
+    assert!(dependency_names.contains(&"optional_dep"));
+    assert!(dependency_names.contains(&"mac_dep"));
+    assert!(!dependency_names.contains(&"win_dep"));
     let mac_dependency = root_node["deps"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|dependency| dependency["name"] == "mac-dep")
+        .find(|dependency| dependency["name"] == "mac_dep")
         .unwrap();
     assert!(mac_dependency["dep_kinds"][0]["target"]
         .as_str()

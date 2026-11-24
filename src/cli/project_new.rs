@@ -109,8 +109,10 @@ fn run(args: &NewArgs, init: bool) -> Result<()> {
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let edition = args.edition.clone().unwrap_or_else(default_edition);
     let vcs = choose_vcs(args.vcs.as_deref(), &dir, init);
-    if vcs == "git" {
-        init_git(&dir)?;
+    match vcs {
+        "git" => init_git(&dir)?,
+        "hg" | "pijul" | "fossil" => init_other_vcs(vcs, &dir)?,
+        _ => {}
     }
 
     let mut manifest =
@@ -293,8 +295,11 @@ fn choose_vcs(flag: Option<&str>, dir: &Path, init: bool) -> &'static str {
     match flag {
         Some("none") => "none",
         Some("git") => "git",
+        Some("hg") => "hg",
+        Some("pijul") => "pijul",
+        Some("fossil") => "fossil",
         Some(other) => {
-            eprintln!("warning: version control `{other}` is not supported by Mitts; no repository created");
+            eprintln!("warning: unknown version control `{other}`; no repository created");
             "none"
         }
         None => {
@@ -341,6 +346,143 @@ fn init_git(dir: &Path) -> Result<()> {
         fs::write(&ignore, text)?;
     }
     Ok(())
+}
+
+/// Mercurial, Pijul or Fossil as Cargo sets them up: the repository (a failing tool is an
+/// error, as in Cargo) and the tool's ignore file naming `target`.
+fn init_other_vcs(vcs: &str, dir: &Path) -> Result<()> {
+    let run = |program: &str, args: &[&std::ffi::OsStr], cwd: &Path| -> Result<()> {
+        let status = Command::new(program)
+            .args(args)
+            .current_dir(cwd)
+            .status()
+            .with_context(|| format!("could not run `{program}`; is it installed?"))?;
+        if !status.success() {
+            anyhow::bail!(
+                "`{program} {}` failed in {}",
+                args.iter()
+                    .map(|a| a.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                cwd.display()
+            );
+        }
+        Ok(())
+    };
+    let (ignore, line) = match vcs {
+        "hg" => {
+            if !dir.join(".hg").exists() {
+                run("hg", &["init".as_ref(), dir.as_os_str()], dir)?;
+            }
+            let ignore = dir.join(".hgignore");
+            // `^target$` is a regexp: when the file's last `syntax:` line switched to glob,
+            // switch back before adding it.
+            let existing = read_existing(&ignore)?;
+            let (ignored, last_syntax) = hg_target_ignored(&existing);
+            if !ignored {
+                let mut text = existing;
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                if last_syntax != "regexp" {
+                    text.push_str("syntax: regexp\n");
+                }
+                text.push_str("^target$\n");
+                fs::write(&ignore, text).with_context(|| format!("write {}", ignore.display()))?;
+            }
+            return Ok(());
+        }
+        "pijul" => {
+            if !dir.join(".pijul").exists() {
+                run("pijul", &["init".as_ref()], dir)?;
+            }
+            (dir.join(".ignore"), "/target")
+        }
+        _ => {
+            // An existing checkout (its repository may live elsewhere) is used as it is.
+            // Otherwise the local repository is created if missing and opened: a run whose
+            // `open` failed opens it now; `--force` opens into a directory with files.
+            let checked_out = dir.join(".fslckout").exists() || dir.join("_FOSSIL_").exists();
+            if !checked_out {
+                let db = dir.join(".fossil");
+                if !db.exists() {
+                    run(
+                        "fossil",
+                        &["init".as_ref(), "--empty".as_ref(), db.as_os_str()],
+                        dir,
+                    )?;
+                }
+                run(
+                    "fossil",
+                    &["open".as_ref(), "--force".as_ref(), ".fossil".as_ref()],
+                    dir,
+                )?;
+            }
+            let settings = dir.join(".fossil-settings");
+            fs::create_dir_all(&settings)?;
+            append_line(&settings.join("clean-glob"), "target")?;
+            (settings.join("ignore-glob"), "target")
+        }
+    };
+    append_line(&ignore, line)
+}
+
+/// Whether an `.hgignore` already ignores `target`, reading it as Mercurial does (regexp
+/// syntax until a `syntax:` line changes it), and the syntax in force at its end.
+fn hg_target_ignored(text: &str) -> (bool, String) {
+    let mut syntax = "regexp".to_string();
+    let mut ignored = false;
+    for line in text.lines().map(str::trim) {
+        if let Some(s) = line.strip_prefix("syntax:") {
+            syntax = s.trim().to_string();
+            continue;
+        }
+        // A `kind:` prefix on the line overrides the section's syntax, for the kinds
+        // Mercurial's pattern-file reader (`match.readpatternfile`) accepts there: `re`,
+        // `regexp`, `glob`, `rootglob`. Anything else (`path:`) is a pattern of the section.
+        let (kind, pattern) = match line.split_once(':') {
+            Some((k, p)) if matches!(k, "re" | "regexp" | "glob" | "rootglob") => {
+                (k.to_string(), p.trim())
+            }
+            _ => (syntax.clone(), line),
+        };
+        // Only patterns that match the repository-relative `target` count. Glob syntax is
+        // unrooted: `target` matches it (and any `target` below), `/target` matches nothing.
+        let rule = match kind.as_str() {
+            "regexp" | "re" => {
+                pattern == "^target$" || pattern == "^target/" || pattern == "^target(/|$)"
+            }
+            "rootglob" => pattern == "target" || pattern == "target/**",
+            _ => pattern == "target" || pattern == "target/**",
+        };
+        ignored |= rule;
+    }
+    (ignored, syntax)
+}
+
+/// The file's text; a missing file is empty, any other failure (unreadable, not UTF-8) is
+/// an error, so the file is never rewritten from less than it holds.
+fn read_existing(path: &Path) -> Result<String> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
+    }
+}
+
+/// Adds `line` to the file unless one of its lines already is `line`.
+fn append_line(path: &Path, line: &str) -> Result<()> {
+    let existing = read_existing(path)?;
+    if existing.lines().any(|l| l.trim() == line) {
+        return Ok(());
+    }
+    let mut text = existing;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(line);
+    text.push('\n');
+    fs::write(path, text).with_context(|| format!("write {}", path.display()))
 }
 
 /// Like Cargo: a package created inside a workspace whose `members` do not cover it is

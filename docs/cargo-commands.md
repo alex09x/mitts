@@ -11,10 +11,10 @@ Cargo's do. Options every command takes: `--config`, `--color`, `-C DIR`, `-Z`,
 | `build`, `check`, `test`, `run`, `bench`, `rustc`, `clippy`, `fmt` | Build with the shared cache | `--artifact-dir` (Cargo: unstable) copies final artifacts |
 | `doc`, `rustdoc` | rustdoc for the package and its dependencies into `target/doc` | A crate whose inputs did not change is not documented again |
 | `fix` | Applies rustc's machine-applicable suggestions until none are left | `--edition` applies the migration lints; set `edition` in Cargo.toml yourself |
-| `new`, `init` | Package files, `.gitignore`, git repository, workspace membership | Version control: `git` or `none` (`hg`, `pijul`, `fossil` are refused with a warning) |
+| `new`, `init` | Package files, the repository and its ignore file (`git`, `hg`, `pijul`, `fossil`), workspace membership | |
 | `add`, `remove` | Edit Cargo.toml in place, comments and order kept, then the lock | `--base`, `--public` (Cargo: unstable) are refused |
 | `update`, `generate-lockfile` | Resolve Cargo.lock: `-p`, `--precise`, `--recursive`, `--workspace`, `--dry-run` | `--publish-time` (Cargo: unstable) is refused |
-| `tree` | The dependency graph: `-i`, `-d`, `-e`, `--depth`, `--prefix`, `--charset`, `-f`, `--prune` | `-e features` is refused; feature lists are in `mitts metadata` |
+| `tree` | The dependency graph: `-i`, `-d`, `-e` (with `features`), `--depth`, `--prefix`, `--charset`, `-f`, `--prune` | |
 | `metadata`, `pkgid`, `locate-project` | Package information as Cargo prints it | |
 | `fetch`, `vendor` | Sources into the shared store; a `vendor/` copy with `.cargo-checksum.json` | `fetch --target` fetches every locked source |
 | `package`, `publish` | A verified `.crate`; upload to crates.io or `--registry` | `--exclude-lockfile`, `--message-format` (Cargo: unstable) are refused |
@@ -27,10 +27,11 @@ Cargo's do. Options every command takes: `--config`, `--color`, `-C DIR`, `-Z`,
 Commands Mitts adds: `explain` (the plan and why each unit is or is not cached),
 `coverage` / `llvm-cov`, `gc` (prune the shared cache).
 
-Not supported: Cargo's external subcommands. Cargo runs any `cargo-<name>` executable on
-`PATH` as `cargo <name>` (`cargo nextest`, `cargo expand`, …); Mitts rejects unknown
-commands, so run those tools directly. `cargo --list` has no Mitts equivalent; `mitts --help`
-lists the commands.
+External subcommands work as in Cargo: `mitts NAME ARGS` runs `cargo-NAME NAME ARGS` from
+`$CARGO_HOME/bin` or `PATH` (`mitts nextest run`, `mitts expand`), with `CARGO` set to Mitts,
+so a tool that calls `$CARGO` back goes through Mitts. An unknown name is Cargo's
+`no such command` error, with a suggestion for a typo. `mitts --list` prints the built-in
+commands, aliases and the `cargo-NAME` tools found.
 
 ## `rust-version`
 

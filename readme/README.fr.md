@@ -377,8 +377,6 @@ Mitts est en version préliminaire. Sachez ceci avant de vous appuyer dessus :
   `sparse+`) et les sources `local-registry` sont refusés avec des conseils.
 - **Les jetons sont rangés là où Cargo les range.** `mitts login` et `mitts logout` écrivent
   `$CARGO_HOME/credentials.toml`, comme Cargo ; `cargo:wincred` est réservé à Windows et ignoré.
-- **Pas de sous-commandes externes.** `mitts nextest`, `mitts llvm-cov` et les autres outils `cargo-<name>`
-  ne sont pas relayés ; lancez ces outils directement.
 - **Certaines unités ne sont jamais mises en cache :** les crates de type `cdylib`, `dylib` ou
   `staticlib`, et les crates dont les lectures de `env!` ne peuvent pas être suivies. Elles sont toujours
   compilées ; elles sont signalées par `mitts explain`.

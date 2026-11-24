@@ -56,6 +56,11 @@ fn main() -> ExitCode {
         }
     };
     let original_args = args.clone();
+    // `mitts --list`, like `cargo --list`: built-in commands, aliases, cargo-NAME tools; it
+    // may follow other global flags (`mitts -v --list`), but not a subcommand.
+    if mitts::cli::external::wants_list(&args) {
+        return ExitCode::from(mitts::cli::external::list() as u8);
+    }
     let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     mitts::core::verbosity::set(cli.command.verbose());
@@ -138,6 +143,7 @@ fn main() -> ExitCode {
         Commands::Install(ref args) => mitts::cli::install::handle_install(args),
         Commands::Uninstall(ref args) => mitts::cli::install::handle_uninstall(args),
         Commands::Report(ref args) => mitts::cli::future_incompat::handle_report(args),
+        Commands::External(ref args) => mitts::cli::external::run(args),
     };
     if cli.future_incompat_report && code == 0 && cli.command.cache_use().is_some() {
         let test_like = matches!(cli.command, Commands::Test(_) | Commands::Bench(_));

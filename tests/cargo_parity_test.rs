@@ -1834,3 +1834,907 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
         .join("generated.h")
         .is_file());
 }
+
+#[cfg(unix)]
+#[test]
+fn external_subcommands_and_list_work_like_cargo() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("tools");
+    fs::create_dir_all(&bin).unwrap();
+    let tool = bin.join("cargo-hello");
+    fs::write(
+        &tool,
+        "#!/bin/sh\necho \"args: $*\"\necho \"cargo: $CARGO\"\nexit 3\n",
+    )
+    .unwrap();
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(args)
+            .env("PATH", &path)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+
+    // `mitts hello a b` runs `cargo-hello hello a b` with CARGO pointing at Mitts.
+    let out = run(&["hello", "a", "--flag"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "the tool's exit code is returned"
+    );
+    assert!(stdout.contains("args: hello a --flag"), "{stdout}");
+    let cargo_line = stdout.lines().find(|l| l.starts_with("cargo: ")).unwrap();
+    assert!(cargo_line.ends_with("mitts"), "{cargo_line}");
+
+    // An unknown command is Cargo's error, with a suggestion for a typo.
+    let out = run(&["biuld"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(101));
+    assert!(stderr.contains("no such command: `biuld`"), "{stderr}");
+    assert!(stderr.contains("Did you mean `build`?"), "{stderr}");
+
+    // `--list` names built-in commands, the built-in aliases and the external tool.
+    let out = run(&["--list"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.starts_with("Installed Commands:"), "{stdout}");
+    for word in [
+        "    build",
+        "    b                    alias: build",
+        "    hello",
+    ] {
+        assert!(
+            stdout.lines().any(|l| l.starts_with(word)),
+            "{word}: {stdout}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn new_sets_up_mercurial_pijul_and_fossil_like_cargo() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin");
+    fs::create_dir_all(&bin).unwrap();
+    // Stand-ins that do what the real tools do to the file system.
+    for (tool, script) in [
+        ("hg", "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n"),
+        ("pijul", "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p .pijul\n"),
+        (
+            "fossil",
+            "#!/bin/sh\nif [ \"$1\" = init ]; then : > \"$3\"; fi\nif [ \"$1\" = open ]; then : > .fslckout; fi\n",
+        ),
+    ] {
+        let path = bin.join(tool);
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let work = env.path("projects");
+    fs::create_dir_all(&work).unwrap();
+    let new = |vcs: &str, name: &str, path_var: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["new", "--vcs", vcs, name])
+            .current_dir(&work)
+            .env("PATH", path_var)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+
+    assert!(new("hg", "with-hg", &path).status.success());
+    assert!(work.join("with-hg/.hg").is_dir());
+    assert_eq!(read(work.join("with-hg/.hgignore")), "^target$\n");
+
+    assert!(new("pijul", "with-pijul", &path).status.success());
+    assert!(work.join("with-pijul/.pijul").is_dir());
+    assert_eq!(read(work.join("with-pijul/.ignore")), "/target\n");
+
+    assert!(new("fossil", "with-fossil", &path).status.success());
+    assert!(work.join("with-fossil/.fossil").is_file());
+    assert!(work.join("with-fossil/.fslckout").is_file());
+    assert_eq!(
+        read(work.join("with-fossil/.fossil-settings/ignore-glob")),
+        "target\n"
+    );
+    assert_eq!(
+        read(work.join("with-fossil/.fossil-settings/clean-glob")),
+        "target\n"
+    );
+
+    // A missing tool is an error, as in Cargo.
+    let out = new("hg", "no-hg", "/nonexistent");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("could not run `hg`"));
+}
+
+#[test]
+fn resolver_3_prefers_versions_the_projects_rust_version_supports() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("99.0"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    // resolver = "3" means incompatible-rust-versions = "fallback"; the limit is the
+    // package's rust-version.
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"\nresolver = \"3\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    assert!(read(app.join("Cargo.lock")).contains("name = \"aa\"\nversion = \"1.0.0\""));
+
+    // The configuration key wins: `allow` takes the highest version.
+    env.ok(
+        &app,
+        &[
+            "generate-lockfile",
+            "--config",
+            "resolver.incompatible-rust-versions=\"allow\"",
+        ],
+    );
+    assert!(read(app.join("Cargo.lock")).contains("name = \"aa\"\nversion = \"1.1.0\""));
+}
+
+#[cfg(unix)]
+#[test]
+fn vcs_setup_keeps_existing_files_and_finishes_a_half_done_fossil() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin2");
+    fs::create_dir_all(&bin).unwrap();
+    // fossil `open` into a non-empty directory needs --force, like the real tool.
+    let fossil = "#!/bin/sh\nif [ \"$1\" = init ]; then : > \"$3\"; fi\nif [ \"$1\" = open ]; then [ \"$2\" = --force ] || exit 1; : > .fslckout; fi\n";
+    let hg = "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n";
+    for (tool, script) in [("fossil", fossil), ("hg", hg)] {
+        let path = bin.join(tool);
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let init = |dir: &std::path::Path, vcs: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["init", "--vcs", vcs])
+            .current_dir(dir)
+            .env("PATH", &path)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+
+    // Fossil into a directory with files, and a repository whose checkout was never opened.
+    let fossil_dir = env.path("fossil-proj");
+    fs::create_dir_all(&fossil_dir).unwrap();
+    fs::write(fossil_dir.join("notes.txt"), "keep\n").unwrap();
+    fs::write(fossil_dir.join(".fossil"), "").unwrap();
+    let out = init(&fossil_dir, "fossil");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        fossil_dir.join(".fslckout").is_file(),
+        "the missing checkout was opened"
+    );
+    assert_eq!(read(fossil_dir.join("notes.txt")), "keep\n");
+
+    // An .hgignore that ends in glob syntax gets `syntax: regexp` before `^target$`.
+    let hg_dir = env.path("hg-proj");
+    fs::create_dir_all(&hg_dir).unwrap();
+    fs::write(hg_dir.join(".hgignore"), "syntax: glob\n*.o\n").unwrap();
+    assert!(init(&hg_dir, "hg").status.success());
+    assert_eq!(
+        read(hg_dir.join(".hgignore")),
+        "syntax: glob\n*.o\nsyntax: regexp\n^target$\n"
+    );
+
+    // An ignore file that is not text stops the command and stays as it was.
+    let bad_dir = env.path("hg-bad");
+    fs::create_dir_all(&bad_dir).unwrap();
+    fs::write(bad_dir.join(".hgignore"), [0xff, 0xfe, b'\n']).unwrap();
+    let out = init(&bad_dir, "hg");
+    assert!(!out.status.success());
+    assert_eq!(
+        fs::read(bad_dir.join(".hgignore")).unwrap(),
+        [0xff, 0xfe, b'\n']
+    );
+}
+
+#[test]
+fn tree_features_shows_requested_features_and_prunes_them_with_their_package() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        features: "{\"default\":[\"std\"],\"std\":[]}",
+        // The crate's own manifest declares them too (metadata reads it).
+        manifest_extra: "[features]\ndefault = [\"std\"]\nstd = []\n",
+        ..version("aa", "1.0.0")
+    }]);
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    let (out, _) = env.ok(&app, &["tree", "-e", "features"]);
+    assert!(out.contains("── aa feature \"default\"\n"), "{out}");
+    assert!(out.contains("── aa feature \"std\"\n"), "{out}");
+    assert!(out.contains("── aa v1.0.0"), "{out}");
+    let (out, _) = env.ok(&app, &["tree", "-e", "features", "--prune", "aa"]);
+    assert!(!out.contains("aa"), "{out}");
+}
+
+#[test]
+fn msrv_limit_counts_path_members_and_falls_back_when_nothing_fits() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+        // bb 1.0.0 fits the limit but needs a crate that does not exist.
+        Published {
+            rust_version: Some("1.40"),
+            deps: vec![dep("missing", "=9")],
+            ..version("bb", "1.0.0")
+        },
+        Published {
+            rust_version: Some("99.0"),
+            ..version("bb", "1.1.0")
+        },
+    ]);
+    // The root says 1.70; an in-tree path dependency (an implicit member) says 1.50.
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nbb = \"1\"\nlow = { path = \"crates/low\" }\n\n[workspace]\nresolver = \"3\"\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    fs::create_dir_all(app.join("crates/low/src")).unwrap();
+    fs::write(
+        app.join("crates/low/Cargo.toml"),
+        "[package]\nname = \"low\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("crates/low/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    // No version of bb that fits 1.50 has a working graph, so the limit is relaxed for bb
+    // alone; aa keeps the version that fits.
+    assert!(
+        lock.contains("name = \"bb\"\nversion = \"1.1.0\""),
+        "{lock}"
+    );
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.0.0\""),
+        "{lock}"
+    );
+}
+
+#[test]
+fn msrv_limit_counts_in_tree_path_members() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nlow = { path = \"crates/low\" }\n\n[workspace]\nresolver = \"3\"\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    fs::create_dir_all(app.join("crates/low/src")).unwrap();
+    fs::write(
+        app.join("crates/low/Cargo.toml"),
+        "[package]\nname = \"low\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("crates/low/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.0.0\""),
+        "1.50 from the path member: {lock}"
+    );
+}
+
+#[test]
+fn metadata_names_the_package_and_the_rename_like_cargo() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        manifest_extra: "[features]\nsmall = []\nstd = []\n",
+        features: "{\"small\":[],\"std\":[]}",
+        ..version("aa", "1.0.0")
+    }]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { package = \"aa\", version = \"1\", default-features = false, features = [\"small\"] }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1", "--no-deps"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let dep = &doc["packages"][0]["dependencies"][0];
+    assert_eq!(dep["name"], "aa", "{dep}");
+    assert_eq!(dep["rename"], "old", "{dep}");
+    // The feature graph follows the renamed declaration.
+    let (out, _) = env.ok(&app, &["tree", "-e", "features"]);
+    assert!(out.contains("── aa feature \"small\"\n"), "{out}");
+    assert!(!out.contains("aa feature \"std\""), "{out}");
+}
+
+#[cfg(unix)]
+#[test]
+fn hg_and_fossil_setup_respect_what_is_there() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin3");
+    fs::create_dir_all(&bin).unwrap();
+    // A stand-in that records every call: init/open must not run in an existing checkout.
+    let log = env.path("fossil-calls");
+    let fossil = format!("#!/bin/sh\necho \"$@\" >> {}\n", log.display());
+    let hg = "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n".to_string();
+    for (tool, script) in [("fossil", fossil), ("hg", hg)] {
+        let path = bin.join(tool);
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let init = |dir: &std::path::Path, vcs: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["init", "--vcs", vcs])
+            .current_dir(dir)
+            .env("PATH", &path)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+    let checkout = env.path("fossil-checkout");
+    fs::create_dir_all(&checkout).unwrap();
+    fs::write(checkout.join(".fslckout"), "").unwrap();
+    assert!(init(&checkout, "fossil").status.success());
+    assert!(!checkout.join(".fossil").exists(), "no second repository");
+    assert!(!log.exists(), "fossil was not run in an existing checkout");
+
+    // A `^target$` written under glob syntax does not count: a regexp section is added.
+    let hg_dir = env.path("hg-glob-rule");
+    fs::create_dir_all(&hg_dir).unwrap();
+    fs::write(hg_dir.join(".hgignore"), "syntax: glob\n^target$\n").unwrap();
+    assert!(init(&hg_dir, "hg").status.success());
+    assert_eq!(
+        read(hg_dir.join(".hgignore")),
+        "syntax: glob\n^target$\nsyntax: regexp\n^target$\n"
+    );
+}
+
+#[test]
+fn msrv_limit_skips_packages_under_an_excluded_path() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nlegacy-one = { path = \"crates/legacy-one\" }\n\n[workspace]\nresolver = \"3\"\nexclude = [\"crates\"]\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    fs::create_dir_all(app.join("crates/legacy-one/src")).unwrap();
+    fs::write(
+        app.join("crates/legacy-one/Cargo.toml"),
+        "[package]\nname = \"legacy-one\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("crates/legacy-one/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.1.0\""),
+        "the excluded crate's 1.50 does not count: {lock}"
+    );
+}
+
+#[test]
+fn resolver_backtracks_past_a_version_whose_dependency_does_not_exist() {
+    let env = Env::new();
+    let registry = serve(vec![
+        version("cc", "1.0.0"),
+        Published {
+            deps: vec![dep("missing", "^1")],
+            ..version("cc", "1.1.0")
+        },
+    ]);
+    // No rust-version, resolver 2: plain backtracking, as Cargo does.
+    let app = env.app(&registry, "[dependencies]\ncc = \"1\"\n");
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"cc\"\nversion = \"1.0.0\""),
+        "{lock}"
+    );
+}
+
+#[test]
+fn resolver_backtracks_into_another_branch_when_the_first_guess_dead_ends() {
+    let env = Env::new();
+    // aa 1.1 and bb 1.1 pin incompatible xx versions. Ruling out aa 1.1 fails at the root
+    // (`=1.1.0`); the graph resolves with bb 1.0, as under Cargo.
+    let registry = serve(vec![
+        version("xx", "1.0.0"),
+        version("xx", "1.1.0"),
+        version("aa", "1.0.0"),
+        Published {
+            deps: vec![dep("xx", "=1.0.0")],
+            ..version("aa", "1.1.0")
+        },
+        Published {
+            deps: vec![dep("xx", "^1")],
+            ..version("bb", "1.0.0")
+        },
+        Published {
+            deps: vec![dep("xx", "=1.1.0")],
+            ..version("bb", "1.1.0")
+        },
+    ]);
+    let app = env.app(&registry, "[dependencies]\naa = \"=1.1.0\"\nbb = \"1\"\n");
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    for (name, version) in [("aa", "1.1.0"), ("bb", "1.0.0"), ("xx", "1.0.0")] {
+        assert!(
+            lock.contains(&format!("name = \"{name}\"\nversion = \"{version}\"")),
+            "{name} {version}: {lock}"
+        );
+    }
+}
+
+#[test]
+fn resolver_backtracks_from_a_request_the_selected_patch_cannot_meet() {
+    let env = Env::new();
+    // ff is patched to 1.0.0; bb 1.1 needs ff ^1.1, which the patch cannot be. Cargo settles
+    // on bb 1.0, which takes the patched ff.
+    let registry = serve(vec![
+        version("ff", "1.0.0"),
+        version("ff", "1.1.0"),
+        Published {
+            deps: vec![dep("ff", "^1")],
+            ..version("bb", "1.0.0")
+        },
+        Published {
+            deps: vec![dep("ff", "^1.1")],
+            ..version("bb", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nff = \"1\"\nbb = \"1\"\n\n[patch.crates-io]\nff = { path = \"ff\" }\n",
+    );
+    fs::create_dir_all(app.join("ff/src")).unwrap();
+    fs::write(
+        app.join("ff/Cargo.toml"),
+        "[package]\nname = \"ff\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("ff/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"bb\"\nversion = \"1.0.0\""),
+        "{lock}"
+    );
+    assert!(
+        lock.contains("name = \"ff\"\nversion = \"1.0.0\"")
+            && !lock.contains("name = \"ff\"\nversion = \"1.1.0\""),
+        "{lock}"
+    );
+}
+
+#[test]
+fn metadata_names_an_inherited_path_alias_like_cargo() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nhelper = { workspace = true }\n\n[workspace]\n\n[workspace.dependencies]\nhelper = { path = \"util\", package = \"my-util\" }\n",
+    );
+    fs::create_dir_all(app.join("util/src")).unwrap();
+    fs::write(
+        app.join("util/Cargo.toml"),
+        "[package]\nname = \"my-util\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("util/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["helper"], "{node}");
+}
+
+#[test]
+fn metadata_reports_inherited_dependencies_as_cargo_normalizes_them() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        features: r#"{"fast":[],"small":[]}"#,
+        manifest_extra: "\n[features]\nfast = []\nsmall = []\n",
+        ..version("aa", "1.2.0")
+    }]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { workspace = true, features = [\"small\"] }\n\n[workspace]\n\n[workspace.dependencies]\nold = { package = \"aa\", version = \"1.2\", features = [\"fast\"] }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let package = doc["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == root.as_str())
+        .unwrap();
+    let dep = &package["dependencies"][0];
+    assert_eq!(dep["name"], "aa", "{dep}");
+    assert_eq!(dep["rename"], "old", "{dep}");
+    assert_eq!(dep["req"], "^1.2", "{dep}");
+    let mut features: Vec<&str> = dep["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f.as_str().unwrap())
+        .collect();
+    features.sort();
+    assert_eq!(features, ["fast", "small"], "{dep}");
+}
+
+#[test]
+fn metadata_normalizes_a_path_dependency_against_its_own_workspace() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\next = { path = \"../other/ext\" }\n",
+    );
+    let other = app.parent().unwrap().join("other");
+    fs::create_dir_all(other.join("ext/src")).unwrap();
+    fs::write(
+        other.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"ext\"]\n\n[workspace.dependencies]\nold = { package = \"aa\", version = \"1\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        other.join("ext/Cargo.toml"),
+        "[package]\nname = \"ext\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nold = { workspace = true }\n",
+    )
+    .unwrap();
+    fs::write(other.join("ext/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let ext = doc["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "ext")
+        .unwrap();
+    let dep = &ext["dependencies"][0];
+    assert_eq!(dep["name"], "aa", "{dep}");
+    assert_eq!(dep["rename"], "old", "{dep}");
+    assert_eq!(dep["req"], "^1", "{dep}");
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == ext["id"])
+        .unwrap();
+    assert_eq!(node["deps"][0]["name"], "old", "{node}");
+}
+
+#[test]
+fn metadata_keeps_an_edition_2024_members_default_features_off() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = { workspace = true, default-features = false }\n\n[workspace]\n\n[workspace.dependencies]\naa = \"1\"\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace("edition = \"2021\"", "edition = \"2024\"");
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let package = doc["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == root.as_str())
+        .unwrap();
+    let dep = &package["dependencies"][0];
+    assert_eq!(dep["uses_default_features"], false, "{dep}");
+}
+
+#[test]
+fn metadata_matches_a_patch_keyed_by_the_github_crates_io_index() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { package = \"aa\", version = \"1\" }\n\n[patch.\"https://github.com/rust-lang/crates.io-index\"]\naa = { path = \"aa\" }\n",
+    );
+    fs::create_dir_all(app.join("aa/src")).unwrap();
+    fs::write(
+        app.join("aa/Cargo.toml"),
+        "[package]\nname = \"aa\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("aa/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    assert_eq!(node["deps"][0]["name"], "old", "{node}");
+}
+
+#[test]
+fn metadata_keeps_the_alias_of_a_registry_dependency_a_patch_replaces() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { package = \"aa\", version = \"1\" }\n\n[patch.crates-io]\naa = { path = \"aa\" }\n",
+    );
+    fs::create_dir_all(app.join("aa/src")).unwrap();
+    fs::write(
+        app.join("aa/Cargo.toml"),
+        "[package]\nname = \"aa\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("aa/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["old"], "{node}");
+}
+
+#[test]
+fn metadata_leaves_out_an_optional_alias_no_feature_enables() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nold = { package = \"aa\", version = \"1\", optional = true }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["aa"], "{node}");
+}
+
+#[test]
+fn metadata_names_an_unrenamed_edge_by_the_library_name() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(&registry, "[dependencies]\nmy-util = { path = \"util\" }\n");
+    fs::create_dir_all(app.join("util/src")).unwrap();
+    fs::write(
+        app.join("util/Cargo.toml"),
+        "[package]\nname = \"my-util\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"utility\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("util/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["utility"], "{node}");
+    // And `tree --features` keeps the edge.
+    let (tree, _) = env.ok(&app, &["tree", "-e", "features"]);
+    assert!(tree.contains("my-util v0.1.0"), "{tree}");
+}
+
+#[test]
+fn metadata_has_one_resolve_edge_per_alias_of_a_package() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nold = { package = \"aa\", version = \"1\" }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let mut names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["aa", "old"], "{node}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rooted_glob_target_rule_does_not_count_in_hgignore() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin4");
+    fs::create_dir_all(&bin).unwrap();
+    let hg = bin.join("hg");
+    fs::write(&hg, "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n").unwrap();
+    fs::set_permissions(&hg, fs::Permissions::from_mode(0o755)).unwrap();
+    let dir = env.path("hg-rooted");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join(".hgignore"), "syntax: glob\n/target\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["init", "--vcs", "hg"])
+        .current_dir(&dir)
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .env("CARGO_HOME", env.path("cargo-home"))
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        read(dir.join(".hgignore")),
+        "syntax: glob\n/target\nsyntax: regexp\n^target$\n"
+    );
+}
+
+#[test]
+fn members_matched_by_a_glob_in_a_middle_component_count_for_msrv() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\n\n[workspace]\nresolver = \"3\"\nmembers = [\"vendor/*/fixtures\"]\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    let member = app.join("vendor/one/fixtures");
+    fs::create_dir_all(member.join("src")).unwrap();
+    fs::write(
+        member.join("Cargo.toml"),
+        "[package]\nname = \"fixtures\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(member.join("src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--no-deps", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(
+        doc["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "fixtures"),
+        "the member is found: {out}"
+    );
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.0.0\""),
+        "the member's 1.50 is the limit: {lock}"
+    );
+}

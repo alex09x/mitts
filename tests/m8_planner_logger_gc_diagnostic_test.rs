@@ -159,6 +159,7 @@ path = "src/lib.rs"
     // Resolver fallback for non-strict semver
     let entries = vec![
         SparseIndexEntry {
+            rust_version: None,
             name: "foo".to_string(),
             vers: "0.1.0".to_string(),
             deps: vec![],
@@ -168,6 +169,7 @@ path = "src/lib.rs"
             features2: Default::default(),
         },
         SparseIndexEntry {
+            rust_version: None,
             name: "foo".to_string(),
             vers: "0.2.0".to_string(),
             deps: vec![],

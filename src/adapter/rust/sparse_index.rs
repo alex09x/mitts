@@ -28,6 +28,9 @@ pub struct SparseIndexEntry {
     /// Features using the `dep:` syntax, which crates.io publishes separately.
     #[serde(default)]
     pub features2: HashMap<String, Vec<String>>,
+    /// The version's `rust-version`, when it declares one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rust_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +59,7 @@ fn default_true() -> bool {
 pub struct SparseIndexClient {
     base_url: String,
     cache_dir: PathBuf,
-    agent: ureq::Agent,
+    agent: super::http_client::Agent,
     token: Option<String>,
     /// `None` once the index proved to have no readable `config.json`.
     config: std::sync::OnceLock<Option<IndexConfig>>,
@@ -145,7 +148,7 @@ impl SparseIndexClient {
         std::time::Duration::from_secs(secs)
     }
 
-    fn request(&self, url: &str) -> ureq::Request {
+    fn request(&self, url: &str) -> super::http_client::Request {
         let req = self.agent.get(url);
         match &self.token {
             Some(t) => req.set("Authorization", t),
@@ -301,7 +304,13 @@ impl SparseIndexClient {
                 );
             }
             Err(e) if super::net_retry::status_code(&e) == Some(404) => {
-                bail!("Crate '{}' not found in the index ({})", crate_name, url);
+                // A definite answer, not a network failure: the resolver may try other
+                // versions of whatever asked for this crate.
+                return Err(anyhow::Error::new(
+                    super::resolve_graph::Unsatisfiable::new(format!(
+                        "Crate '{crate_name}' not found in the index ({url})"
+                    )),
+                ));
             }
             Err(e) => {
                 if let Ok(entries) = self.parse_index_file(&local_cache_path) {
