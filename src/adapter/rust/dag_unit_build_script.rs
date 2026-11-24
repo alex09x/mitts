@@ -273,6 +273,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                     &super::writable_out_dir::snapshot(),
                     dir,
                     key,
+                    marked_now,
                 )?;
             }
             if d.rerun_if_changed_hashes

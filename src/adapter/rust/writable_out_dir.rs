@@ -214,13 +214,15 @@ pub fn mark_may_write(script_cache_dir: &Path) -> Result<bool> {
 }
 
 /// After a build script ran: record its writes as present in each writable OUT_DIR it
-/// touched; if it wrote nowhere, it is not a writer and the mark (this run's or one left
-/// behind) is lifted.
+/// touched. If it changed nothing, only a mark this very run set (`marked_now`, a
+/// provisional one) is lifted: an established mark stays, since an idempotent writer whose
+/// files are already there changes nothing either.
 pub fn record_writes(
     before: &BTreeMap<PathBuf, String>,
     after: &BTreeMap<PathBuf, String>,
     script_cache_dir: &Path,
     build_key: &str,
+    marked_now: bool,
 ) -> Result<()> {
     let changed: Vec<&PathBuf> = after
         .iter()
@@ -229,7 +231,7 @@ pub fn record_writes(
         .chain(before.keys().filter(|p| !after.contains_key(*p)))
         .collect();
     if changed.is_empty() {
-        if !ACTIVE.lock().unwrap().is_empty() {
+        if marked_now {
             remove_if_present(&script_cache_dir.join(WRITES_MARKER), false)?;
         }
         return Ok(());
