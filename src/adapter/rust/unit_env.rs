@@ -202,16 +202,41 @@ pub fn unit_has_build_script(unit: &PlannedCompilationUnit) -> bool {
 /// its directory (`target/x86_64-pc-windows-msvc/debug`), so a Windows triple there means
 /// `.exe` and any other triple none; without one the binaries are the host's.
 fn exe_suffix_in(profile_dir: &Path) -> &'static str {
-    let triple = profile_dir.components().find_map(|c| {
-        let name = c.as_os_str().to_str()?;
-        (name.matches('-').count() >= 2
-            && [
-                "-windows", "-linux", "-apple", "-unknown", "-none", "-android",
-            ]
-            .iter()
-            .any(|os| name.contains(os)))
-        .then_some(name)
-    });
+    // Only the directory right above the profile can be the target's; the checkout path
+    // above it is the user's and says nothing.
+    const ARCHES: &[&str] = &[
+        "x86_64",
+        "i586",
+        "i686",
+        "aarch64",
+        "arm",
+        "thumb",
+        "riscv",
+        "wasm",
+        "mips",
+        "powerpc",
+        "s390x",
+        "sparc",
+        "loongarch",
+        "csky",
+        "hexagon",
+        "avr",
+        "bpf",
+        "nvptx",
+        "m68k",
+        "msp430",
+        "xtensa",
+    ];
+    let triple = profile_dir
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .filter(|name| {
+            name.matches('-').count() >= 2
+                && ARCHES
+                    .iter()
+                    .any(|arch| name.split('-').next().is_some_and(|a| a.starts_with(arch)))
+        });
     match triple {
         Some(t) if t.contains("-windows") => ".exe",
         Some(_) => "",
@@ -410,5 +435,35 @@ pub fn apply_runtime_execution_env(
         if let Ok(joined) = std::env::join_paths(paths) {
             cmd.env(var_name, joined);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exe_suffix_in;
+    use std::path::Path;
+
+    #[test]
+    fn the_suffix_comes_from_the_target_directory_not_the_checkout_path() {
+        let host = std::env::consts::EXE_SUFFIX;
+        assert_eq!(exe_suffix_in(Path::new("/w/app/target/debug")), host);
+        assert_eq!(
+            exe_suffix_in(Path::new("/w/app/target/x86_64-pc-windows-msvc/debug")),
+            ".exe"
+        );
+        assert_eq!(
+            exe_suffix_in(Path::new("/w/app/target/aarch64-unknown-linux-gnu/debug")),
+            ""
+        );
+        // A checkout whose path looks like a triple changes nothing.
+        assert_eq!(
+            exe_suffix_in(Path::new("/home/u/rust-windows-tools/app/target/debug")),
+            host
+        );
+        assert_eq!(
+            exe_suffix_in(Path::new("/home/u/x86_64-pc-windows-msvc/app/target/debug")),
+            host
+        );
+        assert_eq!(exe_suffix_in(Path::new("/w/my-unknown-app/debug")), host);
     }
 }
