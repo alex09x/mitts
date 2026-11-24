@@ -88,6 +88,7 @@ version = "1.0.0"
     // 3. select_best_version with non-semver requirement falls back to latest non-yanked
     let entries = vec![
         SparseIndexEntry {
+            rust_version: None,
             name: "test-lib".to_string(),
             vers: "0.1.0".to_string(),
             deps: Vec::new(),
@@ -97,6 +98,7 @@ version = "1.0.0"
             features2: Default::default(),
         },
         SparseIndexEntry {
+            rust_version: None,
             name: "test-lib".to_string(),
             vers: "0.2.0".to_string(),
             deps: Vec::new(),
@@ -112,6 +114,7 @@ version = "1.0.0"
 
     // 4. select_best_version when all entries are yanked fails
     let yanked_entries = vec![SparseIndexEntry {
+        rust_version: None,
         name: "all-yanked".to_string(),
         vers: "1.0.0".to_string(),
         deps: Vec::new(),

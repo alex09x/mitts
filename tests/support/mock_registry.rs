@@ -31,6 +31,8 @@ pub struct Published {
     pub files: Vec<(&'static str, String)>,
     /// `[package]` lines added to the archive's Cargo.toml.
     pub manifest_extra: &'static str,
+    /// The index record's `rust_version`.
+    pub rust_version: Option<&'static str>,
 }
 
 pub fn version(name: &'static str, vers: &'static str) -> Published {
@@ -42,6 +44,7 @@ pub fn version(name: &'static str, vers: &'static str) -> Published {
         yanked: false,
         files: Vec::new(),
         manifest_extra: "",
+        rust_version: None,
     }
 }
 
@@ -161,8 +164,12 @@ pub fn serve(published: Vec<Published>) -> Registry {
     for p in &published {
         let (bytes, sum) = archive(p);
         routes.insert(format!("/dl/{}/{}/download", p.name, p.vers), bytes);
+        let rust_version = p
+            .rust_version
+            .map(|v| format!(",\"rust_version\":\"{v}\""))
+            .unwrap_or_default();
         lines.entry(p.name).or_default().push_str(&format!(
-            "{{\"name\":\"{}\",\"vers\":\"{}\",\"deps\":[{}],\"cksum\":\"{sum}\",\"features\":{},\"yanked\":{}}}\n",
+            "{{\"name\":\"{}\",\"vers\":\"{}\",\"deps\":[{}],\"cksum\":\"{sum}\",\"features\":{},\"yanked\":{}{rust_version}}}\n",
             p.name,
             p.vers,
             p.deps.join(","),

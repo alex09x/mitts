@@ -66,6 +66,55 @@ impl IndexSource {
     }
 }
 
+/// The Rust version new lock entries should support (`resolver.incompatible-rust-versions`
+/// = `fallback`, explicit or from resolver "3"); `None` with `allow` or
+/// `--ignore-rust-version`.
+fn rust_limit_for(manifest_path: &Path, dir: &Path) -> Result<Option<(u64, u64, u64)>> {
+    if super::rust_version::is_ignored() {
+        return Ok(None);
+    }
+    let Ok(toml) = CargoToml::from_file(manifest_path) else {
+        return Ok(None);
+    };
+    let configured = super::cargo_config_value::get(dir, "resolver.incompatible-rust-versions")?
+        .map(|v| v.as_str().map(str::to_string))
+        .transpose()?;
+    let resolver = toml
+        .workspace
+        .as_ref()
+        .and_then(|w| w.resolver.clone())
+        .or_else(|| toml.package.as_ref().and_then(|p| p.resolver.clone()));
+    let edition = toml.package.as_ref().and_then(|p| p.edition.clone());
+    let mut versions: Vec<String> = toml
+        .package
+        .as_ref()
+        .and_then(|p| p.rust_version.clone())
+        .into_iter()
+        .collect();
+    if toml.workspace.is_some() {
+        for (_, member) in toml.discover_workspace_members(dir).unwrap_or_default() {
+            if let Some(rv) = CargoToml::from_file(&member.join("Cargo.toml"))
+                .ok()
+                .and_then(|m| m.package.and_then(|p| p.rust_version))
+            {
+                versions.push(rv);
+            }
+        }
+    }
+    let refs: Vec<&str> = versions.iter().map(String::as_str).collect();
+    super::rust_version::resolver_limit(
+        configured.as_deref(),
+        resolver.as_deref(),
+        edition.as_deref(),
+        &refs,
+        || {
+            super::RustAdapter::detect_toolchain()
+                .ok()
+                .map(|t| t.version)
+        },
+    )
+}
+
 /// Standalone native dependency resolver evaluating crates.io sparse index.
 pub struct NativeResolver {
     index_client: Arc<SparseIndexClient>,
@@ -79,6 +128,9 @@ pub struct NativeResolver {
     /// Versions the existing Cargo.lock pins, by `(source, name)`: kept whenever they still
     /// satisfy every requirement, as Cargo does when it updates a lock.
     pub(crate) preferred: Mutex<HashMap<(String, String), Vec<String>>>,
+    /// `resolver.incompatible-rust-versions = "fallback"`: the Rust version new picks
+    /// should support. `None`: any version (`allow`).
+    pub(crate) rust_limit: Mutex<Option<(u64, u64, u64)>>,
 }
 
 impl NativeResolver {
@@ -97,6 +149,7 @@ impl NativeResolver {
             sources: Mutex::new(HashMap::new()),
             patches: Mutex::new(Default::default()),
             preferred: Mutex::new(HashMap::new()),
+            rust_limit: Mutex::new(None),
         })
     }
 
@@ -109,6 +162,7 @@ impl NativeResolver {
             sources: Mutex::new(HashMap::new()),
             patches: Mutex::new(Default::default()),
             preferred: Mutex::new(HashMap::new()),
+            rust_limit: Mutex::new(None),
         }
     }
 
@@ -227,6 +281,7 @@ impl NativeResolver {
             .map(|t| super::patch_resolve::PatchSet::from_manifest(&t, manifest_dir, &config))
             .transpose()?
             .unwrap_or_default();
+        *self.rust_limit.lock().unwrap() = rust_limit_for(manifest_path, manifest_dir)?;
         let mut git_resolver = super::git_resolve::GitResolver::for_cache_dir(
             self.cache_dir.as_deref(),
             config.clone(),

@@ -45,7 +45,7 @@ enum UnpackJob {
 /// Concurrent package fetcher that downloads missing `.crate` archives into the global SourceStore.
 pub struct CrateFetcher {
     store: SourceStore,
-    agent: ureq::Agent,
+    agent: super::http_client::Agent,
     /// Registries, mirrors and vendor directories as the project's Cargo config defines them.
     config: RegistryConfig,
 }

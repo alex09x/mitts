@@ -377,8 +377,6 @@ Mitts befindet sich im Pre-Release-Stadium. Beachten Sie Folgendes, bevor Sie da
   `sparse+`), sowie `local-registry`-Quellen werden mit Hinweisen abgelehnt.
 - **Tokens liegen dort, wo Cargo sie ablegt.** `mitts login` und `mitts logout` schreiben
   `$CARGO_HOME/credentials.toml` wie Cargo; `cargo:wincred` ist Windows-spezifisch und wird übersprungen.
-- **Keine externen Unterbefehle.** `mitts nextest`, `mitts llvm-cov` und andere `cargo-<name>`-Werkzeuge
-  werden nicht weitergereicht; rufen Sie diese Werkzeuge direkt auf.
 - **Manche Einheiten werden niemals zwischengespeichert:** Crates vom Typ `cdylib`, `dylib` oder
   `staticlib` sowie Crates, deren `env!`-Lesevorgänge nicht erfasst werden können. Sie werden stets
   neu gebaut und von `mitts explain` ausgewiesen.

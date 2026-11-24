@@ -191,6 +191,7 @@ fn test_fetch_locked_and_frozen_reject_missing_lock_without_resolution() {
 fn test_m8_resolver_best_version_and_root_package_extraction() {
     let entries = vec![
         SparseIndexEntry {
+            rust_version: None,
             name: "test-pkg".to_string(),
             vers: "1.0.0".to_string(),
             deps: Vec::new(),
@@ -200,6 +201,7 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
             features2: Default::default(),
         },
         SparseIndexEntry {
+            rust_version: None,
             name: "test-pkg".to_string(),
             vers: "1.1.0".to_string(),
             deps: Vec::new(),
@@ -209,6 +211,7 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
             features2: Default::default(),
         },
         SparseIndexEntry {
+            rust_version: None,
             name: "test-pkg".to_string(),
             vers: "1.2.0".to_string(),
             deps: Vec::new(),
@@ -236,6 +239,7 @@ fn test_m8_resolver_best_version_and_root_package_extraction() {
 
     // All yanked versions fails
     let all_yanked = vec![SparseIndexEntry {
+        rust_version: None,
         name: "test-pkg".to_string(),
         vers: "2.0.0".to_string(),
         deps: Vec::new(),

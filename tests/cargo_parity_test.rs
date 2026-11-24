@@ -1833,4 +1833,165 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
     assert!(std::path::Path::new(other.trim())
         .join("generated.h")
         .is_file());
+#[cfg(unix)]
+#[test]
+fn external_subcommands_and_list_work_like_cargo() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("tools");
+    fs::create_dir_all(&bin).unwrap();
+    let tool = bin.join("cargo-hello");
+    fs::write(
+        &tool,
+        "#!/bin/sh\necho \"args: $*\"\necho \"cargo: $CARGO\"\nexit 3\n",
+    )
+    .unwrap();
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(args)
+            .env("PATH", &path)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+
+    // `mitts hello a b` runs `cargo-hello hello a b` with CARGO pointing at Mitts.
+    let out = run(&["hello", "a", "--flag"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "the tool's exit code is returned"
+    );
+    assert!(stdout.contains("args: hello a --flag"), "{stdout}");
+    let cargo_line = stdout.lines().find(|l| l.starts_with("cargo: ")).unwrap();
+    assert!(cargo_line.ends_with("mitts"), "{cargo_line}");
+
+    // An unknown command is Cargo's error, with a suggestion for a typo.
+    let out = run(&["biuld"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(101));
+    assert!(stderr.contains("no such command: `biuld`"), "{stderr}");
+    assert!(stderr.contains("Did you mean `build`?"), "{stderr}");
+
+    // `--list` names built-in commands, the built-in aliases and the external tool.
+    let out = run(&["--list"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.starts_with("Installed Commands:"), "{stdout}");
+    for word in [
+        "    build",
+        "    b                    alias: build",
+        "    hello",
+    ] {
+        assert!(
+            stdout.lines().any(|l| l.starts_with(word)),
+            "{word}: {stdout}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn new_sets_up_mercurial_pijul_and_fossil_like_cargo() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin");
+    fs::create_dir_all(&bin).unwrap();
+    // Stand-ins that do what the real tools do to the file system.
+    for (tool, script) in [
+        ("hg", "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n"),
+        ("pijul", "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p .pijul\n"),
+        (
+            "fossil",
+            "#!/bin/sh\nif [ \"$1\" = init ]; then : > \"$3\"; fi\nif [ \"$1\" = open ]; then : > .fslckout; fi\n",
+        ),
+    ] {
+        let path = bin.join(tool);
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let work = env.path("projects");
+    fs::create_dir_all(&work).unwrap();
+    let new = |vcs: &str, name: &str, path_var: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["new", "--vcs", vcs, name])
+            .current_dir(&work)
+            .env("PATH", path_var)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+
+    assert!(new("hg", "with-hg", &path).status.success());
+    assert!(work.join("with-hg/.hg").is_dir());
+    assert_eq!(read(work.join("with-hg/.hgignore")), "^target$\n");
+
+    assert!(new("pijul", "with-pijul", &path).status.success());
+    assert!(work.join("with-pijul/.pijul").is_dir());
+    assert_eq!(read(work.join("with-pijul/.ignore")), "/target\n");
+
+    assert!(new("fossil", "with-fossil", &path).status.success());
+    assert!(work.join("with-fossil/.fossil").is_file());
+    assert!(work.join("with-fossil/.fslckout").is_file());
+    assert_eq!(
+        read(work.join("with-fossil/.fossil-settings/ignore-glob")),
+        "target\n"
+    );
+    assert_eq!(
+        read(work.join("with-fossil/.fossil-settings/clean-glob")),
+        "target\n"
+    );
+
+    // A missing tool is an error, as in Cargo.
+    let out = new("hg", "no-hg", "/nonexistent");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("could not run `hg`"));
+}
+
+#[test]
+fn resolver_3_prefers_versions_the_projects_rust_version_supports() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("99.0"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    // resolver = "3" means incompatible-rust-versions = "fallback"; the limit is the
+    // package's rust-version.
+    let app = env.app(&registry, "[dependencies]\naa = \"1\"\n");
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"\nresolver = \"3\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    assert!(read(app.join("Cargo.lock")).contains("name = \"aa\"\nversion = \"1.0.0\""));
+
+    // The configuration key wins: `allow` takes the highest version.
+    env.ok(
+        &app,
+        &[
+            "generate-lockfile",
+            "--config",
+            "resolver.incompatible-rust-versions=\"allow\"",
+        ],
+    );
+    assert!(read(app.join("Cargo.lock")).contains("name = \"aa\"\nversion = \"1.1.0\""));
 }

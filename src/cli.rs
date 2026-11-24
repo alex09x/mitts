@@ -9,6 +9,7 @@
  */
 
 use clap::{Args, Parser, Subcommand};
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 const MITTS_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("MITTS_GIT_SHA"), ")");
@@ -52,6 +53,10 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Any other NAME runs `cargo-NAME` from $CARGO_HOME/bin or PATH, as Cargo does
+    #[command(external_subcommand)]
+    External(Vec<OsString>),
+
     /// Compile the local package and its dependencies into the isolated Mitts target
     #[command(
         after_help = "Use -j N, or set MITTS_JOBS=N, to limit concurrent native build units. N must be a positive integer; the flag wins over the variable."
@@ -652,6 +657,7 @@ pub mod coverage_tools;
 pub mod coverage_types;
 pub mod diagnostic;
 pub mod doc;
+pub mod external;
 pub mod fix;
 pub mod fmt;
 pub mod future_incompat;
@@ -684,6 +690,7 @@ pub mod test_parallel;
 mod test_progress;
 pub mod test_runner;
 pub mod tree;
+pub mod tree_features;
 pub mod tree_graph;
 pub mod ui;
 pub mod vendor;

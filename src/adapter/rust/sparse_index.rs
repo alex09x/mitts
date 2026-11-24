@@ -28,6 +28,9 @@ pub struct SparseIndexEntry {
     /// Features using the `dep:` syntax, which crates.io publishes separately.
     #[serde(default)]
     pub features2: HashMap<String, Vec<String>>,
+    /// The version's `rust-version`, when it declares one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rust_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +59,7 @@ fn default_true() -> bool {
 pub struct SparseIndexClient {
     base_url: String,
     cache_dir: PathBuf,
-    agent: ureq::Agent,
+    agent: super::http_client::Agent,
     token: Option<String>,
     /// `None` once the index proved to have no readable `config.json`.
     config: std::sync::OnceLock<Option<IndexConfig>>,

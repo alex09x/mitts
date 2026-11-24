@@ -53,6 +53,8 @@ pub struct Graph {
     pub edges: BTreeMap<String, Vec<(String, EdgeKind)>>,
     pub root: Option<String>,
     pub members: Vec<String>,
+    /// Nodes that are not packages (`-e features`: `log feature "std"`), with their text.
+    pub labels: BTreeMap<String, String>,
 }
 
 impl Graph {
@@ -125,15 +127,26 @@ impl Graph {
         graph
     }
 
-    /// Edges in Cargo's order: by package name, then version.
+    /// Edges in Cargo's order: by package name, then version; a package before its features,
+    /// features by name.
     pub fn sort_edges(&mut self) {
-        let keys: BTreeMap<String, (String, String)> = self
-            .packages
-            .iter()
-            .map(|(id, p)| (id.clone(), (p.name.clone(), p.version.clone())))
-            .collect();
+        let packages = &self.packages;
+        let key = |id: &str| -> (String, String, u8, String) {
+            let (pkg, feature) = match super::tree_features::split_feature_id(id) {
+                Some((pkg, feature)) => (pkg, Some(feature)),
+                None => (id, None),
+            };
+            let (name, version) = packages
+                .get(pkg)
+                .map(|p| (p.name.clone(), p.version.clone()))
+                .unwrap_or_default();
+            match feature {
+                Some(f) => (name, version, 1, f.to_string()),
+                None => (name, version, 0, String::new()),
+            }
+        };
         for list in self.edges.values_mut() {
-            list.sort_by(|a, b| keys.get(&a.0).cmp(&keys.get(&b.0)).then(a.1.cmp(&b.1)));
+            list.sort_by(|a, b| key(&a.0).cmp(&key(&b.0)).then(a.1.cmp(&b.1)));
         }
     }
 
@@ -153,6 +166,7 @@ impl Graph {
             edges,
             root: None,
             members: self.members.clone(),
+            labels: self.labels.clone(),
         };
         graph.sort_edges();
         graph

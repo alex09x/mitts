@@ -255,13 +255,29 @@ fn has_features(entry: &SparseIndexEntry, wanted: &[String]) -> bool {
 
 /// The version for `reqs`: a version the existing lock pins (`preferred`) when one still
 /// satisfies them, even if yanked since, as Cargo keeps it; otherwise the highest
-/// non-yanked one. Either way it must offer the requested `features`.
+/// non-yanked one. Either way it must offer the requested `features`. With a Rust
+/// `limit` (`incompatible-rust-versions = "fallback"`), a fresh pick prefers the highest
+/// version whose `rust-version` fits it, and takes the highest overall when none does.
 fn pick_version<'a>(
     entries: &'a [SparseIndexEntry],
     reqs: &[String],
     features: &[String],
     preferred: &[String],
+    limit: Option<(u64, u64, u64)>,
 ) -> Option<&'a SparseIndexEntry> {
+    if let Some(limit) = limit {
+        let supported: Vec<SparseIndexEntry> = entries
+            .iter()
+            .filter(|e| {
+                preferred.contains(&e.vers)
+                    || super::rust_version::supported(e.rust_version.as_deref(), limit)
+            })
+            .cloned()
+            .collect();
+        if let Some(found) = pick_version(&supported, reqs, features, preferred, None) {
+            return entries.iter().find(|e| e.vers == found.vers);
+        }
+    }
     let parsed: Vec<VersionReq> = reqs.iter().map(|r| req_of(r)).collect();
     let fits = |e: &SparseIndexEntry, v: &Version| {
         parsed.iter().all(|r| r.matches(v)) && has_features(e, features)
@@ -329,6 +345,7 @@ impl NativeResolver {
         let patches = self.patches.lock().unwrap().clone();
         let config = self.config.lock().unwrap().clone();
         let preferred = self.preferred.lock().unwrap().clone();
+        let rust_limit = *self.rust_limit.lock().unwrap();
         let mut git = GitResolver::for_cache_dir(self.cache_dir.as_deref(), config.clone());
         let mut nodes: Vec<Node> = Vec::new();
         let mut by_key: HashMap<Key, Vec<usize>> = HashMap::new();
@@ -425,7 +442,8 @@ impl NativeResolver {
                             // in a range whose pin is already applied (or has none).
                             let mut applied: HashSet<String> = HashSet::new();
                             let chosen = loop {
-                                let Some(pick) = pick_version(entries, &reqs, &wanted, &locked)
+                                let Some(pick) =
+                                    pick_version(entries, &reqs, &wanted, &locked, rust_limit)
                                 else {
                                     break None;
                                 };

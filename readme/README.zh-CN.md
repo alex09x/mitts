@@ -284,7 +284,6 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 - **暂无远程缓存。** 存储为单机级别。
 - **仅限 sparse 注册源。** 以 git 索引形式提供的注册源（除 crates.io 以外的 `registry+…`，或未带 `sparse+` 的 `[source] registry = "https://…"`）及 `local-registry` 源码均会被拒绝并提供相应建议。
 - **令牌存放在 Cargo 存放的位置。** `mitts login` 和 `mitts logout` 与 Cargo 一样写入 `$CARGO_HOME/credentials.toml`；`cargo:wincred` 仅限 Windows 且会被跳过。
-- **没有外部子命令。** `mitts nextest`、`mitts llvm-cov` 等 `cargo-<name>` 工具不会被转发；请直接运行这些工具。
 - **部分单元永不缓存：** `cdylib`、`dylib` 或 `staticlib` 类型的 crate，以及 `env!` 读取无法追踪的 crate。它们始终重新构建；`mitts explain` 会对它们进行报告。
 - **跨检出的工作区 crate。** 您自己的 crate 仅在它们的键可以做到路径无关（无 `CARGO_MANIFEST_DIR` 读取、无 build script、无声明的非纯 proc macro）时，才能在 worktree 间复用。否则键会包含绝对路径。在 macOS 上，链接器的调试 stabs 相对于工作区写入（`-oso_prefix`），因此链接生成的二进制文件也可以共享；在工作区根目录下启动调试器以便其查找对象文件。
 - **读取文件的宏需由您自行声明。** 除非项目将其列入清单（见上文），否则 proc macro 均被视为纯宏。依赖已列出宏的 crate 会追踪其 package 内的每个文件；未列出但读取文件且未向 rustc 注册的宏可能会产生陈旧的结果，这与 Cargo 完全一致。

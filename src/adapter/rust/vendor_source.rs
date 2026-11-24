@@ -160,6 +160,7 @@ impl VendorDir {
             push(&spec.dev_dependencies, Some("dev"), Some(target));
         }
         Ok(SparseIndexEntry {
+            rust_version: None,
             name: p.name.clone(),
             vers: p.version.clone(),
             deps,

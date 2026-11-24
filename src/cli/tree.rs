@@ -180,7 +180,11 @@ fn run(args: &TreeArgs) -> Result<String> {
         opt.package.clone()
     };
     let doc = super::metadata::metadata_for(&opt, root)?;
-    let graph = Graph::from_metadata(&doc);
+    let graph = if wants_features(&args.edges) {
+        super::tree_features::graph(&doc)
+    } else {
+        Graph::from_metadata(&doc)
+    };
 
     let mut prune = HashSet::new();
     for spec in &args.prune {
@@ -236,10 +240,8 @@ pub fn edge_kinds(values: &[String]) -> Result<(Vec<EdgeKind>, bool)> {
             "no-build" => removed.push(EdgeKind::Build),
             "no-dev" => removed.push(EdgeKind::Dev),
             "no-proc-macro" => hide_proc_macro = true,
-            "features" => bail!(
-                "`-e features` is not supported by Mitts; feature edges are listed per \
-                 package by `mitts metadata`"
-            ),
+            // Read by `wants_features`; it adds feature nodes, not an edge kind.
+            "features" => {}
             other => bail!(
                 "unknown edge kind `{other}`, valid values are \"normal\", \"build\", \"dev\", \
                  \"no-normal\", \"no-build\", \"no-dev\", \"no-proc-macro\", \"features\", or \"all\""
@@ -253,6 +255,13 @@ pub fn edge_kinds(values: &[String]) -> Result<(Vec<EdgeKind>, bool)> {
     kinds.sort();
     kinds.dedup();
     Ok((kinds, hide_proc_macro))
+}
+
+/// Whether `-e features` (or `-e all`, which includes it in Cargo) was given.
+pub fn wants_features(values: &[String]) -> bool {
+    values
+        .iter()
+        .any(|v| matches!(v.trim(), "features" | "all"))
 }
 
 fn roots(graph: &Graph, args: &TreeArgs) -> Result<Vec<String>> {
@@ -342,11 +351,13 @@ fn node(
     stack: &mut Vec<String>,
     out: &mut String,
 ) {
-    let Some(pkg) = graph.packages.get(id) else {
-        return;
+    let text = match (graph.packages.get(id), graph.labels.get(id)) {
+        (Some(pkg), _) => describe(pkg, &style.format),
+        (None, Some(label)) => label.clone(),
+        (None, None) => return,
     };
     prefix_line(style, levels, out);
-    out.push_str(&describe(pkg, &style.format));
+    out.push_str(&text);
     let followed: Vec<EdgeKind> = style.kinds.clone();
     let has_deps = !style.prune.contains(id) && graph.has_edges(id, &followed);
     let in_cycle = stack.iter().any(|s| s == id);
@@ -501,6 +512,7 @@ mod tests {
             edges,
             root: Some("app".into()),
             members: vec!["app".into()],
+            labels: BTreeMap::new(),
         }
     }
 
