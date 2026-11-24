@@ -259,7 +259,7 @@ impl FileLock {
             let delete: u8 = 1;
             let ok = unsafe {
                 SetFileInformationByHandle(
-                    self.file.as_raw_handle() as *mut c_void,
+                    self.file.as_raw_handle(),
                     FILE_DISPOSITION_INFO,
                     (&delete as *const u8).cast(),
                     1,
