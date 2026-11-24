@@ -376,6 +376,22 @@ pub fn apply_runtime_execution_env(
         }
     }
 
+    // Windows finds a program's DLLs through PATH: the library directories go in front of
+    // it, as Cargo puts them.
+    if cfg!(windows) {
+        let current = cmd
+            .get_envs()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default();
+        let mut paths = lib_dirs;
+        paths.extend(std::env::split_paths(&current));
+        if let Ok(joined) = std::env::join_paths(paths) {
+            cmd.env("PATH", joined);
+        }
+        return;
+    }
     for var_name in ["LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
         let mut paths = lib_dirs.clone();
         match std::env::var_os(var_name) {

@@ -49,7 +49,7 @@ pub fn resolve_llvm_tool(tool_name: &str) -> Option<PathBuf> {
                             .join("rustlib")
                             .join(host.trim())
                             .join("bin")
-                            .join(tool_name);
+                            .join(format!("{tool_name}{}", std::env::consts::EXE_SUFFIX));
                         if tool_path.is_file() {
                             return Some(tool_path);
                         }

@@ -262,7 +262,10 @@ fn test_m8_ws_leak_isolation_across_clones_and_hit_in_same_clone() {
     };
     let (_plan2, res2) = RustAdapter::build(&opt2).expect("Clone 2 build failed");
     assert!(res2.success, "Build 2 failed with stderr: {}", res2.stderr);
-    let bin2 = clone2.path().join("target/debug/leak_app");
+    let bin2 = clone2.path().join(format!(
+        "target/debug/leak_app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(bin2.is_file());
     let out2 = Command::new(&bin2).output().unwrap();
     let str2 = String::from_utf8_lossy(&out2.stdout);

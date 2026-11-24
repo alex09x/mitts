@@ -105,7 +105,7 @@ fn short_format_works_across_check_build_clippy_and_test() {
     write_crate(&proj, "pub fn bad() -> u8 { \"nope\" }\n");
     let fail = mitts(&proj, &cache, &["check", "--message-format=short"]);
     let f_stdout = String::from_utf8_lossy(&fail.stdout);
-    let f_stderr = String::from_utf8_lossy(&fail.stderr);
+    let f_stderr = String::from_utf8_lossy(&fail.stderr).replace('\\', "/");
     assert_eq!(fail.status.code(), Some(101));
     assert_eq!(f_stdout.trim(), "");
     assert!(
@@ -307,7 +307,7 @@ fn cross_format_cache_isolation_and_invalid_format_rejection() {
         &["check", "--message-format=short"],
         &fast_env,
     );
-    let sw_stderr = String::from_utf8_lossy(&short_warm.stderr);
+    let sw_stderr = String::from_utf8_lossy(&short_warm.stderr).replace('\\', "/");
     assert_eq!(String::from_utf8_lossy(&short_warm.stdout).trim(), "");
     assert!(sw_stderr.contains("src/lib.rs:1:") && !sw_stderr.contains("\"reason\""));
 

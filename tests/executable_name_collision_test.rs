@@ -61,7 +61,7 @@ fn hyphenated_binary_preserves_foreign_underscore_executable_on_publish_and_rest
         .output()
         .unwrap();
     assert!(foreign_build.status.success(), "{foreign_build:?}");
-    let foreign = target.join("debug/foo_bar");
+    let foreign = target.join(format!("debug/foo_bar{}", std::env::consts::EXE_SUFFIX));
     let original = fs::read(&foreign).unwrap();
     assert_eq!(run(&foreign), "foreign underscore");
 
