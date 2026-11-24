@@ -160,7 +160,8 @@ fn reported_files(symlinked_cache: bool) -> Option<Vec<String>> {
         report
             .lines()
             .filter_map(|line| line.strip_prefix("SF:"))
-            .map(str::to_owned)
+            // llvm-cov writes the platform's separator; compared with `/`.
+            .map(|name| name.replace('\\', "/"))
             .collect(),
     )
 }

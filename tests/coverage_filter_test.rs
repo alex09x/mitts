@@ -43,7 +43,8 @@ fn coverage_excludes_cached_sources_and_user_pattern_from_gate_and_lcov() {
             .arg(&cache)
             .arg("--target-dir")
             .arg(temp.path().join("target"))
-            .args(["--ignore-filename-regex", "tests/"])
+            // The separator as llvm-cov writes it on either platform.
+            .args(["--ignore-filename-regex", r"tests[/\\]"])
             .args(extra)
             .output()
             .unwrap()
@@ -54,8 +55,9 @@ fn coverage_excludes_cached_sources_and_user_pattern_from_gate_and_lcov() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let report =
-        std::fs::read_to_string(temp.path().join("target/coverage/report/lcov.info")).unwrap();
+    let report = std::fs::read_to_string(temp.path().join("target/coverage/report/lcov.info"))
+        .unwrap()
+        .replace('\\', "/");
     assert!(report.contains("src/lib.rs"), "{report}");
     assert!(
         !report.contains("tests/sample.rs") && !report.contains("dependency/src/lib.rs"),

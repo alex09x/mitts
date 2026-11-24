@@ -207,7 +207,8 @@ edition = "2021"
 
     let (_, res) = RustAdapter::build(&opt).unwrap();
     assert!(!res.success, "Build must fail on compilation error");
-    let err_str = res.stderr;
+    // rustc names the file with the platform's separator (`src\main.rs` on Windows).
+    let err_str = res.stderr.replace('\\', "/");
 
     assert!(
         err_str.contains("--> src/main.rs:1:") || err_str.contains("src/main.rs"),

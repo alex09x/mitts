@@ -57,10 +57,27 @@ pub fn default_root_from(lookup: impl Fn(&str) -> Option<OsString>) -> PathBuf {
     if let Some(xdg) = set("XDG_CACHE_HOME") {
         return PathBuf::from(xdg).join("mitts");
     }
-    if let Some(home) = set("HOME") {
+    // Mitts' own cache: an explicit `HOME` first (also on Windows, where it is usually
+    // unset), else the Windows profile directory.
+    if let Some(home) = set("HOME").or_else(|| set("USERPROFILE")) {
         return PathBuf::from(home).join(".cache").join("mitts");
     }
     PathBuf::from(FALLBACK_DIR)
+}
+
+/// The user's home directory as Cargo finds it: `%USERPROFILE%` on Windows (where `HOME` is
+/// usually unset), `$HOME` elsewhere; the other variable when the first is not set.
+pub fn user_home() -> Option<PathBuf> {
+    home_from(&|name: &str| std::env::var_os(name).filter(|value| !value.is_empty()))
+}
+
+fn home_from(set: &impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let order: [&str; 2] = if cfg!(windows) {
+        ["USERPROFILE", "HOME"]
+    } else {
+        ["HOME", "USERPROFILE"]
+    };
+    order.iter().find_map(|name| set(name)).map(PathBuf::from)
 }
 
 /// Cache root that owns a CAS directory (`<root>/cas`).

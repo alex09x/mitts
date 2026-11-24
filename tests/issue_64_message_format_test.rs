@@ -82,7 +82,8 @@ fn short_format_works_across_check_build_clippy_and_test() {
     ] {
         let out = mitts(&proj, &cache, subcmd);
         let stdout = String::from_utf8_lossy(&out.stdout);
-        let stderr = String::from_utf8_lossy(&out.stderr);
+        // rustc names the file with the platform's separator (`src\lib.rs` on Windows).
+        let stderr = String::from_utf8_lossy(&out.stderr).replace('\\', "/");
         assert!(
             out.status.success(),
             "{subcmd:?} failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
@@ -287,7 +288,7 @@ fn cross_format_cache_isolation_and_invalid_format_rejection() {
         &["check", "--message-format=short"],
         &fast_env,
     );
-    let short_stderr = String::from_utf8_lossy(&short.stderr);
+    let short_stderr = String::from_utf8_lossy(&short.stderr).replace('\\', "/");
     assert!(short_stderr.contains("src/lib.rs:1:") && !short_stderr.contains("\n  --> "));
 
     let json = mitts_with_env(

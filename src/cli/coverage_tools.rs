@@ -116,29 +116,44 @@ fn coverage_exclusions(args: &CoverageArgs, ws_root: &Path) -> String {
     if !cache_spellings.contains(&cache) {
         cache_spellings.push(cache);
     }
+    // A path separator in a profile is `/` or, on Windows, `\`: every separator in these
+    // patterns matches either. A canonical Windows path's verbatim prefix (`\\?\C:\…`) is
+    // not in the names the compiler recorded, so it is dropped.
+    const SEP: &str = r"[/\\]";
     let escape = |path: &Path| {
-        path.to_string_lossy()
-            .chars()
-            .flat_map(|c| {
-                if ".+*?()|[]{}^$\\".contains(c) {
-                    vec!['\\', c]
-                } else {
-                    vec![c]
-                }
-            })
-            .collect::<String>()
+        let text = path.to_string_lossy();
+        let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+        let mut out = String::new();
+        for c in text.chars() {
+            if c == '/' || c == '\\' {
+                out.push_str(SEP);
+            } else if ".+*?()|[]{}^$".contains(c) {
+                out.push('\\');
+                out.push(c);
+            } else {
+                out.push(c);
+            }
+        }
+        out
     };
-    let mut patterns = vec![
-        r"/.cargo/".to_string(),
-        r"/rustc/".to_string(),
+    let mut patterns: Vec<String> = [
+        ".cargo", "rustc",
         // Standard library sources of a rustup toolchain, for example on macOS.
-        r"/rustlib/src/".to_string(),
-        r"/target/".to_string(),
-        r"\.mitts/".to_string(),
-    ];
+        "rustlib", "target",
+    ]
+    .iter()
+    .map(|dir| {
+        let dir = dir.replace('.', r"\.");
+        match dir.as_str() {
+            "rustlib" => format!("{SEP}rustlib{SEP}src{SEP}"),
+            _ => format!("{SEP}{dir}{SEP}"),
+        }
+    })
+    .collect();
+    patterns.push(format!(r"\.mitts{SEP}"));
     for cache in &cache_spellings {
         for dir in ["sources", "git"] {
-            patterns.push(format!("{}/", escape(&cache.join(dir))));
+            patterns.push(format!("{}{SEP}", escape(&cache.join(dir))));
         }
     }
     if let Some(pattern) = &args.ignore_filename_regex {

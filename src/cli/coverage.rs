@@ -374,7 +374,16 @@ fn stderr_as_stdio() -> Option<std::process::Stdio> {
             .ok()
             .map(std::process::Stdio::from)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsHandle;
+        std::io::stderr()
+            .as_handle()
+            .try_clone_to_owned()
+            .ok()
+            .map(std::process::Stdio::from)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         None
     }

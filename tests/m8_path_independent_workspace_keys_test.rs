@@ -150,7 +150,8 @@ fn test_m8_workspace_path_independent_keys_and_cas_reuse() {
 
     let output = Command::new(&bin2_path).output().expect("run bin2");
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    // `file!()` uses the platform's separator (`my_bin\src\main.rs` on Windows, as Cargo).
+    let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
     assert!(
         stdout.contains("hello from my_lib"),
         "Output must contain library message"
@@ -347,10 +348,13 @@ edition = "2021"
     assert!(res2.success);
     assert!(res2.cached, "Clone 2 should reuse binary from CAS");
 
-    let bin2 = clone2.path().join("target/debug/panic_crate");
+    let bin2 = clone2.path().join(format!(
+        "target/debug/panic_crate{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     let output = Command::new(&bin2).output().expect("run panic_crate");
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = String::from_utf8_lossy(&output.stderr).replace('\\', "/");
 
     assert!(
         stderr.contains("src/main.rs:1:13") || stderr.contains("src/main.rs"),

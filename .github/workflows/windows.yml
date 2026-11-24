@@ -99,13 +99,13 @@ jobs:
             --target-dir "$RUNNER_TEMP/candidate"
           "$RUNNER_TEMP/candidate/debug/mitts.exe" --version
           echo "MITTS=$RUNNER_TEMP/candidate/debug/mitts.exe" >> "$GITHUB_ENV"
-      - name: Test suite (report only during bring-up)
+      - name: Test suite in the isolated runner (report only during bring-up)
         continue-on-error: true
         env:
-          MITTS_CACHE_DIR: ${{ runner.temp }}/mitts-test-cache
+          MITTS_CI_BIN: ${{ env.MITTS }}
+          MITTS_CI_CACHE_DIR: ${{ runner.temp }}/mitts-cache
         run: |
-          "$MITTS" test --workspace --no-fail-fast --cache-dir "$RUNNER_TEMP/mitts-cache" \
-            2>&1 | tee "$RUNNER_TEMP/test.log"
+          bash scripts/run_tests_isolated.sh --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/test.log"
       - name: Failure summary
         if: always()
         run: |

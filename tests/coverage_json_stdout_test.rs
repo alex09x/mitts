@@ -64,7 +64,10 @@ fn assert_stdout_is_the_report(output: &Output) {
     let files = report["data"][0]["files"]
         .as_array()
         .expect("data[0].files");
-    assert!(files.iter().any(|f| f["filename"] == "src/lib.rs"));
+    // llvm-cov names files with the platform's separator (`src\lib.rs` on Windows).
+    assert!(files.iter().any(|f| f["filename"]
+        .as_str()
+        .is_some_and(|n| n.replace('\\', "/") == "src/lib.rs")));
     assert!(report["data"][0]["totals"]["lines"]["percent"].is_number());
 
     let stderr = String::from_utf8_lossy(&output.stderr);

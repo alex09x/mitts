@@ -97,9 +97,10 @@ fn text(bytes: &[u8]) -> String {
 }
 
 fn lcov_files(lcov: &str) -> Vec<String> {
+    // llvm-cov writes the platform's separator; compared with `/`.
     lcov.lines()
         .filter_map(|line| line.strip_prefix("SF:"))
-        .map(str::to_string)
+        .map(|name| name.replace('\\', "/"))
         .collect()
 }
 
@@ -109,7 +110,7 @@ fn json_files(report: &Value) -> BTreeSet<String> {
         .map(|files| {
             files
                 .iter()
-                .map(|file| file["filename"].as_str().unwrap().to_string())
+                .map(|file| file["filename"].as_str().unwrap().replace('\\', "/"))
                 .collect()
         })
         .unwrap_or_default()
@@ -166,7 +167,7 @@ fn ignore_regex_applies_to_every_format_and_to_the_threshold() {
     let fixture = fixture();
     let all = fixture.root.join("out/all.json");
     let filtered = fixture.root.join("out/filtered.json");
-    let regex = "(vendored/|external/)";
+    let regex = r"(vendored[/\\]|external[/\\])";
 
     let output = fixture.run(&[
         "--json",
