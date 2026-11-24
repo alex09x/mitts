@@ -328,9 +328,28 @@ fn hash_package_inputs_impl(
             scan_dir_inputs(&path, package_dir, &mut inputs)?;
         }
     }
+    Ok(portable_labels(inputs))
+}
+
+/// An input label with `/` between components on every platform, so a key names a file the
+/// same way on Windows (whose paths use `\`) as elsewhere.
+fn portable_label(label: String) -> String {
+    if cfg!(windows) {
+        label.replace('\\', "/")
+    } else {
+        label
+    }
+}
+
+/// The inputs with portable labels, sorted and without duplicate labels.
+fn portable_labels(inputs: Vec<(String, String)>) -> Vec<(String, String)> {
+    let mut inputs: Vec<(String, String)> = inputs
+        .into_iter()
+        .map(|(label, hash)| (portable_label(label), hash))
+        .collect();
     inputs.sort_by(|a, b| a.0.cmp(&b.0));
     inputs.dedup_by(|a, b| a.0 == b.0);
-    Ok(inputs)
+    inputs
 }
 
 /// Gathers full package base inputs including tests/, benches/, and examples/ for build
@@ -366,8 +385,13 @@ pub fn append_unit_dep_info_inputs_with_ws(
             // Only skip .rs files that reside within package_dir and were already hashed
             let is_inside_package = p.starts_with(package_dir);
             if is_inside_package && p.extension().map(|e| e == "rs").unwrap_or(false) {
-                let rel = p.strip_prefix(package_dir).unwrap_or(&p).to_string_lossy();
-                if inputs.iter().any(|(k, _)| k == rel.as_ref()) {
+                let rel = portable_label(
+                    p.strip_prefix(package_dir)
+                        .unwrap_or(&p)
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+                if inputs.iter().any(|(k, _)| *k == rel) {
                     continue;
                 }
             }
@@ -387,9 +411,7 @@ pub fn append_unit_dep_info_inputs_with_ws(
             inputs.push((rel, hash));
         }
     }
-    inputs.sort_by(|a, b| a.0.cmp(&b.0));
-    inputs.dedup_by(|a, b| a.0 == b.0);
-    Ok(inputs)
+    Ok(portable_labels(inputs))
 }
 
 /// Appends target-specific dep-info tracked assets to base package inputs.

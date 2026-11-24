@@ -24,6 +24,7 @@ pub mod cargo_registry_verify;
 pub mod cas;
 pub mod ephemeral_store;
 pub mod file_scanner;
+pub mod file_time;
 pub mod gc;
 pub mod hash;
 pub mod jobs;

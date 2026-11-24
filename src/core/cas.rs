@@ -285,9 +285,7 @@ impl ContentAddressedStore {
                     .is_ok_and(|age| age >= crate::core::gc::eviction::TOUCH_INTERVAL)
             });
         if stale {
-            if let Ok(file) = fs::File::open(&path) {
-                let _ = file.set_modified(now);
-            }
+            let _ = crate::core::file_time::set_modified(&path, now);
         }
     }
 
