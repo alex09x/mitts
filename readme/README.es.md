@@ -20,7 +20,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -294,11 +294,10 @@ Bazel y Buck2 resuelven un problema más amplio —compilaciones herméticas y m
 
 Mitts se encuentra en fase pre-release. Ten en cuenta lo siguiente antes de confiar en él:
 
-- **Solo Linux y macOS.** Los bloqueos y el jobserver son compatibles con POSIX.
 - **Solo destino anfitrión (Host target).** Aún no se admite la compilación cruzada.
 - **Sin caché remota todavía.** El almacén es local por máquina.
 - **Solo registros sparse.** Se rechazan con sugerencias los registros servidos mediante índice git (`registry+…` distinto de crates.io, o `[source] registry = "https://…"` sin `sparse+`) y las fuentes `local-registry`.
-- **Los tokens se guardan donde los guarda Cargo.** `mitts login` y `mitts logout` escriben `$CARGO_HOME/credentials.toml`, como Cargo; `cargo:wincred` es exclusivo de Windows y se omite.
+- **Los tokens se guardan donde los guarda Cargo.** `mitts login` y `mitts logout` escriben `$CARGO_HOME/credentials.toml`, como Cargo; los tokens guardados por `cargo:macos-keychain`, `cargo:libsecret` o `cargo:wincred` se leen, no se escriben.
 - **Algunas unidades nunca se almacenan en caché:** crates de tipo `cdylib`, `dylib` o `staticlib`, y crates cuyas lecturas de `env!` no se pueden rastrear. Siempre se compilan; son informados por `mitts explain`.
 - **Crates del espacio de trabajo entre copias de trabajo.** Tus propios crates se reutilizan entre worktrees únicamente cuando su clave puede independizarse de la ruta (sin lecturas de `CARGO_MANIFEST_DIR`, sin script de compilación, sin macros procedimentales impuras declaradas). De lo contrario, la clave incluye la ruta absoluta. En macOS, las entradas debug stabs del enlazador se escriben relativas al espacio de trabajo (`-oso_prefix`), por lo que los binarios enlazados también se comparten; inicia el depurador en la raíz del espacio de trabajo para que localice los archivos objeto.
 - **Las macros que leen tus archivos deben ser declaradas por ti.** Una macro procedimental se considera pura a menos que el proyecto la enumere (ver arriba). Los dependientes de una macro listada rastrean cada archivo de su paquete; una macro no listada que lea un archivo sin registrarlo ante rustc puede generar un resultado desactualizado, exactamente igual que con Cargo.

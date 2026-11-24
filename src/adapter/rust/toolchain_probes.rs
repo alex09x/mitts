@@ -255,6 +255,33 @@ pub fn rustc_print_cfg(rustc_path: &Path, target: Option<&str>) -> Result<String
     )
 }
 
+/// Stdout of `<rustc_path> --print cfg [--target <target>] <flags>`: what the target is
+/// with these rustflags (`-C target-feature`, `-C target-cpu`, `--cfg`), as Cargo asks it.
+/// Cached like the plain probe, with the flags in the key.
+pub fn rustc_print_cfg_with_flags(
+    rustc_path: &Path,
+    target: Option<&str>,
+    flags: &[String],
+) -> Result<String, String> {
+    if flags.is_empty() {
+        return rustc_print_cfg(rustc_path, target);
+    }
+    let mut args: Vec<&str> = vec!["--print", "cfg"];
+    if let Some(t) = target {
+        args.extend(["--target", t]);
+    }
+    args.extend(flags.iter().map(String::as_str));
+    load_or_probe(
+        "rustc-cfg",
+        &rustc_probe_key(
+            rustc_path,
+            &format!("cfg|target={target:?}|flags={}", flags.join("\x1f")),
+        ),
+        !is_rustup_proxy(rustc_path),
+        || run_rustc(rustc_path, &args),
+    )
+}
+
 /// Stdout of `<rustc_path> --print split-debuginfo [--target <target>]`: the
 /// `-C split-debuginfo` values the target supports, one per line (Cargo asks the same).
 pub fn rustc_print_split_debuginfo(

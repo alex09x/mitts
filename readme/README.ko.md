@@ -20,7 +20,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -286,11 +286,10 @@ Bazel과 Buck2는 더 큰 문제(원격 실행을 지원하는 밀폐형 다중 
 
 Mitts는 프리릴리스 단계입니다. 이에 의존하기 전에 다음 사항을 확인하십시오:
 
-- **Linux 및 macOS 전용.** 잠금 및 jobserver가 POSIX 기반입니다.
 - **호스트 타깃 전용.** 크로스 컴파일은 아직 지원되지 않습니다.
 - **원격 캐시 아직 미지원.** 저장소는 머신별로 로컬입니다.
 - **Sparse 레지스트리 전용.** git 인덱스로 제공되는 레지스트리(crates.io 이외의 `registry+…`, 또는 `sparse+`가 없는 `[source] registry = "https://…"`) 및 `local-registry` 소스는 안내 메시지와 함께 거부됩니다.
-- **토큰은 Cargo가 저장하는 곳에 저장됨.** `mitts login`과 `mitts logout`은 Cargo와 마찬가지로 `$CARGO_HOME/credentials.toml`에 기록합니다. `cargo:wincred`는 Windows 전용이므로 건너뜁니다.
+- **토큰은 Cargo가 저장하는 곳에 저장됨.** `mitts login`과 `mitts logout`은 Cargo와 마찬가지로 `$CARGO_HOME/credentials.toml`에 기록합니다. `cargo:macos-keychain`, `cargo:libsecret`, `cargo:wincred`에 저장된 토큰은 읽기만 하고 쓰지 않습니다.
 - **일부 유닛은 절대 캐시되지 않음:** `cdylib`, `dylib` 또는 `staticlib` 타입의 크레이트 및 `env!` 읽기를 추적할 수 없는 크레이트. 이들은 항상 빌드되며, `mitts explain`에 의해 보고됩니다.
 - **체크아웃 간 워크스페이스 크레이트.** 자체 크레이트는 키를 경로 독립적으로 만들 수 있는 경우에만 워크트리 간에 재사용됩니다(`CARGO_MANIFEST_DIR` 읽기 없음, 빌드 스크립트 없음, 선언된 impure 절차적 매크로 없음). 그렇지 않으면 키에 절대 경로가 포함됩니다. macOS에서는 링커의 디버그 stab이 워크스페이스에 상대적으로 작성되므로(`-oso_prefix`), 링크된 바이너리도 공유됩니다. 디버거가 오브젝트 파일을 찾을 수 있도록 워크스페이스 루트에서 디버거를 시작하십시오.
 - **파일을 읽는 매크로는 직접 선언해야 함.** 프로젝트에서 목록에 명시하지 않는 한 절차적 매크로는 순수한 것으로 취급됩니다(위 내용 참조). 목록에 명시된 매크로의 종속 항목은 패키지의 모든 파일을 따릅니다. rustc에 등록하지 않고 파일을 읽는 목록 외 매크로는 Cargo와 마찬가지로 오래된 결과를 초래할 수 있습니다.

@@ -14,7 +14,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -371,14 +371,14 @@ remote execution — but require their own build files instead of `Cargo.toml`.
 
 Mitts is pre-release. Know these before you rely on it:
 
-- **Linux and macOS only.** Locks and the jobserver are POSIX.
 - **Host target only.** Cross-compilation is not supported yet.
 - **No remote cache yet.** The store is per machine.
 - **Sparse registries only.** A registry served as a git index (`registry+…`
   other than crates.io, or `[source] registry = "https://…"` without
   `sparse+`) and `local-registry` sources are refused with advice.
 - **Tokens live where Cargo keeps them.** `mitts login` and `mitts logout` write
-  `$CARGO_HOME/credentials.toml`, as Cargo does; `cargo:wincred` is Windows-only and skipped.
+  `$CARGO_HOME/credentials.toml`, as Cargo does; tokens stored by `cargo:macos-keychain`,
+  `cargo:libsecret` or `cargo:wincred` are read, not written.
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.
