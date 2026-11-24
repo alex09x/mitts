@@ -335,7 +335,8 @@ impl CrateFetcher {
                 }
             }
         }
-        if opt.offline {
+        // A local registry is on disk: it serves offline too.
+        if opt.offline && !matches!(effective, EffectiveSource::LocalRegistry(_)) {
             bail!(
                 "Package {}-{} not found in local cache and offline mode was requested",
                 pkg.name,
@@ -352,6 +353,17 @@ impl CrateFetcher {
                     SparseIndexClient::for_index(self.cache_root().as_deref(), &index_url, token)?;
                 client.download_crate(&pkg.name, &pkg.version, expected_checksum)?
             }
+            EffectiveSource::GitIndex { url, token } => {
+                let client =
+                    SparseIndexClient::for_git_index(self.cache_root().as_deref(), &url, token)?;
+                client.download_crate(&pkg.name, &pkg.version, expected_checksum)?
+            }
+            EffectiveSource::LocalRegistry(root) => SparseIndexClient::for_local_registry(&root)?
+                .download_crate(
+                &pkg.name,
+                &pkg.version,
+                expected_checksum,
+            )?,
             EffectiveSource::Directory(_) | EffectiveSource::Git => unreachable!(),
         };
         let dir = store.unpack_archive(&pkg.name, &pkg.version, &body_bytes, expected_checksum)?;

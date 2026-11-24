@@ -373,9 +373,6 @@ Mitts is pre-release. Know these before you rely on it:
 
 - **Host target only.** Cross-compilation is not supported yet.
 - **No remote cache yet.** The store is per machine.
-- **Sparse registries only.** A registry served as a git index (`registry+…`
-  other than crates.io, or `[source] registry = "https://…"` without
-  `sparse+`) and `local-registry` sources are refused with advice.
 - **Tokens live where Cargo keeps them.** `mitts login` and `mitts logout` write
   `$CARGO_HOME/credentials.toml`, as Cargo does; tokens stored by `cargo:macos-keychain`,
   `cargo:libsecret` or `cargo:wincred` are read, not written.

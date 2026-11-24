@@ -377,9 +377,6 @@ Mitts befindet sich im Pre-Release-Stadium. Beachten Sie Folgendes, bevor Sie da
 
 - **Nur Host-Target.** Cross-Kompilierung wird noch nicht unterstützt.
 - **Noch kein Remote-Cache.** Der Speicher ist maschinenlokal.
-- **Nur Sparse-Registries.** Eine Registry, die als Git-Index bereitgestellt wird (`registry+…`
-  außerhalb von crates.io oder `[source] registry = "https://…"` ohne
-  `sparse+`), sowie `local-registry`-Quellen werden mit Hinweisen abgelehnt.
 - **Tokens liegen dort, wo Cargo sie ablegt.** `mitts login` und `mitts logout` schreiben
   `$CARGO_HOME/credentials.toml` wie Cargo; Tokens aus `cargo:macos-keychain`, `cargo:libsecret` oder `cargo:wincred` werden gelesen, nicht geschrieben.
 - **Manche Einheiten werden niemals zwischengespeichert:** Crates vom Typ `cdylib`, `dylib` oder

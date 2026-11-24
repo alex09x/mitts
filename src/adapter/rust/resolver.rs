@@ -320,6 +320,12 @@ impl NativeResolver {
             EffectiveSource::Sparse { index_url, token } => IndexSource::Sparse(Arc::new(
                 SparseIndexClient::for_index(self.cache_dir.as_deref(), &index_url, token)?,
             )),
+            EffectiveSource::GitIndex { url, token } => IndexSource::Sparse(Arc::new(
+                SparseIndexClient::for_git_index(self.cache_dir.as_deref(), &url, token)?,
+            )),
+            EffectiveSource::LocalRegistry(root) => {
+                IndexSource::Sparse(Arc::new(SparseIndexClient::for_local_registry(&root)?))
+            }
             EffectiveSource::Directory(dir) => IndexSource::Vendor(VendorDir::open(&dir)?),
             EffectiveSource::Git => bail!("{lock_source} is not a registry"),
         };
