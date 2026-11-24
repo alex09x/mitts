@@ -2447,6 +2447,48 @@ fn metadata_reports_inherited_dependencies_as_cargo_normalizes_them() {
 }
 
 #[test]
+fn metadata_normalizes_a_path_dependency_against_its_own_workspace() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\next = { path = \"../other/ext\" }\n",
+    );
+    let other = app.parent().unwrap().join("other");
+    fs::create_dir_all(other.join("ext/src")).unwrap();
+    fs::write(
+        other.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"ext\"]\n\n[workspace.dependencies]\nold = { package = \"aa\", version = \"1\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        other.join("ext/Cargo.toml"),
+        "[package]\nname = \"ext\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nold = { workspace = true }\n",
+    )
+    .unwrap();
+    fs::write(other.join("ext/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let ext = doc["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "ext")
+        .unwrap();
+    let dep = &ext["dependencies"][0];
+    assert_eq!(dep["name"], "aa", "{dep}");
+    assert_eq!(dep["rename"], "old", "{dep}");
+    assert_eq!(dep["req"], "^1", "{dep}");
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == ext["id"])
+        .unwrap();
+    assert_eq!(node["deps"][0]["name"], "old", "{node}");
+}
+
+#[test]
 fn metadata_keeps_the_alias_of_a_registry_dependency_a_patch_replaces() {
     let env = Env::new();
     let registry = serve(vec![version("aa", "1.0.0")]);

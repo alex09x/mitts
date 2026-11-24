@@ -42,8 +42,32 @@ pub(super) fn workspace_root_of(
 }
 
 /// `manifest` with every `workspace = true` declaration replaced by what it inherits.
+/// Any package's manifest is normalized against its own workspace (a path dependency may
+/// belong to another workspace than the one being built); one that inherits nothing (as
+/// every published package) is returned as is, without looking for a workspace.
 pub(super) fn normalized(manifest: &CargoToml, manifest_path: &Path) -> CargoToml {
     let mut out = manifest.clone();
+    let inherits = |table: &HashMap<String, TomlDependency>| {
+        table
+            .values()
+            .any(|d| matches!(d, TomlDependency::Detailed(d) if d.workspace == Some(true)))
+    };
+    let any_inherited = [
+        &manifest.dependencies,
+        &manifest.build_dependencies,
+        &manifest.dev_dependencies,
+    ]
+    .into_iter()
+    .chain(
+        manifest
+            .target
+            .values()
+            .flat_map(|s| [&s.dependencies, &s.build_dependencies, &s.dev_dependencies]),
+    )
+    .any(inherits);
+    if !any_inherited {
+        return out;
+    }
     let Some((root, root_toml)) = workspace_root_of(manifest_path, manifest) else {
         return out;
     };
@@ -126,6 +150,11 @@ impl Patches {
                 tables: manifest.patch.clone(),
             },
         }
+    }
+
+    /// The workspace root directory (where the lockfile is resolved).
+    pub(super) fn root(&self) -> &Path {
+        &self.root
     }
 
     /// The patch replacing package `name` of the registry `registry` (`None` = crates.io)

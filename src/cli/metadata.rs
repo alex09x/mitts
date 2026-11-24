@@ -206,12 +206,9 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 )
             })?;
             let source = package_source(&unit.package_id);
-            // Members are read as Cargo normalizes them (inherited dependencies resolved).
-            let manifest = if unit.is_workspace {
-                normalized(&manifest, &unit.manifest_path)
-            } else {
-                manifest
-            };
+            // Read as Cargo normalizes it, against the package's own workspace (a path
+            // dependency may belong to another one).
+            let manifest = normalized(&manifest, &unit.manifest_path);
             packages.insert(
                 unit.package_id.clone(),
                 PackageEntry {
@@ -269,24 +266,17 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
             (entry.cargo_id.clone(), (dir, lib))
         })
         .collect();
-    // `registry = "<name>"` declarations are matched to the index the name stands for.
-    let config_dir = opt
-        .manifest_path
-        .as_deref()
-        .and_then(Path::parent)
-        .filter(|d| !d.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let registries = RegistryConfig::load(config_dir)?;
     // The workspace root's `[patch]` tables (none when the manifest cannot be read here).
-    let root_manifest_path = std::path::absolute(
-        opt.manifest_path
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("Cargo.toml")),
-    )?;
+    let root_manifest_path =
+        std::path::absolute(super::project_info::starting_manifest(&opt.manifest_path)?)?;
     let patches = match CargoToml::from_file(&root_manifest_path) {
         Ok(root) => Patches::of(&root_manifest_path, &root),
         Err(_) => Patches::of(&root_manifest_path, &CargoToml::default()),
     };
+    // `registry = "<name>"` declarations are matched to the index the name stands for, in
+    // the configuration the resolver read: the one that applies to the workspace root,
+    // where the lockfile is resolved.
+    let registries = RegistryConfig::load(patches.root())?;
     let mut nodes = Vec::new();
     for (internal_id, entry) in &packages {
         let mut outgoing = BTreeMap::<String, BTreeSet<String>>::new();
