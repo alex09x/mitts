@@ -335,11 +335,33 @@ const RESOLVE_ATTEMPTS: usize = 1024;
 
 /// The search ran out of attempts before it settled: an error of its own, never
 /// `Unsatisfiable`, since unexplored choices may still resolve.
+#[derive(Debug)]
+pub(crate) struct SearchBudgetExhausted;
+
+impl std::fmt::Display for SearchBudgetExhausted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "dependency resolution did not finish within {RESOLVE_ATTEMPTS} attempts; the graph \
+             may still have a solution"
+        )
+    }
+}
+
+impl std::error::Error for SearchBudgetExhausted {}
+
 fn search_budget_exhausted() -> anyhow::Error {
-    anyhow::anyhow!(
-        "dependency resolution did not finish within {RESOLVE_ATTEMPTS} attempts; the graph \
-         may still have a solution"
-    )
+    anyhow::Error::new(SearchBudgetExhausted)
+}
+
+/// A backtracking branch's identity: its excluded versions, sorted.
+fn branch_signature(excluded: &HashSet<(Key, String)>) -> Vec<String> {
+    let mut signature: Vec<String> = excluded
+        .iter()
+        .map(|(k, v)| format!("{}\u{1f}{v}", key_string(k)))
+        .collect();
+    signature.sort();
+    signature
 }
 
 /// The resolver key as one string, for the sets of packages the Rust limit is relaxed for.
@@ -424,9 +446,15 @@ impl NativeResolver {
             let mut fewer = relaxed.clone();
             fewer.remove(&decision);
             self.set_relaxed(fewer.clone(), false);
-            if let Some(smaller) = self.try_relaxed(roots, offline)? {
-                relaxed = fewer;
-                lock = smaller;
+            match self.try_relaxed(roots, offline) {
+                Ok(Some(smaller)) => {
+                    relaxed = fewer;
+                    lock = smaller;
+                }
+                Ok(None) => {}
+                // An optional trial that could not finish: the lock already found stands.
+                Err(e) if e.downcast_ref::<SearchBudgetExhausted>().is_some() => {}
+                Err(e) => return Err(e),
             }
         }
         Ok(Some(lock))
@@ -454,12 +482,7 @@ impl NativeResolver {
         let mut seen: HashSet<Vec<String>> = HashSet::new();
         let mut first_error: Option<anyhow::Error> = None;
         while let Some(excluded) = stack.pop() {
-            let mut signature: Vec<String> = excluded
-                .iter()
-                .map(|(k, v)| format!("{}\u{1f}{v}", key_string(k)))
-                .collect();
-            signature.sort();
-            if !seen.insert(signature) {
+            if !seen.insert(branch_signature(&excluded)) {
                 continue;
             }
             let error =
@@ -495,6 +518,8 @@ impl NativeResolver {
                 stack.push(child);
             }
             first_error.get_or_insert(error);
+            // Only branches not explored yet count as left over.
+            stack.retain(|s| !seen.contains(&branch_signature(s)));
             if budget == 0 && !stack.is_empty() {
                 // Branches left unexplored: not a proof that the graph has no solution, so
                 // not `Unsatisfiable` (which would relax the Rust limit).
@@ -621,6 +646,18 @@ impl NativeResolver {
                     }
                     Some(Ok(i)) => i,
                     Some(Err(conflicting)) => {
+                        // A patched package has one version, which pins cannot move: a
+                        // request it does not satisfy is a conflict of this branch, blamed on
+                        // the versions that asked for it so the search can avoid them.
+                        if patches.get(&r.source, &r.name).is_some() {
+                            return Err(anyhow::Error::new(Unsatisfiable {
+                                message: format!(
+                                    "patch for `{}` has version {}, which does not satisfy the requirement `{}`",
+                                    r.name, nodes[conflicting].version, r.req
+                                ),
+                                blame: parent_of.get(&k).cloned().unwrap_or_default(),
+                            }));
+                        }
                         // Same compatibility range, no shared version yet: restart with both
                         // requirements pinned, as a unifying resolver would.
                         return Ok(Err(Restart {

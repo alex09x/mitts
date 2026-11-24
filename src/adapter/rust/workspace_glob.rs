@@ -50,19 +50,31 @@ pub fn expand(root: &Path, entry: &str) -> Result<Vec<PathBuf>> {
     let root_text = root
         .to_str()
         .with_context(|| format!("workspace root is not UTF-8: {}", root.display()))?;
-    let full = format!(
-        "{}/{}",
-        glob::Pattern::escape(root_text.trim_end_matches('/')),
-        entry.trim_start_matches("./")
-    );
+    let entry_text = entry.trim_start_matches("./");
+    // An empty root (`Cargo.toml` given relative) is the current directory, not `/`.
+    let full = if root_text.is_empty() {
+        entry_text.to_string()
+    } else {
+        format!(
+            "{}/{entry_text}",
+            glob::Pattern::escape(root_text.trim_end_matches('/'))
+        )
+    };
     let mut dirs: Vec<PathBuf> = Vec::new();
     for path in glob::glob(&full)
         .with_context(|| format!("invalid glob pattern for workspace member `{entry}`"))?
     {
         // An unreadable directory is an error, not a shorter member list.
         let path = path.with_context(|| format!("expanding workspace member `{entry}`"))?;
-        if path.is_dir() {
-            dirs.push(path);
+        match std::fs::metadata(&path) {
+            Ok(meta) if meta.is_dir() => dirs.push(path),
+            Ok(_) => {}
+            // Gone since it was listed (or a dangling link): nothing there to be a member.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("workspace member `{entry}`: {}", path.display()))
+            }
         }
     }
     dirs.sort();
@@ -166,6 +178,11 @@ mod tests {
         fs::create_dir_all(odd.join("crates/x")).unwrap();
         let found = expand(&odd, "crates/*").unwrap();
         assert_eq!(found, [odd.join("crates/x")]);
+        // An empty root is the current directory: the pattern stays relative.
+        assert!(expand(Path::new(""), "no-such-dir-*/x").unwrap().is_empty());
+        // Tests run in the crate root, which has `src/`.
+        let cwd_relative = expand(Path::new(""), "sr[c]").unwrap();
+        assert_eq!(cwd_relative, [PathBuf::from("src")]);
         assert_eq!(
             names("**/fixtures"),
             ["deep/1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/fixtures"]

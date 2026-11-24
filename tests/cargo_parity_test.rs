@@ -2338,6 +2338,80 @@ fn resolver_backtracks_into_another_branch_when_the_first_guess_dead_ends() {
 }
 
 #[test]
+fn resolver_backtracks_from_a_request_the_selected_patch_cannot_meet() {
+    let env = Env::new();
+    // ff is patched to 1.0.0; bb 1.1 needs ff ^1.1, which the patch cannot be. Cargo settles
+    // on bb 1.0, which takes the patched ff.
+    let registry = serve(vec![
+        version("ff", "1.0.0"),
+        version("ff", "1.1.0"),
+        Published {
+            deps: vec![dep("ff", "^1")],
+            ..version("bb", "1.0.0")
+        },
+        Published {
+            deps: vec![dep("ff", "^1.1")],
+            ..version("bb", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nff = \"1\"\nbb = \"1\"\n\n[patch.crates-io]\nff = { path = \"ff\" }\n",
+    );
+    fs::create_dir_all(app.join("ff/src")).unwrap();
+    fs::write(
+        app.join("ff/Cargo.toml"),
+        "[package]\nname = \"ff\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("ff/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"bb\"\nversion = \"1.0.0\""),
+        "{lock}"
+    );
+    assert!(
+        lock.contains("name = \"ff\"\nversion = \"1.0.0\"")
+            && !lock.contains("name = \"ff\"\nversion = \"1.1.0\""),
+        "{lock}"
+    );
+}
+
+#[test]
+fn metadata_names_an_inherited_path_alias_like_cargo() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nhelper = { workspace = true }\n\n[workspace]\n\n[workspace.dependencies]\nhelper = { path = \"util\", package = \"my-util\" }\n",
+    );
+    fs::create_dir_all(app.join("util/src")).unwrap();
+    fs::write(
+        app.join("util/Cargo.toml"),
+        "[package]\nname = \"my-util\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("util/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["helper"], "{node}");
+}
+
+#[test]
 fn metadata_leaves_out_an_optional_alias_no_feature_enables() {
     let env = Env::new();
     let registry = serve(vec![version("aa", "1.0.0")]);

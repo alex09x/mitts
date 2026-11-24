@@ -8,7 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-use crate::adapter::rust::manifest::{CargoToml, DiscoveredTarget, TestRole, TomlDependency};
+use crate::adapter::rust::manifest::{
+    CargoToml, DiscoveredTarget, TestRole, TomlDependency, TomlDetailedDep,
+};
 use crate::adapter::rust::registry_config::RegistryConfig;
 use crate::adapter::rust::{RustAdapter, RustBuildOptions};
 use crate::cli::MetadataArgs;
@@ -300,6 +302,22 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 }
             }
         }
+        // The `[workspace.dependencies]` a member's `workspace = true` declarations inherit
+        // (published packages are normalized and have none).
+        let workspace: Option<(PathBuf, HashMap<String, TomlDependency>)> = if !entry.is_workspace {
+            None
+        } else if let Some(ws) = &entry.manifest.workspace {
+            let root = entry.manifest_path.parent().unwrap_or(Path::new("."));
+            Some((root.to_path_buf(), ws.dependencies.clone()))
+        } else {
+            CargoToml::find_workspace_root(&entry.manifest_path, &entry.manifest)
+                .ok()
+                .flatten()
+                .and_then(|(path, toml)| {
+                    let root = path.parent().map(Path::to_path_buf).unwrap_or_default();
+                    toml.workspace.map(|w| (root, w.dependencies))
+                })
+        };
         // One edge per extern crate name, as Cargo writes them: a package declared under two
         // keys (`old = { package = "rand" }` next to `rand`) is two edges, each with the kinds
         // of its own declarations.
@@ -324,6 +342,9 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 declaration_edges(
                     &entry.manifest,
                     entry.manifest_path.parent().unwrap_or(Path::new(".")),
+                    workspace
+                        .as_ref()
+                        .map(|(root, deps)| (root.as_path(), deps)),
                     &entry.features,
                     &registries,
                     &child,
@@ -635,9 +656,14 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 /// child's library name), each with the kinds, among the `active` ones, of the declarations
 /// under that name that are part of the build, come from the child's source and whose
 /// requirement admits its version.
+///
+/// A `workspace = true` declaration is read as the `[workspace.dependencies]` entry it
+/// inherits (`workspace`: the workspace root and that table), whose path is relative to the
+/// root, with this manifest's `optional`.
 fn declaration_edges(
     manifest: &CargoToml,
     parent_dir: &Path,
+    workspace: Option<(&Path, &HashMap<String, TomlDependency>)>,
     features: &BTreeSet<String>,
     registries: &RegistryConfig,
     child: &EdgeTarget<'_>,
@@ -669,7 +695,28 @@ fn declaration_edges(
     let parsed = semver::Version::parse(version).ok();
     let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (table, kind, target) in tables {
-        for (key, dep) in table {
+        for (key, declared) in table {
+            let inherited;
+            let (dep, base_dir) = match (declared, workspace) {
+                (TomlDependency::Detailed(d), Some((root, deps))) if d.workspace == Some(true) => {
+                    match deps.get(key) {
+                        Some(w) => {
+                            let mut merged = match w {
+                                TomlDependency::Simple(v) => TomlDetailedDep {
+                                    version: Some(v.clone()),
+                                    ..Default::default()
+                                },
+                                TomlDependency::Detailed(wd) => wd.clone(),
+                            };
+                            merged.optional = d.optional;
+                            inherited = TomlDependency::Detailed(merged);
+                            (&inherited, root)
+                        }
+                        None => (declared, parent_dir),
+                    }
+                }
+                _ => (declared, parent_dir),
+            };
             let (real, req) = match dep {
                 TomlDependency::Simple(req) => (key.as_str(), Some(req.as_str())),
                 TomlDependency::Detailed(d) => (
@@ -680,10 +727,7 @@ fn declaration_edges(
             let from_child = match dep {
                 TomlDependency::Detailed(d) if d.path.is_some() && d.git.is_none() => {
                     source.is_none()
-                        && same_dir(
-                            &parent_dir.join(d.path.as_deref().unwrap_or(".")),
-                            child.dir,
-                        )
+                        && same_dir(&base_dir.join(d.path.as_deref().unwrap_or(".")), child.dir)
                 }
                 _ => same_source(dep, source, registries),
             };
