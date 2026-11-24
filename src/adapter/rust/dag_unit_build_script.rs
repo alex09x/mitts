@@ -225,6 +225,11 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 staging_dir.clone(),
             ));
             let before = super::writable_out_dir::snapshot();
+            // Marked before the script can publish its cache entry (see `mark_may_write`).
+            let marked_now = match script_cache_dir.as_ref() {
+                Some((dir, _)) => super::writable_out_dir::mark_may_write(dir)?,
+                None => false,
+            };
             let d = match execute_build_script_with_key(
                 unit,
                 &staging_dir,
@@ -257,9 +262,10 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 super::writable_out_dir::record_writes(
                     &before,
                     &super::writable_out_dir::snapshot(),
-                    Some(dir),
+                    dir,
                     key,
-                );
+                    marked_now,
+                )?;
             }
             if d.rerun_if_changed_hashes
                 .values()

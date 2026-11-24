@@ -1802,6 +1802,13 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
         scratch_dir.display()
     );
     assert!(scratch_dir.join("generated.h").is_file());
+    // OUT_DIR holds only what build scripts put there: Mitts keeps its records beside it.
+    let out_dir = scratch_dir.parent().unwrap();
+    let names: Vec<String> = fs::read_dir(out_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["cxxbridge"], "{}", out_dir.display());
     // `clean` removes the directory with what was written there, as Cargo's clean does.
     env.ok(&first, &["clean"]);
     assert!(!scratch_dir.exists(), "{}", scratch_dir.display());

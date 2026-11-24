@@ -75,19 +75,23 @@ pub fn relocate(directives: &mut BuildScriptDirectives, dest: &Path) -> Result<(
     {
         let _lock =
             crate::core::lock::FileLock::acquire_exclusive(&parent.join(".mitts-out.lock"))?;
-        if !dest.join(READY_MARKER).is_file() {
+        // Bookkeeping lives beside `out`, never in it: build scripts see only their files.
+        let ready = parent.join(READY_MARKER);
+        if !(ready.is_file() && dest.is_dir()) {
+            let _ = fs::remove_file(&ready);
+            let _ = fs::remove_dir_all(parent.join(WRITTEN_DIR));
             let staging = parent.join(format!(".out.staging.{}", std::process::id()));
             let _ = fs::remove_dir_all(&staging);
             fs::create_dir_all(&staging)?;
             if let Some(source) = source.as_deref().filter(|s| s.is_dir() && *s != dest) {
                 copy_writable(source, &staging)?;
             }
-            fs::write(staging.join(READY_MARKER), b"")?;
             if dest.exists() {
                 // A copy that never finished: replaced whole.
                 fs::remove_dir_all(dest)?;
             }
             fs::rename(&staging, dest)?;
+            fs::write(&ready, b"").with_context(|| format!("write {}", ready.display()))?;
         }
     }
     if let Some(source) = source {
@@ -159,14 +163,39 @@ pub fn snapshot() -> BTreeMap<PathBuf, String> {
     out
 }
 
-/// After a build script ran: if it wrote into a writable OUT_DIR, mark its cache entry and
-/// record its writes as present in each directory it touched.
+/// Where an OUT_DIR's record of the scripts whose writes it holds lives: beside it.
+fn written_record(out_dir: &Path, build_key: &str) -> Option<PathBuf> {
+    out_dir
+        .parent()
+        .map(|p| p.join(WRITTEN_DIR).join(build_key))
+}
+
+/// Before a build script runs in a build with a writable OUT_DIR: its cache entry is marked
+/// as one that may write there, before the entry can be published. A restore elsewhere in
+/// the meantime runs the script (safe); [`record_writes`] lifts the mark if it wrote nothing.
+pub fn mark_may_write(script_cache_dir: &Path) -> Result<bool> {
+    if ACTIVE.lock().unwrap().is_empty() {
+        return Ok(false);
+    }
+    let marker = script_cache_dir.join(WRITES_MARKER);
+    if marker.is_file() {
+        return Ok(false);
+    }
+    fs::create_dir_all(script_cache_dir)
+        .with_context(|| format!("create {}", script_cache_dir.display()))?;
+    fs::write(&marker, b"").with_context(|| format!("write {}", marker.display()))?;
+    Ok(true)
+}
+
+/// After a build script ran: record its writes as present in each writable OUT_DIR it
+/// touched; if it wrote nowhere and `marked_now` (the mark is this run's), lift the mark.
 pub fn record_writes(
     before: &BTreeMap<PathBuf, String>,
     after: &BTreeMap<PathBuf, String>,
-    script_cache_dir: Option<&Path>,
+    script_cache_dir: &Path,
     build_key: &str,
-) {
+    marked_now: bool,
+) -> Result<()> {
     let changed: Vec<&PathBuf> = after
         .iter()
         .filter(|(p, s)| before.get(*p) != Some(s))
@@ -174,23 +203,32 @@ pub fn record_writes(
         .chain(before.keys().filter(|p| !after.contains_key(*p)))
         .collect();
     if changed.is_empty() {
-        return;
+        if marked_now {
+            let _ = fs::remove_file(script_cache_dir.join(WRITES_MARKER));
+        }
+        return Ok(());
     }
-    if let Some(dir) = script_cache_dir {
-        let _ = fs::create_dir_all(dir);
-        let _ = fs::write(dir.join(WRITES_MARKER), b"");
+    let marker = script_cache_dir.join(WRITES_MARKER);
+    if !marker.is_file() {
+        fs::create_dir_all(script_cache_dir)?;
+        fs::write(&marker, b"").with_context(|| format!("write {}", marker.display()))?;
     }
     for dir in ACTIVE.lock().unwrap().iter() {
         if changed.iter().any(|p| p.starts_with(dir)) {
-            let written = dir.join(WRITTEN_DIR);
-            let _ = fs::create_dir_all(&written);
-            let _ = fs::write(written.join(build_key), b"");
+            if let Some(record) = written_record(dir, build_key) {
+                if let Some(parent) = record.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&record, b"").with_context(|| format!("write {}", record.display()))?;
+            }
         }
     }
+    Ok(())
 }
 
 /// Whether restoring the script cached under `script_cache_dir` would miss its writes into
-/// a writable OUT_DIR of this build: it writes there and some active directory lacks them.
+/// a writable OUT_DIR of this build: it (may) write there and some active directory lacks
+/// them.
 pub fn writes_missing(script_cache_dir: &Path, build_key: &str) -> bool {
     if !script_cache_dir.join(WRITES_MARKER).is_file() {
         return false;
@@ -199,5 +237,5 @@ pub fn writes_missing(script_cache_dir: &Path, build_key: &str) -> bool {
         .lock()
         .unwrap()
         .iter()
-        .any(|dir| !dir.join(WRITTEN_DIR).join(build_key).is_file())
+        .any(|dir| !written_record(dir, build_key).is_some_and(|r| r.is_file()))
 }
