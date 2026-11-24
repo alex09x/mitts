@@ -55,12 +55,17 @@ fn test_m8_action_cache_default_paths_and_error_handling() {
             .join("ac")
     );
 
-    // 4. No env vars
+    // 4. No env vars (the Windows profile directory is the home fallback)
     std::env::remove_var("HOME");
+    let orig_profile = std::env::var_os("USERPROFILE");
+    std::env::remove_var("USERPROFILE");
     assert_eq!(
         ActionCache::default_path(),
         PathBuf::from(".mitts_cache").join("ac")
     );
+    if let Some(v) = orig_profile {
+        std::env::set_var("USERPROFILE", v);
+    }
 
     // Restore env vars
     if let Some(v) = orig_mitts {

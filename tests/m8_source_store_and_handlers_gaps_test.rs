@@ -14,7 +14,6 @@ use mitts::cli::{FetchArgs, GcArgs};
 use mitts::core::cas::ContentAddressedStore;
 use mitts::core::source_store::SourceStore;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::Mutex;
 use tempfile::TempDir;
 
@@ -111,8 +110,12 @@ fn test_m8_cas_store_bytes_corrupted_overwrite_and_restore() {
 fn test_m8_handlers_invalid_default_stores_and_terminal() {
     let _guard = ENV_LOCK.lock().unwrap();
 
-    // Point cache dir to an uncreatable location
-    let bad_path = PathBuf::from("/dev/null/mitts_bad_cache");
+    // Point cache dir to an uncreatable location: a directory under a regular file (on
+    // Windows `/dev/null/…` is an ordinary path).
+    let blocker_dir = tempfile::tempdir().unwrap();
+    let blocker = blocker_dir.path().join("blocker");
+    fs::write(&blocker, b"").unwrap();
+    let bad_path = blocker.join("mitts_bad_cache");
     std::env::set_var("MITTS_CACHE_DIR", &bad_path);
 
     // 1. handle_gc with cache_dir: None should return 1 on failed store initialization

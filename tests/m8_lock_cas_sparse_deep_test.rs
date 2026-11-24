@@ -41,8 +41,12 @@ fn test_m8_file_lock_methods_and_contention() {
     drop(shared);
 
     // 5. Error path on invalid filesystem path
-    let invalid_path = std::path::Path::new("/dev/null/forbidden/test.lock");
-    let err = FileLock::acquire_exclusive(invalid_path);
+    // Under a regular file: no platform creates that directory (`/dev/null/…` is an
+    // ordinary path on Windows).
+    let blocker = lock_path.with_file_name("blocker");
+    std::fs::write(&blocker, b"").unwrap();
+    let invalid_path = blocker.join("forbidden").join("test.lock");
+    let err = FileLock::acquire_exclusive(&invalid_path);
     assert!(err.is_err());
 }
 

@@ -155,7 +155,9 @@ fn test_target_root_and_test_env_agree() {
             let profile = if release { "release" } else { "debug" };
             assert_eq!(
                 PathBuf::from(&compile_env["CARGO_BIN_EXE_app"]),
-                target.join(profile).join("app")
+                target
+                    .join(profile)
+                    .join(format!("app{}", std::env::consts::EXE_SUFFIX))
             );
             assert_eq!(
                 PathBuf::from(&compile_env["CARGO_TARGET_TMPDIR"]),

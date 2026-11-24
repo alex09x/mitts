@@ -15,7 +15,6 @@ use mitts::cli::clippy::{handle_clippy, ClippyArgs};
 use mitts::cli::handlers::{handle_fetch, handle_gc};
 use mitts::cli::{FetchArgs, GcArgs};
 use std::fs;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]
@@ -81,7 +80,11 @@ edition = "2021"
     )
     .unwrap();
 
-    let invalid_dir = PathBuf::from("/dev/null/forbidden/cache");
+    // A directory under a regular file cannot be created on any platform (`/dev/null/…`
+    // is an ordinary path on Windows).
+    let blocker = root.join("blocker");
+    fs::write(&blocker, b"").unwrap();
+    let invalid_dir = blocker.join("forbidden").join("cache");
 
     // 1. handle_fetch with invalid cache_dir
     let fetch_args = FetchArgs {

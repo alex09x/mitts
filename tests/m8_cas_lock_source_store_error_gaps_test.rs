@@ -69,9 +69,15 @@ fn test_m8_cas_error_paths_and_env_fallbacks() {
     std::env::remove_var("MITTS_CACHE_DIR");
     std::env::remove_var("XDG_CACHE_HOME");
     std::env::remove_var("HOME");
+    // The Windows profile directory is the home fallback.
+    let old_profile = std::env::var_os("USERPROFILE");
+    std::env::remove_var("USERPROFILE");
 
     let def_path = ContentAddressedStore::default_path();
     assert_eq!(def_path, PathBuf::from(".mitts_cache").join("cas"));
+    if let Some(p) = old_profile {
+        std::env::set_var("USERPROFILE", p);
+    }
 
     // Restore env vars
     if let Some(m) = old_mitts {

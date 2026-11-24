@@ -193,6 +193,13 @@ fn a_later_inline_value_beats_an_earlier_file() {
 fn relative_values_resolve_like_cargo() {
     let temp = project();
     let root = temp.path().canonicalize().unwrap();
+    // The directory as the program sees it: without Windows' verbatim `\\?\` prefix, which
+    // `canonicalize` adds and the process's current directory does not have.
+    let shown = std::path::PathBuf::from(
+        root.to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .to_string(),
+    );
     write_file(
         root.join("conf/extra.toml"),
         "[env]\nDIRV = { value = \"from-file\", relative = true }\n",
@@ -205,7 +212,7 @@ fn relative_values_resolve_like_cargo() {
         run_binary(&root.join("target/debug/c")),
         format!(
             "cfg=false greeting=-\ndir={}\n",
-            root.join("conf/from-file").display()
+            shown.join("conf").join("from-file").display()
         )
     );
     assert_ok(&mitts(
@@ -221,7 +228,7 @@ fn relative_values_resolve_like_cargo() {
         run_binary(&root.join("target/debug/c")),
         format!(
             "cfg=false greeting=-\ndir={}\n",
-            root.join("inline").display()
+            shown.join("inline").display()
         )
     );
 }
