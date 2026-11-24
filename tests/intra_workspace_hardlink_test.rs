@@ -504,6 +504,9 @@ version = "0.1.0"
 
     let hashed_rlib = hashed_rlib.expect("hashed rlib must exist in deps");
     let hashed_rmeta = hashed_rmeta.expect("hashed rmeta must exist in deps");
+    // The inode checks below are unix-only; elsewhere both outputs only have to exist.
+    #[cfg(not(unix))]
+    assert!(hashed_rlib.is_file() && hashed_rmeta.is_file());
 
     #[cfg(unix)]
     {
