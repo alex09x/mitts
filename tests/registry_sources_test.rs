@@ -294,23 +294,133 @@ fn a_crates_io_mirror_keeps_the_crates_io_source_in_the_lockfile() {
     assert!(cache.join("sources/alt-one-0.1.0/.mitts-ok").is_file());
 }
 
+fn git(dir: &Path, args: &[&str]) {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A registry whose index is a git repository: Mitts clones it, reads the entries from the
+/// checkout and downloads the `.crate` from its `config.json` `dl`, as Cargo does.
 #[test]
-fn a_git_index_registry_is_refused_with_advice() {
+fn a_git_index_registry_resolves_fetches_and_builds() {
+    let (bytes, sum) = crate_archive("alt-one", "0.1.0", "pub fn one() -> u32 { 1 }\n");
+    let mut routes = HashMap::new();
+    routes.insert("/dl/alt-one/0.1.0/download".to_string(), bytes);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (base, hits) = serve_on(routes, None, listener);
+
     let temp = TempDir::new().unwrap();
+    let index = temp.path().join("index-repo");
+    let entry = index.join(index_path("alt-one"));
+    fs::create_dir_all(entry.parent().unwrap()).unwrap();
+    fs::write(
+        &entry,
+        format!(
+            "{{\"name\":\"alt-one\",\"vers\":\"0.1.0\",\"deps\":[],\"cksum\":\"{sum}\",\"features\":{{}},\"yanked\":false}}\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        index.join("config.json"),
+        format!("{{\"dl\":\"{base}/dl\"}}"),
+    )
+    .unwrap();
+    git(&index, &["init", "-q"]);
+    git(&index, &["add", "."]);
+    git(&index, &["commit", "-q", "-m", "index"]);
+    let index_url = format!("file://{}", index.display());
+
     let cargo_home = temp.path().join("cargo_home");
     fs::create_dir_all(&cargo_home).unwrap();
     let app = temp.path().join("app");
     write_project(
         &app,
-        "[registries]\nold = { index = \"https://example.invalid/crates-index\" }\n",
+        &format!("[registries]\nold = {{ index = \"{index_url}\" }}\n"),
         "alt-one = { version = \"0.1\", registry = \"old\" }",
     );
+    let cache = temp.path().join("cache");
+    let (ok, text) = mitts(&["build"], &app, &cache, &cargo_home, &[]);
+    assert!(ok, "build through the git index:\n{text}");
+    let lock = fs::read_to_string(app.join("Cargo.lock")).unwrap();
+    assert!(
+        lock.contains(&format!("source = \"registry+{index_url}\"")),
+        "{lock}"
+    );
+    assert!(lock.contains(&format!("checksum = \"{sum}\"")), "{lock}");
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "1");
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "only the .crate goes over HTTP"
+    );
+
+    // Offline, a fresh project resolves from the cached checkout and source.
+    let app2 = temp.path().join("app2");
+    write_project(
+        &app2,
+        &format!("[registries]\nold = {{ index = \"{index_url}\" }}\n"),
+        "alt-one = { version = \"0.1\", registry = \"old\" }",
+    );
+    let (ok, text) = mitts(&["build", "--offline"], &app2, &cache, &cargo_home, &[]);
+    assert!(ok, "offline from the cached index checkout:\n{text}");
+}
+
+/// `[source] local-registry`: the index under `index/` and the `.crate` files beside it,
+/// usable offline.
+#[test]
+fn a_local_registry_replaces_crates_io() {
+    let (bytes, sum) = crate_archive("alt-one", "0.1.0", "pub fn one() -> u32 { 1 }\n");
+    let temp = TempDir::new().unwrap();
+    let registry = temp.path().join("local-registry");
+    let entry = registry.join("index").join(index_path("alt-one"));
+    fs::create_dir_all(entry.parent().unwrap()).unwrap();
+    fs::write(
+        &entry,
+        format!(
+            "{{\"name\":\"alt-one\",\"vers\":\"0.1.0\",\"deps\":[],\"cksum\":\"{sum}\",\"features\":{{}},\"yanked\":false}}\n"
+        ),
+    )
+    .unwrap();
+    fs::write(registry.join("alt-one-0.1.0.crate"), bytes).unwrap();
+
+    let cargo_home = temp.path().join("cargo_home");
+    fs::create_dir_all(&cargo_home).unwrap();
+    let app = temp.path().join("app");
+    write_project(
+        &app,
+        &format!(
+            "[source.crates-io]\nreplace-with = \"local\"\n[source.local]\nlocal-registry = \"{}\"\n",
+            registry.display()
+        ),
+        "alt-one = \"0.1\"",
+    );
     let (ok, text) = mitts(
-        &["build"],
+        &["build", "--offline"],
         &app,
         &temp.path().join("cache"),
         &cargo_home,
         &[],
     );
-    assert!(!ok && text.contains("sparse registries only"), "{text}");
+    assert!(ok, "build from the local registry:\n{text}");
+    let lock = fs::read_to_string(app.join("Cargo.lock")).unwrap();
+    assert!(
+        lock.contains("source = \"registry+https://github.com/rust-lang/crates.io-index\""),
+        "the lockfile names crates.io:\n{lock}"
+    );
+    assert!(lock.contains(&format!("checksum = \"{sum}\"")), "{lock}");
+    let run = Command::new(app.join("target/debug/app")).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "1");
 }

@@ -178,15 +178,10 @@ fn test_t0_b1_custom_and_sparse_registries_rejected_in_lookup_and_explain() {
             let err = RustAdapter::explain_plan(&opt)
                 .expect_err("explain must reject non-crates.io registry package");
             let msg = format!("{:#}", err);
-            // A git-index registry is refused outright; an unknown sparse registry is
-            // contacted and fails on its (unresolvable) host.
-            let expected = if custom_src.starts_with("registry+") {
-                "sparse registries only"
-            } else {
-                "example.invalid"
-            };
+            // Either registry (a git index is cloned, a sparse index fetched) is contacted
+            // and fails on its unresolvable host.
             assert!(
-                msg.contains(expected),
+                msg.contains("example.invalid"),
                 "unexpected error for {}: {}",
                 custom_src,
                 msg

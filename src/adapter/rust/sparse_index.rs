@@ -63,6 +63,20 @@ pub struct SparseIndexClient {
     token: Option<String>,
     /// `None` once the index proved to have no readable `config.json`.
     config: std::sync::OnceLock<Option<IndexConfig>>,
+    /// An index on disk instead of over HTTP (git index checkout, local registry).
+    local: Option<LocalIndex>,
+}
+
+/// An index read from disk, in the same layout as a sparse index.
+enum LocalIndex {
+    /// A registry whose index is a git repository, cloned under the cache on first use.
+    Git {
+        url: String,
+        checkout: PathBuf,
+        ready: std::sync::OnceLock<Result<(), String>>,
+    },
+    /// A `local-registry` directory: `index/` and `<name>-<version>.crate` files.
+    Registry(PathBuf),
 }
 
 /// The index's `config.json`: where `.crate` files are downloaded from.
@@ -128,7 +142,67 @@ impl SparseIndexClient {
             agent,
             token: None,
             config: std::sync::OnceLock::new(),
+            local: None,
         })
+    }
+
+    /// A registry whose index is a git repository (`registry+<url>`): cloned into
+    /// `<cache root>/index-git/<digest of the URL>` and refreshed like a sparse index entry
+    /// (`MITTS_INDEX_TTL_SECS`); `.crate` files come from its `config.json`.
+    pub fn for_git_index(
+        cache_dir: Option<&Path>,
+        url: &str,
+        token: Option<String>,
+    ) -> Result<Self> {
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(url.as_bytes());
+        let short: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+        let checkout = crate::core::cache_root::resolve(cache_dir)
+            .join("index-git")
+            .join(short);
+        let mut client = Self::with_cache_dir(checkout.with_extension("entries"))?;
+        client.base_url = url.to_string();
+        client.token = token;
+        client.local = Some(LocalIndex::Git {
+            url: url.to_string(),
+            checkout,
+            ready: std::sync::OnceLock::new(),
+        });
+        Ok(client)
+    }
+
+    /// A `local-registry` directory, as `cargo local-registry` writes it.
+    pub fn for_local_registry(root: &Path) -> Result<Self> {
+        let mut client = Self::with_cache_dir(std::env::temp_dir())?;
+        client.base_url = root.display().to_string();
+        client.local = Some(LocalIndex::Registry(root.to_path_buf()));
+        Ok(client)
+    }
+
+    /// Where index files are read from for a local index, after the git checkout exists.
+    fn local_index_dir(&self, offline: bool) -> Result<Option<PathBuf>> {
+        match &self.local {
+            None => Ok(None),
+            Some(LocalIndex::Registry(root)) => Ok(Some(root.join("index"))),
+            Some(LocalIndex::Git {
+                url,
+                checkout,
+                ready,
+            }) => {
+                ready
+                    .get_or_init(|| {
+                        super::git_index::ensure_checkout(
+                            url,
+                            checkout,
+                            offline,
+                            Self::index_entry_ttl(),
+                        )
+                        .map_err(|e| format!("{e:#}"))
+                    })
+                    .clone()
+                    .map_err(|e| anyhow::anyhow!(e))?;
+                Ok(Some(checkout.clone()))
+            }
+        }
     }
 
     pub fn index_url(&self) -> &str {
@@ -162,6 +236,18 @@ impl SparseIndexClient {
     fn config(&self, offline: bool) -> Result<Option<&IndexConfig>> {
         if let Some(c) = self.config.get() {
             return Ok(c.as_ref());
+        }
+        if let Some(dir) = self.local_index_dir(offline)? {
+            let parsed = fs::read_to_string(dir.join("config.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<IndexConfig>(&t).ok());
+            if parsed.as_ref().is_some_and(|c| c.auth_required) && self.token.is_none() {
+                bail!(
+                    "index {} requires authentication; set CARGO_REGISTRIES_<NAME>_TOKEN or a token in credentials.toml",
+                    self.base_url
+                );
+            }
+            return Ok(self.config.get_or_init(|| parsed).as_ref());
         }
         let path = self.cache_dir.join("config.json");
         let text = match fs::read_to_string(&path) {
@@ -239,6 +325,12 @@ impl SparseIndexClient {
 
     /// Downloads a `.crate` file through this index's download host, with its token.
     pub fn download_crate(&self, name: &str, version: &str, cksum: &str) -> Result<Vec<u8>> {
+        if let Some(LocalIndex::Registry(root)) = &self.local {
+            let path = root.join(format!("{name}-{version}.crate"));
+            return fs::read(&path).with_context(|| {
+                format!("Failed to read {} from the local registry", path.display())
+            });
+        }
         let url = self.download_url(name, version, cksum, false)?;
         super::net_retry::get_bytes(&url, || self.request(&url))
             .with_context(|| format!("Failed to download crate from {url}"))
@@ -265,6 +357,19 @@ impl SparseIndexClient {
         let rel_path = Self::relative_path(crate_name);
         if rel_path.is_empty() {
             bail!("Empty crate name provided");
+        }
+
+        if let Some(dir) = self.local_index_dir(offline)? {
+            let path = dir.join(&rel_path);
+            return match fs::read_to_string(&path) {
+                Ok(content) => Self::parse_lines(&content),
+                Err(_) => Err(anyhow::Error::new(
+                    super::resolve_graph::Unsatisfiable::new(format!(
+                        "Crate '{crate_name}' not found in the index ({})",
+                        self.base_url
+                    )),
+                )),
+            };
         }
 
         let local_cache_path = self.cache_dir.join(&rel_path);

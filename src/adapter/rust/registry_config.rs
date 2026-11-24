@@ -51,6 +51,12 @@ pub enum EffectiveSource {
         index_url: String,
         token: Option<String>,
     },
+    /// A registry whose index is a git repository (`registry+<url>`, crates.io aside): the
+    /// index is cloned into the cache and read from the checkout; `.crate` files come from
+    /// its `config.json` `dl`.
+    GitIndex { url: String, token: Option<String> },
+    /// A `local-registry` directory: `index/` beside `<name>-<version>.crate` files.
+    LocalRegistry(PathBuf),
     /// A `cargo vendor` directory.
     Directory(PathBuf),
     /// The git repository named by the lock source itself.
@@ -373,11 +379,10 @@ impl RegistryConfig {
         match def {
             Some(SourceDef::Directory(dir)) => Ok(EffectiveSource::Directory(dir)),
             Some(SourceDef::Registry(s)) => self.sparse_from(&s, lock_source),
-            Some(SourceDef::LocalRegistry(p)) => bail!(
-                "`local-registry = {:?}` sources are not supported by Mitts; use `directory` (cargo vendor) or a sparse registry",
-                p
-            ),
-            Some(SourceDef::Git(_)) => bail!("replacing a source with a git repository is not supported by Mitts"),
+            Some(SourceDef::LocalRegistry(p)) => Ok(EffectiveSource::LocalRegistry(p)),
+            Some(SourceDef::Git(_)) => {
+                bail!("replacing a source with a git repository is not supported by Mitts")
+            }
             None => {
                 if is_crates_io(lock_source) {
                     Ok(EffectiveSource::CratesIo)
@@ -405,10 +410,18 @@ impl RegistryConfig {
         if is_crates_io(registry_source) {
             return Ok(EffectiveSource::CratesIo);
         }
-        bail!(
-            "registry `{}` is a git index; Mitts supports sparse registries only (`sparse+https://…`)",
-            registry_source.trim_start_matches("registry+")
-        )
+        let Some(url) = registry_source.strip_prefix("registry+") else {
+            bail!("`{registry_source}` is not a registry source");
+        };
+        let token = match self.token_for_index(registry_source)? {
+            Some(t) => Some(t),
+            None if registry_source != lock_source => self.token_for_index(lock_source)?,
+            None => None,
+        };
+        Ok(EffectiveSource::GitIndex {
+            url: url.to_string(),
+            token,
+        })
     }
 }
 
@@ -492,13 +505,22 @@ mod tests {
     }
 
     #[test]
-    fn git_index_registries_are_rejected_with_advice() {
+    fn git_index_and_local_registries_are_sources() {
         let c = cfg("[source.crates-io]\nreplace-with = \"m\"\n[source.m]\nregistry = \"https://rsproxy.example/crates.io-index\"\n");
-        let err = c
-            .effective_source(CRATES_IO_LOCK_SOURCE)
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("sparse"), "{err}");
+        assert_eq!(
+            c.effective_source(CRATES_IO_LOCK_SOURCE).unwrap(),
+            EffectiveSource::GitIndex {
+                url: "https://rsproxy.example/crates.io-index".to_string(),
+                token: None
+            }
+        );
+        let local = cfg(
+            "[source.crates-io]\nreplace-with = \"l\"\n[source.l]\nlocal-registry = \"/srv/reg\"\n",
+        );
+        assert_eq!(
+            local.effective_source(CRATES_IO_LOCK_SOURCE).unwrap(),
+            EffectiveSource::LocalRegistry(PathBuf::from("/srv/reg"))
+        );
         let plain = RegistryConfig::default();
         assert_eq!(
             plain.effective_source(CRATES_IO_LOCK_SOURCE).unwrap(),

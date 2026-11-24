@@ -376,9 +376,6 @@ O Mitts está em pré-lançamento. Conheça estes pontos antes de confiar nele:
 
 - **Apenas target host.** Compilação cruzada ainda não é suportada.
 - **Sem cache remoto ainda.** O armazenamento é por máquina.
-- **Apenas registros sparse.** Um registro servido como índice git (`registry+…`
-  diferente de crates.io, ou `[source] registry = "https://…"` sem
-  `sparse+`) e fontes `local-registry` são recusados com orientação.
 - **Os tokens ficam onde o Cargo os guarda.** `mitts login` e `mitts logout` gravam
   `$CARGO_HOME/credentials.toml`, como o Cargo; tokens guardados por `cargo:macos-keychain`, `cargo:libsecret` ou `cargo:wincred` são lidos, não gravados.
 - **Algumas unidades nunca são cacheadas:** crates do tipo `cdylib`, `dylib` ou

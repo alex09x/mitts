@@ -377,9 +377,6 @@ Mitts est en version préliminaire. Sachez ceci avant de vous appuyer dessus :
 
 - **Cible hôte uniquement.** La compilation croisée n'est pas encore prise en charge.
 - **Pas encore de cache distant.** Le magasin est propre à chaque machine.
-- **Registres sparse uniquement.** Un registre fourni sous forme d'index git (`registry+…`
-  autre que crates.io, ou `[source] registry = "https://…"` sans
-  `sparse+`) et les sources `local-registry` sont refusés avec des conseils.
 - **Les jetons sont rangés là où Cargo les range.** `mitts login` et `mitts logout` écrivent
   `$CARGO_HOME/credentials.toml`, comme Cargo ; les jetons stockés par `cargo:macos-keychain`, `cargo:libsecret` ou `cargo:wincred` sont lus, pas écrits.
 - **Certaines unités ne sont jamais mises en cache :** les crates de type `cdylib`, `dylib` ou
