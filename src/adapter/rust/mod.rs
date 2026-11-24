@@ -100,6 +100,7 @@ pub mod unit_output;
 pub mod unit_watch;
 pub mod vendor_source;
 pub(crate) mod wrapper_outputs;
+pub mod writable_out_dir;
 
 pub use build_script::execute_build_script;
 pub use build_script_directives::BuildScriptDirectives;

@@ -327,6 +327,18 @@ pub(crate) fn run_build_script_if_needed<'a>(
         }
     }
 
+    // `scratch`: OUT_DIR in the target directory, writable, as Cargo has it.
+    let mut directives = directives;
+    if super::writable_out_dir::needs_writable_out_dir(unit) {
+        let dest = super::writable_out_dir::out_dir_in_target(
+            unit,
+            ctx.target_dir,
+            &super::profile::custom::profile_dir(ctx.opt.release),
+            clean_crate,
+        );
+        super::writable_out_dir::relocate(&mut directives, &dest)?;
+    }
+
     show_warnings(ctx, unit, &directives.warnings);
     register_directives_in_ctx(unit, &directives, ctx);
 
