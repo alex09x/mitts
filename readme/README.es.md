@@ -279,7 +279,7 @@ Una comparación cualitativa de cómo cada herramienta reutiliza el trabajo. No 
 | Almacena en caché ejecuciones de scripts de compilación | no | no | sí |
 | Compilaciones concurrentes de una misma dependencia | esperan en el bloqueo de `target/` | ambas pueden compilar si hay fallo de caché | una compila, la otra reutiliza |
 | Caché remota / de equipo | no | sí (S3, GCS, Redis, …) | planificado |
-| Windows | sí | sí | no |
+| Windows | sí | sí | sí (x86-64 MSVC, desde el código fuente hasta 0.5.0) |
 
 Bazel y Buck2 resuelven un problema más amplio —compilaciones herméticas y multilingües con ejecución remota— pero requieren sus propios archivos de compilación en lugar de `Cargo.toml`.
 
@@ -300,7 +300,7 @@ Mitts se encuentra en fase pre-release. Ten en cuenta lo siguiente antes de conf
 - **Las características no compatibles de Cargo fallan de forma explícita.** Por ejemplo, `--profile` o patrones globales con comodines en directorios intermedios en `workspace.members`. Mitts informa de ellos en lugar de hacer conjeturas.
 - **Zero-copy en el mismo sistema de archivos.** La promoción de unidades sin copia desde la preparación requiere que `MITTS_CACHE_DIR` y el directorio `target/` del espacio de trabajo residan en el mismo punto de montaje del sistema de archivos. Al cruzar límites de sistemas de archivos, se recurre de forma segura a la copia estándar.
 
-**No uses Mitts todavía** si necesitas Windows, compilación cruzada, una caché de equipo o una versión estable. En esos casos, Cargo (opcionalmente con sccache) es la opción segura.
+**No uses Mitts todavía** si necesitas compilación cruzada, una caché de equipo o una versión estable. En esos casos, Cargo (opcionalmente con sccache) es la opción segura.
 
 <a id="performance"></a>
 ## Rendimiento
@@ -360,7 +360,8 @@ El tiempo de CPU en macOS baja de **20.3 h** (`cargo`) y **8.0 h** (`sccache`) a
 | Claves independientes de la ruta para crates del espacio de trabajo | parcial |
 | Estudio de benchmarks reproducible | completado |
 | Caché remota / para equipos | planificado |
-| Windows, compilación cruzada | no compatible |
+| Windows (x86-64 MSVC) | hecho, binarios con 0.5.0 |
+| Compilación cruzada | no compatible |
 
 Hitos y evidencias: [ROADMAP.md](../ROADMAP.md).
 

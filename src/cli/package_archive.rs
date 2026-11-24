@@ -190,6 +190,8 @@ pub fn create_with_lock(
             bail!("source contains reserved package path");
         }
         let mut contents = Vec::new();
+        // Set from the symlink target's mode on unix only.
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut file_mode = None;
         if symlink {
             let resolved = std::fs::canonicalize(root.join(&path))?;

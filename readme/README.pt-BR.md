@@ -358,7 +358,7 @@ afirmação de desempenho.
 | Cacheia execuções de scripts de build | não | não | sim |
 | Compilações concorrentes de uma dependência | aguardam no lock de `target/` | ambas podem compilar quando não há resultado no cache | uma compila, a outra reutiliza |
 | Cache remoto / de equipe | não | sim (S3, GCS, Redis, …) | planejado |
-| Windows | sim | sim | não |
+| Windows | sim | sim | sim (x86-64 MSVC, a partir do código-fonte até a 0.5.0) |
 
 Bazel e Buck2 resolvem um problema maior — compilações herméticas e multilíngues com
 execução remota —, mas exigem seus próprios arquivos de build em vez do `Cargo.toml`.
@@ -401,7 +401,7 @@ O Mitts está em pré-lançamento. Conheça estes pontos antes de confiar nele:
   que o `MITTS_CACHE_DIR` e o diretório `target/` do workspace residam no mesmo
   ponto de montagem de sistema de arquivos. Ultrapassar os limites do sistema de arquivos recorre de forma segura à cópia padrão.
 
-**Não use o Mitts ainda** se você precisar de Windows, compilação cruzada, cache de equipe ou
+**Não use o Mitts ainda** se você precisar de compilação cruzada, cache de equipe ou
 uma versão estável. O Cargo, opcionalmente com sccache, é a escolha segura nesses casos.
 
 <a id="performance"></a>
@@ -461,7 +461,8 @@ O tempo de CPU no macOS cai de **20.3 h** (`cargo`) e **8.0 h** (`sccache`) para
 | Chaves independentes de caminho para crates do workspace | parcial |
 | Estudo de benchmark reproduzível | concluído |
 | Cache remoto / de equipe | planejado |
-| Windows, compilação cruzada | não suportado |
+| Windows (x86-64 MSVC) | feito, binários com a 0.5.0 |
+| Compilação cruzada | não suportado |
 
 Marcos e evidências: [ROADMAP.md](../ROADMAP.md).
 

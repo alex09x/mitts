@@ -270,7 +270,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 | 缓存 build-script 运行 | 否 | 否 | 是 |
 | 同一依赖项的并发构建 | 等待 `target/` 锁 | 未命中时两者均可能编译 | 一个编译，另一个复用 |
 | 远程 / 团队缓存 | 否 | 是（S3、GCS、Redis、…） | 计划中 |
-| Windows | 是 | 是 | 否 |
+| Windows | 是 | 是 | 是（x86-64 MSVC，0.5.0 之前从源码构建） |
 
 Bazel 和 Buck2 解决的是更广泛的问题——带远程执行的封闭式（hermetic）多语言构建——但需要它们自己的构建文件，而不是 `Cargo.toml`。
 
@@ -291,7 +291,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 - **不受支持的 Cargo 特性会明确报错。** 例如 `--profile`，以及 `workspace.members` 中间目录包含通配符的 glob。Mitts 会报告它们，而不是盲目猜测。
 - **同文件系统零拷贝。** 从暂存区进行零拷贝单元提升要求 `MITTS_CACHE_DIR` 与工作区 `target/` 目录位于同一文件系统挂载点上。跨越文件系统边界时会自动安全回退到标准复制。
 
-如果您需要 Windows、交叉编译、团队缓存或稳定版本，**请暂勿使用 Mitts**。在这些场景下，Cargo（可选用 sccache）是稳妥之选。
+如果您需要交叉编译、团队缓存或稳定版本，**请暂勿使用 Mitts**。在这些场景下，Cargo（可选用 sccache）是稳妥之选。
 
 <a id="performance"></a>
 ## 性能
@@ -350,7 +350,8 @@ macOS 上的总 CPU 时间从 **20.3 h**（`cargo`）和 **8.0 h**（`sccache`�
 | 工作区 crate 路径无关的键 | 部分支持 |
 | 可复现基准测试研究 | 完成 |
 | 远程 / 团队缓存 | 计划中 |
-| Windows、交叉编译 | 不支持 |
+| Windows (x86-64 MSVC) | 已完成，0.5.0 起提供二进制 |
+| 交叉编译 | 不支持 |
 
 里程碑与证明：[ROADMAP.md](../ROADMAP.md)。
 

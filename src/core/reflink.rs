@@ -138,6 +138,9 @@ fn try_store_hardlink(src: &Path, tmp_dst: &Path, executable: bool) -> bool {
             let _ = fs::set_permissions(tmp_dst, fs::Permissions::from_mode(mode));
         }
     }
+    // No mode bits elsewhere: the store object's read-only attribute is the link's too.
+    #[cfg(not(unix))]
+    let _ = executable;
     true
 }
 
@@ -352,7 +355,12 @@ pub fn link_intra_workspace(
     let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp_dst = parent.join(format!(".{}.tmp_link.{}.{}", file_name, pid, counter));
 
+    // Hard links within a workspace only on unix (on Windows the read-only attribute is
+    // shared by every name of a file): elsewhere the file is copied.
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut hardlink_succeeded = false;
+    #[cfg(not(unix))]
+    let _ = allowed_roots;
 
     #[cfg(unix)]
     {
