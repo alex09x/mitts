@@ -212,6 +212,31 @@ pub(super) fn remove_matching(target: &Path, filter: &CleanFilter) -> Result<(us
                 parent = dir.parent();
             }
         }
+        // Writable OUT_DIRs (`scratch`): not indexed files but directories Mitts created, with
+        // what other build scripts wrote; they go like Cargo's build directories. The next
+        // build recreates them and reruns the scripts whose writes they held.
+        let build = target.join(profile).join("build");
+        for entry in fs::read_dir(&build).into_iter().flatten().flatten() {
+            let dir = entry.path();
+            let name = entry.file_name();
+            if !dir
+                .join(crate::adapter::rust::writable_out_dir::OWNED_MARKER)
+                .is_file()
+                || !dir
+                    .canonicalize()
+                    .is_ok_and(|p| p.starts_with(&canonical_root))
+                || (selective && !belongs_to(Path::new(&name), &filter.packages))
+            {
+                continue;
+            }
+            removed += 1;
+            if filter.verbose {
+                eprintln!("{:>12} {}", "Removing", dir.display());
+            }
+            if !filter.dry_run {
+                fs::remove_dir_all(&dir)?;
+            }
+        }
         if filter.dry_run {
             continue;
         }

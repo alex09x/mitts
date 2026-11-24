@@ -1757,3 +1757,80 @@ fn json_build_reports_a_failed_artifact_export_once() {
         "{stdout}"
     );
 }
+
+#[test]
+fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
+    let env = Env::new();
+    // dtolnay's `scratch`: the library hands out directories under its own OUT_DIR.
+    let registry = serve(vec![Published {
+        files: vec![
+            ("build.rs", "fn main() {}\n".to_string()),
+            (
+                "src/lib.rs",
+                "use std::path::{Path, PathBuf};\n\
+                 pub fn path(name: &str) -> PathBuf {\n\
+                 \x20   let p = Path::new(env!(\"OUT_DIR\")).join(name);\n\
+                 \x20   std::fs::create_dir_all(&p).unwrap();\n\
+                 \x20   p\n\
+                 }\n"
+                .to_string(),
+            ),
+        ],
+        ..version("scratch", "1.0.7")
+    }]);
+    // Like cxx-build: a build script that writes into scratch's directory.
+    let build_rs = "fn main() {\n\
+                    \x20   let dir = scratch::path(\"cxxbridge\");\n\
+                    \x20   std::fs::write(dir.join(\"generated.h\"), \"// header\\n\").unwrap();\n\
+                    \x20   println!(\"cargo:rustc-env=SCRATCH_DIR={}\", dir.display());\n\
+                    }\n";
+    let main_rs = "fn main() { println!(\"{}\", env!(\"SCRATCH_DIR\")); }\n";
+    let make = |name: &str| {
+        let app = env.app(&registry, "[build-dependencies]\nscratch = \"1\"\n");
+        let dir = env.path(name);
+        fs::rename(&app, &dir).unwrap();
+        fs::write(dir.join("build.rs"), build_rs).unwrap();
+        fs::write(dir.join("src/main.rs"), main_rs).unwrap();
+        dir
+    };
+    let first = make("first");
+    let (out, _) = env.ok(&first, &["run", "-q"]);
+    let scratch_dir = std::path::PathBuf::from(out.trim());
+    // Compared canonically: on macOS the temp dir is /var/..., which is /private/var/....
+    let under = |path: &std::path::Path, dir: &std::path::Path| {
+        path.canonicalize()
+            .unwrap()
+            .starts_with(dir.join("target").canonicalize().unwrap())
+    };
+    assert!(
+        under(&scratch_dir, &first),
+        "scratch's OUT_DIR is in the project's target directory: {}",
+        scratch_dir.display()
+    );
+    assert!(scratch_dir.join("generated.h").is_file());
+    // OUT_DIR holds only what build scripts put there: Mitts keeps its records beside it.
+    let out_dir = scratch_dir.parent().unwrap();
+    let names: Vec<String> = fs::read_dir(out_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["cxxbridge"], "{}", out_dir.display());
+    // `clean` removes the directory with what was written there, as Cargo's clean does.
+    env.ok(&first, &["clean"]);
+    assert!(!scratch_dir.exists(), "{}", scratch_dir.display());
+    // Built again from the cache: the script that wrote there runs again, so its file is back.
+    let (again, _) = env.ok(&first, &["run", "-q"]);
+    assert_eq!(again.trim(), out.trim());
+    assert!(scratch_dir.join("generated.h").is_file());
+
+    // A second project with the same cache gets its own directory.
+    let second = make("second");
+    let (other, _) = env.ok(&second, &["run", "-q"]);
+    assert!(
+        under(std::path::Path::new(other.trim()), &second),
+        "{other}"
+    );
+    assert!(std::path::Path::new(other.trim())
+        .join("generated.h")
+        .is_file());
+}

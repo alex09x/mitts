@@ -28,6 +28,23 @@ pub(crate) fn prepare_unit_build_script_keys(
     current_directives: Option<&BuildScriptDirectives>,
     staging_dir_holder: Option<&PathBuf>,
 ) -> PreCompileKeyInfo {
+    // A writable OUT_DIR (`scratch`) changes as other build scripts write into it: its key is
+    // the directory, not the contents.
+    if let Some(d) = current_directives
+        .filter(|_| crate::adapter::rust::writable_out_dir::needs_writable_out_dir(unit))
+    {
+        if let Some(out) = d.out_dir.as_deref() {
+            return PreCompileKeyInfo {
+                effective_action_key: crate::adapter::rust::writable_out_dir::action_key(
+                    action_key,
+                    &d.compute_compile_hash(),
+                    out,
+                ),
+                ws_fallback_key: None,
+                build_purity_opt: None,
+            };
+        }
+    }
     let mut build_purity_opt = None;
     let ws_root = match unit.is_workspace {
         true => crate::adapter::rust::compiler::find_workspace_root(&unit.manifest_path),
