@@ -82,11 +82,12 @@ pub fn scan_dir_inputs(
                 }
                 let hash = Sha256::digest_file(&path)
                     .with_context(|| format!("Failed to hash package file {:?}", path))?;
-                let rel = path
-                    .strip_prefix(pkg_dir)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .to_string();
+                let rel = super::inputs::portable_label(
+                    path.strip_prefix(pkg_dir)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string(),
+                );
                 inputs.push((rel, hash));
             }
         }
@@ -217,7 +218,7 @@ pub fn compute_unit_coarse_inputs_with_checksum(
                 None => src_path.to_string_lossy().to_string(),
             },
         };
-        inputs.push((rel, hash));
+        inputs.push((super::inputs::portable_label(rel), hash));
     } else if src_path.is_dir() {
         scan_dir_inputs(src_path, pkg_dir, &mut inputs)?;
     }
@@ -332,7 +333,10 @@ pub fn extract_unit_extra_inputs(
                 } else {
                     cleaned_file.to_string_lossy().to_string()
                 };
-                extra_inputs.push((norm_path, Sha256::digest_file(&file_path)?));
+                extra_inputs.push((
+                    super::inputs::portable_label(norm_path),
+                    Sha256::digest_file(&file_path)?,
+                ));
             }
             for (var, val_opt) in parsed.env_deps {
                 let hash = match (var.as_str(), out_dir_purity) {

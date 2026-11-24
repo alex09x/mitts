@@ -333,7 +333,7 @@ fn hash_package_inputs_impl(
 
 /// An input label with `/` between components on every platform, so a key names a file the
 /// same way on Windows (whose paths use `\`) as elsewhere.
-fn portable_label(label: String) -> String {
+pub(crate) fn portable_label(label: String) -> String {
     if cfg!(windows) {
         label.replace('\\', "/")
     } else {
