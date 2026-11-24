@@ -13,10 +13,30 @@ import test from "node:test";
 import { atLeast, locateMitts, parseVersion } from "../../locate";
 import {
   RUST_ANALYZER_KEYS,
+  nextSaved,
   replacedKeys,
   restorePlan,
   rustAnalyzerSettings,
 } from "../../rustAnalyzer";
+
+test("turning routing on again after one manual edit keeps the other key's original value", () => {
+  const ours = rustAnalyzerSettings("/x/mitts");
+  const none = { "check.overrideCommand": undefined, "runnables.command": undefined };
+  const first = nextSaved(none, ours, undefined);
+  assert.deepEqual(first.previous, none);
+  // The user changes runnables.command by hand, then turns routing on again.
+  const edited = { ...ours, "runnables.command": "my-runner" };
+  const second = nextSaved(edited, ours, first);
+  assert.deepEqual(second.previous, {
+    "check.overrideCommand": undefined,
+    "runnables.command": "my-runner",
+  });
+  // Stop: both keys go back to what they were before Mitts touched them.
+  assert.deepEqual(restorePlan(ours, second), {
+    "check.overrideCommand": undefined,
+    "runnables.command": "my-runner",
+  });
+});
 
 test("turning routing off puts back the user's own values and keeps later edits", () => {
   const ours = rustAnalyzerSettings("/x/mitts");

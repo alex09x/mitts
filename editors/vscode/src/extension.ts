@@ -15,6 +15,7 @@ import * as vscode from "vscode";
 import { atLeast, locateMitts, parseVersion } from "./locate";
 import {
   RUST_ANALYZER_KEYS,
+  nextSaved,
   replacedKeys,
   restorePlan,
   rustAnalyzerSettings,
@@ -163,10 +164,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
       }
-      // Keep what was there before, unless routing is already on (then the first record stays).
-      const earlier = context.workspaceState.get<Saved>(SAVED_KEY);
-      const previous = earlier && !replacedKeys(current, earlier.written).length ? earlier.previous : current;
-      await context.workspaceState.update(SAVED_KEY, { written: ours, previous } satisfies Saved);
+      // Per key: a key still on Mitts' last value keeps its original previous value.
+      const saved = nextSaved(current, ours, context.workspaceState.get<Saved>(SAVED_KEY));
+      await context.workspaceState.update(SAVED_KEY, saved);
       for (const [key, value] of Object.entries(ours)) {
         await config.update(key, value, vscode.ConfigurationTarget.Workspace);
       }

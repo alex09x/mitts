@@ -53,6 +53,24 @@ export function replacedKeys(
 }
 
 /**
+ * The record kept when routing is turned on, per key: a key that still holds what Mitts
+ * wrote last time keeps its original previous value; any other key's previous value is
+ * what it holds now.
+ */
+export function nextSaved(
+  current: Record<string, unknown>,
+  ours: Record<string, unknown>,
+  earlier: Saved | undefined,
+): Saved {
+  const previous: Record<string, unknown> = {};
+  for (const key of Object.keys(ours)) {
+    previous[key] =
+      earlier && same(current[key], earlier.written[key]) ? earlier.previous[key] : current[key];
+  }
+  return { written: ours, previous };
+}
+
+/**
  * What turning routing off writes for each key: the value from before routing was turned
  * on (`undefined` = no workspace value). A key the user changed since is left as it is.
  */
