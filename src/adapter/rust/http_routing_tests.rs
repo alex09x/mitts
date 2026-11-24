@@ -81,8 +81,8 @@ fn serve(responses: Vec<String>) -> (String, std::sync::mpsc::Receiver<String>) 
 #[test]
 fn redirects_are_followed_without_the_token_and_303_becomes_get() {
     let (url, seen) = serve(vec![
-        "HTTP/1.1 303 See Other\r\nLocation: /next\r\nContent-Length: 0\r\n\r\n".into(),
-        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".into(),
+        "HTTP/1.1 303 See Other\r\nLocation: /next\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".into(),
+        "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok".into(),
     ]);
     let agent = Builder::new(ureq::AgentBuilder::new, None).build();
     let response = agent
@@ -105,7 +105,8 @@ fn redirects_are_followed_without_the_token_and_303_becomes_get() {
 #[test]
 fn with_no_redirects_the_3xx_comes_back() {
     let (url, _seen) = serve(vec![
-        "HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\n\r\n".into(),
+        "HTTP/1.1 302 Found\r\nLocation: /next\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+            .into(),
     ]);
     let agent = Builder::new(ureq::AgentBuilder::new, None)
         .redirects(0)

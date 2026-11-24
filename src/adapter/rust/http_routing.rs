@@ -137,6 +137,9 @@ pub struct Request {
     headers: Vec<(String, String)>,
 }
 
+// The same `Result<Response, ureq::Error>` as ureq's own `Request`, which callers match on
+// (net_retry tells transient errors apart by it); boxing would only move the size.
+#[allow(clippy::result_large_err)]
 impl Request {
     pub fn set(mut self, name: &str, value: &str) -> Self {
         self.headers.push((name.to_string(), value.to_string()));
