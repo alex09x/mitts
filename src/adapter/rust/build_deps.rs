@@ -29,7 +29,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 const DEPS_PREFIX: &str = "deps-";
-use crate::core::owned_dir::OWNER_LOCK;
 
 static TMP_SEQ: AtomicU64 = AtomicU64::new(1);
 static HELD_DEPS_LOCKS: Mutex<Vec<FileLock>> = Mutex::new(Vec::new());
@@ -80,10 +79,7 @@ pub(crate) fn sweep_dead_in(tmp_root: &Path) {
         if !dir.is_dir() {
             continue;
         }
-        let Ok(Some(_lock)) = FileLock::try_acquire_exclusive(&dir.join(OWNER_LOCK)) else {
-            continue;
-        };
-        let _ = fs::remove_dir_all(&dir);
+        crate::core::owned_dir::remove_owned(&dir);
     }
     crate::core::owned_dir::sweep_abandoned_staging(tmp_root, DEPS_PREFIX);
 }

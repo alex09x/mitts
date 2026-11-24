@@ -12,6 +12,38 @@ use anyhow::{Context, Result};
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
+/// Opens (creating) a lock file. On Windows a byte-range lock does not keep a file from
+/// being deleted by name, so lock files are opened without `FILE_SHARE_DELETE`: nobody
+/// removes a lock file while a holder has it open. Only a sweeper that will delete the
+/// file asks for `DELETE` access (`for_removal`); that open fails with a sharing violation
+/// while anyone else has the file open, and anyone opening it meanwhile fails the same way.
+fn open_lock_file(path: &Path, for_removal: bool) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        const FILE_SHARE_WRITE: u32 = 0x2;
+        const GENERIC_READ: u32 = 0x8000_0000;
+        const GENERIC_WRITE: u32 = 0x4000_0000;
+        const DELETE: u32 = 0x0001_0000;
+        options.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE);
+        if for_removal {
+            options.access_mode(GENERIC_READ | GENERIC_WRITE | DELETE);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = for_removal;
+    options.open(path)
+}
+
+/// Whether an open failed because another handle has the file open in a conflicting
+/// way (Windows `ERROR_SHARING_VIOLATION`).
+fn is_sharing_violation(err: &std::io::Error) -> bool {
+    cfg!(windows) && err.raw_os_error() == Some(32)
+}
+
 #[cfg(unix)]
 mod sys {
     use std::os::raw::c_int;
@@ -42,12 +74,7 @@ impl FileLock {
             })?;
         }
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)
+        let file = open_lock_file(path, false)
             .with_context(|| format!("Failed to open lock file: {:?}", path))?;
 
         #[cfg(unix)]
@@ -73,19 +100,29 @@ impl FileLock {
 
     /// Attempts to acquire an exclusive lock without blocking. Returns `None` if already locked.
     pub fn try_acquire_exclusive(path: &Path) -> Result<Option<Self>> {
+        Self::try_exclusive(path, false)
+    }
+
+    /// Like [`Self::try_acquire_exclusive`], for a sweeper that will delete the lock file
+    /// with [`Self::delete_file`]: `None` also while anyone else has the file open (Windows).
+    pub fn try_acquire_exclusive_for_removal(path: &Path) -> Result<Option<Self>> {
+        Self::try_exclusive(path, true)
+    }
+
+    fn try_exclusive(path: &Path, for_removal: bool) -> Result<Option<Self>> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).with_context(|| {
                 format!("Failed to create parent directory for lock: {:?}", parent)
             })?;
         }
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)
-            .with_context(|| format!("Failed to open lock file: {:?}", path))?;
+        let file = match open_lock_file(path, for_removal) {
+            Ok(file) => file,
+            Err(err) if is_sharing_violation(&err) => return Ok(None),
+            Err(err) => {
+                return Err(err).with_context(|| format!("Failed to open lock file: {:?}", path))
+            }
+        };
 
         #[cfg(unix)]
         {
@@ -129,12 +166,7 @@ impl FileLock {
             })?;
         }
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)
+        let file = open_lock_file(path, false)
             .with_context(|| format!("Failed to open lock file: {:?}", path))?;
 
         #[cfg(unix)]
@@ -203,6 +235,43 @@ impl FileLock {
     /// Returns the path of the lock file.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Deletes the lock file while holding it (a sweeper's last step before removing the
+    /// directory). Windows: through this handle, which a lock from
+    /// [`Self::try_acquire_exclusive_for_removal`] opened with `DELETE` access; the name
+    /// goes when the handle closes.
+    pub fn delete_file(&self) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            use std::ffi::c_void;
+            use std::os::windows::io::AsRawHandle;
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn SetFileInformationByHandle(
+                    file: *mut c_void,
+                    class: i32,
+                    info: *const c_void,
+                    size: u32,
+                ) -> i32;
+            }
+            const FILE_DISPOSITION_INFO: i32 = 4;
+            let delete: u8 = 1;
+            let ok = unsafe {
+                SetFileInformationByHandle(
+                    self.file.as_raw_handle(),
+                    FILE_DISPOSITION_INFO,
+                    (&delete as *const u8).cast(),
+                    1,
+                )
+            };
+            if ok == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        }
+        #[cfg(not(windows))]
+        std::fs::remove_file(&self.path)
     }
 }
 
