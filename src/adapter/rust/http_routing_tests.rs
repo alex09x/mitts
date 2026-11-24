@@ -139,9 +139,35 @@ fn serve(responses: Vec<String>) -> (String, std::sync::mpsc::Receiver<String>) 
     std::thread::spawn(move || {
         for response in responses {
             let (mut stream, _) = listener.accept().unwrap();
+            // The whole request (headers and the body its Content-Length names) is read
+            // before answering: closing a socket with unread data resets the connection on
+            // Windows, and the client would see an error instead of the response.
+            let mut request: Vec<u8> = Vec::new();
             let mut buf = [0u8; 4096];
-            let n = stream.read(&mut buf).unwrap();
-            tx.send(String::from_utf8_lossy(&buf[..n]).into_owned())
+            loop {
+                let n = stream.read(&mut buf).unwrap();
+                request.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&request);
+                let Some(end) = text.find("\r\n\r\n") else {
+                    if n == 0 {
+                        break;
+                    }
+                    continue;
+                };
+                let length = text[..end]
+                    .lines()
+                    .find_map(|l| {
+                        let (name, value) = l.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if n == 0 || request.len() >= end + 4 + length {
+                    break;
+                }
+            }
+            tx.send(String::from_utf8_lossy(&request).into_owned())
                 .unwrap();
             stream.write_all(response.as_bytes()).unwrap();
         }

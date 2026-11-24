@@ -14,12 +14,37 @@ use std::io::{Cursor, Read};
 use std::path::Path;
 use std::process::Command;
 
+/// Runs git with line-ending conversion off, so `archive` and `show` give the committed
+/// bytes whatever `core.autocrlf` says (Windows installs turn it on).
 fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git").current_dir(root).args(args).output()?;
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["-c", "core.autocrlf=false"])
+        .args(args)
+        .output()?;
     if !output.status.success() {
         bail!("git {} failed", args.join(" "));
     }
     Ok(output.stdout)
+}
+
+/// Whether a working file has the committed content, line endings aside: a checkout with
+/// `core.autocrlf` holds the committed text with CRLF and is not a modification.
+fn same_text(committed: &[u8], working: &[u8]) -> bool {
+    let lf = |bytes: &[u8]| -> Vec<u8> {
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'\r' && bytes.get(i + 1) == Some(&b'\n') {
+                i += 1;
+                continue;
+            }
+            out.push(bytes[i]);
+            i += 1;
+        }
+        out
+    };
+    committed == working || lf(committed) == lf(working)
 }
 
 /// Construct a gzip tar archive from a clean, committed Git tree.
@@ -176,7 +201,7 @@ pub fn create_with_lock(
             }
             let relative = relative.to_str().context("non-UTF-8 symlink target")?;
             contents = git(root, &["show", &format!("{sha}:{relative}")])?;
-            if contents != std::fs::read(&resolved)? {
+            if !same_text(&contents, &std::fs::read(&resolved)?) {
                 bail!("symlink target differs from committed source");
             }
             #[cfg(unix)]
@@ -188,7 +213,7 @@ pub fn create_with_lock(
             entry.read_to_end(&mut contents)?;
         }
         if path == Path::new("Cargo.lock") {
-            if contents != std::fs::read(root.join("Cargo.lock"))? {
+            if !same_text(&contents, &std::fs::read(root.join("Cargo.lock"))?) {
                 bail!("working lockfile differs from the committed lockfile");
             }
             if let Some(expected) = lock {
@@ -354,7 +379,7 @@ pub fn create_with_lock(
         header.set_cksum();
         archive.append_data(&mut header, Path::new(&prefix).join("Cargo.lock"), bytes)?;
     }
-    if std::fs::read(root.join("Cargo.toml"))? != manifest {
+    if !same_text(&manifest, &std::fs::read(root.join("Cargo.toml"))?) {
         bail!("working manifest differs from the committed package manifest");
     }
     let parsed: toml::Value = toml::from_str(std::str::from_utf8(&manifest)?)?;

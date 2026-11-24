@@ -169,7 +169,12 @@ mod tests {
             expand(root, entry)
                 .unwrap()
                 .iter()
-                .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().into_owned())
+                .map(|p| {
+                    p.strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                })
                 .collect()
         };
         assert_eq!(names("crates/*"), ["crates/.hidden", "crates/a"]);
