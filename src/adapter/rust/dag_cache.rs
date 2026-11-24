@@ -221,8 +221,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
     if valid {
         if is_bin {
             let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
-            let dest_bin =
-                super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name);
+            let dest_bin = super::dag_unit_publish::unit_dest_binary(unit, ctx, profile_name);
             for out in &entry.outputs {
                 if out.executable {
                     let rel_dest = ctx.target_dir.join(&out.relative_path);
@@ -266,7 +265,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
         let dest_bin = is_bin.then(|| {
             let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
-            super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name)
+            super::dag_unit_publish::unit_dest_binary(unit, ctx, profile_name)
         });
         if !super::split_debuginfo::restore(
             ctx.cas,

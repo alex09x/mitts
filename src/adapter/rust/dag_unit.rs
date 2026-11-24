@@ -211,8 +211,8 @@ pub(crate) fn execute_unit(
         let _ = fs::create_dir_all(&target_deps_dir);
         &target_deps_dir
     };
-    let dest_binary = is_executable
-        .then(|| super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name));
+    let dest_binary =
+        is_executable.then(|| super::dag_unit_publish::unit_dest_binary(unit, ctx, profile_name));
     let extra_compiler_args = ctx.opt.effective_compiler_args();
 
     let invocation = RustcInvocation {
