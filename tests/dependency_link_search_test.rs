@@ -92,8 +92,10 @@ fn main() {
 
 #[test]
 fn a_test_binary_links_a_dylib_found_through_a_dependency_build_script() {
-    if Command::new("cc").arg("--version").output().is_err() {
-        eprintln!("no C compiler on this host; skipping");
+    // The native library is built with `cc` as a unix shared object; on MSVC that `cc`
+    // (MinGW's) produces nothing the MSVC linker takes.
+    if cfg!(target_env = "msvc") || Command::new("cc").arg("--version").output().is_err() {
+        eprintln!("no unix C toolchain on this host; skipping");
         return;
     }
     let cache = TempDir::new().unwrap();

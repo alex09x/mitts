@@ -123,8 +123,10 @@ fn dev_and_test_default_to_line_tables_and_backtraces_keep_lines() {
     // deferred by the owner.
     if !cfg!(target_os = "macos") {
         assert!(
-            out.lines()
-                .any(|l| l.trim_start().starts_with("at ") && l.contains("src/lib.rs:7:")),
+            // `src\lib.rs` on Windows.
+            out.lines().any(|l| {
+                l.trim_start().starts_with("at ") && l.replace('\\', "/").contains("src/lib.rs:7:")
+            }),
             "a backtrace frame names the failing line: {out}"
         );
     }

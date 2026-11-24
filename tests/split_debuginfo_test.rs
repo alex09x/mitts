@@ -260,8 +260,12 @@ fn unpacked_split_debuginfo_matches_cargo_and_survives_a_cache_hit() {
 
 #[test]
 fn packed_split_debuginfo_puts_the_package_beside_the_executable() {
-    if cfg!(target_os = "macos") || !supported().iter().any(|v| v == "packed") {
-        // macOS `packed` runs dsymutil; covered by the unit tests of the placement.
+    if cfg!(target_os = "macos")
+        || cfg!(target_env = "msvc")
+        || !supported().iter().any(|v| v == "packed")
+    {
+        // macOS `packed` runs dsymutil; covered by the unit tests of the placement. MSVC's
+        // `packed` is the linker's `.pdb`, not a `.dwp`.
         return;
     }
     let (_temp, cold, warm, log) = build_twice(Some("packed"), "dwp");

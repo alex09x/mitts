@@ -207,11 +207,13 @@ fn timings_mark_restored_units_and_link_times() {
 fn a_linker_chosen_in_rustflags_is_not_wrapped() {
     let temp = project();
     let root = temp.path();
-    let (stdout, _) = ok(mitts_with(
-        root,
-        &["build", "-v"],
-        &[("RUSTFLAGS", "-Clinker=cc")],
-    ));
+    // A linker of this host: MSVC's link.exe (MinGW's cc cannot link MSVC objects).
+    let flags = if cfg!(target_env = "msvc") {
+        "-Clinker=link.exe"
+    } else {
+        "-Clinker=cc"
+    };
+    let (stdout, _) = ok(mitts_with(root, &["build", "-v"], &[("RUSTFLAGS", flags)]));
     assert!(!stdout.contains("linker: "), "{stdout}");
     assert!(!stdout.contains(", link "), "{stdout}");
 }
