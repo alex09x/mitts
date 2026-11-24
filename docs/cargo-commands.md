@@ -27,6 +27,11 @@ Cargo's do. Options every command takes: `--config`, `--color`, `-C DIR`, `-Z`,
 Commands Mitts adds: `explain` (the plan and why each unit is or is not cached),
 `coverage` / `llvm-cov`, `gc` (prune the shared cache).
 
+Not supported: Cargo's external subcommands. Cargo runs any `cargo-<name>` executable on
+`PATH` as `cargo <name>` (`cargo nextest`, `cargo expand`, …); Mitts rejects unknown
+commands, so run those tools directly. `cargo --list` has no Mitts equivalent; `mitts --help`
+lists the commands.
+
 ## `rust-version`
 
 A build fails before compiling anything when a package of the build declares a

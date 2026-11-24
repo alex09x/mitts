@@ -374,8 +374,10 @@ O Mitts está em pré-lançamento. Conheça estes pontos antes de confiar nele:
 - **Apenas registros sparse.** Um registro servido como índice git (`registry+…`
   diferente de crates.io, ou `[source] registry = "https://…"` sem
   `sparse+`) e fontes `local-registry` são recusados com orientação.
-- **Credenciais são lidas, nunca gravadas.** `cargo login` continua sendo tarefa do Cargo;
-  `cargo:wincred` é exclusivo para Windows e é ignorado.
+- **Os tokens ficam onde o Cargo os guarda.** `mitts login` e `mitts logout` gravam
+  `$CARGO_HOME/credentials.toml`, como o Cargo; `cargo:wincred` é exclusivo para Windows e é ignorado.
+- **Sem subcomandos externos.** `mitts nextest`, `mitts llvm-cov` e outras ferramentas `cargo-<name>`
+  não são repassados; execute essas ferramentas diretamente.
 - **Algumas unidades nunca são cacheadas:** crates do tipo `cdylib`, `dylib` ou
   `staticlib`, e crates cujas leituras de `env!` não podem ser rastreadas. Elas sempre
   são compiladas; elas são informadas pelo `mitts explain`.
@@ -514,17 +516,17 @@ Decisões de arquitetura: [docs/decisions](../docs/decisions).
 
 ## Como citar
 
-Para citar o Mitts, use a versão arquivada. O DOI de conceito [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) sempre aponta para a versão mais recente; o DOI da versão 0.3.39 é [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376). A opção «Cite this repository» do GitHub lê o [CITATION.cff](../CITATION.cff).
+Para citar o Mitts, use a versão arquivada. O DOI de conceito [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) sempre aponta para a versão mais recente; o DOI da versão 0.4.0 é [10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190). A opção «Cite this repository» do GitHub lê o [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24407376,
+@software{panasenko_2026_24489190,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.39},
-  doi       = {10.5281/zenodo.24407376},
-  url       = {https://doi.org/10.5281/zenodo.24407376}
+  version   = {0.4.0},
+  doi       = {10.5281/zenodo.24489190},
+  url       = {https://doi.org/10.5281/zenodo.24489190}
 }
 ```
 

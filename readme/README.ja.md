@@ -287,7 +287,8 @@ Mittsはプレリリース段階です。依存する前に以下を把握して
 - **ホストターゲットのみ。** クロスコンパイルはまだサポートされていません。
 - **リモートキャッシュは未提供。** ストアはマシン単位です。
 - **sparseレジストリのみ。** gitインデックスとして提供されるレジストリ（crates.io以外の `registry+…`、または `sparse+` のない `[source] registry = "https://…"`）および `local-registry` ソースはアドバイスとともに拒否されます。
-- **認証情報は読み取りのみで、書き込みは行いません。** `cargo login` は引き続きCargoの役割です。`cargo:wincred` はWindows専用のためスキップされます。
+- **トークンは Cargo と同じ場所に保存されます。** `mitts login` と `mitts logout` は Cargo と同様に `$CARGO_HOME/credentials.toml` に書き込みます。`cargo:wincred` はWindows専用のためスキップされます。
+- **外部サブコマンドはありません。** `mitts nextest`、`mitts llvm-cov` などの `cargo-<name>` ツールは中継されません。これらのツールは直接実行してください。
 - **一部のユニットは決してキャッシュされません:** `cdylib`、`dylib`、または `staticlib` タイプのクレート、および `env!` の読み取りを追跡できないクレート。これらは常にビルドされます。`mitts explain` によって報告されます。
 - **チェックアウトをまたぐワークスペースクレート。** 自身のクレートがワークツリー間で再利用されるのは、そのキーをパス非依存にできる場合（`CARGO_MANIFEST_DIR` の読み取りがなく、ビルドスクリプトがなく、宣言された非純粋（impure）な手続き型マクロがない場合）に限られます。それ以外の場合、キーには絶対パスが含まれます。macOSではリンカのデバッグスタブがワークスペース相対（`-oso_prefix`）で書き込まれるため、リンクされたバイナリも共有されます。デバッガがオブジェクトファイルを見つけられるように、ワークスペースのルートでデバッガを起動してください。
 - **ファイルを読み取るマクロの宣言は利用者の責任です。** プロジェクトがリストに明記しない限り、手続き型マクロは純粋なものとして扱われます（上記参照）。リストされたマクロの依存先はパッケージ内のすべてのファイルに従います。rustcに登録せずにファイルを読み取るリスト外のマクロは、Cargoとまったく同様に古い結果を生成する可能性があります。
@@ -392,17 +393,17 @@ MittsはCargoと同じデフォルトの出力パスを使用します。共有�
 
 ## 引用
 
-Mitts を引用するには、アーカイブされたリリースを使用してください。コンセプト DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) は常に最新バージョンを指し、バージョン 0.3.39 のバージョン DOI は [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376) です。GitHub の「Cite this repository」は [CITATION.cff](../CITATION.cff) を読み取ります。
+Mitts を引用するには、アーカイブされたリリースを使用してください。コンセプト DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) は常に最新バージョンを指し、バージョン 0.4.0 のバージョン DOI は [10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190) です。GitHub の「Cite this repository」は [CITATION.cff](../CITATION.cff) を読み取ります。
 
 ```bibtex
-@software{panasenko_2026_24407376,
+@software{panasenko_2026_24489190,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.39},
-  doi       = {10.5281/zenodo.24407376},
-  url       = {https://doi.org/10.5281/zenodo.24407376}
+  version   = {0.4.0},
+  doi       = {10.5281/zenodo.24489190},
+  url       = {https://doi.org/10.5281/zenodo.24489190}
 }
 ```
 

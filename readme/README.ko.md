@@ -284,7 +284,8 @@ Mitts는 프리릴리스 단계입니다. 이에 의존하기 전에 다음 사�
 - **호스트 타깃 전용.** 크로스 컴파일은 아직 지원되지 않습니다.
 - **원격 캐시 아직 미지원.** 저장소는 머신별로 로컬입니다.
 - **Sparse 레지스트리 전용.** git 인덱스로 제공되는 레지스트리(crates.io 이외의 `registry+…`, 또는 `sparse+`가 없는 `[source] registry = "https://…"`) 및 `local-registry` 소스는 안내 메시지와 함께 거부됩니다.
-- **자격 증명은 읽기 전용이며 쓰지 않음.** `cargo login`은 Cargo의 역할로 유지됩니다. `cargo:wincred`는 Windows 전용이므로 건너뜁니다.
+- **토큰은 Cargo가 저장하는 곳에 저장됨.** `mitts login`과 `mitts logout`은 Cargo와 마찬가지로 `$CARGO_HOME/credentials.toml`에 기록합니다. `cargo:wincred`는 Windows 전용이므로 건너뜁니다.
+- **외부 하위 명령 없음.** `mitts nextest`, `mitts llvm-cov` 등 `cargo-<name>` 도구는 전달되지 않습니다. 해당 도구를 직접 실행하세요.
 - **일부 유닛은 절대 캐시되지 않음:** `cdylib`, `dylib` 또는 `staticlib` 타입의 크레이트 및 `env!` 읽기를 추적할 수 없는 크레이트. 이들은 항상 빌드되며, `mitts explain`에 의해 보고됩니다.
 - **체크아웃 간 워크스페이스 크레이트.** 자체 크레이트는 키를 경로 독립적으로 만들 수 있는 경우에만 워크트리 간에 재사용됩니다(`CARGO_MANIFEST_DIR` 읽기 없음, 빌드 스크립트 없음, 선언된 impure 절차적 매크로 없음). 그렇지 않으면 키에 절대 경로가 포함됩니다. macOS에서는 링커의 디버그 stab이 워크스페이스에 상대적으로 작성되므로(`-oso_prefix`), 링크된 바이너리도 공유됩니다. 디버거가 오브젝트 파일을 찾을 수 있도록 워크스페이스 루트에서 디버거를 시작하십시오.
 - **파일을 읽는 매크로는 직접 선언해야 함.** 프로젝트에서 목록에 명시하지 않는 한 절차적 매크로는 순수한 것으로 취급됩니다(위 내용 참조). 목록에 명시된 매크로의 종속 항목은 패키지의 모든 파일을 따릅니다. rustc에 등록하지 않고 파일을 읽는 목록 외 매크로는 Cargo와 마찬가지로 오래된 결과를 초래할 수 있습니다.
@@ -389,17 +390,17 @@ Mitts는 Cargo와 동일한 기본 출력 경로를 사용합니다. 공유 아�
 
 ## 인용
 
-Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.3.39 버전의 DOI는 [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
+Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.4.0 버전의 DOI는 [10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
 
 ```bibtex
-@software{panasenko_2026_24407376,
+@software{panasenko_2026_24489190,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.39},
-  doi       = {10.5281/zenodo.24407376},
-  url       = {https://doi.org/10.5281/zenodo.24407376}
+  version   = {0.4.0},
+  doi       = {10.5281/zenodo.24489190},
+  url       = {https://doi.org/10.5281/zenodo.24489190}
 }
 ```
 

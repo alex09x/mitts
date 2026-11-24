@@ -320,7 +320,8 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 - **الهدف المضيف فقط.** الترجمة المتقاطعة غير مدعومة حتى الآن.
 - **لا توجد ذاكرة مؤقتة عن بُعد بعد.** المستودع محلي لكل جهاز.
 - **سجلات sparse فقط.** تُرفض السجلات التي تعمل عبر فهرس git (أي <bdi>`registry+…`</bdi> بخلاف crates.io، أو <bdi>`[source] registry = "https://…"`</bdi> بدون <bdi>`sparse+`</bdi>) ومصادر `local-registry` مع تقديم نصائح بديلة.
-- **بيانات الاعتماد تُقرأ فقط ولا تُكتب أبداً.** تبقى مهمة `cargo login` موكلة إلى Cargo؛ ويتم تجاهل `cargo:wincred` لكونه خاصاً بنظام Windows فقط.
+- **تُحفظ الرموز حيث يحفظها Cargo.** يكتب الأمران <bdi>`mitts login`</bdi> و <bdi>`mitts logout`</bdi> في <bdi>`$CARGO_HOME/credentials.toml`</bdi> كما يفعل Cargo؛ ويتم تجاهل `cargo:wincred` لكونه خاصاً بنظام Windows فقط.
+- **لا توجد أوامر فرعية خارجية.** لا يتم تمرير <bdi>`mitts nextest`</bdi> و <bdi>`mitts llvm-cov`</bdi> وغيرها من أدوات <bdi>`cargo-<name>`</bdi>؛ شغّل هذه الأدوات مباشرة.
 - **بعض الوحدات لا تُخزن مؤقتاً أبداً:** الحزم من الأنواع `cdylib` و `dylib` و `staticlib`، والحزم التي يتعذر تتبع قراءاتها لـ <bdi>`env!`</bdi>. يتم بناؤها دائماً؛ ويبلغ عنها الأمر `mitts explain`.
 - **حزم مساحات العمل عبر نسخ العمل.** يُعاد استخدام حزمك الخاصة عبر شجرات العمل فقط عندما يكون مفتاحها مستقلاً عن المسار (عدم وجود قراءات لـ `CARGO_MANIFEST_DIR`، وعدم وجود سكربت بناء، وعدم وجود ماكرو إجرائي غير نقي مُعلن عنه). وإلا فإن المفتاح سيتضمن المسار المطلق. على نظام macOS، تُكتب علامات تصحيح الأخطاء الخاصة بالرابط نسبة إلى مساحة العمل (<bdi>`-oso_prefix`</bdi>)، مما يسمح بمشاركة الملفات الثنائية المرتبطة أيضاً؛ ابدأ المصحح في جذر مساحة العمل ليتمكن من العثور على ملفات الكائنات.
 - **وحدات الماكرو التي تقرأ ملفاتك تقع مسؤولية إعلانها عليك.** يُعامل الماكرو الإجرائي كـ نقي ما لم يدرجه المشروع في القائمة (انظر أعلاه). تتبع الوحدات المعتمدة على الماكرو المدرج كل ملف في حزمتها؛ أما الماكرو غير المدرج الذي يقرأ ملفاً دون تسجيله لدى rustc فيمكن أن ينتج نتيجة قديمة، تماماً كما هو الحال في Cargo.
@@ -434,19 +435,19 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 <a id="citation"></a>
 ## الاستشهاد
 
-للاستشهاد بـ Mitts، استخدم الإصدار المؤرشف. يشير معرّف DOI المفاهيمي <bdi>[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)</bdi> دائماً إلى أحدث إصدار؛ ومعرّف DOI للإصدار 0.3.39 هو <bdi>[10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376)</bdi>. تقرأ ميزة «Cite this repository» في GitHub الملف <bdi>[CITATION.cff](../CITATION.cff)</bdi>.
+للاستشهاد بـ Mitts، استخدم الإصدار المؤرشف. يشير معرّف DOI المفاهيمي <bdi>[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)</bdi> دائماً إلى أحدث إصدار؛ ومعرّف DOI للإصدار 0.4.0 هو <bdi>[10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190)</bdi>. تقرأ ميزة «Cite this repository» في GitHub الملف <bdi>[CITATION.cff](../CITATION.cff)</bdi>.
 
 <div dir="ltr">
 
 ```bibtex
-@software{panasenko_2026_24407376,
+@software{panasenko_2026_24489190,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.39},
-  doi       = {10.5281/zenodo.24407376},
-  url       = {https://doi.org/10.5281/zenodo.24407376}
+  version   = {0.4.0},
+  doi       = {10.5281/zenodo.24489190},
+  url       = {https://doi.org/10.5281/zenodo.24489190}
 }
 ```
 
