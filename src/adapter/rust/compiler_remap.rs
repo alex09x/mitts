@@ -110,6 +110,29 @@ fn append_darwin_oso_prefix(inv: &RustcInvocation<'_>, cmd: &mut Command) {
     if !cfg!(target_os = "macos") {
         return;
     }
+    // Only Apple's linker knows `-oso_prefix`: a unit built for another target (wasm32
+    // links with rust-lld) does not get it; host units (build scripts, proc macros) do.
+    let host_unit = inv.unit.for_host
+        || matches!(
+            inv.unit.kind.as_str(),
+            "proc-macro" | "custom-build" | "build-script"
+        );
+    if !host_unit {
+        let dir = inv
+            .unit
+            .workspace_root
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_default();
+        let start = super::cargo_config::resolve_config_start_dir(&dir);
+        let target = super::key_flags::resolve_explicit_target_from_args_and_dir(
+            inv.extra_compiler_args,
+            &start,
+        );
+        if target.is_some_and(|t| !t.contains("-apple-")) {
+            return;
+        }
+    }
     // The paths the linker records are the ones rustc received: rlibs under
     // `<checkout>/target/…/deps` (the `-L dependency` directory) and archives build scripts
     // leave under `<checkout>/target/…/build`. The checkout spelling is whatever precedes
