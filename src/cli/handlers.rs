@@ -474,6 +474,14 @@ fn clean_selective(
         Ok(())
     };
     inside(&root)?;
+    // A target (or profile root) that was never built: nothing to remove, nothing created.
+    if !root.exists() {
+        if !args.quiet {
+            let word = if args.dry_run { "Summary" } else { "Removed" };
+            eprintln!("{word:>12} 0 files");
+        }
+        return Ok(());
+    }
     let (count, bytes) = if args.doc {
         let doc = root.join("doc");
         // What is deleted must be inside the owned target directory.

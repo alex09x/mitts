@@ -254,6 +254,9 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
             if let Some(dir) = &args.artifact_dir {
                 if let Err(error) = copy_final_artifacts(&opt, dir) {
                     eprintln!("error: {error:#}");
+                    // The stream already said the build finished; the command as a whole
+                    // did not succeed, and the last record says so.
+                    message_format::emit_build_finished(false);
                     return 101;
                 }
             }

@@ -168,8 +168,10 @@ fn render(per_package: &BTreeMap<String, Vec<String>>, id: u64) -> String {
 
 /// After a build with `--future-incompat-report`: check again with the report enabled,
 /// print it and store it.
-pub fn run_after_build(argv: &[std::ffi::OsString]) {
-    if let Err(error) = run_after_build_inner(argv) {
+/// `test_like`: the finished command was `test` or `bench` (as the CLI parser read it),
+/// whose default targets include the test targets.
+pub fn run_after_build(argv: &[std::ffi::OsString], test_like: bool) {
+    if let Err(error) = run_after_build_inner(argv, test_like) {
         eprintln!("warning: future-incompatibility report not produced: {error:#}");
     }
 }
@@ -238,7 +240,7 @@ pub fn selection_args(argv: &[String]) -> Vec<String> {
     out
 }
 
-fn run_after_build_inner(argv: &[std::ffi::OsString]) -> Result<()> {
+fn run_after_build_inner(argv: &[std::ffi::OsString], test_like: bool) -> Result<()> {
     let exe = std::env::current_exe()?;
     let mut flags = std::env::var("RUSTFLAGS").unwrap_or_default();
     if !flags.is_empty() {
@@ -254,11 +256,6 @@ fn run_after_build_inner(argv: &[std::ffi::OsString]) -> Result<()> {
     // The same targets the command built: its own selectors; with none, what the command
     // compiles by default (`test` and `bench` also their test targets).
     let selection = selection_args(&words);
-    let command = words
-        .iter()
-        .find(|w| !w.starts_with('-'))
-        .map(String::as_str)
-        .unwrap_or("build");
     let selectors = [
         "--lib",
         "--bins",
@@ -274,7 +271,7 @@ fn run_after_build_inner(argv: &[std::ffi::OsString]) -> Result<()> {
     let selected = selection.iter().any(|w| selectors.contains(&w.as_str()));
     let mut cmd = Command::new(exe);
     cmd.args(["check", "--message-format", "json", "-q"]);
-    if !selected && matches!(command, "test" | "t" | "bench") {
+    if !selected && test_like {
         cmd.arg("--tests");
     }
     let output = cmd

@@ -1694,3 +1694,29 @@ fn clean_of_an_unbuilt_target_and_corrupt_records_are_handled() {
     );
     assert!(err.contains("two files named `app`"), "{err}");
 }
+
+#[test]
+fn corrupt_credentials_or_records_change_nothing() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "");
+    with_named_registry(&app, &registry);
+    let home = env.path("cargo-home");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join("credentials"), "not = [toml").unwrap();
+    let err = env.fails(&app, &["login", "--registry", "mock", "new"]);
+    assert!(err.contains("failed to parse"), "{err}");
+    assert!(
+        !home.join("credentials.toml").exists(),
+        "nothing written before both files were read"
+    );
+
+    let root = env.path("root");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join(".crates2.json"), "{\"installs\": []}").unwrap();
+    let err = env.fails(&app, &["uninstall", "x", "--root", root.to_str().unwrap()]);
+    assert!(
+        err.contains("is corrupt") || err.contains("did not match"),
+        "{err}"
+    );
+}

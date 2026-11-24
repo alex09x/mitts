@@ -256,12 +256,20 @@ fn read_tracking(root: &Path) -> Result<BTreeMap<String, Vec<String>>> {
 /// `.crates2.json`: a missing file is empty, an unreadable or invalid one an error.
 fn read_v2(root: &Path) -> Result<Value> {
     let path = root.join(".crates2.json");
-    match std::fs::read_to_string(&path) {
+    let value: Value = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text)
-            .with_context(|| format!("failed to parse {}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({"installs": {}})),
-        Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
+            .with_context(|| format!("failed to parse {}", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(json!({"installs": {}})),
+        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
+    };
+    // The shape too: an object whose `installs` is an object of records.
+    if !value["installs"].is_object() {
+        anyhow::bail!(
+            "{} is corrupt: expected an object with an `installs` object",
+            path.display()
+        );
     }
+    Ok(value)
 }
 
 fn write_tracking(

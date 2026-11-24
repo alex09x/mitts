@@ -140,7 +140,8 @@ fn main() -> ExitCode {
         Commands::Report(ref args) => mitts::cli::future_incompat::handle_report(args),
     };
     if cli.future_incompat_report && code == 0 && cli.command.cache_use().is_some() {
-        mitts::cli::future_incompat::run_after_build(&original_args);
+        let test_like = matches!(cli.command, Commands::Test(_) | Commands::Bench(_));
+        mitts::cli::future_incompat::run_after_build(&original_args, test_like);
     }
 
     mitts::adapter::rust::cargo_config_cli::cleanup();

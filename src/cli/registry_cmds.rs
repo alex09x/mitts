@@ -431,30 +431,50 @@ fn write_credentials(registry: Option<&str>, token: Option<&str>) -> Result<bool
     let home = crate::core::source_store::SourceStore::active_cargo_home()
         .context("cannot find the Cargo home directory")?;
     std::fs::create_dir_all(&home)?;
-    let mut changed = false;
+    // Both files are read, parsed and edited in memory first; only then is anything
+    // written, and a failure on the second file puts the first one back.
+    let mut planned: Vec<(std::path::PathBuf, Option<String>, String)> = Vec::new();
     for (file, write_here) in [("credentials.toml", true), ("credentials", false)] {
         let path = home.join(file);
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
+        let original = match std::fs::read_to_string(&path) {
+            Ok(text) => Some(text),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 if write_here && token.is_some() {
-                    String::new()
+                    None
                 } else {
                     continue;
                 }
             }
             Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
         };
-        let mut doc: toml_edit::DocumentMut = text
+        let mut doc: toml_edit::DocumentMut = original
+            .as_deref()
+            .unwrap_or_default()
             .parse()
             .with_context(|| format!("failed to parse {}", path.display()))?;
         let value = if write_here { token } else { None };
         if edit_token(&mut doc, registry, value)? {
-            write_private(&path, doc.to_string().as_bytes())?;
-            changed = true;
+            planned.push((path, original, doc.to_string()));
         }
     }
-    Ok(changed)
+    let mut written: Vec<(&std::path::PathBuf, &Option<String>)> = Vec::new();
+    for (path, original, text) in &planned {
+        if let Err(error) = write_private(path, text.as_bytes()) {
+            for (done, before) in written {
+                match before {
+                    Some(before) => {
+                        let _ = write_private(done, before.as_bytes());
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(done);
+                    }
+                }
+            }
+            return Err(error);
+        }
+        written.push((path, original));
+    }
+    Ok(!planned.is_empty())
 }
 
 /// Writes a credentials file the way it must be: a new file created readable by the
