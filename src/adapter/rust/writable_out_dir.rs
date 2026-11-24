@@ -78,8 +78,10 @@ pub fn relocate(directives: &mut BuildScriptDirectives, dest: &Path) -> Result<(
         // Bookkeeping lives beside `out`, never in it: build scripts see only their files.
         let ready = parent.join(READY_MARKER);
         if !(ready.is_file() && dest.is_dir()) {
-            let _ = fs::remove_file(&ready);
-            let _ = fs::remove_dir_all(parent.join(WRITTEN_DIR));
+            // The records of the old directory's writes must go before a fresh one is
+            // published: a surviving record would let a writer's cached run be skipped.
+            remove_if_present(&ready, false)?;
+            remove_if_present(&parent.join(WRITTEN_DIR), true)?;
             let staging = parent.join(format!(".out.staging.{}", std::process::id()));
             let _ = fs::remove_dir_all(&staging);
             fs::create_dir_all(&staging)?;
@@ -163,6 +165,30 @@ pub fn snapshot() -> BTreeMap<PathBuf, String> {
     out
 }
 
+/// Removes a file (or, with `dir`, a directory tree); a path that is not there is fine,
+/// any other failure is an error naming the path.
+fn remove_if_present(path: &Path, dir: bool) -> Result<()> {
+    let result = if dir {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
+    match result {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(e).with_context(|| format!("remove {}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// After a build script failed: the may-write mark this attempt set is lifted again.
+pub fn unmark_after_failure(script_cache_dir: &Path, marked_now: bool) -> Result<()> {
+    if marked_now {
+        remove_if_present(&script_cache_dir.join(WRITES_MARKER), false)?;
+    }
+    Ok(())
+}
+
 /// Where an OUT_DIR's record of the scripts whose writes it holds lives: beside it.
 fn written_record(out_dir: &Path, build_key: &str) -> Option<PathBuf> {
     out_dir
@@ -188,13 +214,13 @@ pub fn mark_may_write(script_cache_dir: &Path) -> Result<bool> {
 }
 
 /// After a build script ran: record its writes as present in each writable OUT_DIR it
-/// touched; if it wrote nowhere and `marked_now` (the mark is this run's), lift the mark.
+/// touched; if it wrote nowhere, it is not a writer and the mark (this run's or one left
+/// behind) is lifted.
 pub fn record_writes(
     before: &BTreeMap<PathBuf, String>,
     after: &BTreeMap<PathBuf, String>,
     script_cache_dir: &Path,
     build_key: &str,
-    marked_now: bool,
 ) -> Result<()> {
     let changed: Vec<&PathBuf> = after
         .iter()
@@ -203,8 +229,8 @@ pub fn record_writes(
         .chain(before.keys().filter(|p| !after.contains_key(*p)))
         .collect();
     if changed.is_empty() {
-        if marked_now {
-            let _ = fs::remove_file(script_cache_dir.join(WRITES_MARKER));
+        if !ACTIVE.lock().unwrap().is_empty() {
+            remove_if_present(&script_cache_dir.join(WRITES_MARKER), false)?;
         }
         return Ok(());
     }

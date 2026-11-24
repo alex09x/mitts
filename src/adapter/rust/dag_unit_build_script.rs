@@ -250,8 +250,17 @@ pub(crate) fn run_build_script_if_needed<'a>(
                         .manifest_path
                         .parent()
                         .unwrap_or(std::path::Path::new("."));
+                    // The may-write mark of this failed attempt goes; a failure to remove it
+                    // is reported after the build failure, never instead of it.
+                    let cleanup = script_cache_dir.as_ref().map_or(Ok(()), |(dir, _)| {
+                        super::writable_out_dir::unmark_after_failure(dir, marked_now)
+                    });
+                    let note = cleanup
+                        .err()
+                        .map(|e| format!("\n(also: {e:#})"))
+                        .unwrap_or_default();
                     bail!(
-                        "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}",
+                        "rustc failed for unit '{}' (exit code 1):\n  command: rustc build.rs\n  cwd: {}\n{}{note}",
                         unit.unit_id(),
                         pkg_dir.display(),
                         err
@@ -264,7 +273,6 @@ pub(crate) fn run_build_script_if_needed<'a>(
                     &super::writable_out_dir::snapshot(),
                     dir,
                     key,
-                    marked_now,
                 )?;
             }
             if d.rerun_if_changed_hashes
