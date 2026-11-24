@@ -362,7 +362,7 @@ performance claim.
 | Caches build-script runs | no | no | yes |
 | Concurrent builds of one dependency | wait on the `target/` lock | both may compile on a miss | one compiles, the other reuses |
 | Remote / team cache | no | yes (S3, GCS, Redis, …) | planned |
-| Windows | yes | yes | yes (x86-64 MSVC, from source until 0.5.0) |
+| Windows | yes | yes | yes (x86-64 MSVC) |
 
 Bazel and Buck2 solve a larger problem — hermetic, multi-language builds with
 remote execution — but require their own build files instead of `Cargo.toml`.
@@ -509,19 +509,19 @@ Architecture decisions: [docs/decisions](docs/decisions).
 
 To cite Mitts, use the archived release. The concept DOI
 [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) always resolves to the
-latest version; the version DOI of 0.5.0 is
-[10.5281/zenodo.24512542](https://doi.org/10.5281/zenodo.24512542). GitHub's
+latest version; the version DOI of 0.5.1 is
+[10.5281/zenodo.24516929](https://doi.org/10.5281/zenodo.24516929). GitHub's
 "Cite this repository" reads [CITATION.cff](CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24512542,
+@software{panasenko_2026_24516929,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.0},
-  doi       = {10.5281/zenodo.24512542},
-  url       = {https://doi.org/10.5281/zenodo.24512542}
+  version   = {0.5.1},
+  doi       = {10.5281/zenodo.24516929},
+  url       = {https://doi.org/10.5281/zenodo.24516929}
 }
 ```
 

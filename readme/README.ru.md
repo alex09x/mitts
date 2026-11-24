@@ -366,7 +366,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 | Кэширует запуски build-скриптов | нет | нет | да |
 | Одновременная сборка одной зависимости | ожидание на блокировке `target/` | оба могут компилировать при промахе | один компилирует, второй использует повторно |
 | Удаленный / командный кэш | нет | да (S3, GCS, Redis, …) | планируется |
-| Windows | да | да | да (x86-64 MSVC, до 0.5.0 из исходников) |
+| Windows | да | да | да (x86-64 MSVC) |
 
 Bazel и Buck2 решают более масштабную задачу — герметичные многоязычные сборки с
 удаленным выполнением, — но требуют собственных файлов сборки вместо `Cargo.toml`.
@@ -516,17 +516,17 @@ Mitts использует те же стандартные пути вывод�
 
 ## Цитирование
 
-Чтобы сослаться на Mitts, используйте архивированный релиз. Концептуальный DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) всегда ведёт к последней версии; DOI версии 0.5.0 — [10.5281/zenodo.24512542](https://doi.org/10.5281/zenodo.24512542). Кнопка GitHub «Cite this repository» читает [CITATION.cff](../CITATION.cff).
+Чтобы сослаться на Mitts, используйте архивированный релиз. Концептуальный DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) всегда ведёт к последней версии; DOI версии 0.5.1 — [10.5281/zenodo.24516929](https://doi.org/10.5281/zenodo.24516929). Кнопка GitHub «Cite this repository» читает [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24512542,
+@software{panasenko_2026_24516929,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.0},
-  doi       = {10.5281/zenodo.24512542},
-  url       = {https://doi.org/10.5281/zenodo.24512542}
+  version   = {0.5.1},
+  doi       = {10.5281/zenodo.24516929},
+  url       = {https://doi.org/10.5281/zenodo.24516929}
 }
 ```
 

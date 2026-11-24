@@ -364,7 +364,7 @@ afirmação de desempenho.
 | Cacheia execuções de scripts de build | não | não | sim |
 | Compilações concorrentes de uma dependência | aguardam no lock de `target/` | ambas podem compilar quando não há resultado no cache | uma compila, a outra reutiliza |
 | Cache remoto / de equipe | não | sim (S3, GCS, Redis, …) | planejado |
-| Windows | sim | sim | sim (x86-64 MSVC, a partir do código-fonte até a 0.5.0) |
+| Windows | sim | sim | sim (x86-64 MSVC) |
 
 Bazel e Buck2 resolvem um problema maior — compilações herméticas e multilíngues com
 execução remota —, mas exigem seus próprios arquivos de build em vez do `Cargo.toml`.
@@ -514,17 +514,17 @@ Decisões de arquitetura: [docs/decisions](../docs/decisions).
 
 ## Como citar
 
-Para citar o Mitts, use a versão arquivada. O DOI de conceito [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) sempre aponta para a versão mais recente; o DOI da versão 0.5.0 é [10.5281/zenodo.24512542](https://doi.org/10.5281/zenodo.24512542). A opção «Cite this repository» do GitHub lê o [CITATION.cff](../CITATION.cff).
+Para citar o Mitts, use a versão arquivada. O DOI de conceito [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) sempre aponta para a versão mais recente; o DOI da versão 0.5.1 é [10.5281/zenodo.24516929](https://doi.org/10.5281/zenodo.24516929). A opção «Cite this repository» do GitHub lê o [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24512542,
+@software{panasenko_2026_24516929,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.0},
-  doi       = {10.5281/zenodo.24512542},
-  url       = {https://doi.org/10.5281/zenodo.24512542}
+  version   = {0.5.1},
+  doi       = {10.5281/zenodo.24516929},
+  url       = {https://doi.org/10.5281/zenodo.24516929}
 }
 ```
 
