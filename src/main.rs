@@ -55,6 +55,7 @@ fn main() -> ExitCode {
             return ExitCode::from(101);
         }
     };
+    let original_args = args.clone();
     let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     mitts::core::verbosity::set(cli.command.verbose());
@@ -139,7 +140,7 @@ fn main() -> ExitCode {
         Commands::Report(ref args) => mitts::cli::future_incompat::handle_report(args),
     };
     if cli.future_incompat_report && code == 0 && cli.command.cache_use().is_some() {
-        mitts::cli::future_incompat::run_after_build();
+        mitts::cli::future_incompat::run_after_build(&original_args);
     }
 
     mitts::adapter::rust::cargo_config_cli::cleanup();

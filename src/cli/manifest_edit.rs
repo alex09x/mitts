@@ -298,14 +298,23 @@ fn run_add(args: &AddArgs) -> Result<()> {
         let key = args.rename.clone().unwrap_or_else(|| name.clone());
         let table = dep_table(&mut doc, args.target.as_deref(), section);
         let existing = table.get(&key).cloned();
-        let mut entry = match existing.as_ref().and_then(|i| i.as_value()) {
-            Some(Value::InlineTable(t)) => t.clone(),
-            Some(Value::String(s)) => {
+        // An expanded `[dependencies.foo]` table is edited as it is and written back as a table.
+        let was_table = matches!(existing, Some(Item::Table(_)));
+        let mut entry = match existing {
+            Some(Item::Table(t)) => t.into_inline_table(),
+            Some(Item::Value(Value::InlineTable(t))) => t,
+            Some(Item::Value(Value::String(s))) => {
                 let mut t = InlineTable::new();
                 t.insert("version", s.value().as_str().into());
                 t
             }
             _ => InlineTable::new(),
+        };
+        // A new source replaces the old one: path, git and registry fields exclude each other.
+        let clear = |entry: &mut InlineTable, keys: &[&str]| {
+            for k in keys {
+                entry.remove(k);
+            }
         };
         let mut shown_version = None;
         let mut available: Option<SparseIndexEntry> = None;
@@ -317,9 +326,16 @@ fn run_add(args: &AddArgs) -> Result<()> {
             entry = InlineTable::new();
             entry.insert("workspace", true.into());
         } else if let Some(path) = &args.path {
-            entry.remove("version");
+            clear(
+                &mut entry,
+                &["version", "git", "branch", "tag", "rev", "registry", "workspace"],
+            );
             entry.insert("path", path.to_string_lossy().replace('\\', "/").into());
         } else if let Some(git) = &args.git {
+            clear(
+                &mut entry,
+                &["version", "path", "branch", "tag", "rev", "registry", "workspace"],
+            );
             entry.insert("git", git.as_str().into());
             for (k, v) in [
                 ("branch", &args.branch),
@@ -375,6 +391,7 @@ fn run_add(args: &AddArgs) -> Result<()> {
                     unknown.join(", ")
                 );
             }
+            clear(&mut entry, &["path", "git", "branch", "tag", "rev", "workspace"]);
             let keep_existing = requested.is_none() && entry.contains_key("version");
             if !keep_existing {
                 let req = requested.clone().unwrap_or_else(|| picked.vers.clone());
@@ -421,8 +438,12 @@ fn run_add(args: &AddArgs) -> Result<()> {
             }
             entry.insert("features", Value::Array(array));
         }
-        let value = simplify(entry);
-        insert_sorted(table, &key, value);
+        if was_table {
+            table[key.as_str()] = Item::Table(entry.into_table());
+        } else {
+            let value = simplify(entry);
+            insert_sorted(table, &key, value);
+        }
 
         if !args.common.quiet {
             let place = match &args.target {
@@ -638,19 +659,29 @@ fn still_used(doc: &DocumentMut, name: &str) -> bool {
             })
 }
 
-/// Like Cargo: `[features]` entries naming a removed dependency (`dep`, `dep:dep`,
-/// `dep/feat`, `dep?/feat`) go with it.
+/// Like Cargo: references to a removed dependency (`dep:dep`, `dep/feat`, `dep?/feat`, and
+/// a bare `dep` when it named the dependency's implicit feature) go with it. A feature
+/// that only enabled the dependency (`dep = ["dep:dep"]`) goes too; an explicit feature
+/// of the same name with other contents stays.
 fn drop_feature_references(doc: &mut DocumentMut, name: &str) {
     let Some(features) = doc.get_mut("features").and_then(|f| f.as_table_like_mut()) else {
         return;
     };
+    let only_enables_dep = features
+        .get(name)
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| a.iter().all(|v| v.as_str() == Some(&format!("dep:{name}"))));
+    if only_enables_dep {
+        features.remove(name);
+    }
+    // A bare `name` refers to an explicit feature when one is still defined.
+    let explicit_feature = features.contains_key(name);
     let refers = |v: &str| {
-        v == name
+        (v == name && !explicit_feature)
             || v == format!("dep:{name}")
             || v.starts_with(&format!("{name}/"))
             || v.starts_with(&format!("{name}?/"))
     };
-    features.remove(name);
     for (_, list) in features.iter_mut() {
         if let Some(array) = list.as_array_mut() {
             let before = array.len();

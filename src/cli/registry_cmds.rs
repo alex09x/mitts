@@ -210,7 +210,7 @@ pub fn handle_search(args: &SearchArgs) -> i32 {
         if more > 0 {
             println!("... and {more} crates more (use --limit N to see more)");
         }
-        if !args.registry.quiet && api.name == "crates-io" && !lines.is_empty() {
+        if !args.registry.quiet && api.name.as_deref() == Some("crates-io") && !lines.is_empty() {
             eprintln!("note: to learn more about a package, run `mitts info <name>`");
         }
         Ok(())
@@ -423,14 +423,50 @@ fn download_manifest(choice: &RegistryChoice, name: &str, version: &str) -> Resu
     bail!("the package has no Cargo.toml")
 }
 
-/// `$CARGO_HOME/credentials.toml` with `token` set (or removed) for a registry.
+/// Sets (`Some`) or removes (`None`) a registry's token where Cargo reads it: a new token
+/// goes to `credentials.toml` and leaves the legacy `credentials` file, which would
+/// otherwise win; a logout removes it from both. A file that cannot be read or parsed is
+/// an error, never overwritten.
 fn write_credentials(registry: Option<&str>, token: Option<&str>) -> Result<bool> {
     let home = crate::core::source_store::SourceStore::active_cargo_home()
         .context("cannot find the Cargo home directory")?;
     std::fs::create_dir_all(&home)?;
-    let path = home.join("credentials.toml");
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut doc: toml_edit::DocumentMut = text.parse().unwrap_or_default();
+    let mut changed = false;
+    for (file, write_here) in [("credentials.toml", true), ("credentials", false)] {
+        let path = home.join(file);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if write_here && token.is_some() {
+                    String::new()
+                } else {
+                    continue;
+                }
+            }
+            Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
+        };
+        let mut doc: toml_edit::DocumentMut = text
+            .parse()
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        let value = if write_here { token } else { None };
+        if edit_token(&mut doc, registry, value)? {
+            std::fs::write(&path, doc.to_string())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+fn edit_token(
+    doc: &mut toml_edit::DocumentMut,
+    registry: Option<&str>,
+    token: Option<&str>,
+) -> Result<bool> {
     let changed = match registry.filter(|r| *r != "crates-io") {
         None => {
             let table = doc
@@ -470,14 +506,6 @@ fn write_credentials(registry: Option<&str>, token: Option<&str>) -> Result<bool
             }
         }
     };
-    if changed {
-        std::fs::write(&path, doc.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        }
-    }
     Ok(changed)
 }
 

@@ -68,8 +68,13 @@ pub struct CleanFilter {
 }
 
 /// Whether an artifact file name belongs to one of `crates` (`libfoo-<hash>.rlib`,
-/// `foo-<hash>.d`, the binary `foo`, `build/foo-<hash>/…`).
+/// `foo-<hash>.d`, the binary `foo`, `build/foo-<hash>/…`). The hash is Mitts' 16 hex
+/// digits, so `foo` never takes another package's `foo-bar`.
 pub fn belongs_to(relative: &Path, crates: &[String]) -> bool {
+    fn hashed(rest: &str) -> bool {
+        let hash: String = rest.chars().take_while(|c| *c != '.').collect();
+        hash.len() == 16 && hash.chars().all(|c| c.is_ascii_hexdigit())
+    }
     let words: Vec<String> = relative
         .components()
         .filter_map(|c| match c {
@@ -84,7 +89,9 @@ pub fn belongs_to(relative: &Path, crates: &[String]) -> bool {
                 let lib = format!("lib{n}");
                 [n.to_string(), lib].iter().any(|stem| {
                     w == stem
-                        || w.starts_with(&format!("{stem}-"))
+                        || w
+                            .strip_prefix(&format!("{stem}-"))
+                            .is_some_and(hashed)
                         || w.starts_with(&format!("{stem}."))
                 })
             })
@@ -260,5 +267,35 @@ pub(super) fn prune_cache(cache_dir: Option<&std::path::PathBuf>) {
             "Pruned global CAS and Action Cache"
         };
         crate::cli::Ui::stage_item(true, &crate::cli::Ui::badge_cached(), message);
+    }
+}
+
+#[cfg(test)]
+mod belongs_tests {
+    use super::belongs_to;
+    use std::path::Path;
+
+    #[test]
+    fn a_package_takes_its_hashed_and_plain_names_only() {
+        let foo = ["foo".to_string()];
+        assert!(belongs_to(
+            Path::new("debug/deps/libfoo-0123456789abcdef.rlib"),
+            &foo
+        ));
+        assert!(belongs_to(
+            Path::new("debug/deps/foo-0123456789abcdef.d"),
+            &foo
+        ));
+        assert!(belongs_to(Path::new("debug/foo"), &foo));
+        assert!(belongs_to(Path::new("debug/libfoo.rlib"), &foo));
+        assert!(!belongs_to(Path::new("debug/foo-bar"), &foo));
+        assert!(!belongs_to(
+            Path::new("debug/deps/foo_bar-0123456789abcdef"),
+            &foo
+        ));
+        assert!(belongs_to(
+            Path::new("debug/deps/libfoo_bar-0123456789abcdef.rlib"),
+            &["foo-bar".to_string()]
+        ));
     }
 }

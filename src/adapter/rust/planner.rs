@@ -339,7 +339,7 @@ pub(crate) fn explain_plan(opt: &RustBuildOptions) -> Result<EffectivePlanExplan
         .map(|(name, (dir, toml))| super::target_validation::SelectedPackage { name, dir, toml })
         .collect();
     super::target_validation::validate_named_targets(opt, &units, &selected)?;
-    {
+    if !opt.inspect_only {
         let in_build: std::collections::HashSet<(&str, &str)> = units
             .iter()
             .map(|u| (u.package_name.as_str(), u.version.as_str()))

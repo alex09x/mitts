@@ -168,32 +168,90 @@ fn render(per_package: &BTreeMap<String, Vec<String>>, id: u64) -> String {
 
 /// After a build with `--future-incompat-report`: check again with the report enabled,
 /// print it and store it.
-pub fn run_after_build() {
-    if let Err(error) = run_after_build_inner() {
+pub fn run_after_build(argv: &[std::ffi::OsString]) {
+    if let Err(error) = run_after_build_inner(argv) {
         eprintln!("warning: future-incompatibility report not produced: {error:#}");
     }
 }
 
-fn run_after_build_inner() -> Result<()> {
+/// The options of the finished command that decide what was built: the same manifest,
+/// packages, features, target, profile, directories and network policy.
+pub fn selection_args(argv: &[String]) -> Vec<String> {
+    const WITH_VALUE: [&str; 10] = [
+        "--manifest-path",
+        "-p",
+        "--package",
+        "--exclude",
+        "--features",
+        "-F",
+        "--target",
+        "--target-dir",
+        "--cache-dir",
+        "--profile",
+    ];
+    const FLAGS: [&str; 9] = [
+        "--workspace",
+        "--all",
+        "--all-features",
+        "--no-default-features",
+        "--offline",
+        "--frozen",
+        "--locked",
+        "--release",
+        "-r",
+    ];
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < argv.len() {
+        let word = argv[i].as_str();
+        if word == "--" {
+            break;
+        }
+        if WITH_VALUE.contains(&word) {
+            if let Some(value) = argv.get(i + 1) {
+                out.push(word.to_string());
+                out.push(value.clone());
+            }
+            i += 2;
+            continue;
+        }
+        if WITH_VALUE
+            .iter()
+            .any(|f| f.starts_with("--") && word.starts_with(&format!("{f}=")))
+            || FLAGS.contains(&word)
+        {
+            out.push(word.to_string());
+        }
+        i += 1;
+    }
+    out
+}
+
+fn run_after_build_inner(argv: &[std::ffi::OsString]) -> Result<()> {
     let exe = std::env::current_exe()?;
     let mut flags = std::env::var("RUSTFLAGS").unwrap_or_default();
     if !flags.is_empty() {
         flags.push(' ');
     }
     flags.push_str("--json=future-incompat");
+    // argv: the program, global options, the command, then its options.
+    let words: Vec<String> = argv
+        .iter()
+        .skip(1)
+        .map(|w| w.to_string_lossy().into_owned())
+        .collect();
     let output = Command::new(exe)
-        .args([
-            "check",
-            "--workspace",
-            "--all-targets",
-            "--message-format",
-            "json",
-            "-q",
-        ])
+        .args(["check", "--all-targets", "--message-format", "json", "-q"])
+        .args(selection_args(&words))
+        .args(crate::adapter::rust::cargo_config_cli::child_args())
         .env("RUSTFLAGS", flags)
         .output()
         .context("run mitts check")?;
-    let per_package = collect(&String::from_utf8_lossy(&output.stdout));
+    // Records come wrapped on stdout or, unwrapped, among the progress lines on stderr.
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push('\n');
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    let per_package = collect(&text);
     if per_package.is_empty() {
         eprintln!("note: 0 dependencies had future-incompatible warnings");
         return Ok(());

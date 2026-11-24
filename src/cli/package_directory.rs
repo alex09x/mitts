@@ -34,6 +34,18 @@ fn discover(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 pub fn create(root: &Path, name: &str, version: &str, lock: &[u8]) -> Result<Vec<u8>> {
+    create_skipping(root, name, version, lock, None)
+}
+
+/// The same, leaving out `ignored` paths (what Git ignores, relative to `root`) unless
+/// `include` selects them or they are the license file, as Cargo packages a dirty tree.
+pub fn create_skipping(
+    root: &Path,
+    name: &str,
+    version: &str,
+    lock: &[u8],
+    ignored: Option<&std::collections::HashSet<String>>,
+) -> Result<Vec<u8>> {
     if name.is_empty()
         || version.is_empty()
         || !name
@@ -135,8 +147,11 @@ pub fn create(root: &Path, name: &str, version: &str, lock: &[u8]) -> Result<Vec
         }
         let mandatory = license.as_deref() == Some(relative.as_str());
         let hidden = relative.split('/').any(|part| part.starts_with('.'));
+        let git_ignored = ignored.is_some_and(|set| set.contains(&relative))
+            && !(include_mode && selected.as_ref().is_some_and(|set| set.contains(&relative)));
         if !mandatory
-            && ((!include_mode && hidden)
+            && (git_ignored
+                || (!include_mode && hidden)
                 || selected
                     .as_ref()
                     .is_some_and(|set| !set.contains(&relative)))

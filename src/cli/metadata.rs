@@ -68,24 +68,98 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
         ..Default::default()
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, true);
-    let mut doc = metadata_for(&opt, args.package.clone())?;
     if args.no_deps {
-        // Only the workspace members, and no resolve graph, as Cargo prints it.
-        let members: Vec<Value> = doc["workspace_members"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        if let Some(packages) = doc["packages"].as_array_mut() {
-            packages.retain(|p| members.contains(&p["id"]));
-        }
-        doc["resolve"] = Value::Null;
+        return no_deps_json(&opt);
     }
-    Ok(doc)
+    metadata_for(&opt, args.package.clone())
+}
+
+/// `metadata --no-deps`: the workspace members from their manifests alone, without
+/// resolving or fetching any dependency, and no resolve graph, as Cargo prints it.
+fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
+    let start = super::project_info::starting_manifest(&opt.manifest_path)?;
+    let root = super::project_info::workspace_root(&start)?;
+    let root_manifest = CargoToml::from_file(&root)?;
+    let mut packages = Vec::new();
+    let mut members = Vec::new();
+    for (_, dir) in super::project_info::local_package_dirs(&root)? {
+        let manifest_path = dir.join("Cargo.toml");
+        let manifest = CargoToml::from_file(&manifest_path).with_context(|| {
+            format!("failed to parse package manifest {}", manifest_path.display())
+        })?;
+        let Some(package) = manifest.package.clone() else {
+            continue;
+        };
+        let version = package.version.clone().unwrap_or_else(|| "0.0.0".to_string());
+        let canonical = dir.canonicalize().unwrap_or(dir.clone());
+        let entry = PackageEntry {
+            cargo_id: format!(
+                "path+file://{}#{}@{version}",
+                canonical.display(),
+                package.name
+            ),
+            name: package.name.clone(),
+            version,
+            source: None,
+            manifest_path: manifest_path.clone(),
+            manifest,
+            is_workspace: true,
+            features: BTreeSet::new(),
+        };
+        members.push(entry.cargo_id.clone());
+        packages.push(package_json(&entry)?);
+    }
+    let workspace_root = root.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let target_directory = RustAdapter::resolve_target_dir_without_tags(&root, opt)
+        .map(|t| {
+            if t.is_absolute() {
+                t
+            } else {
+                workspace_root.join(t)
+            }
+        })
+        .unwrap_or_else(|_| workspace_root.join("target"));
+    let defaults = root_manifest
+        .workspace
+        .as_ref()
+        .map(|w| w.default_members.clone())
+        .filter(|d| !d.is_empty());
+    let default_members: Vec<String> = match defaults {
+        Some(defaults) => members
+            .iter()
+            .zip(packages.iter())
+            .filter(|(_, p)| {
+                let dir = Path::new(p["manifest_path"].as_str().unwrap_or("")).parent();
+                let rel = dir
+                    .and_then(|d| d.strip_prefix(&workspace_root).ok())
+                    .map(|d| d.to_string_lossy().trim_end_matches('/').to_string())
+                    .unwrap_or_default();
+                defaults.iter().any(|m| {
+                    let m = m.trim_start_matches("./").trim_end_matches('/');
+                    m == rel || (m == "." && rel.is_empty())
+                })
+            })
+            .map(|(id, _)| id.clone())
+            .collect(),
+        None => members.clone(),
+    };
+    Ok(json!({
+        "packages": packages,
+        "workspace_members": members,
+        "workspace_default_members": default_members,
+        "resolve": null,
+        "target_directory": target_directory,
+        "workspace_root": workspace_root,
+        "version": 1,
+    }))
 }
 
 /// The `cargo metadata` document for a plan made with `opt` (`mitts tree` plans in test
 /// mode, so that dev-dependencies are part of the graph).
 pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> Result<Value> {
+    let mut opt = opt.clone();
+    opt.inspect_only = true;
+    let opt = &opt;
     let plan = RustAdapter::explain_plan(opt)?;
     let mut packages = BTreeMap::<String, PackageEntry>::new();
     let mut unit_packages = HashMap::<String, String>::new();
@@ -157,7 +231,12 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                     .get(child_id)
                     .map(String::as_str)
                     .unwrap_or("");
-                let kinds = dependency_kinds(&entry.manifest, child_name);
+                let kinds = dependency_kinds(
+                    &entry.manifest,
+                    child_name,
+                    opt.target_triple.as_deref(),
+                    entry.manifest_path.parent().unwrap_or(Path::new(".")),
+                );
                 for kind in kinds {
                     outgoing.entry(child_id.clone()).or_default().insert(kind);
                 }
@@ -403,7 +482,23 @@ fn append_dependency_map(
     }
 }
 
-fn dependency_kinds(manifest: &CargoToml, child_name: &str) -> Vec<String> {
+/// The kinds of an edge, from the declarations of `child_name` that are active on the
+/// plan's platform (`target`, else the host): a Windows-only build dependency is not a
+/// build edge of a Linux graph.
+fn dependency_kinds(
+    manifest: &CargoToml,
+    child_name: &str,
+    target: Option<&str>,
+    start_dir: &Path,
+) -> Vec<String> {
+    let mut active = manifest.clone();
+    active.target.retain(|spec, _| {
+        !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+            spec, false, target, start_dir,
+        )
+        .unwrap_or(false)
+    });
+    let manifest = &active;
     let mut kinds = BTreeSet::new();
     collect_dependency_kinds(&mut kinds, &manifest.dependencies, child_name, None, None);
     collect_dependency_kinds(

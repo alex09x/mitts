@@ -163,9 +163,23 @@ fn run(args: &TreeArgs) -> Result<String> {
         opt.extra_args.push("--workspace".to_string());
     }
     opt.exclude = args.exclude.clone();
+    // `-p` selects what is planned, not only what is shown: a non-default member must be
+    // in the graph.
+    let names: Vec<String> = args
+        .packages
+        .iter()
+        .map(|s| super::project_info::parse_spec(s).0.to_string())
+        .collect();
+    opt.package = names.first().cloned();
+    opt.packages = names.iter().skip(1).cloned().collect();
     let whole = args.workspace || !args.packages.is_empty();
     super::manifest_discovery::select_workspace_member(&mut opt, whole);
-    let doc = super::metadata::metadata_for(&opt, None)?;
+    let root = if args.workspace {
+        None
+    } else {
+        opt.package.clone()
+    };
+    let doc = super::metadata::metadata_for(&opt, root)?;
     let graph = Graph::from_metadata(&doc);
 
     let mut prune = HashSet::new();

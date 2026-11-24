@@ -214,7 +214,8 @@ fn run(args: &FixArgs) -> Result<i32> {
     for _ in 0..MAX_PASSES {
         let output = run_check(args, &lint_flags, true)?;
         let (fixes, has_errors) = suggestions(&output, &ws_canonical);
-        if has_errors && !args.broken_code && fixes.is_empty() {
+        // Like Cargo: code that does not compile is only edited with --broken-code.
+        if has_errors && !args.broken_code {
             break;
         }
         if fixes.is_empty() {
@@ -255,11 +256,12 @@ fn package_edition(manifest: &Path) -> String {
 
 /// Cargo's refusal to edit files with uncommitted changes.
 fn check_vcs(dir: &Path, args: &FixArgs) -> Result<()> {
-    if args.allow_dirty {
+    if args.allow_dirty && args.allow_no_vcs {
         return Ok(());
     }
+    // Untracked files count as dirty: they have no committed copy to go back to.
     let out = Command::new("git")
-        .args(["status", "--porcelain", "--untracked-files=no"])
+        .args(["status", "--porcelain", "--untracked-files=all"])
         .current_dir(dir)
         .output();
     let out = match out {
@@ -274,6 +276,9 @@ fn check_vcs(dir: &Path, args: &FixArgs) -> Result<()> {
             );
         }
     };
+    if args.allow_dirty {
+        return Ok(());
+    }
     let mut dirty = Vec::new();
     let mut staged = Vec::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
@@ -308,6 +313,7 @@ fn run_check(args: &FixArgs, lint_flags: &[String], json: bool) -> Result<std::p
     let exe = std::env::current_exe().context("locate the mitts executable")?;
     let mut cmd = Command::new(exe);
     cmd.arg("check");
+    cmd.args(crate::adapter::rust::cargo_config_cli::child_args());
     if json {
         cmd.args(["--message-format", "json"]);
     } else if let Some(format) = &args.message_format {
@@ -435,19 +441,36 @@ pub fn suggestions(output: &std::process::Output, ws: &Path) -> (Vec<Vec<Replace
         let manifest_dir = value["manifest_path"]
             .as_str()
             .and_then(|m| Path::new(m).parent().map(Path::to_path_buf));
-        let mut group = Vec::new();
-        collect(message, manifest_dir.as_deref(), &mut group);
-        group.retain(|r| r.file.starts_with(ws));
-        group.sort();
-        group.dedup();
-        if !group.is_empty() && seen.insert(group.clone()) {
-            out.push(group);
+        let mut groups = Vec::new();
+        collect(message, manifest_dir.as_deref(), &mut groups);
+        for mut group in groups {
+            // A suggestion is taken whole or not at all: one part outside the workspace
+            // (a dependency, the standard library) drops it.
+            if group.is_empty() || !group.iter().all(|r| r.file.starts_with(ws)) {
+                continue;
+            }
+            group.sort();
+            group.dedup();
+            if seen.insert(group.clone()) {
+                out.push(group);
+            }
         }
     }
     (out, errors)
 }
 
-fn collect(message: &Value, base: Option<&Path>, out: &mut Vec<Replacement>) {
+/// One group per diagnostic node: the machine-applicable spans of that node form one
+/// (possibly multipart) suggestion, as rustfix reads them; children are their own nodes.
+fn collect(message: &Value, base: Option<&Path>, groups: &mut Vec<Vec<Replacement>>) {
+    let mut own = Vec::new();
+    collect_spans(message, base, &mut own);
+    groups.push(own);
+    for child in message["children"].as_array().into_iter().flatten() {
+        collect(child, base, groups);
+    }
+}
+
+fn collect_spans(message: &Value, base: Option<&Path>, out: &mut Vec<Replacement>) {
     for span in message["spans"].as_array().into_iter().flatten() {
         if span["suggestion_applicability"] != "MachineApplicable" {
             continue;
@@ -473,9 +496,12 @@ fn collect(message: &Value, base: Option<&Path>, out: &mut Vec<Replacement>) {
             text: text.to_string(),
         });
     }
-    for child in message["children"].as_array().into_iter().flatten() {
-        collect(child, base, out);
-    }
+}
+
+/// Two edits of one file clash when their ranges overlap, or when they start at the same
+/// byte (an insertion there and a replacement would race over the offsets).
+fn clash(a: (usize, usize), b: (usize, usize)) -> bool {
+    a.0 == b.0 || (a.0 < b.1 && b.0 < a.1)
 }
 
 /// Applies suggestion groups whose parts do not overlap anything already taken;
@@ -485,14 +511,17 @@ pub fn apply(groups: &[Vec<Replacement>]) -> Result<BTreeMap<PathBuf, usize>> {
     let mut chosen: BTreeMap<PathBuf, Vec<&Replacement>> = BTreeMap::new();
     let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
     for group in groups {
-        let clashes = group.iter().any(|r| {
+        let clashes_taken = group.iter().any(|r| {
             taken.get(&r.file).is_some_and(|ranges| {
-                ranges.iter().any(|&(s, e)| {
-                    r.start < e && s < r.end || (r.start == r.end && r.start == s && s == e)
-                })
+                ranges.iter().any(|&range| clash((r.start, r.end), range))
             })
         });
-        if clashes {
+        let clashes_inside = group.iter().enumerate().any(|(i, a)| {
+            group[i + 1..]
+                .iter()
+                .any(|b| a.file == b.file && clash((a.start, a.end), (b.start, b.end)))
+        });
+        if clashes_taken || clashes_inside {
             continue;
         }
         let mut files = HashSet::new();
@@ -548,6 +577,60 @@ mod tests {
             std::fs::read_to_string(&file).unwrap(),
             "let a = 1; let b = 2;"
         );
+    }
+
+    #[test]
+    fn an_insertion_and_a_replacement_at_one_offset_clash() {
+        assert!(clash((4, 4), (4, 9)));
+        assert!(clash((4, 9), (4, 4)));
+        assert!(clash((2, 6), (5, 8)));
+        assert!(!clash((2, 5), (5, 8)));
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("a.rs");
+        std::fs::write(&file, "abcdefghij").unwrap();
+        let file = file.canonicalize().unwrap();
+        let r = |start, end, text: &str| Replacement {
+            file: file.clone(),
+            start,
+            end,
+            text: text.into(),
+        };
+        // One multipart suggestion whose own parts clash is skipped whole.
+        let counts = apply(&[vec![r(4, 4, "X"), r(4, 6, "Y")], vec![r(0, 1, "Z")]]).unwrap();
+        assert_eq!(counts[&file], 1);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Zbcdefghij");
+    }
+
+    #[test]
+    fn a_suggestion_with_a_part_outside_the_workspace_is_dropped_whole() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("lib.rs"), "x").unwrap();
+        let ws = dir.path().canonicalize().unwrap();
+        let line = serde_json::json!({
+            "reason": "compiler-message",
+            "manifest_path": ws.join("Cargo.toml"),
+            "message": {"level": "warning", "spans": [], "children": [
+                {"spans": [
+                    {"file_name": "lib.rs", "byte_start": 0, "byte_end": 1,
+                     "suggested_replacement": "y", "suggestion_applicability": "MachineApplicable"},
+                    {"file_name": "/elsewhere/dep.rs", "byte_start": 0, "byte_end": 1,
+                     "suggested_replacement": "y", "suggestion_applicability": "MachineApplicable"}
+                ]},
+                {"spans": [
+                    {"file_name": "lib.rs", "byte_start": 0, "byte_end": 0,
+                     "suggested_replacement": "z", "suggestion_applicability": "MachineApplicable"}
+                ]}
+            ]}
+        })
+        .to_string();
+        let output = std::process::Output {
+            status: std::process::Command::new("true").status().unwrap(),
+            stdout: line.into_bytes(),
+            stderr: Vec::new(),
+        };
+        let (groups, _) = suggestions(&output, &ws);
+        assert_eq!(groups.len(), 1, "the half-outside suggestion is gone, the other stays");
+        assert_eq!(groups[0][0].text, "z");
     }
 
     #[test]

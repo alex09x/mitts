@@ -172,7 +172,12 @@ fn run_update(args: &UpdateArgs) -> Result<()> {
         lock.version = lock.version.max(prev.version);
     }
     let changes = diff(previous.as_ref(), &lock);
-    if !changes.is_empty() {
+    // The whole lock decides, not only names and versions: a source, checksum or
+    // dependency list that moved is a change too.
+    let unchanged = previous
+        .as_ref()
+        .is_some_and(|prev| prev.to_string_formatted() == lock.to_string_formatted());
+    if !unchanged {
         refuse_locked(common, &root)?;
     }
     if !common.quiet {
@@ -181,6 +186,9 @@ fn run_update(args: &UpdateArgs) -> Result<()> {
     }
     if args.dry_run {
         eprintln!("warning: aborting update due to dry run");
+        return Ok(());
+    }
+    if unchanged {
         return Ok(());
     }
     lock.write_to_file(&lock_path)

@@ -216,12 +216,19 @@ pub fn install_root(flag: &Option<PathBuf>) -> Result<PathBuf> {
         .context("cannot find the Cargo home directory; pass --root")
 }
 
-/// Cargo's install records: `.crates.toml` (package id -> binaries).
-fn read_tracking(root: &Path) -> BTreeMap<String, Vec<String>> {
-    let text = std::fs::read_to_string(root.join(".crates.toml")).unwrap_or_default();
+/// Cargo's install records: `.crates.toml` (package id -> binaries). Only a missing file
+/// is an empty record; one that cannot be read or parsed stops the command, so it is never
+/// overwritten with less than it held.
+fn read_tracking(root: &Path) -> Result<BTreeMap<String, Vec<String>>> {
+    let path = root.join(".crates.toml");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
+    };
     let value: toml::Value =
-        toml::from_str(&text).unwrap_or(toml::Value::Table(Default::default()));
-    value
+        toml::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(value
         .get("v1")
         .and_then(|v| v.as_table())
         .map(|t| {
@@ -239,7 +246,7 @@ fn read_tracking(root: &Path) -> BTreeMap<String, Vec<String>> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default())
 }
 
 fn write_tracking(
@@ -262,10 +269,12 @@ fn write_tracking(
     doc.insert("v1".into(), toml::Value::Table(v1));
     std::fs::write(root.join(".crates.toml"), toml::to_string(&doc)?)?;
     let path2 = root.join(".crates2.json");
-    let mut v2: Value = std::fs::read_to_string(&path2)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_else(|| json!({"installs": {}}));
+    let mut v2: Value = match std::fs::read_to_string(&path2) {
+        Ok(text) => serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse {}", path2.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({"installs": {}}),
+        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path2.display())),
+    };
     if let Some(installs) = v2["installs"].as_object_mut() {
         installs.retain(|k, _| entries.contains_key(k));
         if let Some((id, info)) = extra {
@@ -283,7 +292,7 @@ pub fn handle_install(args: &InstallArgs) -> i32 {
 fn run_install(args: &InstallArgs) -> Result<()> {
     let root = install_root(&args.root)?;
     if args.list {
-        for (id, bins) in read_tracking(&root) {
+        for (id, bins) in read_tracking(&root)? {
             let mut words = id.split(' ');
             let name = words.next().unwrap_or_default();
             let version = words.next().unwrap_or_default();
@@ -415,6 +424,9 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
         });
     }
     if let Some(url) = &args.git {
+        if args.offline || args.frozen {
+            bail!("cannot install from git `{url}` with --offline: it would need the network");
+        }
         let temp = scratch("git")?;
         let checkout = temp.join("repo");
         let mut clone = Command::new(std::env::var("MITTS_GIT").unwrap_or_else(|_| "git".into()));
@@ -507,19 +519,42 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
             Some(r) => format!("could not find `{wanted_name}` in registry with version `{r}`"),
             None => format!("could not find `{wanted_name}` in registry"),
         })?;
-    let index = match &args.index {
-        Some(i) => i.trim_start_matches("sparse+").to_string(),
-        None => config.index_url_for(args.registry.as_deref())?,
-    };
-    let bytes = download_crate(&index, &entry.name, &entry.vers, Some(&entry.cksum))?;
-    if !args.quiet {
-        status("Downloaded", &format!("{} v{}", entry.name, entry.vers));
-    }
-    let temp = scratch(&entry.name)?;
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(&bytes[..]));
-    archive.unpack(&temp)?;
-    let dir = temp.join(format!("{}-{}", entry.name, entry.vers));
     let source_id = config.lock_source_for_registry(args.registry.as_deref())?;
+    let temp = scratch(&entry.name)?;
+    let dir = temp.join(format!("{}-{}", entry.name, entry.vers));
+    if args.offline || args.frozen {
+        // Offline: only a copy already unpacked in the source store will do.
+        let store = match &args.cache_dir {
+            Some(c) => crate::core::source_store::SourceStore::new(c.join("sources"))?,
+            None => crate::core::source_store::SourceStore::default_store()?,
+        };
+        let cached = crate::adapter::rust::source_lookup::find_crate_source_dir_with_store(
+            &entry.name,
+            &entry.vers,
+            Some(&source_id),
+            Some(&store),
+        );
+        let Some(cached) = cached else {
+            let _ = std::fs::remove_dir_all(&temp);
+            bail!(
+                "cannot install `{} v{}` with --offline: it is not in the local cache",
+                entry.name,
+                entry.vers
+            );
+        };
+        copy_dir(&cached, &dir)?;
+    } else {
+        let index = match &args.index {
+            Some(i) => i.trim_start_matches("sparse+").to_string(),
+            None => config.index_url_for(args.registry.as_deref())?,
+        };
+        let bytes = download_crate(&index, &entry.name, &entry.vers, Some(&entry.cksum))?;
+        if !args.quiet {
+            status("Downloaded", &format!("{} v{}", entry.name, entry.vers));
+        }
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(&bytes[..]));
+        archive.unpack(&temp)?;
+    }
     Ok(Source {
         dir,
         name: entry.name.clone(),
@@ -529,10 +564,28 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
     })
 }
 
+/// A plain copy of a source tree (regular files and directories; links are refused).
+fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), &target)?;
+        } else {
+            bail!("unsupported file in the cached source: {}", entry.path().display());
+        }
+    }
+    Ok(())
+}
+
 fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
     let source = locate(args, spec)?;
     let id = format!("{} {} ({})", source.name, source.version, source.source_id);
-    let tracking = read_tracking(root);
+    let tracking = read_tracking(root)?;
     if tracking.contains_key(&id) && !args.force {
         if !args.quiet {
             status(
@@ -588,14 +641,33 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
             );
         }
     }
-    // Refuse to overwrite another package's binaries unless forced, as Cargo does.
+    let suffix = if args
+        .target
+        .as_deref()
+        .map_or(cfg!(windows), |t| t.contains("windows"))
+    {
+        ".exe"
+    } else {
+        ""
+    };
+    let own_prefix = format!("{} ", source.name);
+    // Refuse to overwrite a file another package (or nothing Mitts knows of) put there,
+    // unless forced, as Cargo does. Names are compared as files, `.exe` included.
     if !args.force {
-        for (other, bins) in &tracking {
-            if other.starts_with(&format!("{} ", source.name)) {
-                continue;
-            }
-            if let Some(bin) = bins.iter().find(|b| chosen.contains(b)) {
-                bail!("binary `{bin}` already exists in destination as part of `{other}`\nAdd --force to overwrite");
+        for bin in &chosen {
+            let file = format!("{bin}{suffix}");
+            let owner = tracking
+                .iter()
+                .find(|(_, bins)| bins.contains(&file))
+                .map(|(id, _)| id.clone());
+            match owner {
+                Some(other) if !other.starts_with(&own_prefix) => bail!(
+                    "binary `{file}` already exists in destination as part of `{other}`\nAdd --force to overwrite"
+                ),
+                None if root.join("bin").join(&file).exists() => bail!(
+                    "binary `{file}` already exists in destination\nAdd --force to overwrite"
+                ),
+                _ => {}
             }
         }
     }
@@ -607,6 +679,7 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
     let exe = std::env::current_exe()?;
     let mut cmd = Command::new(exe);
     cmd.arg("build")
+        .args(crate::adapter::rust::cargo_config_cli::child_args())
         .arg("--manifest-path")
         .arg(&manifest)
         .arg("--target-dir")
@@ -687,15 +760,6 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(&bin_dir)?;
-    let suffix = if args
-        .target
-        .as_deref()
-        .map_or(cfg!(windows), |t| t.contains("windows"))
-    {
-        ".exe"
-    } else {
-        ""
-    };
     let mut installed = Vec::new();
     for bin in &chosen {
         let file = format!("{bin}{suffix}");
@@ -719,9 +783,30 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
     }
     cleanup(&build_root);
     if !args.no_track {
+        // Ownership per file: a replaced file leaves its old owner; this package keeps its
+        // other binaries that are still installed, under its new id.
         let mut tracking = tracking;
-        tracking.retain(|k, _| !k.starts_with(&format!("{} ", source.name)));
-        tracking.insert(id.clone(), installed.clone());
+        let mut kept: Vec<String> = Vec::new();
+        for (owner, bins) in tracking.iter_mut() {
+            bins.retain(|b| !installed.contains(b));
+            if owner.starts_with(&own_prefix) {
+                kept.extend(
+                    bins.iter()
+                        .filter(|b| bin_dir.join(b.as_str()).exists())
+                        .cloned(),
+                );
+                bins.clear();
+            }
+        }
+        tracking.retain(|_, bins| !bins.is_empty());
+        let mut owned = installed.clone();
+        for b in kept {
+            if !owned.contains(&b) {
+                owned.push(b);
+            }
+        }
+        owned.sort();
+        tracking.insert(id.clone(), owned);
         let info = json!({
             "version_req": args.version,
             "bins": installed,
@@ -757,7 +842,7 @@ fn install_one(args: &InstallArgs, root: &Path, spec: &str) -> Result<()> {
 pub fn handle_uninstall(args: &UninstallArgs) -> i32 {
     report((|| {
         let root = install_root(&args.root)?;
-        let mut tracking = read_tracking(&root);
+        let mut tracking = read_tracking(&root)?;
         let mut specs: Vec<String> = args.specs.clone();
         specs.extend(args.packages.iter().cloned());
         if specs.is_empty() {

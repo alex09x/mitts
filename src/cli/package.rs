@@ -243,6 +243,22 @@ fn selected_manifests(args: &PackageArgs) -> Result<Vec<PathBuf>> {
     let start = args.manifest()?;
     let root = super::project_info::workspace_root(&start)?;
     let members = super::project_info::local_package_dirs(&root)?;
+    // `-p name@version`: the version must be the member's.
+    for spec in &args.packages {
+        let (name, version) = super::project_info::parse_spec(spec);
+        if let (Some(wanted), Some((_, dir))) =
+            (version, members.iter().find(|(n, _)| n == name))
+        {
+            let have = crate::adapter::rust::manifest::CargoToml::from_file(&dir.join("Cargo.toml"))?
+                .package
+                .and_then(|p| p.version)
+                .unwrap_or_default();
+            let matches = have == wanted || have.starts_with(&format!("{wanted}."));
+            if !matches {
+                anyhow::bail!("package ID specification `{spec}` did not match any packages");
+            }
+        }
+    }
     let mut out = Vec::new();
     for (name, dir) in &members {
         let named = args
@@ -376,6 +392,21 @@ fn prepare(args: &PackageArgs, manifest: &Path) -> Result<(serde_json::Value, Ve
     // `--allow-dirty` packages the working tree as it is, uncommitted changes included.
     let archive = if in_git && !args.allow_dirty && !args.list {
         package_archive::create_with_lock(root, name, version, Some(&lock))?
+    } else if in_git {
+        // The working tree as it is, but never what Git ignores (secrets, build output).
+        let out = std::process::Command::new("git")
+            .current_dir(root)
+            .args(["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", "."])
+            .output()?;
+        if !out.status.success() {
+            anyhow::bail!("git ls-files failed in {}", root.display());
+        }
+        let ignored: std::collections::HashSet<String> = String::from_utf8_lossy(&out.stdout)
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        package_directory::create_skipping(root, name, version, &lock, Some(&ignored))?
     } else {
         package_directory::create(root, name, version, &lock)?
     };
@@ -405,17 +436,20 @@ fn prepare(args: &PackageArgs, manifest: &Path) -> Result<(serde_json::Value, Ve
     Ok((metadata, archive))
 }
 
-fn ensure_publish_allowed(path: &Path, registry: &str) -> Result<()> {
+/// `package.publish` against the destination; `None` is an index no registry name is
+/// configured for, which only an unrestricted package may go to.
+fn ensure_publish_allowed(path: &Path, registry: Option<&str>) -> Result<()> {
     let manifest: toml::Value = toml::from_str(&std::fs::read_to_string(path)?)?;
     let publish = manifest.get("package").and_then(|p| p.get("publish"));
+    let shown = registry.unwrap_or("an unnamed index");
     match publish {
         None | Some(toml::Value::Boolean(true)) => Ok(()),
         Some(toml::Value::Array(registries))
-            if registries.iter().any(|v| v.as_str() == Some(registry)) =>
+            if registry.is_some_and(|r| registries.iter().any(|v| v.as_str() == Some(r))) =>
         {
             Ok(())
         }
-        _ => anyhow::bail!("package manifest does not allow publication to {registry}"),
+        _ => anyhow::bail!("package manifest does not allow publication to {shown}"),
     }
 }
 
@@ -458,6 +492,7 @@ fn verify_archive(
     command
         .env_remove("CARGO_REGISTRY_TOKEN")
         .arg("build")
+        .args(crate::adapter::rust::cargo_config_cli::child_args())
         .arg("--locked")
         .arg("--manifest-path")
         .arg(root.join("Cargo.toml"))
@@ -559,6 +594,9 @@ pub fn handle_package(args: &PackageArgs) -> i32 {
 
 pub fn handle_publish(args: &PublishArgs) -> i32 {
     let result = (|| -> Result<()> {
+        if args.package.list {
+            anyhow::bail!("`--list` does not publish anything; use `mitts package --list`");
+        }
         let manifests = if args.archive.is_some() {
             vec![args.package.manifest()?]
         } else {
@@ -581,8 +619,17 @@ pub fn handle_publish(args: &PublishArgs) -> i32 {
 fn publish_one(args: &PublishArgs, manifest: &Path) -> Result<()> {
     let manifest = manifest.to_path_buf();
     {
-        let registry = args.package.registry.as_deref().unwrap_or("crates-io");
-        ensure_publish_allowed(&manifest, registry)?;
+        // The registry the upload really goes to decides what `package.publish` allows: an
+        // `--index` is checked under the name it is configured as, an unknown one as none.
+        let project_dir = manifest.parent().unwrap_or(Path::new("."));
+        let destination = match (&args.package.index, &args.package.registry) {
+            (Some(index), None) => {
+                crate::adapter::rust::registry_config::RegistryConfig::load(project_dir)?
+                    .registry_name_for_index(index)
+            }
+            (_, registry) => Some(registry.clone().unwrap_or_else(|| "crates-io".into())),
+        };
+        ensure_publish_allowed(&manifest, destination.as_deref())?;
         if !args.dry_run && (args.package.offline || args.package.frozen) {
             anyhow::bail!("publication requires network access");
         }

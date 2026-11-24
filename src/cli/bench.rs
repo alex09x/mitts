@@ -184,7 +184,9 @@ fn test_args(args: &BenchArgs) -> TestArgs {
         packages: args.packages.clone(),
         workspace: args.workspace,
         exclude: args.exclude.clone(),
-        release: true,
+        // Benchmarks build in release unless a profile is named (`--profile bench` is the
+        // bench profile itself).
+        release: args.profile.is_none(),
         target_dir: args.target_dir.clone(),
         features: args.features.clone(),
         no_default_features: args.no_default_features,

@@ -23,8 +23,9 @@ pub struct RegistryApi {
     pub api: String,
     /// Index URL (without `sparse+`).
     pub index: String,
-    /// Registry name as the user wrote it (`crates-io` for crates.io).
-    pub name: String,
+    /// Registry name (`crates-io` for crates.io); for an `--index` that no configured
+    /// registry has, `None`: such a registry gets no stored token, only `--token`.
+    pub name: Option<String>,
     pub config: RegistryConfig,
     /// `--token` on the command line.
     pub token_override: Option<String>,
@@ -34,12 +35,21 @@ impl RegistryApi {
     /// The API of `registry` (crates.io when `None`), or of an `--index` URL.
     pub fn open(project_dir: &Path, registry: Option<&str>, index: Option<&str>) -> Result<Self> {
         let config = RegistryConfig::load(project_dir)?;
-        let name = registry.unwrap_or("crates-io").to_string();
-        let index = match index {
-            Some(i) => i.trim_start_matches("sparse+").to_string(),
-            None => config.index_url_for(registry)?,
+        let (index, name) = match (index, registry) {
+            (Some(i), Some(_)) => {
+                bail!("both `--index` and `--registry` were given; use one: {i}")
+            }
+            (Some(i), _) => {
+                let index = i.trim_start_matches("sparse+").to_string();
+                let name = config.registry_name_for_index(i);
+                (index, name)
+            }
+            (None, r) => (
+                config.index_url_for(r)?,
+                Some(r.unwrap_or("crates-io").to_string()),
+            ),
         };
-        let crates_io = registry.is_none_or(|r| r == "crates-io") && index_is_crates_io(&index);
+        let crates_io = name.as_deref() == Some("crates-io") && index_is_crates_io(&index);
         let api = if crates_io {
             std::env::var("MITTS_CRATES_IO_API").unwrap_or_else(|_| "https://crates.io".into())
         } else {
@@ -49,7 +59,9 @@ impl RegistryApi {
             })?;
             match doc["api"].as_str() {
                 Some(api) => api.trim_end_matches('/').to_string(),
-                None => bail!("the registry `{name}` does not support API commands (no `api` in its config.json)"),
+                None => bail!(
+                    "the registry at {index} does not support API commands (no `api` in its config.json)"
+                ),
             }
         };
         Ok(Self {
@@ -65,29 +77,41 @@ impl RegistryApi {
         if let Some(token) = &self.token_override {
             return Ok(token.clone());
         }
-        let name = (self.name != "crates-io").then_some(self.name.as_str());
+        // A stored token belongs to one registry: never send it to an index that is not
+        // that registry.
+        let Some(name) = self.name.clone() else {
+            bail!(
+                "the index {} is not a configured registry; pass its token with `--token`",
+                self.index
+            );
+        };
+        let lookup = (name != "crates-io").then_some(name.as_str());
         self.config
-            .token_for_registry(name)?
+            .token_for_registry(lookup)?
             .filter(|t| !t.trim().is_empty())
             .with_context(|| {
                 format!(
-                    "no token found for `{}`, please run `mitts login{}` or set {}",
-                    self.name,
-                    if self.name == "crates-io" {
+                    "no token found for `{name}`, please run `mitts login{}` or set {}",
+                    if name == "crates-io" {
                         String::new()
                     } else {
-                        format!(" --registry {}", self.name)
+                        format!(" --registry {name}")
                     },
-                    if self.name == "crates-io" {
+                    if name == "crates-io" {
                         "CARGO_REGISTRY_TOKEN".to_string()
                     } else {
                         format!(
                             "CARGO_REGISTRIES_{}_TOKEN",
-                            self.name.to_uppercase().replace('-', "_")
+                            name.to_uppercase().replace('-', "_")
                         )
                     }
                 )
             })
+    }
+
+    /// The registry's name for messages and `package.publish` checks.
+    pub fn display_name(&self) -> String {
+        self.name.clone().unwrap_or_else(|| self.index.clone())
     }
 
     pub fn url(&self, path: &str) -> String {

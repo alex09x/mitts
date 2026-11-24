@@ -249,7 +249,16 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
         return code;
     }
     if args.message_format != MessageFormat::Human {
-        return message_format::run_non_human_build(&mut opt, args.message_format);
+        let code = message_format::run_non_human_build(&mut opt, args.message_format);
+        if code == 0 {
+            if let Some(dir) = &args.artifact_dir {
+                if let Err(error) = copy_final_artifacts(&opt, dir) {
+                    eprintln!("error: {error:#}");
+                    return 101;
+                }
+            }
+        }
+        return code;
     }
     let start = std::time::Instant::now();
     let profile = &crate::adapter::rust::profile::profile_name(opt.release);
@@ -284,9 +293,9 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
         );
     }
 
-    if let (Some(dir), Ok((plan, result))) = (&args.artifact_dir, &build_res) {
+    if let (Some(dir), Ok((_, result))) = (&args.artifact_dir, &build_res) {
         if result.success {
-            if let Err(error) = copy_final_artifacts(&opt, plan, dir) {
+            if let Err(error) = copy_final_artifacts(&opt, dir) {
                 eprintln!("error: {error:#}");
                 return 101;
             }
@@ -306,19 +315,16 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
 /// as Cargo's unstable option does.
 fn copy_final_artifacts(
     opt: &crate::adapter::RustBuildOptions,
-    plan: &crate::core::action::BuildPlan,
     dir: &std::path::Path,
 ) -> anyhow::Result<()> {
     let mut explain_opt = opt.clone();
     explain_opt.progress = None;
+    explain_opt.inspect_only = true;
     let explanation = RustAdapter::explain_plan(&explain_opt)?;
-    let mut out_dir = plan.target_directory.clone();
-    if let Some(t) = &opt.target_triple {
-        out_dir = out_dir.join(t);
-    }
-    out_dir = out_dir.join(crate::adapter::rust::profile::custom::profile_dir(
-        opt.release,
-    ));
+    // The plan's target directory already names an explicit `--target`.
+    let out_dir = explanation
+        .target_directory
+        .join(crate::adapter::rust::profile::custom::profile_dir(opt.release));
     let windows = opt
         .target_triple
         .as_deref()
@@ -335,13 +341,10 @@ fn copy_final_artifacts(
     {
         let name = unit.target_name.replace('-', "_");
         let mut files: Vec<String> = Vec::new();
+        let exe = if windows { ".exe" } else { "" };
         match unit.kind.as_str() {
-            "bin" => files.push(format!(
-                "{}{}",
-                unit.target_name,
-                if windows { ".exe" } else { "" }
-            )),
-            "example" => {}
+            "bin" => files.push(format!("{}{exe}", unit.target_name)),
+            "example" => files.push(format!("examples/{}{exe}", unit.target_name)),
             _ => {
                 let mut crate_types = vec![unit.kind.clone()];
                 crate_types.extend(opt.crate_types.iter().cloned());
@@ -368,7 +371,11 @@ fn copy_final_artifacts(
         for file in files {
             let from = out_dir.join(&file);
             if from.is_file() {
-                std::fs::copy(&from, dir.join(&file))?;
+                let name = std::path::Path::new(&file)
+                    .file_name()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| file.clone().into());
+                std::fs::copy(&from, dir.join(name))?;
             }
         }
     }

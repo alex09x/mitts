@@ -79,6 +79,13 @@ pub fn compute_options_hash(
         "|build_script_protocol={}",
         super::build_script_keys::PROTOCOL
     ));
+    // A build that skipped the rust-version check must not answer for one that does not.
+    if super::rust_version::is_ignored() {
+        payload.push_str("|ignore_rust_version");
+    }
+    if opt.test_all_examples {
+        payload.push_str("|test_all_examples");
+    }
     let config_overrides = super::cargo_config_cli::stamp();
     if !config_overrides.is_empty() {
         payload.push_str(&format!("|config_overrides={config_overrides}"));

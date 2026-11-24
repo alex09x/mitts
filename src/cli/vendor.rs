@@ -116,7 +116,13 @@ fn run(args: &VendorArgs) -> Result<()> {
         frozen: args.frozen,
     };
     let mut manifests = vec![root.clone()];
-    manifests.extend(args.sync.iter().map(|m| cwd.join(m)));
+    // A synced member is vendored through its workspace: that is where its lock is.
+    for extra in &args.sync {
+        let root = super::project_info::workspace_root(&cwd.join(extra))?;
+        if !manifests.contains(&root) {
+            manifests.push(root);
+        }
+    }
     // (name, version) -> (package, source dir)
     let mut packages: BTreeMap<(String, String), (CargoLockPackage, PathBuf)> = BTreeMap::new();
     for manifest in &manifests {
@@ -148,6 +154,7 @@ fn run(args: &VendorArgs) -> Result<()> {
     std::fs::create_dir_all(&dest)?;
     let mut written: BTreeSet<String> = BTreeSet::new();
     let mut git_sources: BTreeSet<String> = BTreeSet::new();
+    let mut registry_sources: BTreeSet<String> = BTreeSet::new();
     for ((name, version), (pkg, src)) in &packages {
         let dir_name = if args.versioned_dirs || counts[name] > 1 {
             format!("{name}-{version}")
@@ -158,6 +165,8 @@ fn run(args: &VendorArgs) -> Result<()> {
         let git = source.starts_with("git+");
         if git {
             git_sources.insert(source.split('#').next().unwrap_or(source).to_string());
+        } else if source != crate::adapter::rust::registry_config::CRATES_IO_LOCK_SOURCE {
+            registry_sources.insert(source.to_string());
         }
         let target = dest.join(&dir_name);
         if !args.quiet {
@@ -212,6 +221,12 @@ fn run(args: &VendorArgs) -> Result<()> {
         }
         config.push_str("replace-with = \"vendored-sources\"\n\n");
     }
+    // Alternative registries are replaced too, by their source id, as Cargo writes them.
+    for source in &registry_sources {
+        config.push_str(&format!(
+            "[source.\"{source}\"]\nregistry = \"{source}\"\nreplace-with = \"vendored-sources\"\n\n"
+        ));
+    }
     config.push_str(&format!(
         "[source.vendored-sources]\ndirectory = \"{}\"\n",
         shown.display().to_string().replace('\\', "/")
@@ -241,11 +256,26 @@ fn copy_tree(
         if skipped(&rel, git) {
             continue;
         }
-        let kind = entry.file_type()?;
+        let mut kind = entry.file_type()?;
         let out = dest.join(entry.file_name());
+        if kind.is_symlink() {
+            // A link is followed only to a file inside the package: a dependency must not
+            // be able to pull a local file (a key, a config) into vendor/.
+            let base_real = base.canonicalize()?;
+            let resolved = path.canonicalize().with_context(|| {
+                format!("broken symbolic link in a dependency: {}", path.display())
+            })?;
+            if !resolved.starts_with(&base_real) || !resolved.is_file() {
+                bail!(
+                    "refusing to vendor {}: the symbolic link leads outside the package",
+                    path.display()
+                );
+            }
+            kind = std::fs::metadata(&resolved)?.file_type();
+        }
         if kind.is_dir() {
             copy_tree(base, &path, &out, git, files)?;
-        } else if kind.is_file() || kind.is_symlink() {
+        } else if kind.is_file() {
             let data = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
             std::fs::write(&out, &data)?;
             #[cfg(unix)]
@@ -266,4 +296,32 @@ fn copy_tree(
         bail!("{} has no files", base.display());
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_link_out_of_the_package_is_refused_and_one_inside_is_copied() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let pkg = dir.path().join("pkg");
+        std::fs::create_dir_all(pkg.join("src")).unwrap();
+        std::fs::write(pkg.join("Cargo.toml"), "[package]\n").unwrap();
+        std::fs::write(pkg.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        std::os::unix::fs::symlink("src/lib.rs", pkg.join("alias.rs")).unwrap();
+        let mut files = BTreeMap::new();
+        copy_tree(&pkg, &pkg, &dir.path().join("out1"), false, &mut files).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("out1/alias.rs")).unwrap(),
+            "pub fn f() {}\n"
+        );
+
+        std::fs::write(dir.path().join("secret.txt"), "key").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("secret.txt"), pkg.join("leak.txt")).unwrap();
+        let mut files = BTreeMap::new();
+        let err = copy_tree(&pkg, &pkg, &dir.path().join("out2"), false, &mut files).unwrap_err();
+        assert!(err.to_string().contains("outside the package"), "{err}");
+        assert!(!dir.path().join("out2/leak.txt").exists());
+    }
 }

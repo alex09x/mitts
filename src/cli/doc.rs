@@ -261,10 +261,8 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    let doc_dir = match &opt.target_triple {
-        Some(t) => plan.target_directory.join(t).join("doc"),
-        None => plan.target_directory.join("doc"),
-    };
+    // The plan's target directory already names an explicit `--target`.
+    let doc_dir = plan.target_directory.join("doc");
     std::fs::create_dir_all(doc_dir.join(".mitts-stamps"))?;
     let rustdoc = crate::adapter::rust::compiler_resolve::resolve_rustdoc();
     let start_dir = opt
@@ -336,6 +334,11 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         }
         argv.push("--crate-version".into());
         argv.push(unit.version.clone());
+        // Target crates are documented for the target their metadata was built for.
+        if let (Some(target), false) = (&opt.target_triple, unit.for_host) {
+            argv.push("--target".into());
+            argv.push(target.clone());
+        }
         if matches!(unit.kind.as_str(), "test" | "custom-test") {
             argv.push("--cfg".into());
             argv.push("test".into());
@@ -397,10 +400,16 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         }
         let mut hasher = Sha256::new();
         hasher.update(inputs.as_bytes());
-        let stamp = doc_dir.join(".mitts-stamps").join(format!(
-            "{crate_name}-{}",
-            crate::core::hash::bytes_to_hex(&hasher.finalize())
-        ));
+        let fingerprint = crate::core::hash::bytes_to_hex(&hasher.finalize());
+        // One stamp per output: it holds the fingerprint of the docs that are there now,
+        // so docs written for other features are not taken for these.
+        let stamp_name = if args.output_format.as_deref() == Some("json") {
+            format!("{crate_name}.json")
+        } else {
+            crate_name.clone()
+        };
+        let stamp = doc_dir.join(".mitts-stamps").join(stamp_name);
+        let current = std::fs::read_to_string(&stamp).unwrap_or_default() == fingerprint;
         let index = if args.output_format.as_deref() == Some("json") {
             doc_dir.join(format!("{crate_name}.json"))
         } else {
@@ -409,7 +418,7 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         if unit.is_primary {
             generated.push(index.clone());
         }
-        if stamp.is_file() && index.is_file() {
+        if current && index.is_file() {
             if args.verbose > 0 && !args.quiet {
                 status("Fresh", &format!("{} v{}", unit.package_name, unit.version));
             }
@@ -434,7 +443,7 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         if !status_code.success() {
             bail!("could not document `{}`", unit.package_name);
         }
-        let _ = std::fs::write(&stamp, inputs.as_bytes());
+        let _ = std::fs::write(&stamp, &fingerprint);
     }
     if !args.quiet {
         let profile = crate::adapter::rust::profile::profile_name(opt.release);

@@ -34,6 +34,7 @@ pub fn handle_explain(args: &ExplainArgs) -> i32 {
         no_default_features: args.no_default_features,
         all_features: args.all_features,
         cache_dir: args.cache_dir.clone(),
+        inspect_only: true,
         ..Default::default()
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, false);
@@ -307,6 +308,16 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         || args.profile.is_some()
         || args.target.is_some()
         || args.dry_run;
+    // Builds hold this lock shared while they write the target directory: every clean,
+    // the narrowed ones too, waits for them.
+    let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
+    let _clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
+        Ok(guard) => guard,
+        Err(err) => {
+            Ui::report_error(&err);
+            return 1;
+        }
+    };
     if selective {
         return match clean_selective(args, &mitts_dir, &manifest_path) {
             Ok(()) => 0,
@@ -320,14 +331,6 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     if !args.quiet {
         Ui::header("clean");
     }
-    let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
-    let _clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
-        Ok(guard) => guard,
-        Err(err) => {
-            Ui::report_error(&err);
-            return 1;
-        }
-    };
 
     if mitts_dir.exists() {
         match clean_target::remove_owned_artifacts(&mitts_dir, args.release) {
@@ -426,12 +429,42 @@ fn clean_selective(
     target_dir: &std::path::Path,
     manifest: &std::path::Path,
 ) -> anyhow::Result<()> {
+    // A target is a triple (or a target JSON file name): one plain path component.
     let root = match &args.target {
-        Some(triple) => target_dir.join(triple),
+        Some(spec) => {
+            // A path names a target JSON file; anything else must be the triple itself.
+            let triple = if spec.ends_with(".json") {
+                std::path::Path::new(spec)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+            } else {
+                spec.as_str()
+            };
+            let plain = !triple.is_empty()
+                && triple
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                && triple != "."
+                && triple != "..";
+            if !plain {
+                anyhow::bail!("`{spec}` is not a target triple");
+            }
+            target_dir.join(triple)
+        }
         None => target_dir.to_path_buf(),
     };
     let (count, bytes) = if args.doc {
         let doc = root.join("doc");
+        // What is deleted must be inside the owned target directory.
+        if let (Ok(owned), Ok(real)) = (target_dir.canonicalize(), doc.canonicalize()) {
+            if !real.starts_with(&owned) || real == owned {
+                anyhow::bail!(
+                    "refusing to remove {}: it is not inside the target directory",
+                    doc.display()
+                );
+            }
+        }
         let mut count = 0usize;
         let mut bytes = 0u64;
         fn walk(dir: &std::path::Path, count: &mut usize, bytes: &mut u64) {

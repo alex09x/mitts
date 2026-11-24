@@ -272,6 +272,15 @@ impl RegistryConfig {
         }
     }
 
+    /// The configured registry name whose index is `index` (`crates-io` for crates.io's).
+    pub fn registry_name_for_index(&self, index: &str) -> Option<String> {
+        let source = index_to_lock_source(index);
+        if is_crates_io(&source) {
+            return Some("crates-io".to_string());
+        }
+        self.registry_name_for(&source)
+    }
+
     /// The index URL (without `sparse+`) of a registry name (`None` = crates.io).
     pub fn index_url_for(&self, name: Option<&str>) -> Result<String> {
         let source = self.lock_source_for_registry(name)?;
