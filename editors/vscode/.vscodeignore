@@ -7,3 +7,4 @@ out/test/
 **/*.map
 tsconfig.json
 .gitignore
+.vscode-test/

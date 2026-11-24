@@ -13,7 +13,24 @@ import * as fs from "fs";
 import * as os from "os";
 import * as vscode from "vscode";
 import { atLeast, locateMitts, parseVersion } from "./locate";
-import { RUST_ANALYZER_KEYS, rustAnalyzerSettings } from "./rustAnalyzer";
+import {
+  RUST_ANALYZER_KEYS,
+  replacedKeys,
+  restorePlan,
+  rustAnalyzerSettings,
+  type Saved,
+} from "./rustAnalyzer";
+
+/** Where the values from before routing was turned on are kept (per workspace, survives reloads). */
+const SAVED_KEY = "mitts.rustAnalyzer.saved";
+
+function workspaceValues(config: vscode.WorkspaceConfiguration): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const key of RUST_ANALYZER_KEYS) {
+    values[key] = config.inspect(key)?.workspaceValue;
+  }
+  return values;
+}
 import { MittsTaskProvider, TASK_TYPE } from "./tasks";
 
 /** The first release with every Cargo command; older ones still work for build/check/test. */
@@ -132,7 +149,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const config = vscode.workspace.getConfiguration("rust-analyzer");
-      for (const [key, value] of Object.entries(rustAnalyzerSettings(exe))) {
+      const ours = rustAnalyzerSettings(exe);
+      const current = workspaceValues(config);
+      const replaced = replacedKeys(current, ours);
+      if (replaced.length > 0) {
+        const choice = await vscode.window.showWarningMessage(
+          `This workspace already sets ${replaced.map((k) => `rust-analyzer.${k}`).join(" and ")}. ` +
+            "Replace with Mitts? “Stop using Mitts for rust-analyzer” puts your values back.",
+          { modal: true },
+          "Replace",
+        );
+        if (choice !== "Replace") {
+          return;
+        }
+      }
+      // Keep what was there before, unless routing is already on (then the first record stays).
+      const earlier = context.workspaceState.get<Saved>(SAVED_KEY);
+      const previous = earlier && !replacedKeys(current, earlier.written).length ? earlier.previous : current;
+      await context.workspaceState.update(SAVED_KEY, { written: ours, previous } satisfies Saved);
+      for (const [key, value] of Object.entries(ours)) {
         await config.update(key, value, vscode.ConfigurationTarget.Workspace);
       }
       void vscode.window.showInformationMessage(
@@ -142,10 +177,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("mitts.stopUsingForRustAnalyzer", async () => {
       const config = vscode.workspace.getConfiguration("rust-analyzer");
-      for (const key of RUST_ANALYZER_KEYS) {
-        await config.update(key, undefined, vscode.ConfigurationTarget.Workspace);
+      const plan = restorePlan(workspaceValues(config), context.workspaceState.get<Saved>(SAVED_KEY));
+      for (const [key, value] of Object.entries(plan)) {
+        await config.update(key, value, vscode.ConfigurationTarget.Workspace);
       }
-      void vscode.window.showInformationMessage("rust-analyzer uses Cargo again in this workspace.");
+      await context.workspaceState.update(SAVED_KEY, undefined);
+      void vscode.window.showInformationMessage(
+        "rust-analyzer settings in this workspace are back to what they were before Mitts.",
+      );
     }),
   );
 

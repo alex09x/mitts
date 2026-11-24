@@ -11,7 +11,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { atLeast, locateMitts, parseVersion } from "../../locate";
-import { RUST_ANALYZER_KEYS, rustAnalyzerSettings } from "../../rustAnalyzer";
+import {
+  RUST_ANALYZER_KEYS,
+  replacedKeys,
+  restorePlan,
+  rustAnalyzerSettings,
+} from "../../rustAnalyzer";
+
+test("turning routing off puts back the user's own values and keeps later edits", () => {
+  const ours = rustAnalyzerSettings("/x/mitts");
+  const user = { "check.overrideCommand": ["my-check"], "runnables.command": undefined };
+  assert.deepEqual(replacedKeys(user, ours), ["check.overrideCommand"]);
+  assert.deepEqual(replacedKeys(ours, ours), [], "routing already on replaces nothing");
+  const saved = { written: ours, previous: user };
+  assert.deepEqual(restorePlan(ours, saved), {
+    "check.overrideCommand": ["my-check"],
+    "runnables.command": undefined,
+  });
+  // The user changed runnables.command after turning routing on: it stays.
+  const edited = { ...ours, "runnables.command": "other" };
+  assert.deepEqual(restorePlan(edited, saved), { "check.overrideCommand": ["my-check"] });
+  // Nothing recorded: only Mitts' own values are removed.
+  assert.deepEqual(restorePlan({ "check.overrideCommand": ["my-check"], "runnables.command": "/y/mitts" }, undefined), {
+    "runnables.command": undefined,
+  });
+});
 
 const files = (...existing: string[]) => (p: string) => existing.includes(p);
 const base = { platform: "linux" as NodeJS.Platform, home: "/home/u", cargoHome: undefined };

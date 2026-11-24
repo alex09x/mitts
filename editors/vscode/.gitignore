@@ -4,3 +4,4 @@ out/
 fixtures/**/target/
 LICENSE-MIT
 LICENSE-APACHE
+.vscode-test/
