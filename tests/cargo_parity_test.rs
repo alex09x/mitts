@@ -1833,6 +1833,8 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
     assert!(std::path::Path::new(other.trim())
         .join("generated.h")
         .is_file());
+}
+
 #[cfg(unix)]
 #[test]
 fn external_subcommands_and_list_work_like_cargo() {
