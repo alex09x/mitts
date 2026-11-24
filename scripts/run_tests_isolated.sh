@@ -55,8 +55,15 @@ done < <(env)
 
 cd "$repo"
 status=0
+# Windows (Git Bash): the profile directory is the fallback home of Windows programs and must
+# be the sandbox too, as a native path.
+profile=$sandbox
+if command -v cygpath >/dev/null 2>&1; then
+  profile=$(cygpath -w "$sandbox")
+fi
 env ${drop[@]+"${drop[@]}"} \
   HOME="$sandbox" \
+  USERPROFILE="$profile" \
   XDG_CACHE_HOME="$sandbox/xdg" \
   CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
   RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \

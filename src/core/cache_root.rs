@@ -65,19 +65,14 @@ pub fn default_root_from(lookup: impl Fn(&str) -> Option<OsString>) -> PathBuf {
     PathBuf::from(FALLBACK_DIR)
 }
 
-/// The user's home directory as Cargo finds it: `%USERPROFILE%` on Windows (where `HOME` is
-/// usually unset), `$HOME` elsewhere; the other variable when the first is not set.
+/// The user's home directory: `$HOME`, else `%USERPROFILE%` (Windows, where `HOME` is
+/// usually unset; Cargo reads only the profile directory there, which a shell that sets
+/// `HOME`, such as Git Bash, points at the same place).
 pub fn user_home() -> Option<PathBuf> {
-    home_from(&|name: &str| std::env::var_os(name).filter(|value| !value.is_empty()))
-}
-
-fn home_from(set: &impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let order: [&str; 2] = if cfg!(windows) {
-        ["USERPROFILE", "HOME"]
-    } else {
-        ["HOME", "USERPROFILE"]
-    };
-    order.iter().find_map(|name| set(name)).map(PathBuf::from)
+    ["HOME", "USERPROFILE"]
+        .iter()
+        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
 }
 
 /// Cache root that owns a CAS directory (`<root>/cas`).
