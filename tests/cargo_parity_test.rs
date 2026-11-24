@@ -1514,7 +1514,10 @@ fn host_triple() -> String {
 fn clean_handles_targets_dry_runs_and_custom_binary_names() {
     let env = Env::new();
     let registry = serve(Vec::new());
-    let app = env.app(&registry, "[[bin]]\nname = \"my-tool\"\npath = \"src/main.rs\"\n");
+    let app = env.app(
+        &registry,
+        "[[bin]]\nname = \"my-tool\"\npath = \"src/main.rs\"\n",
+    );
     // A dry run on a project that never built leaves no target directory behind.
     let (_, err) = env.ok(&app, &["clean", "--dry-run"]);
     assert!(err.contains("Summary 0 files"), "{err}");
@@ -1522,14 +1525,25 @@ fn clean_handles_targets_dry_runs_and_custom_binary_names() {
 
     let host = host_triple();
     env.ok(&app, &["build", "-q", "--target", &host]);
-    assert!(app.join("target").join(&host).join("debug/my-tool").is_file());
+    assert!(app
+        .join("target")
+        .join(&host)
+        .join("debug/my-tool")
+        .is_file());
     env.ok(&app, &["clean", "--target", &host, "-p", "app"]);
-    assert!(!app.join("target").join(&host).join("debug/my-tool").exists());
+    assert!(!app
+        .join("target")
+        .join(&host)
+        .join("debug/my-tool")
+        .exists());
 
     env.ok(&app, &["build", "-q"]);
     assert!(app.join("target/debug/my-tool").is_file());
     env.ok(&app, &["clean", "-p", "app"]);
-    assert!(!app.join("target/debug/my-tool").exists(), "the package's custom-named binary goes too");
+    assert!(
+        !app.join("target/debug/my-tool").exists(),
+        "the package's custom-named binary goes too"
+    );
 }
 
 #[test]
@@ -1542,21 +1556,37 @@ fn an_index_moved_by_the_environment_gets_no_stored_token() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(env.path("cargo-home/credentials.toml")).unwrap().permissions().mode();
+        let mode = fs::metadata(env.path("cargo-home/credentials.toml"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o077, 0, "credentials are private: {mode:o}");
     }
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
-    cmd.args(["owner", "--add", "bob", "aa", "--index", &registry.index_url()])
-        .current_dir(&app)
-        .env("CARGO_HOME", env.path("cargo-home"))
-        .env("MITTS_CACHE_DIR", env.path("cache"))
-        .env("CARGO_REGISTRIES_MOCK_INDEX", "sparse+http://127.0.0.1:9/elsewhere/");
+    cmd.args([
+        "owner",
+        "--add",
+        "bob",
+        "aa",
+        "--index",
+        &registry.index_url(),
+    ])
+    .current_dir(&app)
+    .env("CARGO_HOME", env.path("cargo-home"))
+    .env("MITTS_CACHE_DIR", env.path("cache"))
+    .env(
+        "CARGO_REGISTRIES_MOCK_INDEX",
+        "sparse+http://127.0.0.1:9/elsewhere/",
+    );
     let out = cmd.output().unwrap();
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{err}");
     assert!(err.contains("pass its token with `--token`"), "{err}");
     assert!(
-        !registry.requests().iter().any(|r| r.headers.contains_key("authorization")),
+        !registry
+            .requests()
+            .iter()
+            .any(|r| r.headers.contains_key("authorization")),
         "no token was sent"
     );
 }
@@ -1571,13 +1601,30 @@ fn install_from_an_index_and_keeps_records_whole_on_errors() {
     let app = env.app(&registry, "");
     let root = env.path("root");
     let root_s = root.to_str().unwrap();
-    env.ok(&app, &["install", "tool", "--index", &registry.index_url(), "--root", root_s]);
+    env.ok(
+        &app,
+        &[
+            "install",
+            "tool",
+            "--index",
+            &registry.index_url(),
+            "--root",
+            root_s,
+        ],
+    );
     let records = read(root.join(".crates.toml"));
-    assert!(records.contains(&format!("tool 1.0.0 ({})", registry.index_url())), "{records}");
+    assert!(
+        records.contains(&format!("tool 1.0.0 ({})", registry.index_url())),
+        "{records}"
+    );
 
     fs::write(root.join(".crates2.json"), "{not json").unwrap();
     env.fails(&app, &["uninstall", "tool", "--root", root_s]);
-    assert_eq!(read(root.join(".crates.toml")), records, "v1 records untouched");
+    assert_eq!(
+        read(root.join(".crates.toml")),
+        records,
+        "v1 records untouched"
+    );
     assert!(root.join("bin/tool").is_file());
 }
 
@@ -1587,12 +1634,63 @@ fn metadata_no_deps_reports_cargos_default_members() {
     let registry = serve(Vec::new());
     let app = env.app(&registry, "[workspace]\nmembers = [\"crates/*\"]\n");
     fs::create_dir_all(app.join("crates/extra/src")).unwrap();
-    fs::write(app.join("crates/extra/Cargo.toml"), "[package]\nname = \"extra\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
+    fs::write(
+        app.join("crates/extra/Cargo.toml"),
+        "[package]\nname = \"extra\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
     fs::write(app.join("crates/extra/src/lib.rs"), "").unwrap();
     let (out, _) = env.ok(&app, &["metadata", "--no-deps", "--format-version", "1"]);
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(doc["workspace_members"].as_array().unwrap().len(), 2);
     let defaults = doc["workspace_default_members"].as_array().unwrap();
     assert_eq!(defaults.len(), 1, "{doc}");
-    assert!(defaults[0].as_str().unwrap().ends_with("#app@0.1.0"), "{doc}");
+    assert!(
+        defaults[0].as_str().unwrap().ends_with("#app@0.1.0"),
+        "{doc}"
+    );
+}
+
+#[test]
+fn clean_of_an_unbuilt_target_and_corrupt_records_are_handled() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "");
+    env.ok(&app, &["build", "-q"]);
+    // A target that was never built is a successful no-op.
+    let (_, err) = env.ok(&app, &["clean", "--target", "wasm32-unknown-unknown"]);
+    assert!(err.contains("Removed 0 files"), "{err}");
+    assert!(!app.join("target/wasm32-unknown-unknown").exists());
+
+    let root = env.path("root");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join(".crates.toml"),
+        "[v1]\n\"tool 1.0.0 (x)\" = \"not a list\"\n",
+    )
+    .unwrap();
+    let err = env.fails(
+        &app,
+        &["install", "--list", "--root", root.to_str().unwrap()],
+    );
+    assert!(err.contains("is corrupt"), "{err}");
+
+    // A binary and an example with one name cannot share the artifact directory.
+    fs::create_dir_all(app.join("examples")).unwrap();
+    fs::write(app.join("examples/app.rs"), "fn main() {}\n").unwrap();
+    let out_dir = env.path("artifacts");
+    let err = env.fails(
+        &app,
+        &[
+            "build",
+            "-q",
+            "--bins",
+            "--examples",
+            "-Z",
+            "unstable-options",
+            "--artifact-dir",
+            out_dir.to_str().unwrap(),
+        ],
+    );
+    assert!(err.contains("two files named `app`"), "{err}");
 }

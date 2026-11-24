@@ -337,6 +337,10 @@ fn copy_final_artifacts(
         .as_deref()
         .map_or(cfg!(target_vendor = "apple"), |t| t.contains("apple"));
     std::fs::create_dir_all(dir)?;
+    // Every output lands in one flat directory: two with the same file name (a binary and
+    // an example both called `demo`) would overwrite each other, so that is an error.
+    let mut copied: std::collections::BTreeMap<std::path::PathBuf, std::path::PathBuf> =
+        std::collections::BTreeMap::new();
     for unit in explanation
         .units
         .iter()
@@ -378,6 +382,18 @@ fn copy_final_artifacts(
                     .file_name()
                     .map(std::path::PathBuf::from)
                     .unwrap_or_else(|| file.clone().into());
+                if let Some(first) = copied.get(&name) {
+                    if *first != from {
+                        anyhow::bail!(
+                            "`--artifact-dir` would get two files named `{}`: {} and {}",
+                            name.display(),
+                            first.display(),
+                            from.display()
+                        );
+                    }
+                    continue;
+                }
+                copied.insert(name.clone(), from.clone());
                 std::fs::copy(&from, dir.join(name))?;
             }
         }

@@ -177,7 +177,7 @@ pub fn run_after_build(argv: &[std::ffi::OsString]) {
 /// The options of the finished command that decide what was built: the same manifest,
 /// packages, features, target, profile, directories and network policy.
 pub fn selection_args(argv: &[String]) -> Vec<String> {
-    const WITH_VALUE: [&str; 10] = [
+    const WITH_VALUE: [&str; 14] = [
         "--manifest-path",
         "-p",
         "--package",
@@ -188,8 +188,12 @@ pub fn selection_args(argv: &[String]) -> Vec<String> {
         "--target-dir",
         "--cache-dir",
         "--profile",
+        "--bin",
+        "--example",
+        "--test",
+        "--bench",
     ];
-    const FLAGS: [&str; 9] = [
+    const FLAGS: [&str; 16] = [
         "--workspace",
         "--all",
         "--all-features",
@@ -199,6 +203,13 @@ pub fn selection_args(argv: &[String]) -> Vec<String> {
         "--locked",
         "--release",
         "-r",
+        "--lib",
+        "--bins",
+        "--examples",
+        "--tests",
+        "--benches",
+        "--all-targets",
+        "--keep-going",
     ];
     let mut out = Vec::new();
     let mut i = 0;
@@ -240,9 +251,34 @@ fn run_after_build_inner(argv: &[std::ffi::OsString]) -> Result<()> {
         .skip(1)
         .map(|w| w.to_string_lossy().into_owned())
         .collect();
-    let output = Command::new(exe)
-        .args(["check", "--all-targets", "--message-format", "json", "-q"])
-        .args(selection_args(&words))
+    // The same targets the command built: its own selectors; with none, what the command
+    // compiles by default (`test` and `bench` also their test targets).
+    let selection = selection_args(&words);
+    let command = words
+        .iter()
+        .find(|w| !w.starts_with('-'))
+        .map(String::as_str)
+        .unwrap_or("build");
+    let selectors = [
+        "--lib",
+        "--bins",
+        "--bin",
+        "--examples",
+        "--example",
+        "--tests",
+        "--test",
+        "--benches",
+        "--bench",
+        "--all-targets",
+    ];
+    let selected = selection.iter().any(|w| selectors.contains(&w.as_str()));
+    let mut cmd = Command::new(exe);
+    cmd.args(["check", "--message-format", "json", "-q"]);
+    if !selected && matches!(command, "test" | "t" | "bench") {
+        cmd.arg("--tests");
+    }
+    let output = cmd
+        .args(selection)
         .args(crate::adapter::rust::cargo_config_cli::child_args())
         .env("RUSTFLAGS", flags)
         .output()

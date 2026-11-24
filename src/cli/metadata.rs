@@ -142,8 +142,7 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
                     .unwrap_or_default();
                 defaults.iter().any(|m| {
                     let m = m.trim_start_matches("./").trim_end_matches('/');
-                    (m == "." && rel.is_empty())
-                        || super::project_new::glob_match(m, &rel)
+                    (m == "." && rel.is_empty()) || super::project_new::glob_match(m, &rel)
                 })
             })
             .map(|(id, _)| id.clone())

@@ -228,34 +228,37 @@ fn read_tracking(root: &Path) -> Result<BTreeMap<String, Vec<String>>> {
     };
     let value: toml::Value =
         toml::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))?;
-    Ok(value
-        .get("v1")
-        .and_then(|v| v.as_table())
-        .map(|t| {
-            t.iter()
-                .map(|(k, v)| {
-                    let bins = v
-                        .as_array()
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|b| b.as_str().map(str::to_string))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    (k.clone(), bins)
-                })
-                .collect()
-        })
-        .unwrap_or_default())
+    // The shape is checked as strictly as the syntax: a record that is not a `v1` table of
+    // string lists is corrupt, never read as fewer installs than it holds.
+    let corrupt = || {
+        anyhow::anyhow!(
+            "{} is corrupt: expected `[v1]` with lists of binary names",
+            path.display()
+        )
+    };
+    let table = match value.get("v1") {
+        Some(v) => v.as_table().ok_or_else(corrupt)?,
+        None if value.as_table().is_some_and(|t| t.is_empty()) => return Ok(BTreeMap::new()),
+        None => return Err(corrupt()),
+    };
+    let mut out = BTreeMap::new();
+    for (id, bins) in table {
+        let list = bins.as_array().ok_or_else(corrupt)?;
+        let names = list
+            .iter()
+            .map(|b| b.as_str().map(str::to_string).ok_or_else(corrupt))
+            .collect::<Result<Vec<_>>>()?;
+        out.insert(id.clone(), names);
+    }
+    Ok(out)
 }
 
 /// `.crates2.json`: a missing file is empty, an unreadable or invalid one an error.
 fn read_v2(root: &Path) -> Result<Value> {
     let path = root.join(".crates2.json");
     match std::fs::read_to_string(&path) {
-        Ok(text) => {
-            serde_json::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
-        }
+        Ok(text) => serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse {}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({"installs": {}})),
         Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
     }
@@ -300,8 +303,35 @@ fn write_tracking(
         let _ = std::fs::remove_file(&tmp2);
         return Err(e).context("failed to write the install records");
     }
-    std::fs::rename(&tmp1, &path1)?;
-    std::fs::rename(&tmp2, &path2)?;
+    // Publish the pair: keep the old `.crates.toml` aside until `.crates2.json` is in place,
+    // and put it back if the second step fails.
+    let backup1 = root.join(format!(".crates.toml.bak-{}", std::process::id()));
+    let had_v1 = path1.exists();
+    let cleanup = |files: &[&Path]| {
+        for f in files {
+            let _ = std::fs::remove_file(f);
+        }
+    };
+    if had_v1 {
+        if let Err(e) = std::fs::copy(&path1, &backup1) {
+            cleanup(&[&tmp1, &tmp2]);
+            return Err(e).context("failed to back up .crates.toml");
+        }
+    }
+    if let Err(e) = std::fs::rename(&tmp1, &path1) {
+        cleanup(&[&tmp1, &tmp2, &backup1]);
+        return Err(e).context("failed to replace .crates.toml");
+    }
+    if let Err(e) = std::fs::rename(&tmp2, &path2) {
+        if had_v1 {
+            let _ = std::fs::rename(&backup1, &path1);
+        } else {
+            let _ = std::fs::remove_file(&path1);
+        }
+        cleanup(&[&tmp2, &backup1]);
+        return Err(e).context("failed to replace .crates2.json; .crates.toml was restored");
+    }
+    cleanup(&[&backup1]);
     Ok(())
 }
 

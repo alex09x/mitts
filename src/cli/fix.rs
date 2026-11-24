@@ -213,7 +213,10 @@ fn run(args: &FixArgs) -> Result<i32> {
     let mut total: BTreeMap<PathBuf, usize> = BTreeMap::new();
     for _ in 0..MAX_PASSES {
         let output = run_check(args, &lint_flags, true)?;
-        let (fixes, has_errors) = suggestions(&output, &ws_canonical);
+        let (fixes, error_messages) = suggestions(&output, &ws_canonical);
+        // A failed check is broken code too, also when it failed without a compiler error
+        // (a build script, a tool).
+        let has_errors = error_messages || !output.status.success();
         // Like Cargo: code that does not compile is only edited with --broken-code.
         if has_errors && !args.broken_code {
             break;
