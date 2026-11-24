@@ -375,8 +375,10 @@ Mitts est en version préliminaire. Sachez ceci avant de vous appuyer dessus :
 - **Registres sparse uniquement.** Un registre fourni sous forme d'index git (`registry+…`
   autre que crates.io, ou `[source] registry = "https://…"` sans
   `sparse+`) et les sources `local-registry` sont refusés avec des conseils.
-- **Les identifiants sont lus, jamais écrits.** `cargo login` reste le rôle de Cargo ;
-  `cargo:wincred` est réservé à Windows et ignoré.
+- **Les jetons sont rangés là où Cargo les range.** `mitts login` et `mitts logout` écrivent
+  `$CARGO_HOME/credentials.toml`, comme Cargo ; `cargo:wincred` est réservé à Windows et ignoré.
+- **Pas de sous-commandes externes.** `mitts nextest`, `mitts llvm-cov` et les autres outils `cargo-<name>`
+  ne sont pas relayés ; lancez ces outils directement.
 - **Certaines unités ne sont jamais mises en cache :** les crates de type `cdylib`, `dylib` ou
   `staticlib`, et les crates dont les lectures de `env!` ne peuvent pas être suivies. Elles sont toujours
   compilées ; elles sont signalées par `mitts explain`.
@@ -515,17 +517,17 @@ Décisions d'architecture : [docs/decisions](../docs/decisions).
 
 ## Citation
 
-Pour citer Mitts, utilisez la version archivée. Le DOI de concept [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) pointe toujours vers la dernière version ; le DOI de la version 0.3.39 est [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376). La fonction « Cite this repository » de GitHub lit [CITATION.cff](../CITATION.cff).
+Pour citer Mitts, utilisez la version archivée. Le DOI de concept [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) pointe toujours vers la dernière version ; le DOI de la version 0.4.0 est [10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190). La fonction « Cite this repository » de GitHub lit [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24407376,
+@software{panasenko_2026_24489190,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.39},
-  doi       = {10.5281/zenodo.24407376},
-  url       = {https://doi.org/10.5281/zenodo.24407376}
+  version   = {0.4.0},
+  doi       = {10.5281/zenodo.24489190},
+  url       = {https://doi.org/10.5281/zenodo.24489190}
 }
 ```
 

@@ -371,8 +371,10 @@ Mitts is pre-release. Know these before you rely on it:
 - **Sparse registries only.** A registry served as a git index (`registry+…`
   other than crates.io, or `[source] registry = "https://…"` without
   `sparse+`) and `local-registry` sources are refused with advice.
-- **Credentials are read, never written.** `cargo login` stays Cargo's job;
-  `cargo:wincred` is Windows-only and skipped.
+- **Tokens live where Cargo keeps them.** `mitts login` and `mitts logout` write
+  `$CARGO_HOME/credentials.toml`, as Cargo does; `cargo:wincred` is Windows-only and skipped.
+- **No external subcommands.** `mitts nextest`, `mitts llvm-cov` and other `cargo-<name>`
+  tools are not dispatched; run those tools directly.
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.
@@ -511,19 +513,19 @@ Architecture decisions: [docs/decisions](docs/decisions).
 
 To cite Mitts, use the archived release. The concept DOI
 [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) always resolves to the
-latest version; the version DOI of 0.3.39 is
-[10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376). GitHub's
+latest version; the version DOI of 0.4.0 is
+[10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190). GitHub's
 "Cite this repository" reads [CITATION.cff](CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24407376,
+@software{panasenko_2026_24489190,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.39},
-  doi       = {10.5281/zenodo.24407376},
-  url       = {https://doi.org/10.5281/zenodo.24407376}
+  version   = {0.4.0},
+  doi       = {10.5281/zenodo.24489190},
+  url       = {https://doi.org/10.5281/zenodo.24489190}
 }
 ```
 

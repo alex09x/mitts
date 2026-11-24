@@ -292,7 +292,8 @@ Mitts se encuentra en fase pre-release. Ten en cuenta lo siguiente antes de conf
 - **Solo destino anfitrión (Host target).** Aún no se admite la compilación cruzada.
 - **Sin caché remota todavía.** El almacén es local por máquina.
 - **Solo registros sparse.** Se rechazan con sugerencias los registros servidos mediante índice git (`registry+…` distinto de crates.io, o `[source] registry = "https://…"` sin `sparse+`) y las fuentes `local-registry`.
-- **Las credenciales solo se leen, nunca se escriben.** `cargo login` sigue siendo responsabilidad de Cargo; `cargo:wincred` es exclusivo de Windows y se omite.
+- **Los tokens se guardan donde los guarda Cargo.** `mitts login` y `mitts logout` escriben `$CARGO_HOME/credentials.toml`, como Cargo; `cargo:wincred` es exclusivo de Windows y se omite.
+- **Sin subcomandos externos.** `mitts nextest`, `mitts llvm-cov` y otras herramientas `cargo-<name>` no se redirigen; ejecuta esas herramientas directamente.
 - **Algunas unidades nunca se almacenan en caché:** crates de tipo `cdylib`, `dylib` o `staticlib`, y crates cuyas lecturas de `env!` no se pueden rastrear. Siempre se compilan; son informados por `mitts explain`.
 - **Crates del espacio de trabajo entre copias de trabajo.** Tus propios crates se reutilizan entre worktrees únicamente cuando su clave puede independizarse de la ruta (sin lecturas de `CARGO_MANIFEST_DIR`, sin script de compilación, sin macros procedimentales impuras declaradas). De lo contrario, la clave incluye la ruta absoluta. En macOS, las entradas debug stabs del enlazador se escriben relativas al espacio de trabajo (`-oso_prefix`), por lo que los binarios enlazados también se comparten; inicia el depurador en la raíz del espacio de trabajo para que localice los archivos objeto.
 - **Las macros que leen tus archivos deben ser declaradas por ti.** Una macro procedimental se considera pura a menos que el proyecto la enumere (ver arriba). Los dependientes de una macro listada rastrean cada archivo de su paquete; una macro no listada que lea un archivo sin registrarlo ante rustc puede generar un resultado desactualizado, exactamente igual que con Cargo.
@@ -402,17 +403,17 @@ Decisiones de arquitectura: [docs/decisions](../docs/decisions).
 <a id="citation"></a>
 ## Cómo citar
 
-Para citar Mitts, usa la versión archivada. El DOI de concepto [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) siempre apunta a la última versión; el DOI de la versión 0.3.39 es [10.5281/zenodo.24407376](https://doi.org/10.5281/zenodo.24407376). La opción «Cite this repository» de GitHub lee [CITATION.cff](../CITATION.cff).
+Para citar Mitts, usa la versión archivada. El DOI de concepto [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) siempre apunta a la última versión; el DOI de la versión 0.4.0 es [10.5281/zenodo.24489190](https://doi.org/10.5281/zenodo.24489190). La opción «Cite this repository» de GitHub lee [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24407376,
+@software{panasenko_2026_24489190,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.3.39},
-  doi       = {10.5281/zenodo.24407376},
-  url       = {https://doi.org/10.5281/zenodo.24407376}
+  version   = {0.4.0},
+  doi       = {10.5281/zenodo.24489190},
+  url       = {https://doi.org/10.5281/zenodo.24489190}
 }
 ```
 
