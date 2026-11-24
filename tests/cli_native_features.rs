@@ -48,6 +48,8 @@ fn write_file(path: impl AsRef<Path>, contents: &str) {
     fs::write(path, contents).unwrap();
 }
 
+// The linker is a `#!/bin/sh` wrapper around `cc`, which only a unix host runs.
+#[cfg(unix)]
 #[test]
 fn examples_target_triple_quiet_and_program_args_work_together() {
     let temp = TempDir::new().unwrap();

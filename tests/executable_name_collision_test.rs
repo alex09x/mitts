@@ -74,7 +74,7 @@ fn hyphenated_binary_preserves_foreign_underscore_executable_on_publish_and_rest
         fast_lock: Some(false),
         ..Default::default()
     };
-    let hyphenated = target.join("debug/foo-bar");
+    let hyphenated = target.join(format!("debug/foo-bar{}", std::env::consts::EXE_SUFFIX));
     for cached in [false, true] {
         if cached {
             fs::remove_file(&hyphenated).unwrap();

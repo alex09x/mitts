@@ -163,7 +163,12 @@ fn rustflags_reach_the_script_encoded_and_in_its_cfg() {
 
 #[test]
 fn a_configured_linker_reaches_the_script_as_rustc_linker() {
-    let temp = project(Some("[target.'cfg(unix)']\nlinker = \"cc\"\n"));
+    // A `cfg` table that matches this host.
+    let temp = project(Some(if cfg!(windows) {
+        "[target.'cfg(windows)']\nlinker = \"cc\"\n"
+    } else {
+        "[target.'cfg(unix)']\nlinker = \"cc\"\n"
+    }));
     assert_eq!(
         build_and_run(temp.path()),
         "flags=[] probe=false linker=cc host_is_target=true rustdoc=true"

@@ -375,7 +375,7 @@ fn test_t0_r1_patch_or_path_package_without_source_never_uses_crates_io_store() 
         let err = RustAdapter::explain_plan(&opt).expect_err(
             "explain_plan must reject source == None package outside workspace/path_dependencies instead of substituting crates.io copy",
         );
-        let msg = format!("{:#}", err);
+        let msg = format!("{:#}", err).replace('\\', "/");
         // The patch names a directory that does not exist: the planner reports that
         // directory and never substitutes the crates.io copy.
         assert!(

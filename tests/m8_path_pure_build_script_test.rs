@@ -577,7 +577,7 @@ edition = "2021"
 fn main() {
     let cwd = env::current_dir().unwrap();
     // Leaks workspace path into rustc-cfg, making it impure
-    println!("cargo:rustc-cfg=leaked_path=\"{}\"", cwd.display());
+    println!("cargo:rustc-cfg=leaked_path={:?}", cwd.display().to_string());
     println!("cargo:rerun-if-changed=build.rs");
 }
 "##,

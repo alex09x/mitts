@@ -269,13 +269,20 @@ rust-version = "1.75"
     assert_eq!(std::env::var("CUSTOM_BUILD_VAR").unwrap(), "from_build_script");
     assert!(!std::env::var("CARGO_MANIFEST_DIR").unwrap().is_empty());
     assert!(!std::env::var("CARGO").unwrap().is_empty());
-    let ld_path = std::env::var("LD_LIBRARY_PATH").unwrap();
-    assert!(ld_path.contains("deps"), "LD_LIBRARY_PATH missing deps: {}", ld_path);
-    assert!(ld_path.contains("custom_native_lib"), "LD_LIBRARY_PATH missing custom_native_lib: {}", ld_path);
-    let dyld_path = std::env::var("DYLD_FALLBACK_LIBRARY_PATH").unwrap();
-    assert!(dyld_path.contains("deps"), "DYLD_FALLBACK_LIBRARY_PATH missing deps: {}", dyld_path);
-    assert!(dyld_path.contains("custom_native_lib"), "DYLD_FALLBACK_LIBRARY_PATH missing custom_native_lib: {}", dyld_path);
-    assert!(dyld_path.contains("/usr/local/lib"), "DYLD_FALLBACK_LIBRARY_PATH missing /usr/local/lib: {}", dyld_path);
+    if cfg!(windows) {
+        // Windows finds DLLs through PATH.
+        let path = std::env::var("PATH").unwrap();
+        assert!(path.contains("deps"), "PATH missing deps: {}", path);
+        assert!(path.contains("custom_native_lib"), "PATH missing custom_native_lib: {}", path);
+    } else {
+        let ld_path = std::env::var("LD_LIBRARY_PATH").unwrap();
+        assert!(ld_path.contains("deps"), "LD_LIBRARY_PATH missing deps: {}", ld_path);
+        assert!(ld_path.contains("custom_native_lib"), "LD_LIBRARY_PATH missing custom_native_lib: {}", ld_path);
+        let dyld_path = std::env::var("DYLD_FALLBACK_LIBRARY_PATH").unwrap();
+        assert!(dyld_path.contains("deps"), "DYLD_FALLBACK_LIBRARY_PATH missing deps: {}", dyld_path);
+        assert!(dyld_path.contains("custom_native_lib"), "DYLD_FALLBACK_LIBRARY_PATH missing custom_native_lib: {}", dyld_path);
+        assert!(dyld_path.contains("/usr/local/lib"), "DYLD_FALLBACK_LIBRARY_PATH missing /usr/local/lib: {}", dyld_path);
+    }
 "#;
 
     fs::write(
