@@ -20,8 +20,24 @@ use mitts::core::{
     cas::ContentAddressedStore,
     gc::{CacheGc, CacheLease, GcOptions},
 };
-use std::{collections::HashSet, fs, os::unix::fs::MetadataExt, path::Path};
+use std::{collections::HashSet, fs, path::Path};
 use tempfile::TempDir;
+
+/// A file's identity for counting hard links once: device and inode on unix; elsewhere
+/// (Windows has no stable file id in std) its path, so links count as separate files.
+#[cfg(unix)]
+fn file_id(_path: &Path, meta: &fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino())
+}
+
+#[cfg(not(unix))]
+fn file_id(path: &Path, _meta: &fs::Metadata) -> (u64, u64) {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut h);
+    (0, h.finish())
+}
 
 fn unique_inode_bytes(dir: &Path, seen: &mut HashSet<(u64, u64)>) -> u64 {
     fs::read_dir(dir)
@@ -35,7 +51,7 @@ fn unique_inode_bytes(dir: &Path, seen: &mut HashSet<(u64, u64)>) -> u64 {
             } else {
                 e.metadata()
                     .ok()
-                    .filter(|m| seen.insert((m.dev(), m.ino())))
+                    .filter(|m| seen.insert(file_id(&p, m)))
                     .map_or(0, |m| m.len())
             }
         })

@@ -8,6 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+// The jobserver tested here is the POSIX one (FIFOs and pipes through libc).
+#![cfg(unix)]
+
 use mitts::core::JobserverPool;
 
 #[path = "m8_jobserver_pool_test/managed_cap.rs"]

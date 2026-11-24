@@ -16,7 +16,9 @@
 //! with the lock already held: `flock` belongs to the open file, not to its path.
 
 use super::lock::FileLock;
-use anyhow::{Context, Result};
+#[cfg(not(windows))]
+use anyhow::Context;
+use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,6 +29,7 @@ pub const OWNER_LOCK: &str = ".owner.lock";
 /// A staging directory older than this was left by a process that died while creating it.
 const STALE_STAGING: Duration = Duration::from_secs(600);
 
+#[cfg(not(windows))]
 fn staging_name(name: &str) -> String {
     format!(".{name}.staging")
 }
