@@ -56,8 +56,9 @@ fn main() -> ExitCode {
         }
     };
     let original_args = args.clone();
-    // `mitts --list`, like `cargo --list`: built-in commands, aliases, cargo-NAME tools.
-    if args.len() == 2 && args[1] == "--list" {
+    // `mitts --list`, like `cargo --list`: built-in commands, aliases, cargo-NAME tools; it
+    // may follow other global flags (`mitts -v --list`), but not a subcommand.
+    if mitts::cli::external::wants_list(&args) {
         return ExitCode::from(mitts::cli::external::list() as u8);
     }
     let cli = Cli::parse_from(args);

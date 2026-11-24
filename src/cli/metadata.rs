@@ -9,7 +9,7 @@
  */
 
 use super::metadata_deps::package_dependencies;
-use super::metadata_inherit::{normalized, Patches};
+use super::metadata_inherit::Patches;
 use crate::adapter::rust::manifest::{CargoToml, DiscoveredTarget, TestRole, TomlDependency};
 use crate::adapter::rust::registry_config::RegistryConfig;
 use crate::adapter::rust::{RustAdapter, RustBuildOptions};
@@ -97,7 +97,6 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
         let Some(package) = manifest.package.clone() else {
             continue;
         };
-        let manifest = normalized(&manifest, &manifest_path);
         let version = package
             .version
             .clone()
@@ -206,9 +205,6 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 )
             })?;
             let source = package_source(&unit.package_id);
-            // Read as Cargo normalizes it, against the package's own workspace (a path
-            // dependency may belong to another one).
-            let manifest = normalized(&manifest, &unit.manifest_path);
             packages.insert(
                 unit.package_id.clone(),
                 PackageEntry {
@@ -267,8 +263,11 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         })
         .collect();
     // The workspace root's `[patch]` tables (none when the manifest cannot be read here).
-    let root_manifest_path =
-        std::path::absolute(super::project_info::starting_manifest(&opt.manifest_path)?)?;
+    // Lexically normalized as the planner normalizes it: `sub/../Cargo.toml` must not make
+    // the config of `sub/` apply.
+    let root_manifest_path = super::metadata_deps::lexical(&std::path::absolute(
+        super::project_info::starting_manifest(&opt.manifest_path)?,
+    )?);
     let patches = match CargoToml::from_file(&root_manifest_path) {
         Ok(root) => Patches::of(&root_manifest_path, &root),
         Err(_) => Patches::of(&root_manifest_path, &CargoToml::default()),
@@ -534,9 +533,6 @@ fn same_source(dep: &TomlDependency, source: Option<&str>, registries: &Registry
             };
             trim(base) == trim(d.git.as_deref().unwrap_or_default()) && query == wanted
         }
-        // Inherited from `[workspace.dependencies]`: the source is the workspace's, which
-        // this manifest does not spell out; the name and version decide.
-        (Some(d), Some(_)) if d.workspace == Some(true) => true,
         (_, Some(s)) => {
             let registry = detail.and_then(|d| d.registry.as_deref());
             registries

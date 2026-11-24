@@ -54,7 +54,7 @@ pub(super) fn package_dependencies(
 }
 
 /// `path` with `.` and `..` components removed, as Cargo normalizes a dependency path.
-fn lexical(path: &Path) -> PathBuf {
+pub(super) fn lexical(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
         match component {

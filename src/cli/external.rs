@@ -154,6 +154,24 @@ fn edit_distance(a: &str, b: &str) -> usize {
     row[b.len()]
 }
 
+/// Whether the command line asks for `--list`: among the global flags before any subcommand
+/// (`mitts --list`, `mitts -v --list`, `mitts --color never --list`).
+pub fn wants_list(args: &[OsString]) -> bool {
+    let mut rest = args.iter().skip(1);
+    while let Some(arg) = rest.next() {
+        match arg.to_str().unwrap_or("") {
+            "--list" => return true,
+            // Global options that take a value as the next word.
+            "--color" | "--config" | "-Z" | "-C" => {
+                rest.next();
+            }
+            a if a.starts_with('-') => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// `mitts --list`: built-in commands with their summary, aliases from the configuration,
 /// then the external `cargo-NAME` commands found.
 pub fn list() -> i32 {
@@ -211,6 +229,22 @@ mod tests {
         for name in ["x/../../tmp/tool", "a\\b", "..", ""] {
             assert_eq!(find(name, std::slice::from_ref(&dir)), None, "{name}");
         }
+    }
+
+    #[test]
+    fn list_is_found_among_the_global_flags() {
+        let args = |words: &[&str]| -> Vec<OsString> {
+            std::iter::once("mitts")
+                .chain(words.iter().copied())
+                .map(OsString::from)
+                .collect()
+        };
+        assert!(wants_list(&args(&["--list"])));
+        assert!(wants_list(&args(&["-v", "--list"])));
+        assert!(wants_list(&args(&["--color", "never", "--list"])));
+        assert!(!wants_list(&args(&["build", "--list"])));
+        assert!(!wants_list(&args(&["--color", "--list"])));
+        assert!(!wants_list(&args(&[])));
     }
 
     #[test]

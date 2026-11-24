@@ -2489,6 +2489,56 @@ fn metadata_normalizes_a_path_dependency_against_its_own_workspace() {
 }
 
 #[test]
+fn metadata_keeps_an_edition_2024_members_default_features_off() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = { workspace = true, default-features = false }\n\n[workspace]\n\n[workspace.dependencies]\naa = \"1\"\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace("edition = \"2021\"", "edition = \"2024\"");
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let package = doc["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == root.as_str())
+        .unwrap();
+    let dep = &package["dependencies"][0];
+    assert_eq!(dep["uses_default_features"], false, "{dep}");
+}
+
+#[test]
+fn metadata_matches_a_patch_keyed_by_the_github_crates_io_index() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { package = \"aa\", version = \"1\" }\n\n[patch.\"https://github.com/rust-lang/crates.io-index\"]\naa = { path = \"aa\" }\n",
+    );
+    fs::create_dir_all(app.join("aa/src")).unwrap();
+    fs::write(
+        app.join("aa/Cargo.toml"),
+        "[package]\nname = \"aa\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("aa/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    assert_eq!(node["deps"][0]["name"], "old", "{node}");
+}
+
+#[test]
 fn metadata_keeps_the_alias_of_a_registry_dependency_a_patch_replaces() {
     let env = Env::new();
     let registry = serve(vec![version("aa", "1.0.0")]);
