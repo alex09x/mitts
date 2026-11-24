@@ -291,7 +291,14 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         return 1;
     }
     if mitts_dir.exists() {
-        let has_marker = clean_target::has_owned_state(&mitts_dir);
+        // A build with `--target` marks the target's own directory.
+        let has_marker = clean_target::has_owned_state(&mitts_dir)
+            || args.target.as_ref().is_some_and(|t| {
+                std::path::Path::new(t)
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+                    && clean_target::has_owned_state(&mitts_dir.join(t))
+            });
         if !has_marker {
             eprintln!(
                 "mitts error: refusing to clean unowned directory without Mitts marker (.mitts-target): {}",
@@ -308,6 +315,15 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         || args.profile.is_some()
         || args.target.is_some()
         || args.dry_run;
+    // Nothing built yet: a narrowed clean (a dry run above all) has nothing to remove and
+    // must not create the target directory by taking its lock.
+    if selective && !mitts_dir.exists() {
+        if !args.quiet {
+            let word = if args.dry_run { "Summary" } else { "Removed" };
+            eprintln!("{word:>12} 0 files");
+        }
+        return 0;
+    }
     // Builds hold this lock shared while they write the target directory: every clean,
     // the narrowed ones too, waits for them.
     let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
@@ -429,42 +445,39 @@ fn clean_selective(
     target_dir: &std::path::Path,
     manifest: &std::path::Path,
 ) -> anyhow::Result<()> {
-    // A target is a triple (or a target JSON file name): one plain path component.
+    // The target's outputs are where a build puts them: the target directory joined with
+    // the `--target` spec as given (a triple, or a target JSON path). It must stay inside
+    // the owned target directory, symbolic links resolved.
     let root = match &args.target {
         Some(spec) => {
-            // A path names a target JSON file; anything else must be the triple itself.
-            let triple = if spec.ends_with(".json") {
-                std::path::Path::new(spec)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-            } else {
-                spec.as_str()
-            };
-            let plain = !triple.is_empty()
-                && triple
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-                && triple != "."
-                && triple != "..";
-            if !plain {
-                anyhow::bail!("`{spec}` is not a target triple");
+            let path = std::path::Path::new(spec);
+            let lexical_ok = !spec.is_empty()
+                && path
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)));
+            if !lexical_ok {
+                anyhow::bail!("`{spec}` is not a target triple or a relative target file");
             }
-            target_dir.join(triple)
+            target_dir.join(path)
         }
         None => target_dir.to_path_buf(),
     };
-    let (count, bytes) = if args.doc {
-        let doc = root.join("doc");
-        // What is deleted must be inside the owned target directory.
-        if let (Ok(owned), Ok(real)) = (target_dir.canonicalize(), doc.canonicalize()) {
-            if !real.starts_with(&owned) || real == owned {
+    let inside = |path: &std::path::Path| -> anyhow::Result<()> {
+        if let (Ok(owned), Ok(real)) = (target_dir.canonicalize(), path.canonicalize()) {
+            if !real.starts_with(&owned) || (real == owned && path != target_dir) {
                 anyhow::bail!(
-                    "refusing to remove {}: it is not inside the target directory",
-                    doc.display()
+                    "refusing to clean {}: it is not inside the target directory",
+                    path.display()
                 );
             }
         }
+        Ok(())
+    };
+    inside(&root)?;
+    let (count, bytes) = if args.doc {
+        let doc = root.join("doc");
+        // What is deleted must be inside the owned target directory.
+        inside(&doc)?;
         let mut count = 0usize;
         let mut bytes = 0u64;
         fn walk(dir: &std::path::Path, count: &mut usize, bytes: &mut u64) {
@@ -492,14 +505,26 @@ fn clean_selective(
             .iter()
             .map(|s| super::project_info::parse_spec(s).0.to_string())
             .collect();
+        let ws = super::project_info::workspace_root(manifest)?;
+        let members = super::project_info::local_package_dirs(&ws)?;
         if args.workspace {
-            let ws = super::project_info::workspace_root(manifest)?;
-            packages.extend(
-                super::project_info::local_package_dirs(&ws)?
-                    .into_iter()
-                    .map(|(name, _)| name),
-            );
+            packages.extend(members.iter().map(|(name, _)| name.clone()));
         }
+        // A local package's outputs carry its target names too (`[[bin]] name = "tool"`).
+        let mut names = packages.clone();
+        for (name, dir) in &members {
+            if !packages.contains(name) {
+                continue;
+            }
+            if let Ok(toml) =
+                crate::adapter::rust::manifest::CargoToml::from_file(&dir.join("Cargo.toml"))
+            {
+                names.extend(toml.discover_targets(dir).into_iter().map(|t| t.name));
+            }
+        }
+        names.sort();
+        names.dedup();
+        let packages = names;
         let only_profile = match (args.profile.as_deref(), args.release) {
             (Some("dev") | Some("test"), _) => Some("debug".to_string()),
             (Some("release") | Some("bench"), _) | (None, true) => Some("release".to_string()),
@@ -511,6 +536,7 @@ fn clean_selective(
             packages,
             dry_run: args.dry_run,
             verbose: args.verbose > 0,
+            parent_lock_held: args.target.is_some(),
         };
         let result = clean_target::remove_matching(&root, &filter)?;
         if !args.dry_run {

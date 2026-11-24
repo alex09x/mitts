@@ -270,7 +270,9 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         .as_ref()
         .and_then(|m| m.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."));
-    let flags_target = opt.target_triple.clone().unwrap_or_default();
+    // The target the plan built for: `--target`, else `CARGO_BUILD_TARGET` / `build.target`.
+    let effective_target = crate::adapter::rust::key_flags::resolve_explicit_target(&opt);
+    let flags_target = effective_target.clone().unwrap_or_default();
     let rustdocflags =
         crate::adapter::rust::cargo_config_tools::rustdocflags(&start_dir, &flags_target)?;
 
@@ -335,7 +337,7 @@ fn run(args: &DocArgs, single: bool) -> Result<i32> {
         argv.push("--crate-version".into());
         argv.push(unit.version.clone());
         // Target crates are documented for the target their metadata was built for.
-        if let (Some(target), false) = (&opt.target_triple, unit.for_host) {
+        if let (Some(target), false) = (&effective_target, unit.for_host) {
             argv.push("--target".into());
             argv.push(target.clone());
         }

@@ -142,12 +142,28 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
                     .unwrap_or_default();
                 defaults.iter().any(|m| {
                     let m = m.trim_start_matches("./").trim_end_matches('/');
-                    m == rel || (m == "." && rel.is_empty())
+                    (m == "." && rel.is_empty())
+                        || super::project_new::glob_match(m, &rel)
                 })
             })
             .map(|(id, _)| id.clone())
             .collect(),
-        None => members.clone(),
+        // Without `default-members`: the root package of a non-virtual workspace, every
+        // member of a virtual one, as Cargo does.
+        None => match &root_manifest.package {
+            Some(root_package) => members
+                .iter()
+                .zip(packages.iter())
+                .filter(|(_, p)| p["name"].as_str() == Some(root_package.name.as_str()))
+                .filter(|(_, p)| {
+                    Path::new(p["manifest_path"].as_str().unwrap_or(""))
+                        .parent()
+                        .is_some_and(|d| d == workspace_root)
+                })
+                .map(|(id, _)| id.clone())
+                .collect(),
+            None => members.clone(),
+        },
     };
     Ok(json!({
         "packages": packages,

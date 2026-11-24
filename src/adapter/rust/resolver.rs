@@ -164,6 +164,20 @@ impl NativeResolver {
         self.source_for(&lock_source)?.versions(name, offline)
     }
 
+    /// The same for a registry named by its lock source id (an `--index` URL).
+    pub fn registry_versions_at(
+        &self,
+        project_dir: &Path,
+        lock_source: &str,
+        name: &str,
+        offline: bool,
+    ) -> Result<Vec<super::sparse_index::SparseIndexEntry>> {
+        let config = RegistryConfig::load(project_dir)?;
+        *self.config.lock().unwrap() = config;
+        self.sources.lock().unwrap().clear();
+        self.source_for(lock_source)?.versions(name, offline)
+    }
+
     /// Uses `[registries]`, mirrors and vendor directories from this config.
     pub fn with_registry_config(self, config: RegistryConfig) -> Self {
         *self.config.lock().unwrap() = config;

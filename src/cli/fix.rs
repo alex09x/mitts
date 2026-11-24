@@ -498,10 +498,13 @@ fn collect_spans(message: &Value, base: Option<&Path>, out: &mut Vec<Replacement
     }
 }
 
-/// Two edits of one file clash when their ranges overlap, or when they start at the same
-/// byte (an insertion there and a replacement would race over the offsets).
+/// Two edits of one file clash when their ranges overlap, or when both insert at the
+/// same byte (their order would be a guess). An insertion at the start of a replacement
+/// does not clash: the replacement is applied first, the insertion lands before it.
 fn clash(a: (usize, usize), b: (usize, usize)) -> bool {
-    a.0 == b.0 || (a.0 < b.1 && b.0 < a.1)
+    let both_insert_here = a.0 == a.1 && b.0 == b.1 && a.0 == b.0;
+    let same_replaced_range = a == b && a.0 != a.1;
+    both_insert_here || same_replaced_range || (a.0 < b.1 && b.0 < a.1)
 }
 
 /// Applies suggestion groups whose parts do not overlap anything already taken;
@@ -539,7 +542,13 @@ pub fn apply(groups: &[Vec<Replacement>]) -> Result<BTreeMap<PathBuf, usize>> {
     }
     for (file, mut edits) in chosen {
         let mut text = std::fs::read(&file).with_context(|| format!("read {}", file.display()))?;
-        edits.sort_by_key(|r| std::cmp::Reverse(r.start));
+        // Back to front; at one offset the replacement goes before the insertion, so the
+        // inserted text ends up in front of the replaced text.
+        edits.sort_by(|a, b| {
+            b.start
+                .cmp(&a.start)
+                .then((b.end - b.start).cmp(&(a.end - a.start)))
+        });
         for r in edits {
             if r.end > text.len() || r.start > r.end {
                 bail!(
@@ -580,9 +589,11 @@ mod tests {
     }
 
     #[test]
-    fn an_insertion_and_a_replacement_at_one_offset_clash() {
-        assert!(clash((4, 4), (4, 9)));
-        assert!(clash((4, 9), (4, 4)));
+    fn an_insertion_at_a_replacement_start_applies_and_two_insertions_clash() {
+        assert!(!clash((4, 4), (4, 9)));
+        assert!(!clash((4, 9), (4, 4)));
+        assert!(clash((4, 4), (4, 4)));
+        assert!(clash((4, 9), (4, 9)));
         assert!(clash((2, 6), (5, 8)));
         assert!(!clash((2, 5), (5, 8)));
         let dir = tempfile::TempDir::new().unwrap();
@@ -595,10 +606,16 @@ mod tests {
             end,
             text: text.into(),
         };
-        // One multipart suggestion whose own parts clash is skipped whole.
-        let counts = apply(&[vec![r(4, 4, "X"), r(4, 6, "Y")], vec![r(0, 1, "Z")]]).unwrap();
-        assert_eq!(counts[&file], 1);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Zbcdefghij");
+        // An insertion at the start of a replacement in one suggestion: both apply, the
+        // insertion in front. Two insertions at one point in one suggestion: skipped whole.
+        let counts = apply(&[
+            vec![r(4, 4, "X"), r(4, 6, "Y")],
+            vec![r(8, 8, "P"), r(8, 8, "Q")],
+            vec![r(0, 1, "Z")],
+        ])
+        .unwrap();
+        assert_eq!(counts[&file], 2);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "ZbcdXYghij");
     }
 
     #[test]

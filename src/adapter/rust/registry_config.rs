@@ -273,12 +273,29 @@ impl RegistryConfig {
     }
 
     /// The configured registry name whose index is `index` (`crates-io` for crates.io's).
+    /// Only a name whose effective index (after `CARGO_REGISTRIES_<NAME>_INDEX`) is this
+    /// one counts: a name whose index the environment moved elsewhere is not this
+    /// registry, and its token must not go here.
     pub fn registry_name_for_index(&self, index: &str) -> Option<String> {
         let source = index_to_lock_source(index);
         if is_crates_io(&source) {
             return Some("crates-io".to_string());
         }
-        self.registry_name_for(&source)
+        let mut names: Vec<&String> = self.registries.keys().collect();
+        names.sort();
+        let matching: Vec<String> = names
+            .into_iter()
+            .filter(|name| {
+                self.lock_source_for_registry(Some(name.as_str()))
+                    .is_ok_and(|effective| effective == source)
+            })
+            .cloned()
+            .collect();
+        // Two names for one index are ambiguous: neither token is chosen.
+        match matching.as_slice() {
+            [one] => Some(one.clone()),
+            _ => None,
+        }
     }
 
     /// The index URL (without `sparse+`) of a registry name (`None` = crates.io).

@@ -235,6 +235,9 @@ jobs:
   # the end-to-end smoke set with it on a physical board. Not part of the gate: the shared
   # pool can queue, and it must not hold up merges. No secrets reach these jobs.
   riscv-driver:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
@@ -280,6 +283,12 @@ jobs:
           if-no-files-found: error
   riscv64:
     needs: riscv-driver
+    # Shared hardware outside GitHub: only code this repository's own writers pushed runs
+    # there (main, release calls, pull requests from branches of this repository), never a
+    # fork's pull request. RISE runners are ephemeral pods, one fresh environment per job.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04-riscv
     timeout-minutes: 240
     env:

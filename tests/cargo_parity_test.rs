@@ -1501,3 +1501,98 @@ fn doc_redocuments_when_the_features_change_back() {
         "docs of the other features are not current: {err}"
     );
 }
+
+fn host_triple() -> String {
+    let out = Command::new("rustc").arg("-vV").output().unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|l| l.strip_prefix("host: ").map(str::to_string))
+        .unwrap()
+}
+
+#[test]
+fn clean_handles_targets_dry_runs_and_custom_binary_names() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "[[bin]]\nname = \"my-tool\"\npath = \"src/main.rs\"\n");
+    // A dry run on a project that never built leaves no target directory behind.
+    let (_, err) = env.ok(&app, &["clean", "--dry-run"]);
+    assert!(err.contains("Summary 0 files"), "{err}");
+    assert!(!app.join("target").exists());
+
+    let host = host_triple();
+    env.ok(&app, &["build", "-q", "--target", &host]);
+    assert!(app.join("target").join(&host).join("debug/my-tool").is_file());
+    env.ok(&app, &["clean", "--target", &host, "-p", "app"]);
+    assert!(!app.join("target").join(&host).join("debug/my-tool").exists());
+
+    env.ok(&app, &["build", "-q"]);
+    assert!(app.join("target/debug/my-tool").is_file());
+    env.ok(&app, &["clean", "-p", "app"]);
+    assert!(!app.join("target/debug/my-tool").exists(), "the package's custom-named binary goes too");
+}
+
+#[test]
+fn an_index_moved_by_the_environment_gets_no_stored_token() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "");
+    with_named_registry(&app, &registry);
+    env.ok(&app, &["login", "--registry", "mock", "stored"]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(env.path("cargo-home/credentials.toml")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "credentials are private: {mode:o}");
+    }
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
+    cmd.args(["owner", "--add", "bob", "aa", "--index", &registry.index_url()])
+        .current_dir(&app)
+        .env("CARGO_HOME", env.path("cargo-home"))
+        .env("MITTS_CACHE_DIR", env.path("cache"))
+        .env("CARGO_REGISTRIES_MOCK_INDEX", "sparse+http://127.0.0.1:9/elsewhere/");
+    let out = cmd.output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{err}");
+    assert!(err.contains("pass its token with `--token`"), "{err}");
+    assert!(
+        !registry.requests().iter().any(|r| r.headers.contains_key("authorization")),
+        "no token was sent"
+    );
+}
+
+#[test]
+fn install_from_an_index_and_keeps_records_whole_on_errors() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        files: vec![("src/main.rs", "fn main() {}\n".to_string())],
+        ..version("tool", "1.0.0")
+    }]);
+    let app = env.app(&registry, "");
+    let root = env.path("root");
+    let root_s = root.to_str().unwrap();
+    env.ok(&app, &["install", "tool", "--index", &registry.index_url(), "--root", root_s]);
+    let records = read(root.join(".crates.toml"));
+    assert!(records.contains(&format!("tool 1.0.0 ({})", registry.index_url())), "{records}");
+
+    fs::write(root.join(".crates2.json"), "{not json").unwrap();
+    env.fails(&app, &["uninstall", "tool", "--root", root_s]);
+    assert_eq!(read(root.join(".crates.toml")), records, "v1 records untouched");
+    assert!(root.join("bin/tool").is_file());
+}
+
+#[test]
+fn metadata_no_deps_reports_cargos_default_members() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "[workspace]\nmembers = [\"crates/*\"]\n");
+    fs::create_dir_all(app.join("crates/extra/src")).unwrap();
+    fs::write(app.join("crates/extra/Cargo.toml"), "[package]\nname = \"extra\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
+    fs::write(app.join("crates/extra/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--no-deps", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(doc["workspace_members"].as_array().unwrap().len(), 2);
+    let defaults = doc["workspace_default_members"].as_array().unwrap();
+    assert_eq!(defaults.len(), 1, "{doc}");
+    assert!(defaults[0].as_str().unwrap().ends_with("#app@0.1.0"), "{doc}");
+}

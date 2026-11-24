@@ -450,16 +450,40 @@ fn write_credentials(registry: Option<&str>, token: Option<&str>) -> Result<bool
             .with_context(|| format!("failed to parse {}", path.display()))?;
         let value = if write_here { token } else { None };
         if edit_token(&mut doc, registry, value)? {
-            std::fs::write(&path, doc.to_string())?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-            }
+            write_private(&path, doc.to_string().as_bytes())?;
             changed = true;
         }
     }
     Ok(changed)
+}
+
+/// Writes a credentials file the way it must be: a new file created readable by the
+/// owner only, filled and synced, then renamed over the old one.
+fn write_private(path: &std::path::Path, data: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let result = (|| -> Result<()> {
+        let mut file = options
+            .open(&tmp)
+            .with_context(|| format!("failed to create {}", tmp.display()))?;
+        file.write_all(data)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)
+            .with_context(|| format!("failed to replace {}", path.display()))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 fn edit_token(

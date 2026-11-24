@@ -143,6 +143,20 @@ fn run(args: &VendorArgs) -> Result<()> {
                     pkg.name, pkg.version
                 )
             })?;
+            // One vendor directory per name and version: the same package from two
+            // sources cannot both be vendored, and Cargo refuses it too.
+            if let Some((other, _)) = packages.get(&(pkg.name.clone(), pkg.version.clone())) {
+                if other.source != pkg.source {
+                    bail!(
+                        "found duplicate version of package `{} v{}` vendored from two sources:\n\n\
+                         \tsource 1: {}\n\tsource 2: {}",
+                        pkg.name,
+                        pkg.version,
+                        other.source.as_deref().unwrap_or_default(),
+                        pkg.source.as_deref().unwrap_or_default()
+                    );
+                }
+            }
             packages.insert((pkg.name.clone(), pkg.version.clone()), (pkg, dir));
         }
     }

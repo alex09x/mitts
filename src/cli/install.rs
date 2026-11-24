@@ -249,6 +249,18 @@ fn read_tracking(root: &Path) -> Result<BTreeMap<String, Vec<String>>> {
         .unwrap_or_default())
 }
 
+/// `.crates2.json`: a missing file is empty, an unreadable or invalid one an error.
+fn read_v2(root: &Path) -> Result<Value> {
+    let path = root.join(".crates2.json");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            serde_json::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({"installs": {}})),
+        Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
+    }
+}
+
 fn write_tracking(
     root: &Path,
     entries: &BTreeMap<String, Vec<String>>,
@@ -267,21 +279,29 @@ fn write_tracking(
     }
     let mut doc = toml::value::Table::new();
     doc.insert("v1".into(), toml::Value::Table(v1));
-    std::fs::write(root.join(".crates.toml"), toml::to_string(&doc)?)?;
+    // Both records are read and prepared before either is replaced, then each is written
+    // to a temporary file and renamed: a bad `.crates2.json` leaves both as they were.
+    let path1 = root.join(".crates.toml");
     let path2 = root.join(".crates2.json");
-    let mut v2: Value = match std::fs::read_to_string(&path2) {
-        Ok(text) => serde_json::from_str(&text)
-            .with_context(|| format!("failed to parse {}", path2.display()))?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({"installs": {}}),
-        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path2.display())),
-    };
+    let mut v2 = read_v2(root)?;
     if let Some(installs) = v2["installs"].as_object_mut() {
         installs.retain(|k, _| entries.contains_key(k));
         if let Some((id, info)) = extra {
             installs.insert(id.to_string(), info);
         }
     }
-    std::fs::write(path2, serde_json::to_string(&v2)?)?;
+    let text1 = toml::to_string(&doc)?;
+    let text2 = serde_json::to_string(&v2)?;
+    let tmp1 = root.join(format!(".crates.toml.tmp-{}", std::process::id()));
+    let tmp2 = root.join(format!(".crates2.json.tmp-{}", std::process::id()));
+    let staged = std::fs::write(&tmp1, text1).and_then(|()| std::fs::write(&tmp2, text2));
+    if let Err(e) = staged {
+        let _ = std::fs::remove_file(&tmp1);
+        let _ = std::fs::remove_file(&tmp2);
+        return Err(e).context("failed to write the install records");
+    }
+    std::fs::rename(&tmp1, &path1)?;
+    std::fs::rename(&tmp2, &path2)?;
     Ok(())
 }
 
@@ -484,13 +504,22 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
             &format!("{} index", args.registry.as_deref().unwrap_or("crates.io")),
         );
     }
+    // One registry for everything: versions, the source id recorded, and the download.
+    if args.index.is_some() && args.registry.is_some() {
+        bail!("both `--index` and `--registry` were given; use one");
+    }
+    let (source_id, index) = match &args.index {
+        Some(i) => (
+            crate::adapter::rust::registry_config::index_to_lock_source(i),
+            i.trim_start_matches("sparse+").to_string(),
+        ),
+        None => (
+            config.lock_source_for_registry(args.registry.as_deref())?,
+            config.index_url_for(args.registry.as_deref())?,
+        ),
+    };
     let versions = resolver
-        .registry_versions(
-            &cwd,
-            args.registry.as_deref(),
-            wanted_name,
-            args.offline || args.frozen,
-        )
+        .registry_versions_at(&cwd, &source_id, wanted_name, args.offline || args.frozen)
         .with_context(|| format!("could not find `{wanted_name}` in registry"))?;
     let req = spec_version
         .map(|v| {
@@ -519,7 +548,6 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
             Some(r) => format!("could not find `{wanted_name}` in registry with version `{r}`"),
             None => format!("could not find `{wanted_name}` in registry"),
         })?;
-    let source_id = config.lock_source_for_registry(args.registry.as_deref())?;
     let temp = scratch(&entry.name)?;
     let dir = temp.join(format!("{}-{}", entry.name, entry.vers));
     if args.offline || args.frozen {
@@ -544,10 +572,6 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
         };
         copy_dir(&cached, &dir)?;
     } else {
-        let index = match &args.index {
-            Some(i) => i.trim_start_matches("sparse+").to_string(),
-            None => config.index_url_for(args.registry.as_deref())?,
-        };
         let bytes = download_crate(&index, &entry.name, &entry.vers, Some(&entry.cksum))?;
         if !args.quiet {
             status("Downloaded", &format!("{} v{}", entry.name, entry.vers));
@@ -846,6 +870,8 @@ pub fn handle_uninstall(args: &UninstallArgs) -> i32 {
     report((|| {
         let root = install_root(&args.root)?;
         let mut tracking = read_tracking(&root)?;
+        // Both records must be readable before any binary is removed.
+        read_v2(&root)?;
         let mut specs: Vec<String> = args.specs.clone();
         specs.extend(args.packages.iter().cloned());
         if specs.is_empty() {

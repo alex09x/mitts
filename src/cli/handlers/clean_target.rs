@@ -65,6 +65,9 @@ pub struct CleanFilter {
     pub dry_run: bool,
     /// Print each removed path.
     pub verbose: bool,
+    /// The caller already holds the clean lock of the directory above `target` (a
+    /// `--target` subdirectory): it is not taken a second time.
+    pub parent_lock_held: bool,
 }
 
 /// Whether an artifact file name belongs to one of `crates` (`libfoo-<hash>.rlib`,
@@ -133,7 +136,10 @@ pub(super) fn remove_matching(target: &Path, filter: &CleanFilter) -> Result<(us
     let legacy = target.join("mitts");
     let legacy_owned =
         owns_directory(&legacy) && !legacy.join("cas").is_dir() && !legacy.join("ac").is_dir();
-    let previous_lock = target.parent().map(|p| p.join(".mitts-clean.lock"));
+    let previous_lock = target
+        .parent()
+        .filter(|_| !filter.parent_lock_held)
+        .map(|p| p.join(".mitts-clean.lock"));
     let _legacy_guard =
         if let Some(path) = previous_lock.filter(|p| p.is_file()) {
             Some(FileLock::try_acquire_exclusive(&path)?.ok_or_else(|| {
