@@ -100,6 +100,7 @@ pub mod unit_inputs;
 pub mod unit_output;
 pub mod unit_watch;
 pub mod vendor_source;
+pub mod workspace_glob;
 pub(crate) mod wrapper_outputs;
 pub mod writable_out_dir;
 

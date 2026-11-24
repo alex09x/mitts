@@ -497,7 +497,13 @@ fn declaration_edges(
     version: &str,
     active: &[String],
 ) -> Vec<(String, Vec<String>)> {
-    let mut tables: Vec<(&HashMap<String, TomlDependency>, Option<&str>, Option<&str>)> = vec![
+    // (table, kind, target)
+    type Table<'a> = (
+        &'a HashMap<String, TomlDependency>,
+        Option<&'a str>,
+        Option<&'a str>,
+    );
+    let mut tables: Vec<Table<'_>> = vec![
         (&manifest.dependencies, None, None),
         (&manifest.build_dependencies, Some("build"), None),
         (&manifest.dev_dependencies, Some("dev"), None),
