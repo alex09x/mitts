@@ -29,6 +29,7 @@ fn invoke_mitts(directory: &Path, args: &[&str]) -> Output {
         .expect("run Mitts CLI")
 }
 
+#[cfg(unix)]
 fn host_triple() -> String {
     let output = Command::new("rustc")
         .arg("-vV")

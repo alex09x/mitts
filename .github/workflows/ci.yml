@@ -418,7 +418,7 @@ jobs:
           printf 'MITTS_CI_BIN=%s\nMITTS_CI_CACHE_DIR=%s\n' "$binary" "$RUNNER_TEMP/mitts-ci-cache" >> "$GITHUB_ENV"
       - name: Clippy
         working-directory: source
-        run: '"$MITTS_CI_BIN" clippy --workspace --all-targets --cache-dir "$MITTS_CI_CACHE_DIR" -- -D warnings'
+        run: '"$MITTS_CI_BIN" clippy --workspace --all-targets --keep-going --cache-dir "$MITTS_CI_CACHE_DIR" -- -D warnings'
       - name: Full native suite in an isolated store
         working-directory: source
         run: |
