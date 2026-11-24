@@ -142,7 +142,8 @@ where
     Ok(UnitMissAdmission::Compile { lock, reservation })
 }
 
-#[cfg(test)]
+// Every test here drives the POSIX jobserver.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::core::JobserverPool;

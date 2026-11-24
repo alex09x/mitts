@@ -6,7 +6,9 @@
  * Project: https://github.com/alex09x/mitts
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
-use super::{prepared_archive, reject_symlinks};
+use super::prepared_archive;
+#[cfg(unix)]
+use super::reject_symlinks;
 use std::io::Write;
 
 #[test]
