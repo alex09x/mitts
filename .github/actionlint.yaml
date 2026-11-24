@@ -1,0 +1,4 @@
+self-hosted-runner:
+  # RISE RISC-V Runners (https://ci.riseproject.dev): real riscv64 boards via a GitHub App.
+  labels:
+    - ubuntu-24.04-riscv
