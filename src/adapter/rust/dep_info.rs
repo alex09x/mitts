@@ -129,7 +129,24 @@ fn split_dep_target(line: &str) -> Option<(&str, &str)> {
 
 /// Tokenizes a Makefile dependency list line, honoring `\ ` escaped spaces
 /// and ignoring a trailing line-continuation `\`.
+///
+/// rustc escapes only whitespace in dep-info; every other backslash is the path's own (a
+/// Windows separator, or the `\\?\` of a verbatim path a proc macro reported), so `\\`
+/// and `\:` are kept as written. A verbatim prefix is then dropped, so the path compares
+/// with the workspace's ordinary spelling.
 pub fn tokenize_dep_info_paths(input: &str) -> Vec<String> {
+    let mut tokens = tokenize_raw(input);
+    for token in &mut tokens {
+        if let Some(rest) = token.strip_prefix(r"\\?\") {
+            if rest.as_bytes().get(1) == Some(&b':') {
+                *token = rest.to_string();
+            }
+        }
+    }
+    tokens
+}
+
+fn tokenize_raw(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut chars = input.chars().peekable();
@@ -137,7 +154,7 @@ pub fn tokenize_dep_info_paths(input: &str) -> Vec<String> {
     while let Some(ch) = chars.next() {
         if ch == '\\' {
             match chars.peek().copied() {
-                Some(' ') | Some('\t') | Some('#') | Some(':') | Some('\\') => {
+                Some(' ') | Some('\t') | Some('#') => {
                     if let Some(escaped) = chars.next() {
                         current.push(escaped);
                     }
@@ -172,4 +189,22 @@ pub fn parse_dep_info_with_root(d_path: &Path, root: Option<&Path>) -> Result<Ve
 /// Parses a Makefile-style dep-info (.d) file produced by rustc to extract all included paths.
 pub fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
     parse_dep_info_with_root(d_path, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tokenize_dep_info_paths;
+
+    #[test]
+    fn windows_paths_keep_their_backslashes_and_lose_a_verbatim_prefix() {
+        assert_eq!(
+            tokenize_dep_info_paths(r"C:\work\src\lib.rs \\?\C:\work\assets\a.txt"),
+            [r"C:\work\src\lib.rs", r"C:\work\assets\a.txt"]
+        );
+        // rustc escapes whitespace only.
+        assert_eq!(
+            tokenize_dep_info_paths(r"/a\ b/c.rs /d.rs"),
+            ["/a b/c.rs", "/d.rs"]
+        );
+    }
 }

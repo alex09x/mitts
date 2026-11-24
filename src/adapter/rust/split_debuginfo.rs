@@ -131,11 +131,12 @@ pub(crate) fn remappable(path: &Path) -> bool {
     !path.to_string_lossy().contains('=')
 }
 
-/// A top-level file rustc writes beside its outputs when debug info is split.
+/// A top-level file rustc writes beside its outputs when debug info is split, or (MSVC)
+/// the program database the linker writes beside an executable or DLL.
 fn is_debuginfo_file(name: &str) -> bool {
     matches!(
         Path::new(name).extension().and_then(|e| e.to_str()),
-        Some("dwo" | "dwp" | "o")
+        Some("dwo" | "dwp" | "o" | "pdb")
     )
 }
 
@@ -219,6 +220,10 @@ fn destination(rel: &Path, deps_dir: &Path, dest_binary: Option<&Path>) -> PathB
         bin.with_file_name(format!("{bin_name}.dSYM")).join(rest)
     } else if first.ends_with(".dwp") {
         bin.with_file_name(format!("{bin_name}.dwp"))
+    } else if first.ends_with(".pdb") {
+        // Beside the executable under the name it records: where Windows looks for it once
+        // the recorded (staging) path is gone.
+        bin.with_file_name(first)
     } else {
         deps_dir.join(rel)
     }
