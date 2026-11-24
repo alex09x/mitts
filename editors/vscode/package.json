@@ -1,0 +1,146 @@
+{
+  "name": "mitts",
+  "displayName": "Mitts Build",
+  "description": "Build, check, test and lint Rust projects with Mitts, a Cargo-compatible build tool with a shared artifact cache.",
+  "version": "0.1.0",
+  "publisher": "alex09x",
+  "author": "Alexander Panasenko",
+  "license": "(MIT OR Apache-2.0)",
+  "icon": "media/icon.png",
+  "homepage": "https://mittsbuild.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alex09x/mitts",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/alex09x/mitts/issues"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "rust",
+    "cargo",
+    "build",
+    "cache",
+    "mitts"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/Cargo.toml",
+    "onCommand:workbench.action.tasks.runTask"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "mitts.install",
+        "title": "Install Mitts",
+        "category": "Mitts"
+      },
+      {
+        "command": "mitts.showVersion",
+        "title": "Show Version",
+        "category": "Mitts"
+      },
+      {
+        "command": "mitts.useForRustAnalyzer",
+        "title": "Use Mitts for rust-analyzer checks and runnables",
+        "category": "Mitts"
+      },
+      {
+        "command": "mitts.stopUsingForRustAnalyzer",
+        "title": "Stop using Mitts for rust-analyzer",
+        "category": "Mitts"
+      }
+    ],
+    "configuration": {
+      "title": "Mitts",
+      "properties": {
+        "mitts.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `mitts` executable. Empty: look it up on `PATH`, then in `~/.cargo/bin`.",
+          "scope": "machine-overridable"
+        },
+        "mitts.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Arguments added to every Mitts task, for example `[\"--workspace\"]`."
+        }
+      }
+    },
+    "taskDefinitions": [
+      {
+        "type": "mitts",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The Mitts command: build, check, test, clippy, run, bench, doc, clean, or any other Mitts command."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Arguments after the command."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Working directory. Default: the workspace folder."
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "mitts",
+        "label": "Mitts (rustc diagnostics)",
+        "owner": "mitts",
+        "source": "mitts",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": [
+          {
+            "regexp": "^(warning|warn|error)(?:\\[(.*?)\\])?: (.*)$",
+            "severity": 1,
+            "code": 2,
+            "message": 3
+          },
+          {
+            "regexp": "^\\s*-->\\s+(.*?):(\\d+):(\\d+)\\s*$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test:unit": "npm run compile && node --test out/test/unit/*.test.js",
+    "test:integration": "npm run compile && node out/test/runIntegration.js",
+    "package": "node scripts/copy-licenses.js && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "4.1.0",
+    "typescript": "^5.6.3"
+  }
+}

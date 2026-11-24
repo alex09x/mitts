@@ -1,0 +1,7 @@
+node_modules/
+out/
+*.vsix
+fixtures/**/target/
+LICENSE-MIT
+LICENSE-APACHE
+.vscode-test/
