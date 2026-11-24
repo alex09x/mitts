@@ -668,6 +668,8 @@ pub mod manifest_discovery;
 pub mod manifest_edit;
 pub mod message_format;
 pub mod metadata;
+mod metadata_deps;
+mod metadata_inherit;
 mod package;
 mod package_archive;
 mod package_directory;

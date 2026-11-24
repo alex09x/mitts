@@ -446,15 +446,11 @@ impl NativeResolver {
             let mut fewer = relaxed.clone();
             fewer.remove(&decision);
             self.set_relaxed(fewer.clone(), false);
-            match self.try_relaxed(roots, offline) {
-                Ok(Some(smaller)) => {
-                    relaxed = fewer;
-                    lock = smaller;
-                }
-                Ok(None) => {}
-                // An optional trial that could not finish: the lock already found stands.
-                Err(e) if e.downcast_ref::<SearchBudgetExhausted>().is_some() => {}
-                Err(e) => return Err(e),
+            // No solution, or a trial that could not be evaluated (budget, an index entry
+            // unavailable offline): narrowing is optional, the lock already found stands.
+            if let Ok(Some(smaller)) = self.try_relaxed(roots, offline) {
+                relaxed = fewer;
+                lock = smaller;
             }
         }
         Ok(Some(lock))

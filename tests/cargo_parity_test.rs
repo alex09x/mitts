@@ -2412,6 +2412,74 @@ fn metadata_names_an_inherited_path_alias_like_cargo() {
 }
 
 #[test]
+fn metadata_reports_inherited_dependencies_as_cargo_normalizes_them() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        features: r#"{"fast":[],"small":[]}"#,
+        manifest_extra: "\n[features]\nfast = []\nsmall = []\n",
+        ..version("aa", "1.2.0")
+    }]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { workspace = true, features = [\"small\"] }\n\n[workspace]\n\n[workspace.dependencies]\nold = { package = \"aa\", version = \"1.2\", features = [\"fast\"] }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let package = doc["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == root.as_str())
+        .unwrap();
+    let dep = &package["dependencies"][0];
+    assert_eq!(dep["name"], "aa", "{dep}");
+    assert_eq!(dep["rename"], "old", "{dep}");
+    assert_eq!(dep["req"], "^1.2", "{dep}");
+    let mut features: Vec<&str> = dep["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f.as_str().unwrap())
+        .collect();
+    features.sort();
+    assert_eq!(features, ["fast", "small"], "{dep}");
+}
+
+#[test]
+fn metadata_keeps_the_alias_of_a_registry_dependency_a_patch_replaces() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { package = \"aa\", version = \"1\" }\n\n[patch.crates-io]\naa = { path = \"aa\" }\n",
+    );
+    fs::create_dir_all(app.join("aa/src")).unwrap();
+    fs::write(
+        app.join("aa/Cargo.toml"),
+        "[package]\nname = \"aa\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("aa/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["old"], "{node}");
+}
+
+#[test]
 fn metadata_leaves_out_an_optional_alias_no_feature_enables() {
     let env = Env::new();
     let registry = serve(vec![version("aa", "1.0.0")]);
