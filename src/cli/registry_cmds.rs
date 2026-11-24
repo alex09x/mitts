@@ -553,6 +553,11 @@ fn edit_token(
     Ok(changed)
 }
 
+/// The Cargo configuration of the current directory: registries and credential providers.
+fn registry_config() -> Result<crate::adapter::rust::registry_config::RegistryConfig> {
+    crate::adapter::rust::registry_config::RegistryConfig::load(&std::env::current_dir()?)
+}
+
 pub fn handle_login(args: &LoginArgs) -> i32 {
     report((|| {
         let name = args
@@ -580,7 +585,9 @@ pub fn handle_login(args: &LoginArgs) -> i32 {
         if token.contains(char::is_whitespace) || !token.is_ascii() {
             bail!("token contains invalid characters");
         }
-        write_credentials(args.registry.registry.as_deref(), Some(token))?;
+        let registry = args.registry.registry.as_deref();
+        registry_config()?
+            .store_token(registry, Some(token), &|t| write_credentials(registry, t))?;
         if !args.registry.quiet {
             status("Login", &format!("token for `{name}` saved"));
         }
@@ -595,7 +602,9 @@ pub fn handle_logout(args: &LogoutArgs) -> i32 {
             .registry
             .clone()
             .unwrap_or_else(|| "crates-io".into());
-        let removed = write_credentials(args.registry.registry.as_deref(), None)?;
+        let registry = args.registry.registry.as_deref();
+        let removed =
+            registry_config()?.store_token(registry, None, &|t| write_credentials(registry, t))?;
         if args.registry.quiet {
             return Ok(());
         }

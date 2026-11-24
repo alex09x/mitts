@@ -16,10 +16,10 @@ Cargo's do. Options every command takes: `--config`, `--color`, `-C DIR`, `-Z`,
 | `update`, `generate-lockfile` | Resolve Cargo.lock: `-p`, `--precise`, `--recursive`, `--workspace`, `--dry-run` | `--publish-time` (Cargo: unstable) is refused |
 | `tree` | The dependency graph: `-i`, `-d`, `-e` (with `features`), `--depth`, `--prefix`, `--charset`, `-f`, `--prune` | |
 | `metadata`, `pkgid`, `locate-project` | Package information as Cargo prints it | |
-| `fetch`, `vendor` | Sources into the shared store; a `vendor/` copy with `.cargo-checksum.json` | `fetch --target` fetches every locked source |
+| `fetch`, `vendor` | Sources into the shared store (`fetch --target`: only what a build for that target uses); a `vendor/` copy with `.cargo-checksum.json` | |
 | `package`, `publish` | A verified `.crate`; upload to crates.io or `--registry` | `--exclude-lockfile`, `--message-format` (Cargo: unstable) are refused |
 | `install`, `uninstall` | Build a binary from a registry, `--path` or `--git` into `<root>/bin`, tracked in `.crates.toml` / `.crates2.json` | |
-| `search`, `info`, `login`, `logout`, `owner`, `yank` | The registry's web API; tokens in `$CARGO_HOME/credentials.toml` | Credential providers other than `cargo:token` are used for reading only |
+| `search`, `info`, `login`, `logout`, `owner`, `yank` | The registry's web API; tokens through the configured credential providers (`$CARGO_HOME/credentials.toml` by default) | |
 | `report future-incompatibilities` | Shows the last `--future-incompat-report` | The report is produced by an extra check run when `--future-incompat-report` is given, not after every build |
 | `clean` | Removes the target directory's Mitts artifacts: `-p`, `--doc`, `--profile`, `--target`, `--dry-run` | Only files Mitts recorded are removed; `--cache` also prunes the shared cache |
 | `version`, `help` | | |

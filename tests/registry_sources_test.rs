@@ -424,3 +424,84 @@ fn a_local_registry_replaces_crates_io() {
     let run = Command::new(app.join("target/debug/app")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "1");
 }
+
+/// `fetch --target` downloads what a build for that target uses, as Cargo does: a
+/// dependency under `cfg(windows)` is fetched for a Windows target only; without
+/// `--target` every package in Cargo.lock is fetched.
+#[test]
+fn fetch_for_a_target_skips_other_platforms_dependencies() {
+    let (one, one_sum) = crate_archive("alt-one", "0.1.0", "pub fn one() -> u32 { 1 }\n");
+    let (two, two_sum) = crate_archive("alt-two", "0.1.0", "pub fn two() -> u32 { 2 }\n");
+    let mut routes = HashMap::new();
+    for (name, sum) in [("alt-one", &one_sum), ("alt-two", &two_sum)] {
+        routes.insert(
+            format!("/index/{}", index_path(name)),
+            format!(
+                "{{\"name\":\"{name}\",\"vers\":\"0.1.0\",\"deps\":[],\"cksum\":\"{sum}\",\"features\":{{}},\"yanked\":false}}\n"
+            )
+            .into_bytes(),
+        );
+    }
+    routes.insert("/dl/alt-one/0.1.0/download".to_string(), one);
+    routes.insert("/dl/alt-two/0.1.0/download".to_string(), two);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    routes.insert(
+        "/index/config.json".to_string(),
+        format!("{{\"dl\":\"{base}/dl\"}}").into_bytes(),
+    );
+    let (url, _) = serve_on(routes, None, listener);
+
+    let temp = TempDir::new().unwrap();
+    let cargo_home = temp.path().join("cargo_home");
+    fs::create_dir_all(&cargo_home).unwrap();
+    let app = temp.path().join("app");
+    write_project(
+        &app,
+        &format!(
+            "[source.crates-io]\nreplace-with = \"mirror\"\n[source.mirror]\nregistry = \"sparse+{url}/index/\"\n"
+        ),
+        "alt-one = \"0.1\"\n\n[target.'cfg(windows)'.dependencies]\nalt-two = \"0.1\"",
+    );
+    let stored = |cache: &Path, name: &str| {
+        cache
+            .join(format!("sources/{name}-0.1.0/.mitts-ok"))
+            .is_file()
+    };
+
+    let linux = temp.path().join("cache-linux");
+    let (ok, text) = mitts(
+        &["fetch", "--target", "x86_64-unknown-linux-gnu"],
+        &app,
+        &linux,
+        &cargo_home,
+        &[],
+    );
+    assert!(ok, "{text}");
+    assert!(stored(&linux, "alt-one"), "{text}");
+    assert!(
+        !stored(&linux, "alt-two"),
+        "a Windows-only dependency: {text}"
+    );
+    let lock = fs::read_to_string(app.join("Cargo.lock")).unwrap();
+    assert!(
+        lock.contains("alt-two"),
+        "the lockfile keeps every platform"
+    );
+
+    let (ok, text) = mitts(
+        &["fetch", "--target", "x86_64-pc-windows-msvc"],
+        &app,
+        &linux,
+        &cargo_home,
+        &[],
+    );
+    assert!(ok && stored(&linux, "alt-two"), "{text}");
+
+    let all = temp.path().join("cache-all");
+    let (ok, text) = mitts(&["fetch"], &app, &all, &cargo_home, &[]);
+    assert!(
+        ok && stored(&all, "alt-one") && stored(&all, "alt-two"),
+        "{text}"
+    );
+}

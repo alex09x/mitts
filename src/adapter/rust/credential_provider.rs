@@ -268,6 +268,251 @@ fn plugin(spec: &[String], registry: &RegistryRef<'_>) -> Result<Option<String>>
     }
 }
 
+/// `login` (`token`) or `logout` (`None`) through the providers, as Cargo runs them: the
+/// first provider that supports the operation handles it; `cargo:token` writes the
+/// credentials file through `write_file`. Whether a token was stored or removed.
+pub fn store(
+    providers: &[ProviderSpec],
+    registry: &RegistryRef<'_>,
+    token: Option<&str>,
+    write_file: &dyn Fn(Option<&str>) -> Result<bool>,
+) -> Result<bool> {
+    // Tokens read in this process may change now.
+    if let Some(cache) = CACHE.get() {
+        cache.lock().unwrap().clear();
+    }
+    for spec in providers {
+        let Some(kind) = spec.first() else {
+            continue;
+        };
+        let handled = match kind.as_str() {
+            "cargo:token" => Some(write_file(token)?),
+            // Reads only, as in Cargo.
+            "cargo:token-from-stdout" => None,
+            "cargo:macos-keychain" => keychain_store(registry.index_url, token)?,
+            "cargo:libsecret" => libsecret_store(registry.index_url, token)?,
+            "cargo:wincred" => wincred_store(registry.index_url, token)?,
+            _ => plugin_store(spec, registry, token)?,
+        };
+        if let Some(done) = handled {
+            return Ok(done);
+        }
+    }
+    bail!(
+        "no credential provider configured for {} supports {}",
+        registry.index_url,
+        if token.is_some() { "login" } else { "logout" }
+    )
+}
+
+fn keychain_store(index_url: &str, token: Option<&str>) -> Result<Option<bool>> {
+    if !cfg!(target_os = "macos") {
+        return Ok(None);
+    }
+    let service = format!("cargo-registry:{index_url}");
+    let out = match token {
+        Some(t) => Command::new("security")
+            .args([
+                "add-generic-password",
+                "-U",
+                "-a",
+                "",
+                "-s",
+                &service,
+                "-w",
+                t,
+            ])
+            .stdin(Stdio::null())
+            .output(),
+        None => Command::new("security")
+            .args(["delete-generic-password", "-s", &service])
+            .stdin(Stdio::null())
+            .output(),
+    }
+    .context("running `security`")?;
+    match (token, out.status.success()) {
+        (Some(_), true) => Ok(Some(true)),
+        (Some(_), false) => bail!(
+            "storing the token in the keychain failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ),
+        // `delete-generic-password` fails when there is nothing to delete.
+        (None, removed) => Ok(Some(removed)),
+    }
+}
+
+fn libsecret_store(index_url: &str, token: Option<&str>) -> Result<Option<bool>> {
+    if cfg!(target_os = "macos") || cfg!(windows) {
+        return Ok(None);
+    }
+    match token {
+        Some(t) => {
+            let mut child = Command::new("secret-tool")
+                .args([
+                    "store",
+                    &format!("--label=cargo-registry:{index_url}"),
+                    "url",
+                    index_url,
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context("running `secret-tool`")?;
+            child
+                .stdin
+                .take()
+                .expect("piped stdin")
+                .write_all(t.as_bytes())?;
+            let out = child.wait_with_output()?;
+            if !out.status.success() {
+                bail!(
+                    "storing the token with secret-tool failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            Ok(Some(true))
+        }
+        None => {
+            let had = libsecret(index_url)?.is_some();
+            let out = Command::new("secret-tool")
+                .args(["clear", "url", index_url])
+                .stdin(Stdio::null())
+                .output()
+                .context("running `secret-tool`")?;
+            Ok(Some(had && out.status.success()))
+        }
+    }
+}
+
+#[cfg(windows)]
+fn wincred_store(index_url: &str, token: Option<&str>) -> Result<Option<bool>> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct CredentialW {
+        flags: u32,
+        kind: u32,
+        target_name: *const u16,
+        comment: *const u16,
+        last_written: [u32; 2],
+        blob_size: u32,
+        blob: *const u8,
+        persist: u32,
+        attribute_count: u32,
+        attributes: *mut c_void,
+        target_alias: *const u16,
+        user_name: *const u16,
+    }
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn CredWriteW(credential: *const CredentialW, flags: u32) -> i32;
+        fn CredDeleteW(target: *const u16, kind: u32, flags: u32) -> i32;
+    }
+    const CRED_TYPE_GENERIC: u32 = 1;
+    const CRED_PERSIST_LOCAL_MACHINE: u32 = 2;
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    let target = wide(&format!("cargo-registry:{index_url}"));
+    match token {
+        Some(t) => {
+            let user = wide("token");
+            let cred = CredentialW {
+                flags: 0,
+                kind: CRED_TYPE_GENERIC,
+                target_name: target.as_ptr(),
+                comment: std::ptr::null(),
+                last_written: [0, 0],
+                blob_size: t.len() as u32,
+                blob: t.as_ptr(),
+                persist: CRED_PERSIST_LOCAL_MACHINE,
+                attribute_count: 0,
+                attributes: std::ptr::null_mut(),
+                target_alias: std::ptr::null(),
+                user_name: user.as_ptr(),
+            };
+            // SAFETY: every pointer refers to a live buffer for the duration of the call.
+            if unsafe { CredWriteW(&cred, 0) } == 0 {
+                bail!(
+                    "storing the token in the Windows Credential Manager failed: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+            Ok(Some(true))
+        }
+        // SAFETY: `target` is NUL-terminated.
+        None => Ok(Some(
+            unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) } != 0,
+        )),
+    }
+}
+
+#[cfg(not(windows))]
+fn wincred_store(_index_url: &str, _token: Option<&str>) -> Result<Option<bool>> {
+    Ok(None)
+}
+
+/// `login` / `logout` through a protocol-1 plugin; `None` when it does not support it.
+fn plugin_store(
+    spec: &[String],
+    registry: &RegistryRef<'_>,
+    token: Option<&str>,
+) -> Result<Option<bool>> {
+    let (exe, args) = spec.split_first().expect("non-empty spec");
+    let mut child = Command::new(exe)
+        .arg("--cargo-plugin")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .with_context(|| format!("starting credential provider `{exe}`"))?;
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let stdout = child.stdout.take().expect("piped stdout");
+    let mut lines = BufReader::new(stdout).lines();
+    let _hello = lines
+        .next()
+        .transpose()?
+        .with_context(|| format!("credential provider `{exe}` sent no hello"))?;
+    let mut reg = serde_json::json!({ "index-url": registry.index_url });
+    if let Some(n) = registry.name {
+        reg["name"] = serde_json::Value::String(n.to_string());
+    }
+    let kind = if token.is_some() { "login" } else { "logout" };
+    let mut request = serde_json::json!({
+        "v": 1,
+        "kind": kind,
+        "registry": reg,
+        "args": args,
+    });
+    if let Some(t) = token {
+        request["token"] = serde_json::Value::String(t.to_string());
+    }
+    writeln!(stdin, "{request}")?;
+    stdin.flush()?;
+    let reply = lines
+        .next()
+        .transpose()?
+        .with_context(|| format!("credential provider `{exe}` sent no reply"))?;
+    drop(stdin);
+    let _ = child.wait();
+    let reply: serde_json::Value = serde_json::from_str(&reply)
+        .with_context(|| format!("credential provider `{exe}`: bad reply `{reply}`"))?;
+    if reply.get("Ok").is_some() {
+        return Ok(Some(true));
+    }
+    match reply["Err"]["kind"].as_str() {
+        Some("operation-not-supported") | Some("url-not-supported") => Ok(None),
+        Some("not-found") if token.is_none() => Ok(Some(false)),
+        Some(other) => bail!(
+            "credential provider `{exe}` failed to {kind} for {}: {other}{}",
+            registry.index_url,
+            reply["Err"]["message"]
+                .as_str()
+                .map(|m| format!(": {m}"))
+                .unwrap_or_default()
+        ),
+        None => bail!("credential provider `{exe}`: unrecognised reply {reply}"),
+    }
+}
+
 /// A config value that is a string (split on spaces) or an array of strings.
 pub fn spec_from_toml(value: &toml::Value) -> Option<ProviderSpec> {
     match value {
@@ -352,5 +597,30 @@ mod tests {
             token_for(&[vec!["cargo:wincred".to_string()]], &missing, &|| None).unwrap(),
             None
         );
+    }
+
+    /// `login` and `logout` with `cargo:wincred` write and delete the same entry.
+    #[test]
+    fn wincred_login_and_logout_round_trip() {
+        let index = format!(
+            "sparse+https://mitts-wincred-login-{}.invalid/index/",
+            std::process::id()
+        );
+        let registry = RegistryRef {
+            name: None,
+            index_url: &index,
+        };
+        let providers = [vec!["cargo:wincred".to_string()]];
+        let file = |_: Option<&str>| -> Result<bool> { panic!("the file is not used") };
+        assert!(store(&providers, &registry, Some("login-token"), &file).unwrap());
+        assert_eq!(
+            token_for(&providers, &registry, &|| None)
+                .unwrap()
+                .as_deref(),
+            Some("login-token")
+        );
+        assert!(store(&providers, &registry, None, &file).unwrap());
+        CACHE.get().unwrap().lock().unwrap().clear();
+        assert_eq!(token_for(&providers, &registry, &|| None).unwrap(), None);
     }
 }

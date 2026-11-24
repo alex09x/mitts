@@ -294,9 +294,7 @@ Bazel y Buck2 resuelven un problema más amplio —compilaciones herméticas y m
 
 Mitts se encuentra en fase pre-release. Ten en cuenta lo siguiente antes de confiar en él:
 
-- **Solo destino anfitrión (Host target).** Aún no se admite la compilación cruzada.
 - **Sin caché remota todavía.** El almacén es local por máquina.
-- **Los tokens se guardan donde los guarda Cargo.** `mitts login` y `mitts logout` escriben `$CARGO_HOME/credentials.toml`, como Cargo; los tokens guardados por `cargo:macos-keychain`, `cargo:libsecret` o `cargo:wincred` se leen, no se escriben.
 - **Algunas unidades nunca se almacenan en caché:** crates de tipo `cdylib`, `dylib` o `staticlib`, y crates cuyas lecturas de `env!` no se pueden rastrear. Siempre se compilan; son informados por `mitts explain`.
 - **Crates del espacio de trabajo entre copias de trabajo.** Tus propios crates se reutilizan entre worktrees únicamente cuando su clave puede independizarse de la ruta (sin lecturas de `CARGO_MANIFEST_DIR`, sin script de compilación, sin macros procedimentales impuras declaradas). De lo contrario, la clave incluye la ruta absoluta. En macOS, las entradas debug stabs del enlazador se escriben relativas al espacio de trabajo (`-oso_prefix`), por lo que los binarios enlazados también se comparten; inicia el depurador en la raíz del espacio de trabajo para que localice los archivos objeto.
 - **Las macros que leen tus archivos deben ser declaradas por ti.** Una macro procedimental se considera pura a menos que el proyecto la enumere (ver arriba). Los dependientes de una macro listada rastrean cada archivo de su paquete; una macro no listada que lea un archivo sin registrarlo ante rustc puede generar un resultado desactualizado, exactamente igual que con Cargo.
@@ -304,7 +302,7 @@ Mitts se encuentra en fase pre-release. Ten en cuenta lo siguiente antes de conf
 - **Las características no compatibles de Cargo fallan de forma explícita.** Por ejemplo, `--profile` o patrones globales con comodines en directorios intermedios en `workspace.members`. Mitts informa de ellos en lugar de hacer conjeturas.
 - **Zero-copy en el mismo sistema de archivos.** La promoción de unidades sin copia desde la preparación requiere que `MITTS_CACHE_DIR` y el directorio `target/` del espacio de trabajo residan en el mismo punto de montaje del sistema de archivos. Al cruzar límites de sistemas de archivos, se recurre de forma segura a la copia estándar.
 
-**No uses Mitts todavía** si necesitas compilación cruzada, una caché de equipo o una versión estable. En esos casos, Cargo (opcionalmente con sccache) es la opción segura.
+**No uses Mitts todavía** si necesitas una caché de equipo o una versión estable. En esos casos, Cargo (opcionalmente con sccache) es la opción segura.
 
 <a id="performance"></a>
 ## Rendimiento
@@ -365,7 +363,7 @@ El tiempo de CPU en macOS baja de **20.3 h** (`cargo`) y **8.0 h** (`sccache`) a
 | Estudio de benchmarks reproducible | completado |
 | Caché remota / para equipos | planificado |
 | Windows (x86-64 MSVC) | hecho, binarios con 0.5.0 |
-| Compilación cruzada | no compatible |
+| Compilación cruzada (`--target`) | hecho |
 
 Hitos y evidencias: [ROADMAP.md](../ROADMAP.md).
 

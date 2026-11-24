@@ -158,12 +158,41 @@ pub fn handle_fetch(args: &FetchArgs) -> i32 {
         &format!("Resolving dependencies for {}", manifest_path.display()),
     );
 
-    match RustAdapter::fetch(
-        &manifest_path,
-        &store,
-        &fetch_opt,
-        args.cache_dir.as_deref(),
-    ) {
+    let fetched = if args.target.is_empty() {
+        RustAdapter::fetch(
+            &manifest_path,
+            &store,
+            &fetch_opt,
+            args.cache_dir.as_deref(),
+        )
+    } else {
+        // `host` names the host triple, as for Cargo's `--target`.
+        let targets: Vec<String> = args
+            .target
+            .iter()
+            .map(|t| {
+                if t == "host" {
+                    crate::adapter::rust::compiler_resolve::try_resolve_host_triple()
+                        .unwrap_or_else(|_| t.clone())
+                } else {
+                    t.clone()
+                }
+            })
+            .collect();
+        crate::cli::project_info::workspace_root(&manifest_path).and_then(|root| {
+            let members = crate::cli::project_info::local_package_dirs(&root)?;
+            RustAdapter::fetch_for_targets(
+                &manifest_path,
+                &root,
+                &members,
+                &targets,
+                &store,
+                &fetch_opt,
+                args.cache_dir.as_deref(),
+            )
+        })
+    };
+    match fetched {
         Ok(result) => {
             Ui::stage_step("📦", "Synchronizing packages with registry");
             let cached_msg = format!(

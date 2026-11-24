@@ -110,7 +110,7 @@ Done:
 
 Open:
 
-- [ ] Cross-compilation beyond the host target.
+- [x] Cross-compilation beyond the host target (`--target`; tested with wasm32 and Windows GNU from Linux).
 - [ ] Clear diagnostics when a build script reads undeclared inputs.
 - [ ] Windows support (locks and jobserver are POSIX-only today).
 

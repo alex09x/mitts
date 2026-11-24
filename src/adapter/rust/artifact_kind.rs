@@ -69,6 +69,23 @@ pub fn extern_priority(path: &Path) -> u8 {
     }
 }
 
+/// The suffix rustc gives an executable for `triple` (its target spec's `exe-suffix`):
+/// `.exe` on Windows, `.wasm` on WebAssembly, `.js` with Emscripten, none elsewhere.
+pub fn exe_suffix_for_triple(triple: &str) -> &'static str {
+    if triple.contains("-windows") {
+        ".exe"
+    } else if triple.contains("emscripten") {
+        ".js"
+    } else if triple.starts_with("wasm32") || triple.starts_with("wasm64") {
+        ".wasm"
+    } else {
+        ""
+    }
+}
+
+/// Every executable suffix a target can have, for finding what rustc wrote.
+pub const EXE_SUFFIXES: [&str; 3] = [".exe", ".wasm", ".js"];
+
 /// The file name a library of `crate_name` with extension `ext` has on its platform:
 /// `libNAME.ext`, except `NAME.dll` and `NAME.lib` (Windows).
 pub fn library_file_name(crate_name: &str, ext: &str) -> String {
