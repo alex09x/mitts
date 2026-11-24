@@ -266,7 +266,10 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         let deps = outgoing
             .into_iter()
             .map(|(pkg, kinds)| {
-                let name = package_names_by_id.get(&pkg).cloned().unwrap_or_default();
+                let package = package_names_by_id.get(&pkg).cloned().unwrap_or_default();
+                // Cargo's `name` here is the extern crate name: the manifest key of a renamed
+                // dependency, else the package's, with `-` as `_`.
+                let name = extern_name(&entry.manifest, &package);
                 let dep_kinds = kinds
                     .into_iter()
                     .map(|kind| serde_json::from_str::<Value>(&kind).unwrap_or(Value::Null))
@@ -470,14 +473,44 @@ fn package_dependencies(manifest: &CargoToml) -> Vec<Value> {
     dependencies
 }
 
+/// The name `manifest`'s code uses for its dependency on `package`.
+fn extern_name(manifest: &CargoToml, package: &str) -> String {
+    let mut tables = vec![
+        &manifest.dependencies,
+        &manifest.build_dependencies,
+        &manifest.dev_dependencies,
+    ];
+    for spec in manifest.target.values() {
+        tables.extend([
+            &spec.dependencies,
+            &spec.build_dependencies,
+            &spec.dev_dependencies,
+        ]);
+    }
+    let renamed = tables
+        .iter()
+        .flat_map(|t| t.iter())
+        .find_map(|(key, dep)| match dep {
+            TomlDependency::Detailed(d)
+                if d.package_name.as_deref() == Some(package) && key != package =>
+            {
+                Some(key.clone())
+            }
+            _ => None,
+        });
+    renamed
+        .unwrap_or_else(|| package.to_string())
+        .replace('-', "_")
+}
+
 fn append_dependency_map(
     output: &mut Vec<Value>,
     dependencies: &HashMap<String, TomlDependency>,
     kind: Option<&str>,
     target: Option<&str>,
 ) {
-    for (name, dependency) in dependencies {
-        let (req, rename, optional, default_features, features, source) = match dependency {
+    for (key, dependency) in dependencies {
+        let (req, package, optional, default_features, features, source) = match dependency {
             TomlDependency::Simple(req) => (req.clone(), None, false, true, Vec::new(), None),
             TomlDependency::Detailed(details) => (
                 details.version.clone().unwrap_or_else(|| "*".to_string()),
@@ -487,6 +520,12 @@ fn append_dependency_map(
                 details.features.clone().unwrap_or_default(),
                 details.git.clone(),
             ),
+        };
+        // As Cargo writes it: `name` is the package, `rename` the key the manifest uses
+        // for it when that differs (`old = { package = "rand", ... }`).
+        let (name, rename) = match package {
+            Some(package) if package != *key => (package, Some(key.clone())),
+            _ => (key.clone(), None),
         };
         output.push(json!({
             "name": name,

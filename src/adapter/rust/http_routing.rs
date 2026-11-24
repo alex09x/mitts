@@ -100,11 +100,11 @@ impl Agent {
         if self.no_proxy.bypasses(url) {
             return &self.direct;
         }
-        let proxied = if url.starts_with("https://") {
-            &self.https
-        } else {
-            &self.http
-        };
+        // Schemes are case-insensitive (`HTTPS://` is https).
+        let https = url
+            .get(..8)
+            .is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+        let proxied = if https { &self.https } else { &self.http };
         proxied.as_ref().unwrap_or(&self.direct)
     }
     pub fn request(&self, method: &str, url: &str) -> Request {
@@ -175,8 +175,13 @@ impl Request {
             let (true, Some(location)) = ((300..400).contains(&status), location) else {
                 return Ok(response);
             };
-            if !matches!(status, 301 | 302 | 303 | 307 | 308) || hops >= self.agent.redirects {
+            if !matches!(status, 301 | 302 | 303 | 307 | 308) || self.agent.redirects == 0 {
+                // Not a redirect to follow, or following is off: the 3xx is the answer.
                 return Ok(response);
+            }
+            if hops >= self.agent.redirects {
+                // Too many redirects: an error, never the 3xx body read as the payload.
+                return Err(ureq::Error::Status(status, response));
             }
             hops += 1;
             url = join(&url, &location);
@@ -190,9 +195,16 @@ impl Request {
     }
 }
 
-/// `location` resolved against `base`.
+/// `location` resolved against `base` as RFC 3986 section 5 does it: an absolute or
+/// network-path reference, an absolute path, a query or fragment alone (same path), or a
+/// relative path merged with the base directory, with `.` and `..` segments removed.
 pub fn join(base: &str, location: &str) -> String {
-    if location.contains("://") {
+    let has_scheme = location.split_once(':').is_some_and(|(s, _)| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+    }) && location.contains("://");
+    if has_scheme {
         return location.to_string();
     }
     let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
@@ -201,12 +213,59 @@ pub fn join(base: &str, location: &str) -> String {
     }
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let origin = format!("{scheme}://{}", &rest[..authority_end]);
-    if location.starts_with('/') {
-        return format!("{origin}{location}");
+    let after = &rest[authority_end..];
+    let path = after.split(['?', '#']).next().unwrap_or("");
+    let path_and_query = after.split('#').next().unwrap_or("");
+    if location.is_empty() {
+        return format!("{origin}{path_and_query}");
     }
-    let path = rest[authority_end..].split(['?', '#']).next().unwrap_or("");
-    let dir = path.rfind('/').map_or("/", |i| &path[..=i]);
-    format!("{origin}{dir}{location}")
+    if location.starts_with('#') {
+        return format!("{origin}{path_and_query}{location}");
+    }
+    if location.starts_with('?') {
+        return format!("{origin}{path}{location}");
+    }
+    let (loc_path, loc_tail) = match location.find(['?', '#']) {
+        Some(i) => location.split_at(i),
+        None => (location, ""),
+    };
+    let merged = if loc_path.starts_with('/') {
+        loc_path.to_string()
+    } else {
+        let dir = path.rfind('/').map_or("/", |i| &path[..=i]);
+        format!("{dir}{loc_path}")
+    };
+    format!("{origin}{}{loc_tail}", remove_dot_segments(&merged))
+}
+
+fn remove_dot_segments(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    let segments: Vec<&str> = path.split('/').collect();
+    for (i, segment) in segments.iter().enumerate() {
+        let last = i + 1 == segments.len();
+        match *segment {
+            "." => {
+                if last {
+                    out.push("");
+                }
+            }
+            ".." => {
+                if out.len() > 1 {
+                    out.pop();
+                }
+                if last {
+                    out.push("");
+                }
+            }
+            s => out.push(s),
+        }
+    }
+    let joined = out.join("/");
+    if joined.starts_with('/') {
+        joined
+    } else {
+        format!("/{joined}")
+    }
 }
 
 /// `no_proxy` (else `NO_PROXY`), as libcurl reads it: comma-separated host names, each also

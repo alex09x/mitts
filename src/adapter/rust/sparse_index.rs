@@ -304,7 +304,13 @@ impl SparseIndexClient {
                 );
             }
             Err(e) if super::net_retry::status_code(&e) == Some(404) => {
-                bail!("Crate '{}' not found in the index ({})", crate_name, url);
+                // A definite answer, not a network failure: the resolver may try other
+                // versions of whatever asked for this crate.
+                return Err(anyhow::Error::new(
+                    super::resolve_graph::Unsatisfiable::new(format!(
+                        "Crate '{crate_name}' not found in the index ({url})"
+                    )),
+                ));
             }
             Err(e) => {
                 if let Ok(entries) = self.parse_index_file(&local_cache_path) {

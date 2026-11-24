@@ -14,7 +14,7 @@
 //! Requirements that overlap one compatibility range share one version; incompatible
 //! ones get their own. A patched package replaces its registry version.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use semver::{Version, VersionReq};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -305,20 +305,64 @@ fn pick_version<'a>(
     best.map(|(e, _)| e)
 }
 
+/// The graph has no solution under the current choices (no version satisfies a request,
+/// or conflicts did not settle) — as opposed to an index, network or configuration error.
+#[derive(Debug)]
+pub(crate) struct Unsatisfiable(String);
+
+impl Unsatisfiable {
+    pub(crate) fn new(message: String) -> Self {
+        Unsatisfiable(message)
+    }
+}
+
+impl std::fmt::Display for Unsatisfiable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Unsatisfiable {}
+
 impl NativeResolver {
     pub(crate) fn resolve_graph(
         &self,
         roots: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
+        self.rust_affected.lock().unwrap().clear();
+        self.rust_relaxed.lock().unwrap().clear();
         let result = self.resolve_graph_with_limit(roots, offline);
-        // `fallback` is a preference: when the versions that fit the Rust limit lead to no
-        // graph, resolve again without it rather than fail where Cargo finds one.
-        if result.is_err() && self.rust_limit.lock().unwrap().is_some() {
-            *self.rust_limit.lock().unwrap() = None;
-            return self.resolve_graph_with_limit(roots, offline);
+        // `fallback` is a preference. Only when the graph has no solution (not on a fetch or
+        // configuration error) is the limit relaxed, and only where it changed a pick: for
+        // one such package at a time, then for all of them, then everywhere.
+        let limited = self.rust_limit.lock().unwrap().is_some();
+        let unsatisfiable = result
+            .as_ref()
+            .err()
+            .is_some_and(|e| e.downcast_ref::<Unsatisfiable>().is_some());
+        if !limited || !unsatisfiable {
+            return result;
         }
-        result
+        let affected = self.rust_affected.lock().unwrap().clone();
+        let mut attempts: Vec<HashSet<String>> = affected
+            .iter()
+            .map(|name| HashSet::from([name.clone()]))
+            .collect();
+        if affected.len() > 1 {
+            attempts.push(affected.iter().cloned().collect());
+        }
+        for relaxed in attempts {
+            *self.rust_relaxed.lock().unwrap() = relaxed;
+            if let Ok(lock) = self.resolve_graph_with_limit(roots, offline) {
+                return Ok(lock);
+            }
+        }
+        self.rust_relaxed.lock().unwrap().clear();
+        let limit = self.rust_limit.lock().unwrap().take();
+        let free = self.resolve_graph_with_limit(roots, offline);
+        *self.rust_limit.lock().unwrap() = limit;
+        free.or(result)
     }
 
     fn resolve_graph_with_limit(
@@ -346,7 +390,9 @@ impl NativeResolver {
                 }
             }
         }
-        bail!("dependency resolution did not converge after 64 attempts")
+        Err(anyhow::Error::new(Unsatisfiable(
+            "dependency resolution did not converge after 64 attempts".to_string(),
+        )))
     }
 
     /// `Err(restart)` asks for a restart with more pinned on one crate.
@@ -361,6 +407,7 @@ impl NativeResolver {
         let config = self.config.lock().unwrap().clone();
         let preferred = self.preferred.lock().unwrap().clone();
         let rust_limit = *self.rust_limit.lock().unwrap();
+        let relaxed = self.rust_relaxed.lock().unwrap().clone();
         let mut git = GitResolver::for_cache_dir(self.cache_dir.as_deref(), config.clone());
         let mut nodes: Vec<Node> = Vec::new();
         let mut by_key: HashMap<Key, Vec<usize>> = HashMap::new();
@@ -456,9 +503,10 @@ impl NativeResolver {
                             // pin of the range the pick landed in, pick again, until a pick lands
                             // in a range whose pin is already applied (or has none).
                             let mut applied: HashSet<String> = HashSet::new();
+                            let limit = rust_limit.filter(|_| !relaxed.contains(&r.name));
                             let chosen = loop {
                                 let Some(pick) =
-                                    pick_version(entries, &reqs, &wanted, &locked, rust_limit)
+                                    pick_version(entries, &reqs, &wanted, &locked, limit)
                                 else {
                                     break None;
                                 };
@@ -472,16 +520,27 @@ impl NativeResolver {
                                 reqs.extend(pin.reqs.iter().cloned());
                                 wanted.extend(pin.features.iter().cloned());
                             };
-                            let chosen = chosen.with_context(|| {
+                            let chosen = chosen.ok_or_else(|| {
                                 let by = requested_by
                                     .get(&k)
                                     .map(|p| format!(" (required by {p})"))
                                     .unwrap_or_default();
-                                format!(
+                                anyhow::Error::new(Unsatisfiable(format!(
                                     "resolving {} {}{by} from {}: no non-yanked version satisfies {}",
                                     r.name, r.req, r.source, reqs.join(" and ")
-                                )
+                                )))
                             })?;
+                            // The Rust limit changed this pick: a candidate for relaxing it
+                            // if the graph turns out to have no solution.
+                            if limit.is_some()
+                                && pick_version(entries, &reqs, &wanted, &locked, None)
+                                    .is_some_and(|free| free.vers != chosen.vers)
+                            {
+                                let mut affected = self.rust_affected.lock().unwrap();
+                                if !affected.contains(&r.name) {
+                                    affected.push(r.name.clone());
+                                }
+                            }
                             Node::from_entry(chosen, &r.source)
                         };
                         nodes.push(node);

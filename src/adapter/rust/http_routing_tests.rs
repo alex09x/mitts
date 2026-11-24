@@ -59,6 +59,37 @@ fn redirect_locations_resolve_against_the_request() {
     );
 }
 
+#[test]
+fn query_fragment_and_dot_segment_references_follow_rfc_3986() {
+    let base = "https://h/api/v1/download?a=1#x";
+    assert_eq!(join(base, "?new=1"), "https://h/api/v1/download?new=1");
+    assert_eq!(join(base, "#top"), "https://h/api/v1/download?a=1#top");
+    assert_eq!(join(base, "../other?b=2"), "https://h/api/other?b=2");
+    assert_eq!(join(base, "./same"), "https://h/api/v1/same");
+    assert_eq!(join(base, "../../../up"), "https://h/up");
+    assert_eq!(join(base, "HTTPS://Other/x"), "HTTPS://Other/x");
+}
+
+#[test]
+fn too_many_redirects_is_an_error_not_the_redirect_body() {
+    let (url, _seen) = serve(vec![
+        "HTTP/1.1 302 Found\r\nLocation: /a\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+            .into(),
+        "HTTP/1.1 302 Found\r\nLocation: /b\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+            .into(),
+    ]);
+    let agent = Builder::new(ureq::AgentBuilder::new, None)
+        .redirects(1)
+        .build();
+    match agent.get(&format!("{url}/start")).call() {
+        Err(ureq::Error::Status(302, _)) => {}
+        other => panic!(
+            "expected a redirect-limit error, got {:?}",
+            other.map(|r| r.status())
+        ),
+    }
+}
+
 /// A one-shot HTTP server: answers each connection with the next canned response and
 /// records the request lines and headers it got.
 fn serve(responses: Vec<String>) -> (String, std::sync::mpsc::Receiver<String>) {

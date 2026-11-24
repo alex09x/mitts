@@ -378,15 +378,19 @@ fn init_other_vcs(vcs: &str, dir: &Path) -> Result<()> {
             // `^target$` is a regexp: when the file's last `syntax:` line switched to glob,
             // switch back before adding it.
             let existing = read_existing(&ignore)?;
-            let glob_last = existing
-                .lines()
-                .rev()
-                .find_map(|l| l.trim().strip_prefix("syntax:"))
-                .is_some_and(|s| s.trim() != "regexp");
-            if glob_last && !existing.lines().any(|l| l.trim() == "^target$") {
-                append_line(&ignore, "syntax: regexp")?;
+            let (ignored, last_syntax) = hg_target_ignored(&existing);
+            if !ignored {
+                let mut text = existing;
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                if last_syntax != "regexp" {
+                    text.push_str("syntax: regexp\n");
+                }
+                text.push_str("^target$\n");
+                fs::write(&ignore, text).with_context(|| format!("write {}", ignore.display()))?;
             }
-            (ignore, "^target$")
+            return Ok(());
         }
         "pijul" => {
             if !dir.join(".pijul").exists() {
@@ -395,18 +399,19 @@ fn init_other_vcs(vcs: &str, dir: &Path) -> Result<()> {
             (dir.join(".ignore"), "/target")
         }
         _ => {
-            let db = dir.join(".fossil");
-            if !db.exists() {
-                run(
-                    "fossil",
-                    &["init".as_ref(), "--empty".as_ref(), db.as_os_str()],
-                    dir,
-                )?;
-            }
-            // The checkout is separate from the repository: a run whose `open` failed opens
-            // it now. `--force` opens into a directory that already has files (`init`).
+            // An existing checkout (its repository may live elsewhere) is used as it is.
+            // Otherwise the local repository is created if missing and opened: a run whose
+            // `open` failed opens it now; `--force` opens into a directory with files.
             let checked_out = dir.join(".fslckout").exists() || dir.join("_FOSSIL_").exists();
             if !checked_out {
+                let db = dir.join(".fossil");
+                if !db.exists() {
+                    run(
+                        "fossil",
+                        &["init".as_ref(), "--empty".as_ref(), db.as_os_str()],
+                        dir,
+                    )?;
+                }
                 run(
                     "fossil",
                     &["open".as_ref(), "--force".as_ref(), ".fossil".as_ref()],
@@ -420,6 +425,25 @@ fn init_other_vcs(vcs: &str, dir: &Path) -> Result<()> {
         }
     };
     append_line(&ignore, line)
+}
+
+/// Whether an `.hgignore` already ignores `target`, reading it as Mercurial does (regexp
+/// syntax until a `syntax:` line changes it), and the syntax in force at its end.
+fn hg_target_ignored(text: &str) -> (bool, String) {
+    let mut syntax = "regexp".to_string();
+    let mut ignored = false;
+    for line in text.lines().map(str::trim) {
+        if let Some(s) = line.strip_prefix("syntax:") {
+            syntax = s.trim().to_string();
+            continue;
+        }
+        let rule = match syntax.as_str() {
+            "regexp" | "re" => line == "^target$" || line == "^target/",
+            _ => line == "target" || line == "target/" || line == "/target",
+        };
+        ignored |= rule;
+    }
+    (ignored, syntax)
 }
 
 /// The file's text; a missing file is empty, any other failure (unreadable, not UTF-8) is

@@ -109,24 +109,23 @@ pub fn graph(doc: &Value) -> Graph {
             for dk in dep["dep_kinds"].as_array().into_iter().flatten() {
                 let kind = kind_of(&dk["kind"]);
                 let target = dk["target"].as_str();
-                // The declaration this edge comes from: same kind and target, and either
-                // its rename is the extern name, or (no rename) it names this package and
-                // its requirement admits this version.
+                // The declaration this edge comes from (`name` is the package and `rename`
+                // the manifest key, as Cargo's metadata has them): it names this package,
+                // admits this version, has this kind and target, and a renamed one is the
+                // extern name rustc sees.
                 let decl = declared.iter().find(|d| {
                     kind_of(&d["kind"]) == kind
                         && d["target"].as_str() == target
-                        && match d["rename"].as_str() {
-                            Some(rename) => rename.replace('-', "_") == extern_name,
-                            None => {
-                                d["name"].as_str() == Some(child_pkg.name.as_str())
-                                    && match (d["req"].as_str(), &child_version) {
-                                        (Some(req), Some(v)) => {
-                                            VersionReq::parse(req).map_or(true, |r| r.matches(v))
-                                        }
-                                        _ => true,
-                                    }
+                        && d["name"].as_str() == Some(child_pkg.name.as_str())
+                        && match (d["req"].as_str(), &child_version) {
+                            (Some(req), Some(v)) => {
+                                VersionReq::parse(req).map_or(true, |r| r.matches(v))
                             }
+                            _ => true,
                         }
+                        && d["rename"]
+                            .as_str()
+                            .is_none_or(|rename| rename.replace('-', "_") == extern_name)
                 });
                 let Some(decl) = decl else {
                     continue;
@@ -194,15 +193,16 @@ impl Builder {
         }
     }
 
-    /// The resolved dependencies of `pkg` its manifest calls `name`.
-    fn dependency(&self, pkg: &str, name: &str) -> Vec<String> {
-        let mut out: Vec<String> = self
+    /// The resolved dependencies of `pkg` its manifest calls `name`, with the kind of each
+    /// declaration: a feature that enables a build dependency reaches it by a build edge.
+    fn dependency(&self, pkg: &str, name: &str) -> Vec<(String, EdgeKind)> {
+        let mut out: Vec<(String, EdgeKind)> = self
             .deps
             .get(pkg)
             .into_iter()
             .flatten()
             .filter(|d| d.key == name)
-            .map(|d| d.child.clone())
+            .map(|d| (d.child.clone(), d.kind))
             .collect();
         out.sort();
         out.dedup();
@@ -252,21 +252,21 @@ impl Builder {
         let values = self.tables.get(pkg).and_then(|t| t.get(feature)).cloned();
         let Some(values) = values else {
             // An optional dependency's implicit feature.
-            for dep in self.dependency(pkg, feature) {
-                self.edge(&id, dep, EdgeKind::Feature);
+            for (dep, kind) in self.dependency(pkg, feature) {
+                self.edge(&id, dep, kind);
             }
             return;
         };
         for value in values {
             if let Some(dep_name) = value.strip_prefix("dep:") {
-                for dep in self.dependency(pkg, dep_name) {
-                    self.edge(&id, dep, EdgeKind::Feature);
+                for (dep, kind) in self.dependency(pkg, dep_name) {
+                    self.edge(&id, dep, kind);
                 }
             } else if let Some((dep_name, dep_feature)) = value.split_once('/') {
-                for dep in self.dependency(pkg, dep_name.trim_end_matches('?')) {
+                for (dep, kind) in self.dependency(pkg, dep_name.trim_end_matches('?')) {
                     if self.active(&dep, dep_feature) {
                         self.feature(&dep, dep_feature);
-                        self.edge(&id, feature_id(&dep, dep_feature), EdgeKind::Feature);
+                        self.edge(&id, feature_id(&dep, dep_feature), kind);
                     }
                 }
             } else if self.active(pkg, &value) {

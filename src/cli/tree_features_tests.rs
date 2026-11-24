@@ -61,12 +61,13 @@ fn dependency_edges_go_through_requested_features() {
         !g.labels.contains_key(&feature_id("log", "kv")),
         "inactive features are left out"
     );
-    // The root's own active feature is in the graph and leads to the optional dependency.
+    // The root's own active feature is in the graph and leads to the optional dependency,
+    // by an edge of that dependency's kind.
     assert_eq!(
         edges(&g, &feature_id("app", "default")),
         [
             ("app".to_string(), EdgeKind::Feature),
-            ("plain".to_string(), EdgeKind::Feature)
+            ("plain".to_string(), EdgeKind::Normal)
         ]
     );
 }
@@ -77,7 +78,7 @@ fn features_belong_to_the_declaration_of_each_version() {
     let doc = json!({
         "packages": [
             pkg("app", "0.1.0", json!({}), json!([
-                {"name": "rand", "rename": "old", "req": "^0.7", "kind": null, "features": ["small"], "uses_default_features": false},
+                {"name": "rand", "rename": "old", "req": "^0.7", "kind": null, "features": ["small"], "uses_default_features": false, "optional": true},
                 {"name": "rand", "req": "^0.8", "kind": null, "features": ["std"], "uses_default_features": false}
             ])),
             pkg("rand@0.7", "0.7.3", json!({"small": [], "std": []}), json!([])),

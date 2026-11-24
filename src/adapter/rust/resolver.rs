@@ -117,7 +117,6 @@ fn workspace_rust_versions(root: &Path, toml: &CargoToml) -> Vec<String> {
     let Some(workspace) = &toml.workspace else {
         return out;
     };
-    let excluded: Vec<PathBuf> = workspace.exclude.iter().map(|e| root.join(e)).collect();
     let mut queue: Vec<PathBuf> = vec![root.to_path_buf()];
     queue.extend(
         toml.discover_workspace_members(root)
@@ -160,7 +159,21 @@ fn workspace_rust_versions(root: &Path, toml: &CargoToml) -> Vec<String> {
                     continue;
                 };
                 let target = super::planner_paths::normalize_lexically(&dir.join(path));
-                if target.starts_with(root) && !excluded.iter().any(|e| target.starts_with(e)) {
+                let Ok(rel) = target.strip_prefix(root) else {
+                    continue;
+                };
+                // `exclude` entries are workspace path patterns (globs allowed) and cover
+                // everything below the directory they match.
+                let excluded = rel
+                    .ancestors()
+                    .filter(|a| !a.as_os_str().is_empty())
+                    .any(|a| {
+                        workspace
+                            .exclude
+                            .iter()
+                            .any(|e| super::manifest_workspace::matches_path_pattern(e, a))
+                    });
+                if !excluded {
                     queue.push(target);
                 }
             }
@@ -185,6 +198,10 @@ pub struct NativeResolver {
     /// `resolver.incompatible-rust-versions = "fallback"`: the Rust version new picks
     /// should support. `None`: any version (`allow`).
     pub(crate) rust_limit: Mutex<Option<(u64, u64, u64)>>,
+    /// Packages (by name) whose pick the limit changed in the last resolution.
+    pub(crate) rust_affected: Mutex<Vec<String>>,
+    /// Packages the limit does not apply to in this attempt.
+    pub(crate) rust_relaxed: Mutex<HashSet<String>>,
 }
 
 impl NativeResolver {
@@ -204,6 +221,8 @@ impl NativeResolver {
             patches: Mutex::new(Default::default()),
             preferred: Mutex::new(HashMap::new()),
             rust_limit: Mutex::new(None),
+            rust_affected: Mutex::new(Vec::new()),
+            rust_relaxed: Mutex::new(HashSet::new()),
         })
     }
 
@@ -217,6 +236,8 @@ impl NativeResolver {
             patches: Mutex::new(Default::default()),
             preferred: Mutex::new(HashMap::new()),
             rust_limit: Mutex::new(None),
+            rust_affected: Mutex::new(Vec::new()),
+            rust_relaxed: Mutex::new(HashSet::new()),
         }
     }
 

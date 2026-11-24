@@ -2125,13 +2125,14 @@ fn msrv_limit_counts_path_members_and_falls_back_when_nothing_fits() {
     fs::write(app.join("crates/low/src/lib.rs"), "").unwrap();
     env.ok(&app, &["generate-lockfile"]);
     let lock = read(app.join("Cargo.lock"));
-    // Nothing fits 1.50 for bb with a working graph, so the whole resolve falls back.
+    // No version of bb that fits 1.50 has a working graph, so the limit is relaxed for bb
+    // alone; aa keeps the version that fits.
     assert!(
         lock.contains("name = \"bb\"\nversion = \"1.1.0\""),
         "{lock}"
     );
     assert!(
-        lock.contains("name = \"aa\"\nversion = \"1.1.0\""),
+        lock.contains("name = \"aa\"\nversion = \"1.0.0\""),
         "{lock}"
     );
 }
@@ -2170,5 +2171,113 @@ fn msrv_limit_counts_in_tree_path_members() {
     assert!(
         lock.contains("name = \"aa\"\nversion = \"1.0.0\""),
         "1.50 from the path member: {lock}"
+    );
+}
+
+#[test]
+fn metadata_names_the_package_and_the_rename_like_cargo() {
+    let env = Env::new();
+    let registry = serve(vec![Published {
+        manifest_extra: "[features]\nsmall = []\nstd = []\n",
+        features: "{\"small\":[],\"std\":[]}",
+        ..version("aa", "1.0.0")
+    }]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\nold = { package = \"aa\", version = \"1\", default-features = false, features = [\"small\"] }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1", "--no-deps"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let dep = &doc["packages"][0]["dependencies"][0];
+    assert_eq!(dep["name"], "aa", "{dep}");
+    assert_eq!(dep["rename"], "old", "{dep}");
+    // The feature graph follows the renamed declaration.
+    let (out, _) = env.ok(&app, &["tree", "-e", "features"]);
+    assert!(out.contains("── aa feature \"small\"\n"), "{out}");
+    assert!(!out.contains("aa feature \"std\""), "{out}");
+}
+
+#[cfg(unix)]
+#[test]
+fn hg_and_fossil_setup_respect_what_is_there() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin3");
+    fs::create_dir_all(&bin).unwrap();
+    // A stand-in that records every call: init/open must not run in an existing checkout.
+    let log = env.path("fossil-calls");
+    let fossil = format!("#!/bin/sh\necho \"$@\" >> {}\n", log.display());
+    let hg = "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n".to_string();
+    for (tool, script) in [("fossil", fossil), ("hg", hg)] {
+        let path = bin.join(tool);
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let init = |dir: &std::path::Path, vcs: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .args(["init", "--vcs", vcs])
+            .current_dir(dir)
+            .env("PATH", &path)
+            .env("CARGO_HOME", env.path("cargo-home"))
+            .output()
+            .unwrap()
+    };
+    let checkout = env.path("fossil-checkout");
+    fs::create_dir_all(&checkout).unwrap();
+    fs::write(checkout.join(".fslckout"), "").unwrap();
+    assert!(init(&checkout, "fossil").status.success());
+    assert!(!checkout.join(".fossil").exists(), "no second repository");
+    assert!(!log.exists(), "fossil was not run in an existing checkout");
+
+    // A `^target$` written under glob syntax does not count: a regexp section is added.
+    let hg_dir = env.path("hg-glob-rule");
+    fs::create_dir_all(&hg_dir).unwrap();
+    fs::write(hg_dir.join(".hgignore"), "syntax: glob\n^target$\n").unwrap();
+    assert!(init(&hg_dir, "hg").status.success());
+    assert_eq!(
+        read(hg_dir.join(".hgignore")),
+        "syntax: glob\n^target$\nsyntax: regexp\n^target$\n"
+    );
+}
+
+#[test]
+fn msrv_limit_skips_members_excluded_by_a_glob() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nlegacy-one = { path = \"crates/legacy-one\" }\n\n[workspace]\nresolver = \"3\"\nexclude = [\"crates/legacy-*\"]\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    fs::create_dir_all(app.join("crates/legacy-one/src")).unwrap();
+    fs::write(
+        app.join("crates/legacy-one/Cargo.toml"),
+        "[package]\nname = \"legacy-one\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("crates/legacy-one/src/lib.rs"), "").unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.1.0\""),
+        "the excluded crate's 1.50 does not count: {lock}"
     );
 }
