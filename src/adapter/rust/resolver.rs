@@ -162,13 +162,8 @@ fn workspace_rust_versions(root: &Path, toml: &CargoToml) -> Vec<String> {
                 let Ok(rel) = target.strip_prefix(root) else {
                     continue;
                 };
-                // `exclude` entries are workspace path patterns (globs allowed) and cover
-                // everything below the directory they match.
-                let excluded = rel
-                    .ancestors()
-                    .filter(|a| !a.as_os_str().is_empty())
-                    .any(|a| workspace.exclude.iter().any(|e| path_glob(e, a)));
-                if !excluded {
+                // Cargo's `is_excluded`: under an `exclude` path, not under a `members` one.
+                if !super::workspace_glob::excluded(&workspace.exclude, &workspace.members, rel) {
                     queue.push(target);
                 }
             }
@@ -176,8 +171,6 @@ fn workspace_rust_versions(root: &Path, toml: &CargoToml) -> Vec<String> {
     }
     out
 }
-
-use super::workspace_glob::path_glob;
 
 /// Standalone native dependency resolver evaluating crates.io sparse index.
 pub struct NativeResolver {

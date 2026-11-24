@@ -17,6 +17,7 @@ fn hosts_subdomains_addresses_ranges_and_ports_go_direct() {
     let rules = NoProxy::parse(
         " Example.com, .internal ,*.corp, 10.0.0.0/8, ::1, 192.168.1.5,host:8080, 127.0.0.1:3000, [fe80::1]:443",
     );
+    let bypasses = |rules: &NoProxy, url: &str| rules.bypasses(&url::Url::parse(url).unwrap());
     for url in [
         "https://example.com/x",
         "https://index.EXAMPLE.com/config.json",
@@ -29,7 +30,7 @@ fn hosts_subdomains_addresses_ranges_and_ports_go_direct() {
         "http://127.0.0.1:9999/",
         "https://[fe80::1]/",
     ] {
-        assert!(rules.bypasses(url), "{url}");
+        assert!(bypasses(&rules, url), "{url}");
     }
     for url in [
         "https://notexample.com/",
@@ -38,10 +39,24 @@ fn hosts_subdomains_addresses_ranges_and_ports_go_direct() {
         "http://192.168.1.6/",
         "http://127.0.0.2/",
     ] {
-        assert!(!rules.bypasses(url), "{url}");
+        assert!(!bypasses(&rules, url), "{url}");
     }
-    assert!(NoProxy::parse("*").bypasses("https://index.crates.io/"));
-    assert!(!NoProxy::parse("").bypasses("https://index.crates.io/"));
+    assert!(bypasses(&NoProxy::parse("*"), "https://index.crates.io/"));
+    assert!(!bypasses(&NoProxy::parse(""), "https://index.crates.io/"));
+}
+
+#[test]
+fn routing_uses_the_host_the_url_parser_connects_to() {
+    // A backslash ends the authority for http(s), as in the URL parser ureq uses: the host
+    // is attacker.example, so a no_proxy entry for trusted.example does not apply.
+    let rules = NoProxy::parse("trusted.example");
+    let target = join(
+        "https://index.crates.io/",
+        "https://attacker.example\\@trusted.example/path",
+    );
+    let parsed = url::Url::parse(&target).unwrap();
+    assert_eq!(parsed.host_str(), Some("attacker.example"));
+    assert!(!rules.bypasses(&parsed));
 }
 
 #[test]
@@ -67,7 +82,7 @@ fn query_fragment_and_dot_segment_references_follow_rfc_3986() {
     assert_eq!(join(base, "../other?b=2"), "https://h/api/other?b=2");
     assert_eq!(join(base, "./same"), "https://h/api/v1/same");
     assert_eq!(join(base, "../../../up"), "https://h/up");
-    assert_eq!(join(base, "HTTPS://Other/x"), "HTTPS://Other/x");
+    assert_eq!(join(base, "HTTPS://Other/x"), "https://other/x");
     // An absolute target is normalized, so a chained relative redirect resolves soundly.
     let hop = join(base, "https://example.com/a/..");
     assert_eq!(hop, "https://example.com/");

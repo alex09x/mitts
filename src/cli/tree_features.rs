@@ -123,9 +123,18 @@ pub fn graph(doc: &Value) -> Graph {
                             }
                             _ => true,
                         }
-                        && d["rename"]
-                            .as_str()
-                            .is_none_or(|rename| rename.replace('-', "_") == extern_name)
+                        && match d["rename"].as_str() {
+                            Some(rename) => rename.replace('-', "_") == extern_name,
+                            // Unrenamed: rustc sees the library's own name.
+                            None => {
+                                child_pkg
+                                    .lib_name
+                                    .as_deref()
+                                    .unwrap_or(&child_pkg.name)
+                                    .replace('-', "_")
+                                    == extern_name
+                            }
+                        }
                 });
                 let Some(decl) = decl else {
                     continue;

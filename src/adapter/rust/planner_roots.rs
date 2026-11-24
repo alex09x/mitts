@@ -20,7 +20,7 @@ pub(super) fn is_default_member_dir(pattern: &str, project_dir: &Path, dir: &Pat
     let clean = pattern.trim_start_matches("./").trim_end_matches('/');
     let clean = if clean.is_empty() { "." } else { clean };
     dir.strip_prefix(project_dir)
-        .is_ok_and(|rel| super::manifest_workspace::matches_path_pattern(clean, rel))
+        .is_ok_and(|rel| super::workspace_glob::member_matches(clean, rel))
 }
 
 pub(super) fn selected_roots(

@@ -629,5 +629,7 @@ fn test_workspace_pattern_unsupported_glob_syntax() {
     ] {
         assert!(validate_workspace_pattern(pattern).is_ok(), "{pattern}");
     }
-    assert!(validate_workspace_pattern("").is_err());
+    // What Cargo's glob parser refuses is refused: an unclosed class, a `**` inside a name.
+    assert!(validate_workspace_pattern("crates/[abc").is_err());
+    assert!(validate_workspace_pattern("crates/a**").is_err());
 }

@@ -96,14 +96,14 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// The route for `url`, decided on the URL as the transport parses it (the `url` crate
+    /// ureq uses): its normalized scheme and host, never a textual guess.
     fn for_url(&self, url: &str) -> &ureq::Agent {
-        if self.no_proxy.bypasses(url) {
+        let parsed = url::Url::parse(url).ok();
+        if parsed.as_ref().is_some_and(|u| self.no_proxy.bypasses(u)) {
             return &self.direct;
         }
-        // Schemes are case-insensitive (`HTTPS://` is https).
-        let https = url
-            .get(..8)
-            .is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+        let https = parsed.as_ref().is_some_and(|u| u.scheme() == "https");
         let proxied = if https { &self.https } else { &self.http };
         proxied.as_ref().unwrap_or(&self.direct)
     }
@@ -195,96 +195,14 @@ impl Request {
     }
 }
 
-/// `location` resolved against `base` as RFC 3986 section 5 does it: an absolute or
-/// network-path reference, an absolute path, a query or fragment alone (same path), or a
-/// relative path merged with the base directory, with `.` and `..` segments removed.
+/// `location` resolved against `base` by the WHATWG URL parser ureq uses (`url::Url::join`),
+/// serialized normalized, so the next hop's base is exactly the URL that was requested.
+/// An unparseable pair yields `location` as given (the request then fails as it would).
 pub fn join(base: &str, location: &str) -> String {
-    let has_scheme = location.split_once(':').is_some_and(|(s, _)| {
-        !s.is_empty()
-            && s.chars()
-                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
-    }) && location.contains("://");
-    if has_scheme {
-        return normalize(location);
-    }
-    let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
-    if let Some(net) = location.strip_prefix("//") {
-        return normalize(&format!("{scheme}://{net}"));
-    }
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let origin = format!("{scheme}://{}", &rest[..authority_end]);
-    let after = &rest[authority_end..];
-    let path = after.split(['?', '#']).next().unwrap_or("");
-    let path_and_query = after.split('#').next().unwrap_or("");
-    if location.is_empty() {
-        return format!("{origin}{path_and_query}");
-    }
-    if location.starts_with('#') {
-        return format!("{origin}{path_and_query}{location}");
-    }
-    if location.starts_with('?') {
-        return format!("{origin}{path}{location}");
-    }
-    let (loc_path, loc_tail) = match location.find(['?', '#']) {
-        Some(i) => location.split_at(i),
-        None => (location, ""),
-    };
-    let merged = if loc_path.starts_with('/') {
-        loc_path.to_string()
-    } else {
-        let dir = path.rfind('/').map_or("/", |i| &path[..=i]);
-        format!("{dir}{loc_path}")
-    };
-    format!("{origin}{}{loc_tail}", remove_dot_segments(&merged))
-}
-
-/// An absolute URL with the dot segments of its path removed, so it is a sound base for
-/// the next hop's relative reference.
-fn normalize(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return url.to_string();
-    };
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let (authority, after) = rest.split_at(authority_end);
-    let path_end = after.find(['?', '#']).unwrap_or(after.len());
-    let (path, tail) = after.split_at(path_end);
-    if path.is_empty() {
-        return url.to_string();
-    }
-    format!("{scheme}://{authority}{}{tail}", remove_dot_segments(path))
-}
-
-fn remove_dot_segments(path: &str) -> String {
-    // The URL parser treats `%2e` (any case) as `.` in a dot segment; so do we.
-    let dots = |s: &str| s.to_ascii_lowercase().replace("%2e", ".");
-    let mut out: Vec<&str> = Vec::new();
-    let segments: Vec<&str> = path.split('/').collect();
-    for (i, segment) in segments.iter().enumerate() {
-        let last = i + 1 == segments.len();
-        let decoded = dots(segment);
-        match decoded.as_str() {
-            "." => {
-                if last {
-                    out.push("");
-                }
-            }
-            ".." => {
-                if out.len() > 1 {
-                    out.pop();
-                }
-                if last {
-                    out.push("");
-                }
-            }
-            _ => out.push(segment),
-        }
-    }
-    let joined = out.join("/");
-    if joined.starts_with('/') {
-        joined
-    } else {
-        format!("/{joined}")
-    }
+    url::Url::parse(base)
+        .and_then(|b| b.join(location))
+        .map(String::from)
+        .unwrap_or_else(|_| location.to_string())
 }
 
 /// `no_proxy` (else `NO_PROXY`), as libcurl reads it: comma-separated host names, each also
@@ -348,36 +266,30 @@ impl NoProxy {
         out
     }
 
-    /// Whether `url` goes direct.
-    pub fn bypasses(&self, url: &str) -> bool {
+    /// Whether a request to `url` goes direct, by the host the URL parser found (the one
+    /// the connection is made to).
+    pub fn bypasses(&self, url: &url::Url) -> bool {
         if self.all {
             return true;
         }
-        let Some(host) = host_of(url) else {
-            return false;
-        };
-        if let Ok(addr) = host.parse::<IpAddr>() {
-            return self
-                .nets
-                .iter()
-                .any(|(net, bits)| in_net(addr, *net, *bits));
+        match url.host() {
+            Some(url::Host::Ipv4(a)) => self.in_nets(IpAddr::V4(a)),
+            Some(url::Host::Ipv6(a)) => self.in_nets(IpAddr::V6(a)),
+            Some(url::Host::Domain(d)) => {
+                let host = d.to_ascii_lowercase();
+                self.hosts
+                    .iter()
+                    .any(|h| host == *h || host.ends_with(&format!(".{h}")))
+            }
+            None => false,
         }
-        self.hosts
-            .iter()
-            .any(|h| host == *h || host.ends_with(&format!(".{h}")))
     }
-}
 
-fn host_of(url: &str) -> Option<String> {
-    let rest = url.split_once("://").map_or(url, |(_, r)| r);
-    let authority = rest.split(['/', '?', '#']).next()?;
-    let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
-    let host = if authority.starts_with('[') {
-        strip_port(authority)
-    } else {
-        authority.split(':').next()?
-    };
-    Some(host.to_ascii_lowercase())
+    fn in_nets(&self, addr: IpAddr) -> bool {
+        self.nets
+            .iter()
+            .any(|(net, bits)| in_net(addr, *net, *bits))
+    }
 }
 
 fn in_net(addr: IpAddr, net: IpAddr, bits: u8) -> bool {

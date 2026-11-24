@@ -2248,7 +2248,7 @@ fn hg_and_fossil_setup_respect_what_is_there() {
 }
 
 #[test]
-fn msrv_limit_skips_members_excluded_by_a_glob() {
+fn msrv_limit_skips_packages_under_an_excluded_path() {
     let env = Env::new();
     let registry = serve(vec![
         Published {
@@ -2262,7 +2262,7 @@ fn msrv_limit_skips_members_excluded_by_a_glob() {
     ]);
     let app = env.app(
         &registry,
-        "[dependencies]\naa = \"1\"\nlegacy-one = { path = \"crates/legacy-one\" }\n\n[workspace]\nresolver = \"3\"\nexclude = [\"crates/legacy-*\"]\n",
+        "[dependencies]\naa = \"1\"\nlegacy-one = { path = \"crates/legacy-one\" }\n\n[workspace]\nresolver = \"3\"\nexclude = [\"crates\"]\n",
     );
     let manifest = read(app.join("Cargo.toml")).replace(
         "edition = \"2021\"",
@@ -2302,6 +2302,65 @@ fn resolver_backtracks_past_a_version_whose_dependency_does_not_exist() {
         lock.contains("name = \"cc\"\nversion = \"1.0.0\""),
         "{lock}"
     );
+}
+
+#[test]
+fn resolver_backtracks_into_another_branch_when_the_first_guess_dead_ends() {
+    let env = Env::new();
+    // aa 1.1 and bb 1.1 pin incompatible xx versions. Ruling out aa 1.1 fails at the root
+    // (`=1.1.0`); the graph resolves with bb 1.0, as under Cargo.
+    let registry = serve(vec![
+        version("xx", "1.0.0"),
+        version("xx", "1.1.0"),
+        version("aa", "1.0.0"),
+        Published {
+            deps: vec![dep("xx", "=1.0.0")],
+            ..version("aa", "1.1.0")
+        },
+        Published {
+            deps: vec![dep("xx", "^1")],
+            ..version("bb", "1.0.0")
+        },
+        Published {
+            deps: vec![dep("xx", "=1.1.0")],
+            ..version("bb", "1.1.0")
+        },
+    ]);
+    let app = env.app(&registry, "[dependencies]\naa = \"=1.1.0\"\nbb = \"1\"\n");
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    for (name, version) in [("aa", "1.1.0"), ("bb", "1.0.0"), ("xx", "1.0.0")] {
+        assert!(
+            lock.contains(&format!("name = \"{name}\"\nversion = \"{version}\"")),
+            "{name} {version}: {lock}"
+        );
+    }
+}
+
+#[test]
+fn metadata_leaves_out_an_optional_alias_no_feature_enables() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nold = { package = \"aa\", version = \"1\", optional = true }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["aa"], "{node}");
 }
 
 #[test]

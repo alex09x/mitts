@@ -330,6 +330,9 @@ impl std::fmt::Display for Unsatisfiable {
     }
 }
 
+/// Resolution attempts one `generate-lockfile` may spend across all backtracking branches.
+const RESOLVE_ATTEMPTS: usize = 1024;
+
 /// The resolver key as one string, for the sets of packages the Rust limit is relaxed for.
 fn key_string(k: &Key) -> String {
     format!("{}\u{1f}{}", k.0, k.1)
@@ -425,74 +428,115 @@ impl NativeResolver {
         *self.rust_relax_all.lock().unwrap() = all;
     }
 
+    /// Backtracking search over version choices. A branch is a set of registry versions ruled
+    /// out; when it has no solution, each version that asked for the failing request opens
+    /// its own child branch with that version ruled out as well (those with another version
+    /// to fall back to first). Branches are explored depth first, each set once, so a wrong
+    /// guess in one branch never removes a version from another: the search ends at the
+    /// first graph that resolves, or with the original conflict once every branch failed.
     fn resolve_graph_with_limit(
         &self,
         roots: &[ManifestDirectDep],
         offline: bool,
     ) -> Result<CargoLock> {
-        // Requirements and features learnt from conflicts, per crate and compatibility
-        // range; a conflict restarts the resolution with them.
-        let mut pins: HashMap<PinKey, Pin> = HashMap::new();
         let mut index_cache: HashMap<Key, Vec<SparseIndexEntry>> = HashMap::new();
-        // Registry versions ruled out because a dependency of theirs has no solution: the
-        // next attempt picks an older version of that package, as Cargo backtracks.
-        let mut excluded: HashSet<(Key, String)> = HashSet::new();
-        for _ in 0..256 {
-            let attempt =
-                match self.resolve_once(roots, offline, &pins, &mut index_cache, &excluded) {
-                    Err(error) => {
-                        let blame = error
-                            .downcast_ref::<Unsatisfiable>()
-                            .map(|u| u.blame.clone())
-                            .unwrap_or_default();
-                        // Of the registry versions that asked for the failing request, rule
-                        // out one that has another version to fall back to (else any).
-                        let open: Vec<&(Key, String)> =
-                            blame.iter().filter(|b| !excluded.contains(*b)).collect();
-                        let has_alternative = |(k, v): &&(Key, String)| {
-                            index_cache.get(k).is_some_and(|entries| {
-                                entries.iter().any(|e| {
-                                    !e.yanked
-                                        && e.vers != *v
-                                        && !excluded.contains(&(k.clone(), e.vers.clone()))
-                                })
-                            })
-                        };
-                        let pick = open
-                            .iter()
-                            .find(|b| has_alternative(b))
-                            .or_else(|| open.first())
-                            .map(|b| (*b).clone());
-                        match pick {
-                            Some(b) => {
-                                excluded.insert(b);
-                                // What was learnt under the abandoned version no longer holds.
-                                pins.clear();
-                                continue;
-                            }
-                            None => return Err(error),
-                        }
-                    }
-                    Ok(attempt) => attempt,
+        let mut budget = RESOLVE_ATTEMPTS;
+        let mut stack: Vec<HashSet<(Key, String)>> = vec![HashSet::new()];
+        let mut seen: HashSet<Vec<String>> = HashSet::new();
+        let mut first_error: Option<anyhow::Error> = None;
+        while let Some(excluded) = stack.pop() {
+            let mut signature: Vec<String> = excluded
+                .iter()
+                .map(|(k, v)| format!("{}\u{1f}{v}", key_string(k)))
+                .collect();
+            signature.sort();
+            if !seen.insert(signature) {
+                continue;
+            }
+            let error =
+                match self.resolve_branch(roots, offline, &mut index_cache, &excluded, &mut budget)
+                {
+                    Ok(lock) => return Ok(lock),
+                    Err(error) => error,
                 };
-            match attempt {
-                Ok(lock) => return Ok(lock),
-                Err(restart) => {
-                    let pin = pins.entry(restart.key).or_default();
-                    if !pin.reqs.contains(&restart.req) {
-                        pin.reqs.push(restart.req);
-                    }
-                    for f in restart.features {
-                        if !pin.features.contains(&f) {
-                            pin.features.push(f);
-                        }
-                    }
+            let Some(unsatisfiable) = error.downcast_ref::<Unsatisfiable>() else {
+                return Err(error);
+            };
+            let mut open: Vec<(Key, String)> = Vec::new();
+            for b in &unsatisfiable.blame {
+                if !excluded.contains(b) && !open.contains(b) {
+                    open.push(b.clone());
                 }
             }
+            let has_alternative = |(k, v): &(Key, String)| {
+                index_cache.get(k).is_some_and(|entries| {
+                    entries.iter().any(|e| {
+                        !e.yanked
+                            && e.vers != *v
+                            && !excluded.contains(&(k.clone(), e.vers.clone()))
+                    })
+                })
+            };
+            // Stable: blame order within each group; pushed in reverse so the preferred
+            // child is explored first.
+            open.sort_by_key(|b| !has_alternative(b));
+            for b in open.into_iter().rev() {
+                let mut child = excluded.clone();
+                child.insert(b);
+                stack.push(child);
+            }
+            first_error.get_or_insert(error);
+            if budget == 0 {
+                break;
+            }
         }
-        Err(anyhow::Error::new(Unsatisfiable::new(
-            "dependency resolution did not converge after 256 attempts".to_string(),
-        )))
+        Err(first_error.unwrap_or_else(|| {
+            anyhow::Error::new(Unsatisfiable::new(format!(
+                "dependency resolution did not converge after {RESOLVE_ATTEMPTS} attempts"
+            )))
+        }))
+    }
+
+    /// One branch of the search: resolution restarted with the requirements and features
+    /// learnt from conflicts (per crate and compatibility range) until it settles.
+    fn resolve_branch(
+        &self,
+        roots: &[ManifestDirectDep],
+        offline: bool,
+        index_cache: &mut HashMap<Key, Vec<SparseIndexEntry>>,
+        excluded: &HashSet<(Key, String)>,
+        budget: &mut usize,
+    ) -> Result<CargoLock> {
+        let mut pins: HashMap<PinKey, Pin> = HashMap::new();
+        loop {
+            if *budget == 0 {
+                return Err(anyhow::Error::new(Unsatisfiable::new(format!(
+                    "dependency resolution did not converge after {RESOLVE_ATTEMPTS} attempts"
+                ))));
+            }
+            *budget -= 1;
+            let restart = match self.resolve_once(roots, offline, &pins, index_cache, excluded)? {
+                Ok(lock) => return Ok(lock),
+                Err(restart) => restart,
+            };
+            let pin = pins.entry(restart.key).or_default();
+            let mut learnt = false;
+            if !pin.reqs.contains(&restart.req) {
+                pin.reqs.push(restart.req);
+                learnt = true;
+            }
+            for f in restart.features {
+                if !pin.features.contains(&f) {
+                    pin.features.push(f);
+                    learnt = true;
+                }
+            }
+            if !learnt {
+                return Err(anyhow::Error::new(Unsatisfiable::new(
+                    "dependency resolution did not converge: a conflict repeats".to_string(),
+                )));
+            }
+        }
     }
 
     /// `Err(restart)` asks for a restart with more pinned on one crate.

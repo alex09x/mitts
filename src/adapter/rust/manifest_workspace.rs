@@ -9,7 +9,6 @@
  */
 
 use anyhow::{Context, Result};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::adapter::rust::manifest::CargoToml;
@@ -70,13 +69,10 @@ impl CargoToml {
                         validate_workspace_pattern(m)
                             .with_context(|| format!("in workspace at {:?}", candidate))?;
                     }
-                    for ex in &ws.exclude {
-                        validate_workspace_pattern(ex)
-                            .with_context(|| format!("in workspace at {:?}", candidate))?;
-                    }
 
                     if let Ok(rel) = pkg_dir.strip_prefix(dir) {
-                        let is_excluded = ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
+                        let is_excluded =
+                            super::workspace_glob::excluded(&ws.exclude, &ws.members, rel);
                         if is_excluded {
                             // Excluded from this workspace: skip and continue climbing to outer workspace
                             cur = dir.parent();
@@ -86,7 +82,9 @@ impl CargoToml {
                         let is_member = if ws.members.is_empty() {
                             rel.as_os_str().is_empty()
                         } else {
-                            ws.members.iter().any(|m| matches_path_pattern(m, rel))
+                            ws.members
+                                .iter()
+                                .any(|m| super::workspace_glob::member_matches(m, rel))
                         };
 
                         if is_member {
@@ -132,97 +130,33 @@ impl CargoToml {
         let mut members = Vec::new();
 
         if let Some(ref ws) = self.workspace {
-            for ex in &ws.exclude {
-                validate_workspace_pattern(ex)?;
-            }
             for pattern in &ws.members {
                 validate_workspace_pattern(pattern)?;
                 if pattern == "." {
-                    let rel = Path::new(".");
-                    let is_excluded = ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
-                    if !is_excluded {
-                        if let Some(ref pkg) = self.package {
-                            members.push((pkg.name.clone(), root_dir.to_path_buf()));
-                        }
-                    }
-                } else if pattern.contains(['*', '?', '[']) {
-                    // Wildcards in any component (`vendor/*/fixtures`): the directories under
-                    // the pattern's literal prefix, to the pattern's depth (any depth for
-                    // `**`), matched component by component.
-                    let parts: Vec<&str> = pattern
-                        .trim_start_matches("./")
-                        .split('/')
-                        .filter(|c| !c.is_empty())
-                        .collect();
-                    let literal: PathBuf = parts
-                        .iter()
-                        .take_while(|c| !c.contains(['*', '?', '[']))
-                        .collect();
-                    let max_depth = if parts.contains(&"**") {
-                        16
-                    } else {
-                        parts.len()
-                    };
-                    let mut dirs: Vec<PathBuf> = Vec::new();
-                    collect_dirs(&root_dir.join(&literal), root_dir, max_depth, &mut dirs);
-                    {
-                        // Sorted: `read_dir` order is the filesystem's, and two matched
-                        // directories declaring one package name resolved differently.
-                        dirs.sort();
-                        for candidate_dir in dirs {
-                            if candidate_dir.is_dir() {
-                                if let Ok(rel) = candidate_dir.strip_prefix(root_dir) {
-                                    let is_excluded = ws.exclude.iter().any(|ex| {
-                                        matches_path_pattern(ex, rel)
-                                            || rel.ancestors().any(|a| {
-                                                !a.as_os_str().is_empty()
-                                                    && super::workspace_glob::path_glob(ex, a)
-                                            })
-                                    });
-                                    if !is_excluded
-                                        && super::workspace_glob::path_glob(pattern, rel)
-                                    {
-                                        let candidate_manifest = candidate_dir.join("Cargo.toml");
-                                        if candidate_manifest.is_file() {
-                                            let toml = CargoToml::from_file(&candidate_manifest)
-                                                .with_context(|| {
-                                                    format!(
-                                                        "Failed to parse workspace member manifest at {:?}",
-                                                        candidate_manifest
-                                                    )
-                                                })?;
-                                            if let Some(pkg) = toml.package {
-                                                members.push((
-                                                    pkg.name,
-                                                    super::planner_paths::normalize_lexically(
-                                                        &candidate_dir,
-                                                    ),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    if let Some(ref pkg) = self.package {
+                        members.push((pkg.name.clone(), root_dir.to_path_buf()));
                     }
                 } else {
-                    let rel = Path::new(pattern);
-                    let is_excluded = ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
-                    if !is_excluded {
-                        let member_dir =
-                            super::planner_paths::normalize_lexically(&root_dir.join(pattern));
+                    // Expanded as Cargo does (`glob`, sorted). A directory under an `exclude`
+                    // path is left out unless a literal member names it (Cargo's rule).
+                    for dir in super::workspace_glob::expand(root_dir, pattern)? {
+                        let member_dir = super::planner_paths::normalize_lexically(&dir);
+                        let excluded = member_dir.strip_prefix(root_dir).is_ok_and(|rel| {
+                            super::workspace_glob::excluded(&ws.exclude, &ws.members, rel)
+                        });
                         let candidate_manifest = member_dir.join("Cargo.toml");
-                        if candidate_manifest.is_file() {
-                            let toml =
-                                CargoToml::from_file(&candidate_manifest).with_context(|| {
-                                    format!(
-                                        "Failed to parse workspace member manifest at {:?}",
-                                        candidate_manifest
-                                    )
-                                })?;
-                            if let Some(pkg) = toml.package {
-                                members.push((pkg.name, member_dir));
-                            }
+                        if excluded || !candidate_manifest.is_file() {
+                            continue;
+                        }
+                        let toml =
+                            CargoToml::from_file(&candidate_manifest).with_context(|| {
+                                format!(
+                                    "Failed to parse workspace member manifest at {:?}",
+                                    candidate_manifest
+                                )
+                            })?;
+                        if let Some(pkg) = toml.package {
+                            members.push((pkg.name, member_dir));
                         }
                     }
                 }
@@ -237,7 +171,7 @@ impl CargoToml {
             let is_excluded = self
                 .workspace
                 .as_ref()
-                .map(|ws| ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel)))
+                .map(|ws| super::workspace_glob::excluded(&ws.exclude, &ws.members, rel))
                 .unwrap_or(false);
             if !is_excluded && !members.iter().any(|(n, _)| n == &pkg.name) {
                 members.push((pkg.name.clone(), root_dir.to_path_buf()));
@@ -262,96 +196,8 @@ impl CargoToml {
     }
 }
 
-pub fn matches_path_pattern(pattern: &str, rel: &Path) -> bool {
-    if pattern.contains(['*', '?', '['])
-        && !rel.as_os_str().is_empty()
-        && super::workspace_glob::path_glob(pattern, rel)
-    {
-        return true;
-    }
-    let pattern = pattern.trim_end_matches('/');
-    let rel_str = rel.to_string_lossy();
-    if pattern == rel_str || (pattern == "." && (rel_str.is_empty() || rel_str == ".")) {
-        return true;
-    }
-    if pattern == "**" {
-        return !rel.as_os_str().is_empty();
-    }
-    if let Some(prefix) = pattern.strip_suffix("/**") {
-        if let Ok(rest) = rel.strip_prefix(prefix) {
-            return !rest.as_os_str().is_empty();
-        }
-    }
-    if let Some(prefix) = pattern.strip_suffix("/*") {
-        if let Ok(rest) = rel.strip_prefix(prefix) {
-            return rest.components().count() == 1;
-        }
-    }
-    if pattern == "*" {
-        return rel.components().count() == 1;
-    }
-    // Prefix / suffix wildcard in leaf component (e.g. "foo-*", "crates/foo-*")
-    if let Some(_star_idx) = pattern.find('*') {
-        let pattern_path = Path::new(pattern);
-        let pattern_parent = pattern_path.parent();
-        let rel_parent = rel.parent();
-
-        let parents_match = match (pattern_parent, rel_parent) {
-            (None, None) => true,
-            (Some(p), None) => p.as_os_str().is_empty(),
-            (None, Some(r)) => r.as_os_str().is_empty(),
-            (Some(p), Some(r)) => p == r,
-        };
-
-        if parents_match {
-            if let (Some(pat_file), Some(rel_file)) = (pattern_path.file_name(), rel.file_name()) {
-                let pat_name = pat_file.to_string_lossy();
-                let rel_name = rel_file.to_string_lossy();
-                if let Some(s_idx) = pat_name.find('*') {
-                    let pre = &pat_name[..s_idx];
-                    let post = &pat_name[s_idx + 1..];
-                    if rel_name.starts_with(pre)
-                        && rel_name.ends_with(post)
-                        && rel_name.len() >= pre.len() + post.len()
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
-}
-
-/// Validates a workspace member or exclude pattern. Everything the `glob` crate Cargo uses
-/// accepts is supported (`*`, `?`, `**`, `[...]` in any component, see `workspace_glob`);
-/// only an empty pattern is refused.
+/// Refuses a `members` entry Cargo's glob parser refuses. `exclude` entries are paths and
+/// need no validation.
 pub fn validate_workspace_pattern(pattern: &str) -> Result<()> {
-    if pattern.trim().is_empty() {
-        anyhow::bail!("empty workspace member pattern");
-    }
-    Ok(())
-}
-
-/// Directories under `dir` (and `dir` itself), down to `depth` components below `root`,
-/// skipping hidden directories and `target`.
-fn collect_dirs(dir: &Path, root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
-    let level = dir
-        .strip_prefix(root)
-        .map(|r| r.components().count())
-        .unwrap_or(usize::MAX);
-    if level > depth || !dir.is_dir() {
-        return;
-    }
-    out.push(dir.to_path_buf());
-    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with('.') || name == "target" {
-            continue;
-        }
-        if entry.file_type().is_ok_and(|t| t.is_dir()) {
-            collect_dirs(&entry.path(), root, depth, out);
-        }
-    }
+    super::workspace_glob::validate(pattern)
 }

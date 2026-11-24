@@ -8,105 +8,152 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-//! Workspace path patterns (`members`, `exclude`) matched component by component.
+//! Workspace `members` and `exclude` as Cargo reads them. `members` entries are glob
+//! patterns expanded with the `glob` crate Cargo uses (`*`, `?`, `**`, `[...]` with `!`
+//! negation, invalid patterns refused). `exclude` entries are paths, not patterns: a package
+//! is excluded when its directory lies under one, unless a literal `members` entry names a
+//! directory it lies under (`WorkspaceRootConfig::is_excluded` in Cargo).
 
-use std::path::Path;
+use anyhow::{Context, Result};
+use std::path::{Component, Path, PathBuf};
 
-/// A workspace path pattern against a relative path, component by component: `*` and `?`
-/// within a component (in any component, `vendor/*/fixtures`), `**` for any number of
-/// components.
-pub fn path_glob(pattern: &str, path: &Path) -> bool {
-    let pattern: Vec<&str> = pattern
-        .trim_start_matches("./")
-        .trim_end_matches('/')
-        .split('/')
-        .filter(|c| !c.is_empty() && *c != ".")
-        .collect();
-    let path: Vec<String> = path
+fn is_pattern(entry: &str) -> bool {
+    entry.contains(['*', '?', '['])
+}
+
+/// `entry` as relative path components (`./a/b/` -> `a/b`, `.` -> ``).
+fn normalized(entry: &str) -> PathBuf {
+    Path::new(entry)
         .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .filter(|c| !matches!(c, Component::CurDir))
+        .collect()
+}
+
+/// Refuses a `members` pattern Cargo's glob parser refuses (`crates/[abc`).
+pub fn validate(entry: &str) -> Result<()> {
+    if is_pattern(entry) {
+        glob::Pattern::new(entry)
+            .map(|_| ())
+            .with_context(|| format!("invalid glob pattern for workspace member `{entry}`"))?;
+    }
+    Ok(())
+}
+
+/// The directories a `members` entry names under `root`: a literal path as given, a pattern
+/// expanded on the file system as `glob::glob` does (following symlinks, any depth for
+/// `**`), sorted.
+pub fn expand(root: &Path, entry: &str) -> Result<Vec<PathBuf>> {
+    if !is_pattern(entry) {
+        return Ok(vec![root.join(normalized(entry))]);
+    }
+    let full = root.join(entry);
+    let full = full
+        .to_str()
+        .with_context(|| format!("workspace member path is not UTF-8: {}", full.display()))?;
+    let mut dirs: Vec<PathBuf> = glob::glob(full)
+        .with_context(|| format!("invalid glob pattern for workspace member `{entry}`"))?
+        .filter_map(|p| p.ok())
+        .filter(|p| p.is_dir())
         .collect();
-    parts(&pattern, &path)
+    dirs.sort();
+    Ok(dirs)
 }
 
-fn parts(p: &[&str], s: &[String]) -> bool {
-    match (p.first(), s.first()) {
-        (None, None) => true,
-        (Some(&"**"), _) => parts(&p[1..], s) || (!s.is_empty() && parts(p, &s[1..])),
-        (Some(pc), Some(sc)) => {
-            let pc: Vec<char> = pc.chars().collect();
-            let sc: Vec<char> = sc.chars().collect();
-            component(&pc, &sc) && parts(&p[1..], &s[1..])
-        }
-        _ => false,
+/// Whether the directory `rel` (relative to the workspace root) is named by `entry`.
+pub fn member_matches(entry: &str, rel: &Path) -> bool {
+    let rel: PathBuf = normalized(&rel.to_string_lossy());
+    if is_pattern(entry) {
+        let options = glob::MatchOptions {
+            case_sensitive: true,
+            require_literal_separator: true,
+            require_literal_leading_dot: false,
+        };
+        return glob::Pattern::new(entry.trim_start_matches("./").trim_end_matches('/'))
+            .is_ok_and(|p| p.matches_path_with(&rel, options));
     }
+    normalized(entry) == rel
 }
 
-fn component(p: &[char], s: &[char]) -> bool {
-    match (p.first(), s.first()) {
-        (None, None) => true,
-        (Some('*'), _) => component(&p[1..], s) || (!s.is_empty() && component(p, &s[1..])),
-        (Some('?'), Some(_)) => component(&p[1..], &s[1..]),
-        (Some('['), Some(c)) => match class(&p[1..], *c) {
-            Some((true, rest)) => component(rest, &s[1..]),
-            Some((false, _)) => false,
-            // No closing `]`: a literal `[`.
-            None => *c == '[' && component(&p[1..], &s[1..]),
-        },
-        (Some(a), Some(b)) if a == b => component(&p[1..], &s[1..]),
-        _ => false,
-    }
-}
-
-/// A `[...]` character class (after the `[`), as the `glob` crate Cargo uses reads it:
-/// ranges `a-z`, negation `!` (or `^`), `]` first is literal. Whether `c` matches, and the
-/// pattern after the class; `None` when the class is not closed.
-fn class(p: &[char], c: char) -> Option<(bool, &[char])> {
-    let (negated, mut i) = match p.first() {
-        Some('!') | Some('^') => (true, 1),
-        _ => (false, 0),
-    };
-    let mut matched = false;
-    let mut first = true;
-    while i < p.len() {
-        if p[i] == ']' && !first {
-            return Some((matched != negated, &p[i + 1..]));
-        }
-        if i + 2 < p.len() && p[i + 1] == '-' && p[i + 2] != ']' {
-            matched |= p[i] <= c && c <= p[i + 2];
-            i += 3;
-        } else {
-            matched |= p[i] == c;
-            i += 1;
-        }
-        first = false;
-    }
-    None
+/// Cargo's `is_excluded`: under an `exclude` path and not under a literal `members` path.
+pub fn excluded(exclude: &[String], members: &[String], rel: &Path) -> bool {
+    let rel: PathBuf = normalized(&rel.to_string_lossy());
+    let under = |entry: &String| rel.starts_with(normalized(entry));
+    exclude.iter().any(under) && !members.iter().filter(|m| !is_pattern(m)).any(under)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::path_glob;
-    use std::path::Path;
+    use super::*;
+    use std::fs;
 
     #[test]
-    fn globs_match_in_any_component() {
-        assert!(path_glob(
+    fn patterns_match_like_cargos_glob() {
+        let rel = Path::new;
+        assert!(member_matches(
             "vendor/*/fixtures",
-            Path::new("vendor/a/fixtures")
+            rel("vendor/a/fixtures")
         ));
-        assert!(path_glob("crates/legacy-*", Path::new("crates/legacy-one")));
-        assert!(path_glob("crates/l?gacy", Path::new("crates/legacy")));
-        assert!(path_glob("**/fixtures", Path::new("a/b/fixtures")));
-        assert!(path_glob("./tools/", Path::new("tools")));
-        assert!(!path_glob(
+        assert!(!member_matches(
             "vendor/*/fixtures",
-            Path::new("vendor/a/b/fixtures")
+            rel("vendor/a/b/fixtures")
         ));
-        assert!(!path_glob("crates/legacy-*", Path::new("crates/modern")));
-        assert!(path_glob("crates/*foo*", Path::new("crates/afoob")));
-        assert!(path_glob("crates/[a-c]x", Path::new("crates/bx")));
-        assert!(!path_glob("crates/[a-c]x", Path::new("crates/dx")));
-        assert!(path_glob("crates/[!a-c]x", Path::new("crates/dx")));
+        assert!(member_matches("crates/l?gacy", rel("crates/legacy")));
+        assert!(member_matches("**/fixtures", rel("a/b/fixtures")));
+        assert!(member_matches("crates/[a-c]x", rel("crates/bx")));
+        assert!(member_matches("crates/[!a-c]x", rel("crates/dx")));
+        // `^` is a literal in a class, not a negation, as in the `glob` crate.
+        assert!(!member_matches("crates/[^a]", rel("crates/b")));
+        assert!(member_matches("./tools/", rel("tools")));
+        // A failed class match is a failed match: no other matcher steps in.
+        assert!(!member_matches("crates/*[ab]", rel("crates/widget[ab]")));
+        assert!(validate("crates/[abc").is_err());
+        assert!(validate("crates/*").is_ok());
+    }
+
+    #[test]
+    fn exclude_is_a_path_prefix_and_literal_members_win() {
+        let ex = vec!["vendor".to_string()];
+        assert!(excluded(&ex, &[], Path::new("vendor/a/fixtures")));
+        assert!(!excluded(&ex, &[], Path::new("vendors/a")));
+        // Not a pattern: `crates/legacy-*` names no directory.
+        assert!(!excluded(
+            &["crates/legacy-*".to_string()],
+            &[],
+            Path::new("crates/legacy-one")
+        ));
+        let members = vec!["vendor/a/fixtures".to_string()];
+        assert!(!excluded(&ex, &members, Path::new("vendor/a/fixtures")));
+        // A pattern member does not override an exclusion.
+        assert!(excluded(
+            &ex,
+            &["vendor/*".to_string()],
+            Path::new("vendor/b")
+        ));
+    }
+
+    #[test]
+    fn expansion_follows_the_file_system() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        for dir in [
+            "crates/a",
+            "crates/.hidden",
+            "deep/1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/fixtures",
+        ] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        fs::write(root.join("crates/file"), "").unwrap();
+        let names = |entry: &str| -> Vec<String> {
+            expand(root, entry)
+                .unwrap()
+                .iter()
+                .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(names("crates/*"), ["crates/.hidden", "crates/a"]);
+        assert_eq!(
+            names("**/fixtures"),
+            ["deep/1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/fixtures"]
+        );
     }
 }

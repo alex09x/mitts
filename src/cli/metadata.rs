@@ -9,6 +9,7 @@
  */
 
 use crate::adapter::rust::manifest::{CargoToml, DiscoveredTarget, TestRole, TomlDependency};
+use crate::adapter::rust::registry_config::RegistryConfig;
 use crate::adapter::rust::{RustAdapter, RustBuildOptions};
 use crate::cli::MetadataArgs;
 use anstream::{eprintln, println};
@@ -238,6 +239,14 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         .map(|entry| (entry.cargo_id.clone(), entry.source.clone()))
         .collect();
 
+    // `registry = "<name>"` declarations are matched to the index the name stands for.
+    let config_dir = opt
+        .manifest_path
+        .as_deref()
+        .and_then(Path::parent)
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let registries = RegistryConfig::load(config_dir)?;
     let mut nodes = Vec::new();
     for (internal_id, entry) in &packages {
         let mut outgoing = BTreeMap::<String, BTreeSet<String>>::new();
@@ -286,6 +295,8 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 let source = package_sources_by_id.get(&pkg).cloned().flatten();
                 declaration_edges(
                     &entry.manifest,
+                    &entry.features,
+                    &registries,
                     &package,
                     &version,
                     source.as_deref(),
@@ -498,11 +509,11 @@ fn package_dependencies(manifest: &CargoToml) -> Vec<Value> {
     dependencies
 }
 
-/// Whether a declaration can be the one a resolved package (`source`: its lock source, `None`
-/// for a path package) came from: a path declaration a path package, a git one the same
-/// repository, a named registry an alternative registry, a plain one crates.io.
-fn same_source(dep: &TomlDependency, source: Option<&str>) -> bool {
-    const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
+/// Whether a declaration is the one a resolved package (`source`: its lock source, `None` for
+/// a path package) came from: a path declaration a path package; a git one the same
+/// repository at the same reference (`?branch=`, `?tag=`, `?rev=` or none); a registry one
+/// the exact index its registry name (crates.io when unnamed) stands for in `registries`.
+fn same_source(dep: &TomlDependency, source: Option<&str>, registries: &RegistryConfig) -> bool {
     let detail = match dep {
         TomlDependency::Simple(_) => None,
         TomlDependency::Detailed(d) => Some(d),
@@ -515,22 +526,71 @@ fn same_source(dep: &TomlDependency, source: Option<&str>) -> bool {
     match (detail, source) {
         (Some(d), _) if d.path.is_some() && d.git.is_none() => source.is_none(),
         (Some(d), Some(s)) if d.git.is_some() => {
-            let base = s.strip_prefix("git+").unwrap_or(s);
-            let base = base.split(['?', '#']).next().unwrap_or(base);
-            s.starts_with("git+") && trim(base) == trim(d.git.as_deref().unwrap_or_default())
+            let Some(rest) = s.strip_prefix("git+") else {
+                return false;
+            };
+            let rest = rest.split('#').next().unwrap_or(rest);
+            let (base, query) = rest.split_once('?').unwrap_or((rest, ""));
+            let wanted = match (&d.branch, &d.tag, &d.rev) {
+                (Some(b), _, _) => format!("branch={b}"),
+                (_, Some(t), _) => format!("tag={t}"),
+                (_, _, Some(r)) => format!("rev={r}"),
+                _ => String::new(),
+            };
+            trim(base) == trim(d.git.as_deref().unwrap_or_default()) && query == wanted
         }
-        (Some(d), Some(s)) if d.registry.is_some() => s != CRATES_IO,
-        (_, Some(s)) => s.starts_with("registry+") || s.starts_with("sparse+"),
+        // Inherited from `[workspace.dependencies]`: the source is the workspace's, which
+        // this manifest does not spell out; the name and version decide.
+        (Some(d), Some(_)) if d.workspace == Some(true) => true,
+        (_, Some(s)) => {
+            let registry = detail.and_then(|d| d.registry.as_deref());
+            registries
+                .lock_source_for_registry(registry)
+                .is_ok_and(|expected| expected == s)
+        }
         (_, None) => false,
     }
 }
 
-/// The edges from `manifest`'s package to `package` (at `version`): one per extern crate name
-/// (the manifest key of a renamed declaration, else the package name, `-` as `_`), each with
-/// the kinds, among the `active` ones, of the declarations under that name whose
-/// requirement admits `version`.
+/// Whether the declaration under `key` is part of the build of a package with `features`
+/// enabled: a required one always; an optional one when a feature enables it (its implicit
+/// feature `key`, `dep:key`, or a non-weak `key/feature`), as Cargo activates it.
+fn declaration_active(
+    manifest: &CargoToml,
+    key: &str,
+    dep: &TomlDependency,
+    features: &BTreeSet<String>,
+) -> bool {
+    let optional = matches!(dep, TomlDependency::Detailed(d) if d.optional == Some(true));
+    if !optional {
+        return true;
+    }
+    let explicit = format!("dep:{key}");
+    let through = format!("{key}/");
+    let named_explicitly = manifest.features.values().flatten().any(|v| *v == explicit);
+    // Without `dep:key` anywhere the dependency has an implicit feature of its own name.
+    if !named_explicitly && features.contains(key) {
+        return true;
+    }
+    features.iter().any(|f| {
+        manifest
+            .features
+            .get(f)
+            .into_iter()
+            .flatten()
+            .any(|v| *v == explicit || v.starts_with(&through))
+    })
+}
+
+/// The edges from `manifest`'s package (built with `features`) to `package` (at `version`,
+/// from `source`): one per extern crate name (the manifest key of a renamed declaration, else
+/// the package name, `-` as `_`), each with the kinds, among the `active` ones, of the
+/// declarations under that name that are part of the build and whose requirement admits
+/// `version`.
 fn declaration_edges(
     manifest: &CargoToml,
+    features: &BTreeSet<String>,
+    registries: &RegistryConfig,
     package: &str,
     version: &str,
     source: Option<&str>,
@@ -569,7 +629,10 @@ fn declaration_edges(
                     d.version.as_deref(),
                 ),
             };
-            if real != package || !same_source(dep, source) {
+            if real != package
+                || !same_source(dep, source, registries)
+                || !declaration_active(manifest, key, dep, features)
+            {
                 continue;
             }
             let admits = match (req.map(semver::VersionReq::parse), &parsed) {
