@@ -342,6 +342,35 @@ impl RegistryConfig {
         )
     }
 
+    /// `login` (with `token`) or `logout` (without) for registry `name` (`None` = crates.io)
+    /// through its credential providers, as Cargo does: the first provider that supports
+    /// the operation takes it; `cargo:token` writes the credentials file through
+    /// `write_file`. Whether a token was stored or removed.
+    pub fn store_token(
+        &self,
+        name: Option<&str>,
+        token: Option<&str>,
+        write_file: &dyn Fn(Option<&str>) -> Result<bool>,
+    ) -> Result<bool> {
+        let lock_source = self.lock_source_for_registry(name)?;
+        let index_url = if is_crates_io(&lock_source) {
+            "https://github.com/rust-lang/crates.io-index".to_string()
+        } else {
+            lock_source.clone()
+        };
+        let reg_name = self.registry_name_for(&lock_source);
+        let providers = self.providers_for(reg_name.as_deref());
+        credential_provider::store(
+            &providers,
+            &RegistryRef {
+                name: reg_name.as_deref(),
+                index_url: &index_url,
+            },
+            token,
+            write_file,
+        )
+    }
+
     fn source_name_for(&self, lock_source: &str) -> Option<String> {
         if is_crates_io(lock_source) {
             return Some("crates-io".to_string());

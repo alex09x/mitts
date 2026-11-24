@@ -106,13 +106,17 @@ impl<'a> RustcInvocation<'a> {
             let is_check_or_clippy_ws = self.unit.is_workspace
                 && (self.mode == BuildMode::Check || self.mode == BuildMode::Clippy);
             if (is_bin || is_test) && !is_check_or_clippy_ws {
-                // rustc names the executable after the crate, with `.exe` for a Windows target.
+                // rustc names the executable after the crate, with the target's suffix
+                // (`.exe` on Windows, `.wasm` on WebAssembly, `.js` with Emscripten).
                 let plain = self.out_dir.join(&clean_crate);
-                let exe = self.out_dir.join(format!("{clean_crate}.exe"));
-                let bin_path = if !plain.is_file() && exe.is_file() {
-                    exe
-                } else {
+                let bin_path = if plain.is_file() {
                     plain
+                } else {
+                    super::artifact_kind::EXE_SUFFIXES
+                        .iter()
+                        .map(|s| self.out_dir.join(format!("{clean_crate}{s}")))
+                        .find(|p| p.is_file())
+                        .unwrap_or(plain)
                 };
                 if let Some(dest) = self.dest_binary {
                     if bin_path.is_file() {

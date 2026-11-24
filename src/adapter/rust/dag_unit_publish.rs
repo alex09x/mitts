@@ -27,16 +27,13 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The executable suffix of the platform the build targets: `.exe` for Windows (an explicit
-/// `--target`, `build.target` or the toolchain's host), as rustc names its executables.
+/// The executable suffix of the platform the build targets (an explicit `--target`,
+/// `build.target` or the toolchain's host), as rustc names its executables.
 pub(crate) fn exe_suffix(ctx: &ExecutionContext<'_>) -> &'static str {
-    if super::key_flags::resolve_effective_target_triple(ctx.opt, ctx.toolchain)
-        .contains("-windows")
-    {
-        ".exe"
-    } else {
-        ""
-    }
+    super::artifact_kind::exe_suffix_for_triple(&super::key_flags::resolve_effective_target_triple(
+        ctx.opt,
+        ctx.toolchain,
+    ))
 }
 
 /// Where an executable unit (bin, example, test) is published in the target directory,

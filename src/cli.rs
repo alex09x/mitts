@@ -617,9 +617,10 @@ pub struct FetchArgs {
     #[arg(long)]
     pub frozen: bool,
 
-    /// Fetch for the target triple (all sources in Cargo.lock are fetched either way)
-    #[arg(long)]
-    pub target: Option<String>,
+    /// Fetch only what a build for this target triple uses (repeatable); without it,
+    /// every package in Cargo.lock
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub target: Vec<String>,
 
     /// Do not print Mitts log messages
     #[arg(short, long)]

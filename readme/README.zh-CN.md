@@ -285,9 +285,7 @@ Bazel 和 Buck2 解决的是更广泛的问题——带远程执行的封闭式�
 
 Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 
-- **仅限宿主目标架构。** 暂不支持交叉编译。
 - **暂无远程缓存。** 存储为单机级别。
-- **令牌存放在 Cargo 存放的位置。** `mitts login` 和 `mitts logout` 与 Cargo 一样写入 `$CARGO_HOME/credentials.toml`；`cargo:macos-keychain`、`cargo:libsecret`、`cargo:wincred` 中的令牌只读取、不写入。
 - **部分单元永不缓存：** `cdylib`、`dylib` 或 `staticlib` 类型的 crate，以及 `env!` 读取无法追踪的 crate。它们始终重新构建；`mitts explain` 会对它们进行报告。
 - **跨检出的工作区 crate。** 您自己的 crate 仅在它们的键可以做到路径无关（无 `CARGO_MANIFEST_DIR` 读取、无 build script、无声明的非纯 proc macro）时，才能在 worktree 间复用。否则键会包含绝对路径。在 macOS 上，链接器的调试 stabs 相对于工作区写入（`-oso_prefix`），因此链接生成的二进制文件也可以共享；在工作区根目录下启动调试器以便其查找对象文件。
 - **读取文件的宏需由您自行声明。** 除非项目将其列入清单（见上文），否则 proc macro 均被视为纯宏。依赖已列出宏的 crate 会追踪其 package 内的每个文件；未列出但读取文件且未向 rustc 注册的宏可能会产生陈旧的结果，这与 Cargo 完全一致。
@@ -295,7 +293,7 @@ Mitts 处于预发布阶段。在依赖它之前请先了解以下几点：
 - **不受支持的 Cargo 特性会明确报错。** 例如 `--profile`，以及 `workspace.members` 中间目录包含通配符的 glob。Mitts 会报告它们，而不是盲目猜测。
 - **同文件系统零拷贝。** 从暂存区进行零拷贝单元提升要求 `MITTS_CACHE_DIR` 与工作区 `target/` 目录位于同一文件系统挂载点上。跨越文件系统边界时会自动安全回退到标准复制。
 
-如果您需要交叉编译、团队缓存或稳定版本，**请暂勿使用 Mitts**。在这些场景下，Cargo（可选用 sccache）是稳妥之选。
+如果您需要团队缓存或稳定版本，**请暂勿使用 Mitts**。在这些场景下，Cargo（可选用 sccache）是稳妥之选。
 
 <a id="performance"></a>
 ## 性能
@@ -355,7 +353,7 @@ macOS 上的总 CPU 时间从 **20.3 h**（`cargo`）和 **8.0 h**（`sccache`�
 | 可复现基准测试研究 | 完成 |
 | 远程 / 团队缓存 | 计划中 |
 | Windows (x86-64 MSVC) | 已完成，0.5.0 起提供二进制 |
-| 交叉编译 | 不支持 |
+| 交叉编译 (`--target`) | 已完成 |
 
 里程碑与证明：[ROADMAP.md](../ROADMAP.md)。
 

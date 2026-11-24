@@ -52,6 +52,7 @@ pub mod env_macro_cache;
 pub mod env_macro_scope;
 pub mod features;
 pub mod features_helpers;
+pub mod fetch_targets;
 pub mod fetcher;
 pub mod git_index;
 pub mod git_resolve;
@@ -296,5 +297,41 @@ impl RustAdapter {
         let config = registry_config::RegistryConfig::load(project_dir)?;
         let fetcher = fetcher::CrateFetcher::with_config(store.clone(), config);
         fetcher.fetch_all(&lock, &effective_opt)
+    }
+
+    /// `fetch --target`: only the packages a build for `targets` uses (Cargo's
+    /// `fetch --target`), walking the lockfile from the workspace `members` of
+    /// `root_manifest`.
+    pub fn fetch_for_targets(
+        manifest_path: &Path,
+        root_manifest: &Path,
+        members: &[(String, std::path::PathBuf)],
+        targets: &[String],
+        store: &crate::core::source_store::SourceStore,
+        opt: &fetcher::FetchOptions,
+        cache_dir: Option<&Path>,
+    ) -> Result<fetcher::FetchResult> {
+        let effective_opt = fetcher::FetchOptions {
+            offline: opt.offline || opt.frozen,
+            locked: opt.locked || opt.frozen,
+            frozen: opt.frozen,
+        };
+        let lock = Self::resolve_lockfile_with_mode(
+            manifest_path,
+            effective_opt.offline,
+            effective_opt.locked,
+            cache_dir,
+        )?;
+        let project_dir = manifest_path.parent().unwrap_or(Path::new("."));
+        let config = registry_config::RegistryConfig::load(project_dir)?;
+        let fetcher = fetcher::CrateFetcher::with_config(store.clone(), config);
+        fetch_targets::fetch_for_targets(
+            root_manifest,
+            members,
+            &lock,
+            targets,
+            &fetcher,
+            &effective_opt,
+        )
     }
 }

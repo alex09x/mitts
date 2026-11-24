@@ -238,8 +238,7 @@ fn exe_suffix_in(profile_dir: &Path) -> &'static str {
                     .any(|arch| name.split('-').next().is_some_and(|a| a.starts_with(arch)))
         });
     match triple {
-        Some(t) if t.contains("-windows") => ".exe",
-        Some(_) => "",
+        Some(t) => super::artifact_kind::exe_suffix_for_triple(t),
         None => std::env::consts::EXE_SUFFIX,
     }
 }

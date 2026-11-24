@@ -213,7 +213,6 @@ workspace and never shared.
 - A remote or team cache. The planned design is a second store tier over
   S3/HTTP, written only by trusted CI, with the action cache kept separate from
   any CDN.
-- Cross-compilation beyond the host target.
 - Empty or omitted `workspace.members` defaults strictly to the root package (`.`); implicit path-dependencies outside the root package are not auto-promoted to members and must be listed in `workspace.members`.
 
 ## 11. Diagnostic Environment Variables

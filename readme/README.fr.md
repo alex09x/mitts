@@ -375,10 +375,7 @@ exécution distante — mais nécessitent leurs propres fichiers de build au lie
 
 Mitts est en version préliminaire. Sachez ceci avant de vous appuyer dessus :
 
-- **Cible hôte uniquement.** La compilation croisée n'est pas encore prise en charge.
 - **Pas encore de cache distant.** Le magasin est propre à chaque machine.
-- **Les jetons sont rangés là où Cargo les range.** `mitts login` et `mitts logout` écrivent
-  `$CARGO_HOME/credentials.toml`, comme Cargo ; les jetons stockés par `cargo:macos-keychain`, `cargo:libsecret` ou `cargo:wincred` sont lus, pas écrits.
 - **Certaines unités ne sont jamais mises en cache :** les crates de type `cdylib`, `dylib` ou
   `staticlib`, et les crates dont les lectures de `env!` ne peuvent pas être suivies. Elles sont toujours
   compilées ; elles sont signalées par `mitts explain`.
@@ -404,7 +401,7 @@ Mitts est en version préliminaire. Sachez ceci avant de vous appuyer dessus :
   `MITTS_CACHE_DIR` et le répertoire `target/` de l'espace de travail résident sur le même
   point de montage de système de fichiers. Le franchissement des limites de systèmes de fichiers bascule de façon sécurisée vers une copie standard.
 
-**N'utilisez pas encore Mitts** si vous avez besoin de compilation croisée, d'un cache d'équipe ou
+**N'utilisez pas encore Mitts** si vous avez besoin d'un cache d'équipe ou
 d'une version stable. Cargo, éventuellement avec sccache, est le choix sûr dans ces cas.
 
 <a id="performance"></a>
@@ -465,7 +462,7 @@ Le temps CPU sous macOS passe de **20.3 h** (`cargo`) et **8.0 h** (`sccache`) �
 | Étude de bancs d'essai reproductible | terminé |
 | Cache distant / d'équipe | prévu |
 | Windows (x86-64 MSVC) | fait, binaires avec 0.5.0 |
-| Compilation croisée | non pris en charge |
+| Compilation croisée (`--target`) | fait |
 
 Jalons et éléments de preuve : [ROADMAP.md](../ROADMAP.md).
 

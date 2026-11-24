@@ -371,11 +371,7 @@ remote execution — but require their own build files instead of `Cargo.toml`.
 
 Mitts is pre-release. Know these before you rely on it:
 
-- **Host target only.** Cross-compilation is not supported yet.
 - **No remote cache yet.** The store is per machine.
-- **Tokens live where Cargo keeps them.** `mitts login` and `mitts logout` write
-  `$CARGO_HOME/credentials.toml`, as Cargo does; tokens stored by `cargo:macos-keychain`,
-  `cargo:libsecret` or `cargo:wincred` are read, not written.
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.
@@ -400,8 +396,7 @@ Mitts is pre-release. Know these before you rely on it:
   `MITTS_CACHE_DIR` and the workspace `target/` directory to reside on the same
   filesystem mount. Crossing filesystem boundaries safely falls back to standard copy.
 
-**Don't use Mitts yet** if you need cross-compilation, a team cache, or a stable
-release. Cargo, optionally with sccache, is the safe choice there.
+**Don't use Mitts yet** if you need a team cache or a stable release. Cargo, optionally with sccache, is the safe choice there.
 
 ## Performance
 
@@ -459,7 +454,7 @@ CPU time on macOS drops from **20.3 h** (`cargo`) and **8.0 h** (`sccache`) to *
 | Reproducible benchmark study | done |
 | Remote / team cache | planned |
 | Windows (x86-64 MSVC) | done, binaries with 0.5.0 |
-| Cross-compilation | not supported |
+| Cross-compilation (`--target`) | done |
 
 Milestones and evidence: [ROADMAP.md](ROADMAP.md).
 
