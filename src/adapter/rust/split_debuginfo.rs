@@ -195,9 +195,19 @@ fn files_under(dir: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 /// The staging paths of the unit's split debug-info files (for the checkout-path scan).
+/// An MSVC `.pdb` is left out: the linker records the absolute paths of its objects and
+/// its working directory there, which `--remap-path-prefix` does not reach, so every unit
+/// would count as checkout-specific; a `.pdb` restored into another checkout only shows a
+/// debugger that checkout's object paths, it changes nothing the program does.
 pub(crate) fn staged_paths(staging: &Path) -> Vec<PathBuf> {
     staged_files(staging)
-        .map(|files| files.into_iter().map(|rel| staging.join(rel)).collect())
+        .map(|files| {
+            files
+                .into_iter()
+                .filter(|rel| rel.extension().is_none_or(|e| e != "pdb"))
+                .map(|rel| staging.join(rel))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
