@@ -82,7 +82,10 @@ fn test_m8_pkg_version_env_dep_same_clone_and_cross_clone_hit() {
         "First build must compile the crate"
     );
 
-    let bin_a = clone_a.path().join("target/debug/ver_app");
+    let bin_a = clone_a.path().join(format!(
+        "target/debug/ver_app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(bin_a.is_file());
     let out_a1 = Command::new(&bin_a).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_a1.stdout), "VER:0.1.0");

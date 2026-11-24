@@ -344,7 +344,12 @@ fn rustc_native_static_libs_output_links_a_c_consumer() {
                 .map(|(_, flags)| flags.trim())
         })
         .expect("rustc reports native-static-libs");
-    let archive = temp.path().join("target/release/libstaticlib_fixture.a");
+    // rustc's static library name: `NAME.lib` for MSVC, `libNAME.a` elsewhere.
+    let archive = temp.path().join(if cfg!(target_env = "msvc") {
+        "target/release/staticlib_fixture.lib"
+    } else {
+        "target/release/libstaticlib_fixture.a"
+    });
     assert!(archive.is_file(), "missing {}", archive.display());
     let c_source = temp.path().join("consumer.c");
     write_file(

@@ -250,7 +250,9 @@ edition = "2021"
     opt_a.bin_targets = vec!["a".to_string()];
     RustAdapter::build(&opt_a).unwrap();
 
-    assert!(custom_target.join("debug/a").is_file());
+    assert!(custom_target
+        .join(format!("debug/a{}", std::env::consts::EXE_SUFFIX))
+        .is_file());
     assert!(!custom_target.join("debug/b").is_file());
     assert!(
         FastBuildLock::lock_path_in_target(&custom_target, "dev").is_file(),

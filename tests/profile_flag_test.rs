@@ -114,7 +114,7 @@ fn library_callers_get_the_profile_normalized() {
     let (_, result) = mitts::adapter::rust::RustAdapter::build(&opt).unwrap();
     assert!(result.success, "{}", result.stderr);
     assert_eq!(
-        run_binary(&root.join("target/ci/p")),
+        run_binary(&root.join(format!("target/ci/p{}", std::env::consts::EXE_SUFFIX))),
         "assertions=true opt=3 profile=release\n"
     );
     mitts::adapter::rust::profile::set_custom_profile(None);
@@ -126,9 +126,13 @@ fn clean_removes_custom_profile_outputs() {
     let temp = project();
     let root = temp.path();
     assert_ok(&mitts(root, &["build", "-q", "--profile", "ci"]));
-    assert!(root.join("target/ci/p").is_file());
+    assert!(root
+        .join(format!("target/ci/p{}", std::env::consts::EXE_SUFFIX))
+        .is_file());
     assert_ok(&mitts(root, &["clean"]));
-    assert!(!root.join("target/ci/p").exists());
+    assert!(!root
+        .join(format!("target/ci/p{}", std::env::consts::EXE_SUFFIX))
+        .exists());
 }
 
 #[test]
@@ -175,7 +179,7 @@ fn a_custom_profile_builds_into_its_own_directory_with_its_settings() {
     assert_ok(&mitts(root, &["build", "-q", "--profile", "ci"]));
     // inherits release (PROFILE=release, opt 3), overrides debug-assertions.
     assert_eq!(
-        run_binary(&root.join("target/ci/p")),
+        run_binary(&root.join(format!("target/ci/p{}", std::env::consts::EXE_SUFFIX))),
         "assertions=true opt=3 profile=release\n"
     );
 
@@ -189,7 +193,7 @@ fn a_custom_profile_builds_into_its_own_directory_with_its_settings() {
     // The release build next to them is unaffected.
     assert_ok(&mitts(root, &["build", "-q", "--release"]));
     assert_eq!(
-        run_binary(&root.join("target/release/p")),
+        run_binary(&root.join(format!("target/release/p{}", std::env::consts::EXE_SUFFIX))),
         "assertions=false opt=3 profile=release\n"
     );
 }
@@ -202,7 +206,7 @@ fn build_scripts_see_the_profile_opt_level_and_rerun_when_it_changes() {
     let root = temp.path();
     assert_ok(&mitts(root, &["build", "-q", "--release"]));
     assert_eq!(
-        run_binary(&root.join("target/release/p")),
+        run_binary(&root.join(format!("target/release/p{}", std::env::consts::EXE_SUFFIX))),
         "assertions=false opt=3 profile=release\n"
     );
     let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
@@ -213,7 +217,7 @@ fn build_scripts_see_the_profile_opt_level_and_rerun_when_it_changes() {
     .unwrap();
     assert_ok(&mitts(root, &["build", "-q", "--release"]));
     assert_eq!(
-        run_binary(&root.join("target/release/p")),
+        run_binary(&root.join(format!("target/release/p{}", std::env::consts::EXE_SUFFIX))),
         "assertions=false opt=2 profile=release\n"
     );
 }
@@ -223,7 +227,9 @@ fn built_in_profile_names_map_to_the_usual_builds() {
     let temp = project();
     let root = temp.path();
     assert_ok(&mitts(root, &["build", "-q", "--profile", "release"]));
-    assert!(root.join("target/release/p").is_file());
+    assert!(root
+        .join(format!("target/release/p{}", std::env::consts::EXE_SUFFIX))
+        .is_file());
     assert_ok(&mitts(root, &["build", "-q", "--profile", "dev"]));
     assert_eq!(
         run_binary(&root.join("target/debug/p")),

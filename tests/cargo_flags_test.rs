@@ -146,8 +146,11 @@ fn all_targets_builds_bins_tests_examples_and_benches() {
         &["build", "-q", "-p", "a", "--all-targets"],
         &[],
     ));
-    assert!(root.join("target/debug/tool").is_file());
-    assert!(root.join("target/debug/examples/ex").is_file());
+    let exe = std::env::consts::EXE_SUFFIX;
+    assert!(root.join(format!("target/debug/tool{exe}")).is_file());
+    assert!(root
+        .join(format!("target/debug/examples/ex{exe}"))
+        .is_file());
     let built = deps(root);
     assert!(built.iter().any(|n| n == "a-it"), "{built:?}");
     assert!(built.iter().any(|n| n == "a-bn"), "{built:?}");

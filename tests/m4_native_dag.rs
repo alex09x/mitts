@@ -122,7 +122,9 @@ fn test_m4_native_dag_build_end_to_end_and_zero_target_pollution() {
     );
 
     // 2. Output binary verification
-    let bin_path = target_dir.join("debug").join("hello-rust");
+    let bin_path = target_dir
+        .join("debug")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(bin_path.is_file(), "Executable must exist: {:?}", bin_path);
 
     let run_output = Command::new(&bin_path)
@@ -341,7 +343,10 @@ fn main() {
     );
     assert_eq!(result.exit_code, 0);
 
-    let bin_path = temp_target.path().join("debug").join("app");
+    let bin_path = temp_target
+        .path()
+        .join("debug")
+        .join(format!("app{}", std::env::consts::EXE_SUFFIX));
     assert!(
         bin_path.is_file(),
         "Executable app must exist: {:?}",
@@ -455,7 +460,10 @@ fn main() {
     let (_plan, result) = RustAdapter::build_native(&opt).expect("Native build must succeed");
     assert!(result.success, "Build failed: {}", result.stderr);
 
-    let bin_path = temp_target.path().join("debug").join("app");
+    let bin_path = temp_target
+        .path()
+        .join("debug")
+        .join(format!("app{}", std::env::consts::EXE_SUFFIX));
     let run_output = Command::new(&bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())
         .output()

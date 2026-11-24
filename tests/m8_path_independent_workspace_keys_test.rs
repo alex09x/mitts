@@ -142,7 +142,10 @@ fn test_m8_workspace_path_independent_keys_and_cas_reuse() {
     );
 
     // 4. Binary in clone 2 must run successfully and print expected output
-    let bin2_path = clone2.path().join("target/debug/my_bin");
+    let bin2_path = clone2.path().join(format!(
+        "target/debug/my_bin{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(bin2_path.is_file(), "Binary must be restored in clone 2");
 
     let output = Command::new(&bin2_path).output().expect("run bin2");
@@ -481,7 +484,9 @@ fn main() {
         "Clone 2 build must hit cache for path-independent workspace crate using pure macro"
     );
 
-    let bin2 = clone2.path().join("target/debug/app");
+    let bin2 = clone2
+        .path()
+        .join(format!("target/debug/app{}", std::env::consts::EXE_SUFFIX));
     assert!(bin2.is_file(), "Binary must be restored in clone 2");
     let out = Command::new(&bin2).output().expect("run bin2");
     assert!(out.status.success());

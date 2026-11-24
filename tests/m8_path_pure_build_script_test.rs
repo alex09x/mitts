@@ -309,7 +309,10 @@ pure_lib = { path = "../pure_lib" }
     );
 
     // 3. Executable runs successfully and output matches
-    let app2 = clone2.path().join("target/debug/pure_app");
+    let app2 = clone2.path().join(format!(
+        "target/debug/pure_app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(app2.is_file(), "pure_app binary must exist in clone 2");
     let output = Command::new(&app2).output().expect("run app2");
     assert!(output.status.success());

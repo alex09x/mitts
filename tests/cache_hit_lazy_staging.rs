@@ -99,7 +99,10 @@ fn main() {
     assert!(res1.success, "cold build failed: {}", res1.stderr);
     assert!(!res1.cached, "cold build must miss cache");
 
-    let bin_path = ws.path().join("target/debug/codegen_bin");
+    let bin_path = ws.path().join(format!(
+        "target/debug/codegen_bin{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(bin_path.is_file(), "binary must exist after cold build");
     let out1 = Command::new(&bin_path).output().expect("run codegen_bin 1");
     assert!(out1.status.success());
