@@ -1796,8 +1796,14 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
     let first = make("first");
     let (out, _) = env.ok(&first, &["run", "-q"]);
     let scratch_dir = std::path::PathBuf::from(out.trim());
+    // Compared canonically: on macOS the temp dir is /var/..., which is /private/var/....
+    let under = |path: &std::path::Path, dir: &std::path::Path| {
+        path.canonicalize()
+            .unwrap()
+            .starts_with(dir.join("target").canonicalize().unwrap())
+    };
     assert!(
-        scratch_dir.starts_with(first.join("target")),
+        under(&scratch_dir, &first),
         "scratch's OUT_DIR is in the project's target directory: {}",
         scratch_dir.display()
     );
@@ -1821,7 +1827,7 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
     let second = make("second");
     let (other, _) = env.ok(&second, &["run", "-q"]);
     assert!(
-        std::path::Path::new(other.trim()).starts_with(second.join("target")),
+        under(std::path::Path::new(other.trim()), &second),
         "{other}"
     );
     assert!(std::path::Path::new(other.trim())
