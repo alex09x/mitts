@@ -576,7 +576,10 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
         } else if kind.is_file() {
             std::fs::copy(entry.path(), &target)?;
         } else {
-            bail!("unsupported file in the cached source: {}", entry.path().display());
+            bail!(
+                "unsupported file in the cached source: {}",
+                entry.path().display()
+            );
         }
     }
     Ok(())

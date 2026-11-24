@@ -246,13 +246,12 @@ fn selected_manifests(args: &PackageArgs) -> Result<Vec<PathBuf>> {
     // `-p name@version`: the version must be the member's.
     for spec in &args.packages {
         let (name, version) = super::project_info::parse_spec(spec);
-        if let (Some(wanted), Some((_, dir))) =
-            (version, members.iter().find(|(n, _)| n == name))
-        {
-            let have = crate::adapter::rust::manifest::CargoToml::from_file(&dir.join("Cargo.toml"))?
-                .package
-                .and_then(|p| p.version)
-                .unwrap_or_default();
+        if let (Some(wanted), Some((_, dir))) = (version, members.iter().find(|(n, _)| n == name)) {
+            let have =
+                crate::adapter::rust::manifest::CargoToml::from_file(&dir.join("Cargo.toml"))?
+                    .package
+                    .and_then(|p| p.version)
+                    .unwrap_or_default();
             let matches = have == wanted || have.starts_with(&format!("{wanted}."));
             if !matches {
                 anyhow::bail!("package ID specification `{spec}` did not match any packages");
@@ -396,7 +395,15 @@ fn prepare(args: &PackageArgs, manifest: &Path) -> Result<(serde_json::Value, Ve
         // The working tree as it is, but never what Git ignores (secrets, build output).
         let out = std::process::Command::new("git")
             .current_dir(root)
-            .args(["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", "."])
+            .args([
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "-z",
+                "--",
+                ".",
+            ])
             .output()?;
         if !out.status.success() {
             anyhow::bail!("git ls-files failed in {}", root.display());

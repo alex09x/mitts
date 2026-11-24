@@ -89,9 +89,7 @@ pub fn belongs_to(relative: &Path, crates: &[String]) -> bool {
                 let lib = format!("lib{n}");
                 [n.to_string(), lib].iter().any(|stem| {
                     w == stem
-                        || w
-                            .strip_prefix(&format!("{stem}-"))
-                            .is_some_and(hashed)
+                        || w.strip_prefix(&format!("{stem}-")).is_some_and(hashed)
                         || w.starts_with(&format!("{stem}."))
                 })
             })

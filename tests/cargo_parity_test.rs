@@ -1105,7 +1105,8 @@ fn fix_leaves_broken_code_and_untracked_files_alone() {
     let registry = serve(Vec::new());
     let app = env.app(&registry, "");
     // A fixable warning next to an error: nothing is applied without --broken-code.
-    let broken = "fn main() {\n    let mut x = 1;\n    println!(\"{x}\");\n    let y: u32 = \"no\";\n}\n";
+    let broken =
+        "fn main() {\n    let mut x = 1;\n    println!(\"{x}\");\n    let y: u32 = \"no\";\n}\n";
     fs::write(app.join("src/main.rs"), broken).unwrap();
     env.fails(&app, &["fix", "--allow-no-vcs"]);
     assert_eq!(read(app.join("src/main.rs")), broken);
@@ -1116,7 +1117,11 @@ fn fix_leaves_broken_code_and_untracked_files_alone() {
         git_in(&app, &["add", "."]);
         git_in(&app, &["commit", "-q", "-m", "init"]);
         // An untracked source file is uncommitted work too.
-        fs::write(app.join("src/extra.rs"), "pub fn f() { let mut z = 1; let _ = z; }\n").unwrap();
+        fs::write(
+            app.join("src/extra.rs"),
+            "pub fn f() { let mut z = 1; let _ = z; }\n",
+        )
+        .unwrap();
         let err = env.fails(&app, &["fix"]);
         assert!(err.contains("src/extra.rs (dirty)"), "{err}");
     }
@@ -1139,11 +1144,24 @@ fn graph_commands_skip_the_rust_version_check_and_no_deps_needs_no_index() {
     // --no-deps: no lock, no network, only the manifests.
     fs::remove_file(app.join("Cargo.lock")).unwrap();
     let before = registry.requests().len();
-    let (out, _) = env.ok(&app, &["metadata", "--no-deps", "--offline", "--format-version", "1"]);
+    let (out, _) = env.ok(
+        &app,
+        &[
+            "metadata",
+            "--no-deps",
+            "--offline",
+            "--format-version",
+            "1",
+        ],
+    );
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(doc["packages"][0]["name"], "app");
     assert!(doc["resolve"].is_null());
-    assert_eq!(registry.requests().len(), before, "no request for --no-deps");
+    assert_eq!(
+        registry.requests().len(),
+        before,
+        "no request for --no-deps"
+    );
 }
 
 #[test]
@@ -1169,11 +1187,16 @@ fn an_ignored_rust_version_build_does_not_answer_for_a_checked_one() {
         cmd.output().unwrap()
     };
     for _ in 0..3 {
-        assert!(run(&["build", "-q", "--ignore-rust-version"]).status.success());
+        assert!(run(&["build", "-q", "--ignore-rust-version"])
+            .status
+            .success());
     }
     let out = run(&["build", "-q"]);
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success(), "the fast lock of an ignored build answered: {err}");
+    assert!(
+        !out.status.success(),
+        "the fast lock of an ignored build answered: {err}"
+    );
     assert!(err.contains("requires rustc 1.999"), "{err}");
 }
 
@@ -1199,7 +1222,10 @@ fn tree_plans_the_selected_member_of_a_virtual_workspace() {
         fs::write(ws.join(name).join("src/lib.rs"), "").unwrap();
     }
     let (out, _) = env.ok(&ws, &["tree", "-p", "two", "-e", "normal"]);
-    assert!(out.starts_with("two v0.1.0") && out.contains("└── bb v1.0.0"), "{out}");
+    assert!(
+        out.starts_with("two v0.1.0") && out.contains("└── bb v1.0.0"),
+        "{out}"
+    );
     assert!(!out.contains("one v0.1.0"), "{out}");
 }
 
@@ -1216,15 +1242,25 @@ fn add_keeps_expanded_tables_and_switches_sources_cleanly() {
     env.ok(&app, &["add", "aa", "-F", "x"]);
     let text = read(app.join("Cargo.toml"));
     assert!(text.contains("[dependencies.aa]"), "{text}");
-    assert!(text.contains("default-features = false") && text.contains("features = [\"x\"]"), "{text}");
+    assert!(
+        text.contains("default-features = false") && text.contains("features = [\"x\"]"),
+        "{text}"
+    );
 
     let local = env.path("aa-local");
     fs::create_dir_all(local.join("src")).unwrap();
-    fs::write(local.join("Cargo.toml"), "[package]\nname = \"aa\"\nversion = \"1.0.0\"\nedition = \"2021\"\n").unwrap();
+    fs::write(
+        local.join("Cargo.toml"),
+        "[package]\nname = \"aa\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
     fs::write(local.join("src/lib.rs"), "").unwrap();
     env.ok(&app, &["add", "aa", "--path", "../aa-local"]);
     let text = read(app.join("Cargo.toml"));
-    assert!(text.contains("path = \"../aa-local\"") && !text.contains("version = \"1.0\""), "{text}");
+    assert!(
+        text.contains("path = \"../aa-local\"") && !text.contains("version = \"1.0\""),
+        "{text}"
+    );
 
     // An explicit feature named like the dependency is not the dependency's.
     env.ok(&app, &["remove", "aa"]);
@@ -1252,7 +1288,10 @@ fn packaging_and_publishing_guard_ignored_files_versions_and_destinations() {
         fs::write(app.join("src/new.rs"), "").unwrap();
         let (out, _) = env.ok(&app, &["package", "--list", "--allow-dirty"]);
         assert!(out.lines().any(|l| l == "src/new.rs"), "{out}");
-        assert!(!out.contains("credentials.json"), "an ignored file is never packaged: {out}");
+        assert!(
+            !out.contains("credentials.json"),
+            "an ignored file is never packaged: {out}"
+        );
     }
     let err = env.fails(&app, &["package", "-p", "app@9.9.9", "--list"]);
     assert!(err.contains("did not match any packages"), "{err}");
@@ -1260,8 +1299,20 @@ fn packaging_and_publishing_guard_ignored_files_versions_and_destinations() {
     assert!(err.contains("--list"), "{err}");
     // An index with no registry name may not take a package restricted to `mock`, and a
     // stored token never goes to it.
-    let err = env.fails(&app, &["publish", "--no-verify", "--allow-dirty", "--index", "sparse+http://127.0.0.1:9/index/"]);
-    assert!(err.contains("does not allow publication to an unnamed index"), "{err}");
+    let err = env.fails(
+        &app,
+        &[
+            "publish",
+            "--no-verify",
+            "--allow-dirty",
+            "--index",
+            "sparse+http://127.0.0.1:9/index/",
+        ],
+    );
+    assert!(
+        err.contains("does not allow publication to an unnamed index"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -1272,13 +1323,20 @@ fn a_new_login_replaces_a_legacy_credentials_file() {
     with_named_registry(&app, &registry);
     let home = env.path("cargo-home");
     fs::create_dir_all(&home).unwrap();
-    fs::write(home.join("credentials"), "[registries.mock]\ntoken = \"old\"\n").unwrap();
+    fs::write(
+        home.join("credentials"),
+        "[registries.mock]\ntoken = \"old\"\n",
+    )
+    .unwrap();
     env.ok(&app, &["login", "--registry", "mock", "new-token"]);
     assert!(!read(home.join("credentials")).contains("old"));
     env.ok(&app, &["owner", "--add", "bob", "aa", "--registry", "mock"]);
     let sent = registry.requests();
     let put = sent.iter().find(|r| r.method == "PUT").unwrap();
-    assert_eq!(put.headers.get("authorization").map(String::as_str), Some("new-token"));
+    assert_eq!(
+        put.headers.get("authorization").map(String::as_str),
+        Some("new-token")
+    );
     env.ok(&app, &["logout", "--registry", "mock"]);
     let err = env.fails(&app, &["yank", "aa@1.0.0", "--registry", "mock"]);
     assert!(err.contains("no token found"), "{err}");
@@ -1299,18 +1357,50 @@ fn install_refuses_foreign_files_and_offline_downloads() {
     let root = env.path("root");
     fs::create_dir_all(root.join("bin")).unwrap();
     fs::write(root.join("bin/tool"), "someone else's").unwrap();
-    let err = env.fails(&app, &["install", "tool", "--registry", "mock", "--root", root.to_str().unwrap()]);
+    let err = env.fails(
+        &app,
+        &[
+            "install",
+            "tool",
+            "--registry",
+            "mock",
+            "--root",
+            root.to_str().unwrap(),
+        ],
+    );
     assert!(err.contains("already exists in destination"), "{err}");
     assert_eq!(read(root.join("bin/tool")), "someone else's");
 
-    let before = registry.requests().iter().filter(|r| r.path.contains("/dl/")).count();
-    let err = env.fails(&app, &["install", "tool", "--registry", "mock", "--offline", "--root", env.path("r2").to_str().unwrap()]);
+    let before = registry
+        .requests()
+        .iter()
+        .filter(|r| r.path.contains("/dl/"))
+        .count();
+    let err = env.fails(
+        &app,
+        &[
+            "install",
+            "tool",
+            "--registry",
+            "mock",
+            "--offline",
+            "--root",
+            env.path("r2").to_str().unwrap(),
+        ],
+    );
     assert!(err.contains("offline") || err.contains("cached"), "{err}");
-    let after = registry.requests().iter().filter(|r| r.path.contains("/dl/")).count();
+    let after = registry
+        .requests()
+        .iter()
+        .filter(|r| r.path.contains("/dl/"))
+        .count();
     assert_eq!(before, after, "--offline downloads nothing");
 
     fs::write(root.join(".crates.toml"), "[v1\n").unwrap();
-    let err = env.fails(&app, &["install", "--list", "--root", root.to_str().unwrap()]);
+    let err = env.fails(
+        &app,
+        &["install", "--list", "--root", root.to_str().unwrap()],
+    );
     assert!(err.contains("failed to parse"), "{err}");
 }
 
@@ -1318,11 +1408,18 @@ fn install_refuses_foreign_files_and_offline_downloads() {
 fn vendor_replaces_alternative_registries_and_clean_stays_in_its_directory() {
     let env = Env::new();
     let registry = serve(vec![version("aa", "1.0.0")]);
-    let app = env.app(&registry, "[dependencies]\naa = { version = \"1\", registry = \"mock\" }\n");
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = { version = \"1\", registry = \"mock\" }\n",
+    );
     with_named_registry(&app, &registry);
     let (out, _) = env.ok(&app, &["vendor"]);
     assert!(
-        out.contains(&format!("[source.\"{}\"]\nregistry = \"{}\"\nreplace-with = \"vendored-sources\"", registry.index_url(), registry.index_url())),
+        out.contains(&format!(
+            "[source.\"{}\"]\nregistry = \"{}\"\nreplace-with = \"vendored-sources\"",
+            registry.index_url(),
+            registry.index_url()
+        )),
         "{out}"
     );
 
@@ -1344,18 +1441,45 @@ fn update_locked_passes_when_nothing_changes_and_test_selectors_union() {
     assert_eq!(read(app.join("Cargo.lock")), lock);
 
     fs::create_dir_all(app.join("examples")).unwrap();
-    fs::write(app.join("examples/plain.rs"), "fn main() {}\n#[test]\nfn plain_example_test() {}\n").unwrap();
+    fs::write(
+        app.join("examples/plain.rs"),
+        "fn main() {}\n#[test]\nfn plain_example_test() {}\n",
+    )
+    .unwrap();
     let (out, err) = env.ok(&app, &["test", "--tests", "--examples"]);
-    assert!(format!("{out}{err}").contains("plain_example_test"), "{out}{err}");
+    assert!(
+        format!("{out}{err}").contains("plain_example_test"),
+        "{out}{err}"
+    );
 
     fs::create_dir_all(app.join("benches")).unwrap();
     fs::write(app.join("benches/b.rs"), "fn main() {}\n").unwrap();
-    fs::write(app.join("Cargo.toml"), read(app.join("Cargo.toml")) + "\n[[bench]]\nname = \"b\"\nharness = false\n").unwrap();
+    fs::write(
+        app.join("Cargo.toml"),
+        read(app.join("Cargo.toml")) + "\n[[bench]]\nname = \"b\"\nharness = false\n",
+    )
+    .unwrap();
     env.ok(&app, &["bench", "--profile", "bench", "--no-run"]);
 
     let out_dir = env.path("artifacts");
-    env.ok(&app, &["build", "--message-format", "json", "--example", "plain", "-Z", "unstable-options", "--artifact-dir", out_dir.to_str().unwrap()]);
-    assert!(out_dir.join("plain").is_file(), "example copied in JSON mode");
+    env.ok(
+        &app,
+        &[
+            "build",
+            "--message-format",
+            "json",
+            "--example",
+            "plain",
+            "-Z",
+            "unstable-options",
+            "--artifact-dir",
+            out_dir.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        out_dir.join("plain").is_file(),
+        "example copied in JSON mode"
+    );
 }
 
 #[test]
@@ -1372,5 +1496,8 @@ fn doc_redocuments_when_the_features_change_back() {
     env.ok(&app, &["doc", "--no-deps", "-q", "--features", "extra"]);
     assert!(app.join("target/doc/app/fn.only_with_extra.html").is_file());
     let (_, err) = env.ok(&app, &["doc", "--no-deps"]);
-    assert!(err.contains("Documenting app"), "docs of the other features are not current: {err}");
+    assert!(
+        err.contains("Documenting app"),
+        "docs of the other features are not current: {err}"
+    );
 }

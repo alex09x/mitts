@@ -328,13 +328,29 @@ fn run_add(args: &AddArgs) -> Result<()> {
         } else if let Some(path) = &args.path {
             clear(
                 &mut entry,
-                &["version", "git", "branch", "tag", "rev", "registry", "workspace"],
+                &[
+                    "version",
+                    "git",
+                    "branch",
+                    "tag",
+                    "rev",
+                    "registry",
+                    "workspace",
+                ],
             );
             entry.insert("path", path.to_string_lossy().replace('\\', "/").into());
         } else if let Some(git) = &args.git {
             clear(
                 &mut entry,
-                &["version", "path", "branch", "tag", "rev", "registry", "workspace"],
+                &[
+                    "version",
+                    "path",
+                    "branch",
+                    "tag",
+                    "rev",
+                    "registry",
+                    "workspace",
+                ],
             );
             entry.insert("git", git.as_str().into());
             for (k, v) in [
@@ -391,7 +407,10 @@ fn run_add(args: &AddArgs) -> Result<()> {
                     unknown.join(", ")
                 );
             }
-            clear(&mut entry, &["path", "git", "branch", "tag", "rev", "workspace"]);
+            clear(
+                &mut entry,
+                &["path", "git", "branch", "tag", "rev", "workspace"],
+            );
             let keep_existing = requested.is_none() && entry.contains_key("version");
             if !keep_existing {
                 let req = requested.clone().unwrap_or_else(|| picked.vers.clone());

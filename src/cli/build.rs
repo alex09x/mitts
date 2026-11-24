@@ -322,9 +322,12 @@ fn copy_final_artifacts(
     explain_opt.inspect_only = true;
     let explanation = RustAdapter::explain_plan(&explain_opt)?;
     // The plan's target directory already names an explicit `--target`.
-    let out_dir = explanation
-        .target_directory
-        .join(crate::adapter::rust::profile::custom::profile_dir(opt.release));
+    let out_dir =
+        explanation
+            .target_directory
+            .join(crate::adapter::rust::profile::custom::profile_dir(
+                opt.release,
+            ));
     let windows = opt
         .target_triple
         .as_deref()

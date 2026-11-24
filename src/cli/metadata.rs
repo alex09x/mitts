@@ -85,12 +85,18 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
     for (_, dir) in super::project_info::local_package_dirs(&root)? {
         let manifest_path = dir.join("Cargo.toml");
         let manifest = CargoToml::from_file(&manifest_path).with_context(|| {
-            format!("failed to parse package manifest {}", manifest_path.display())
+            format!(
+                "failed to parse package manifest {}",
+                manifest_path.display()
+            )
         })?;
         let Some(package) = manifest.package.clone() else {
             continue;
         };
-        let version = package.version.clone().unwrap_or_else(|| "0.0.0".to_string());
+        let version = package
+            .version
+            .clone()
+            .unwrap_or_else(|| "0.0.0".to_string());
         let canonical = dir.canonicalize().unwrap_or(dir.clone());
         let entry = PackageEntry {
             cargo_id: format!(

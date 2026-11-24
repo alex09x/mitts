@@ -512,9 +512,9 @@ pub fn apply(groups: &[Vec<Replacement>]) -> Result<BTreeMap<PathBuf, usize>> {
     let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
     for group in groups {
         let clashes_taken = group.iter().any(|r| {
-            taken.get(&r.file).is_some_and(|ranges| {
-                ranges.iter().any(|&range| clash((r.start, r.end), range))
-            })
+            taken
+                .get(&r.file)
+                .is_some_and(|ranges| ranges.iter().any(|&range| clash((r.start, r.end), range)))
         });
         let clashes_inside = group.iter().enumerate().any(|(i, a)| {
             group[i + 1..]
@@ -629,7 +629,11 @@ mod tests {
             stderr: Vec::new(),
         };
         let (groups, _) = suggestions(&output, &ws);
-        assert_eq!(groups.len(), 1, "the half-outside suggestion is gone, the other stays");
+        assert_eq!(
+            groups.len(),
+            1,
+            "the half-outside suggestion is gone, the other stays"
+        );
         assert_eq!(groups[0][0].text, "z");
     }
 
