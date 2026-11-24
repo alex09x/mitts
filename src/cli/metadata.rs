@@ -229,6 +229,10 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         .values()
         .map(|entry| (entry.cargo_id.clone(), entry.name.clone()))
         .collect();
+    let package_versions_by_id: HashMap<String, String> = packages
+        .values()
+        .map(|entry| (entry.cargo_id.clone(), entry.version.clone()))
+        .collect();
 
     let mut nodes = Vec::new();
     for (internal_id, entry) in &packages {
@@ -263,18 +267,28 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 }
             }
         }
+        // One edge per extern crate name, as Cargo writes them: a package declared under two
+        // keys (`old = { package = "rand" }` next to `rand`) is two edges, each with the kinds
+        // of its own declarations.
         let deps = outgoing
             .into_iter()
-            .map(|(pkg, kinds)| {
+            .flat_map(|(pkg, kinds)| {
                 let package = package_names_by_id.get(&pkg).cloned().unwrap_or_default();
-                // Cargo's `name` here is the extern crate name: the manifest key of a renamed
-                // dependency, else the package's, with `-` as `_`.
-                let name = extern_name(&entry.manifest, &package);
-                let dep_kinds = kinds
+                let version = package_versions_by_id
+                    .get(&pkg)
+                    .cloned()
+                    .unwrap_or_default();
+                let active: Vec<String> = kinds.into_iter().collect();
+                declaration_edges(&entry.manifest, &package, &version, &active)
                     .into_iter()
-                    .map(|kind| serde_json::from_str::<Value>(&kind).unwrap_or(Value::Null))
-                    .collect::<Vec<_>>();
-                json!({"name": name, "pkg": pkg, "dep_kinds": dep_kinds})
+                    .map(move |(name, edge_kinds)| {
+                        let dep_kinds = edge_kinds
+                            .iter()
+                            .map(|kind| serde_json::from_str::<Value>(kind).unwrap_or(Value::Null))
+                            .collect::<Vec<_>>();
+                        json!({"name": name, "pkg": pkg.clone(), "dep_kinds": dep_kinds})
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         let dependencies = deps
@@ -473,34 +487,66 @@ fn package_dependencies(manifest: &CargoToml) -> Vec<Value> {
     dependencies
 }
 
-/// The name `manifest`'s code uses for its dependency on `package`.
-fn extern_name(manifest: &CargoToml, package: &str) -> String {
-    let mut tables = vec![
-        &manifest.dependencies,
-        &manifest.build_dependencies,
-        &manifest.dev_dependencies,
+/// The edges from `manifest`'s package to `package` (at `version`): one per extern crate name
+/// (the manifest key of a renamed declaration, else the package name, `-` as `_`), each with
+/// the kinds, among the `active` ones, of the declarations under that name whose
+/// requirement admits `version`.
+fn declaration_edges(
+    manifest: &CargoToml,
+    package: &str,
+    version: &str,
+    active: &[String],
+) -> Vec<(String, Vec<String>)> {
+    let mut tables: Vec<(&HashMap<String, TomlDependency>, Option<&str>, Option<&str>)> = vec![
+        (&manifest.dependencies, None, None),
+        (&manifest.build_dependencies, Some("build"), None),
+        (&manifest.dev_dependencies, Some("dev"), None),
     ];
-    for spec in manifest.target.values() {
+    for (target, spec) in &manifest.target {
         tables.extend([
-            &spec.dependencies,
-            &spec.build_dependencies,
-            &spec.dev_dependencies,
+            (&spec.dependencies, None, Some(target.as_str())),
+            (
+                &spec.build_dependencies,
+                Some("build"),
+                Some(target.as_str()),
+            ),
+            (&spec.dev_dependencies, Some("dev"), Some(target.as_str())),
         ]);
     }
-    let renamed = tables
-        .iter()
-        .flat_map(|t| t.iter())
-        .find_map(|(key, dep)| match dep {
-            TomlDependency::Detailed(d)
-                if d.package_name.as_deref() == Some(package) && key != package =>
-            {
-                Some(key.clone())
+    let parsed = semver::Version::parse(version).ok();
+    let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (table, kind, target) in tables {
+        for (key, dep) in table {
+            let (real, req) = match dep {
+                TomlDependency::Simple(req) => (key.as_str(), Some(req.as_str())),
+                TomlDependency::Detailed(d) => (
+                    d.package_name.as_deref().unwrap_or(key),
+                    d.version.as_deref(),
+                ),
+            };
+            if real != package {
+                continue;
             }
-            _ => None,
-        });
-    renamed
-        .unwrap_or_else(|| package.to_string())
-        .replace('-', "_")
+            let admits = match (req.map(semver::VersionReq::parse), &parsed) {
+                (Some(Ok(r)), Some(v)) => r.matches(v),
+                _ => true,
+            };
+            let kind_json = json!({"kind": kind, "target": target}).to_string();
+            if admits && active.contains(&kind_json) {
+                edges
+                    .entry(key.replace('-', "_"))
+                    .or_default()
+                    .insert(kind_json);
+            }
+        }
+    }
+    if edges.is_empty() {
+        return vec![(package.replace('-', "_"), active.to_vec())];
+    }
+    edges
+        .into_iter()
+        .map(|(name, kinds)| (name, kinds.into_iter().collect()))
+        .collect()
 }
 
 fn append_dependency_map(

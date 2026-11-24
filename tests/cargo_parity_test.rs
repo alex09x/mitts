@@ -2281,3 +2281,84 @@ fn msrv_limit_skips_members_excluded_by_a_glob() {
         "the excluded crate's 1.50 does not count: {lock}"
     );
 }
+
+#[test]
+fn resolver_backtracks_past_a_version_whose_dependency_does_not_exist() {
+    let env = Env::new();
+    let registry = serve(vec![
+        version("cc", "1.0.0"),
+        Published {
+            deps: vec![dep("missing", "^1")],
+            ..version("cc", "1.1.0")
+        },
+    ]);
+    // No rust-version, resolver 2: plain backtracking, as Cargo does.
+    let app = env.app(&registry, "[dependencies]\ncc = \"1\"\n");
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"cc\"\nversion = \"1.0.0\""),
+        "{lock}"
+    );
+}
+
+#[test]
+fn metadata_has_one_resolve_edge_per_alias_of_a_package() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\nold = { package = \"aa\", version = \"1\" }\n",
+    );
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let mut names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["aa", "old"], "{node}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rooted_glob_target_rule_does_not_count_in_hgignore() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    let bin = env.path("vcs-bin4");
+    fs::create_dir_all(&bin).unwrap();
+    let hg = bin.join("hg");
+    fs::write(&hg, "#!/bin/sh\n[ \"$1\" = init ] && mkdir -p \"$2/.hg\"\n").unwrap();
+    fs::set_permissions(&hg, fs::Permissions::from_mode(0o755)).unwrap();
+    let dir = env.path("hg-rooted");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join(".hgignore"), "syntax: glob\n/target\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .args(["init", "--vcs", "hg"])
+        .current_dir(&dir)
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .env("CARGO_HOME", env.path("cargo-home"))
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        read(dir.join(".hgignore")),
+        "syntax: glob\n/target\nsyntax: regexp\n^target$\n"
+    );
+}

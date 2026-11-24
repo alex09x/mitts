@@ -437,9 +437,21 @@ fn hg_target_ignored(text: &str) -> (bool, String) {
             syntax = s.trim().to_string();
             continue;
         }
-        let rule = match syntax.as_str() {
-            "regexp" | "re" => line == "^target$" || line == "^target/",
-            _ => line == "target" || line == "target/" || line == "/target",
+        // A `kind:` prefix on the line overrides the section's syntax.
+        let (kind, pattern) = match line.split_once(':') {
+            Some((k, p)) if matches!(k, "re" | "regexp" | "glob" | "rootglob" | "path") => {
+                (k.to_string(), p.trim())
+            }
+            _ => (syntax.clone(), line),
+        };
+        // Only patterns that match the repository-relative `target` count. Glob syntax is
+        // unrooted: `target` matches it (and any `target` below), `/target` matches nothing.
+        let rule = match kind.as_str() {
+            "regexp" | "re" => {
+                pattern == "^target$" || pattern == "^target/" || pattern == "^target(/|$)"
+            }
+            "rootglob" | "path" => pattern == "target" || pattern == "target/**",
+            _ => pattern == "target" || pattern == "target/**",
         };
         ignored |= rule;
     }

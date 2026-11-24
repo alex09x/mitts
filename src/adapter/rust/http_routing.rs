@@ -205,11 +205,11 @@ pub fn join(base: &str, location: &str) -> String {
                 .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
     }) && location.contains("://");
     if has_scheme {
-        return location.to_string();
+        return normalize(location);
     }
     let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
     if let Some(net) = location.strip_prefix("//") {
-        return format!("{scheme}://{net}");
+        return normalize(&format!("{scheme}://{net}"));
     }
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let origin = format!("{scheme}://{}", &rest[..authority_end]);
@@ -236,6 +236,22 @@ pub fn join(base: &str, location: &str) -> String {
         format!("{dir}{loc_path}")
     };
     format!("{origin}{}{loc_tail}", remove_dot_segments(&merged))
+}
+
+/// An absolute URL with the dot segments of its path removed, so it is a sound base for
+/// the next hop's relative reference.
+fn normalize(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, after) = rest.split_at(authority_end);
+    let path_end = after.find(['?', '#']).unwrap_or(after.len());
+    let (path, tail) = after.split_at(path_end);
+    if path.is_empty() {
+        return url.to_string();
+    }
+    format!("{scheme}://{authority}{}{tail}", remove_dot_segments(path))
 }
 
 fn remove_dot_segments(path: &str) -> String {

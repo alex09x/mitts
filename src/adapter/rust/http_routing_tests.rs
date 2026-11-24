@@ -68,6 +68,10 @@ fn query_fragment_and_dot_segment_references_follow_rfc_3986() {
     assert_eq!(join(base, "./same"), "https://h/api/v1/same");
     assert_eq!(join(base, "../../../up"), "https://h/up");
     assert_eq!(join(base, "HTTPS://Other/x"), "HTTPS://Other/x");
+    // An absolute target is normalized, so a chained relative redirect resolves soundly.
+    let hop = join(base, "https://example.com/a/..");
+    assert_eq!(hop, "https://example.com/");
+    assert_eq!(join(&hop, "next"), "https://example.com/next");
 }
 
 #[test]
