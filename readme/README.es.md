@@ -285,7 +285,7 @@ Una comparación cualitativa de cómo cada herramienta reutiliza el trabajo. No 
 | Almacena en caché ejecuciones de scripts de compilación | no | no | sí |
 | Compilaciones concurrentes de una misma dependencia | esperan en el bloqueo de `target/` | ambas pueden compilar si hay fallo de caché | una compila, la otra reutiliza |
 | Caché remota / de equipo | no | sí (S3, GCS, Redis, …) | planificado |
-| Windows | sí | sí | sí (x86-64 MSVC, desde el código fuente hasta 0.5.0) |
+| Windows | sí | sí | sí (x86-64 MSVC) |
 
 Bazel y Buck2 resuelven un problema más amplio —compilaciones herméticas y multilingües con ejecución remota— pero requieren sus propios archivos de compilación en lugar de `Cargo.toml`.
 
@@ -405,17 +405,17 @@ Decisiones de arquitectura: [docs/decisions](../docs/decisions).
 <a id="citation"></a>
 ## Cómo citar
 
-Para citar Mitts, usa la versión archivada. El DOI de concepto [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) siempre apunta a la última versión; el DOI de la versión 0.5.0 es [10.5281/zenodo.24512542](https://doi.org/10.5281/zenodo.24512542). La opción «Cite this repository» de GitHub lee [CITATION.cff](../CITATION.cff).
+Para citar Mitts, usa la versión archivada. El DOI de concepto [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) siempre apunta a la última versión; el DOI de la versión 0.5.1 es [10.5281/zenodo.24516929](https://doi.org/10.5281/zenodo.24516929). La opción «Cite this repository» de GitHub lee [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24512542,
+@software{panasenko_2026_24516929,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.0},
-  doi       = {10.5281/zenodo.24512542},
-  url       = {https://doi.org/10.5281/zenodo.24512542}
+  version   = {0.5.1},
+  doi       = {10.5281/zenodo.24516929},
+  url       = {https://doi.org/10.5281/zenodo.24516929}
 }
 ```
 
