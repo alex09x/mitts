@@ -60,6 +60,24 @@ fn routing_uses_the_host_the_url_parser_connects_to() {
 }
 
 #[test]
+fn no_proxy_entries_are_normalized_like_request_hosts() {
+    let rules = NoProxy::parse("bücher.example, 127.1, .ÉXAMPLE.org");
+    for url in [
+        "https://bücher.example/x",
+        "https://xn--bcher-kva.example/x",
+        "http://127.0.0.1/",
+        "http://127.1/",
+        "https://sub.éxample.org/",
+        "https://sub.xn--xample-9ua.org/",
+    ] {
+        assert!(rules.bypasses(&url::Url::parse(url).unwrap()), "{url}");
+    }
+    for url in ["http://127.0.0.2/", "https://sub.example.org/"] {
+        assert!(!rules.bypasses(&url::Url::parse(url).unwrap()), "{url}");
+    }
+}
+
+#[test]
 fn redirect_locations_resolve_against_the_request() {
     let base = "https://crates.io/api/v1/crates/x/1.0.0/download?a=1";
     assert_eq!(

@@ -2364,6 +2364,39 @@ fn metadata_leaves_out_an_optional_alias_no_feature_enables() {
 }
 
 #[test]
+fn metadata_names_an_unrenamed_edge_by_the_library_name() {
+    let env = Env::new();
+    let registry = serve(vec![version("aa", "1.0.0")]);
+    let app = env.app(&registry, "[dependencies]\nmy-util = { path = \"util\" }\n");
+    fs::create_dir_all(app.join("util/src")).unwrap();
+    fs::write(
+        app.join("util/Cargo.toml"),
+        "[package]\nname = \"my-util\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"utility\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("util/src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let root = doc["resolve"]["root"].as_str().unwrap().to_string();
+    let node = doc["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == root.as_str())
+        .unwrap();
+    let names: Vec<&str> = node["deps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["utility"], "{node}");
+    // And `tree --features` keeps the edge.
+    let (tree, _) = env.ok(&app, &["tree", "-e", "features"]);
+    assert!(tree.contains("my-util v0.1.0"), "{tree}");
+}
+
+#[test]
 fn metadata_has_one_resolve_edge_per_alias_of_a_package() {
     let env = Env::new();
     let registry = serve(vec![version("aa", "1.0.0")]);

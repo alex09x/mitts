@@ -239,6 +239,26 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         .map(|entry| (entry.cargo_id.clone(), entry.source.clone()))
         .collect();
 
+    // Per package: its directory and its library's crate name (`[lib] name`, else the
+    // package name), what path declarations and unrenamed extern names are matched by.
+    let package_dirs_by_id: HashMap<String, (PathBuf, String)> = packages
+        .values()
+        .map(|entry| {
+            let lib = entry
+                .manifest
+                .lib
+                .as_ref()
+                .and_then(|l| l.name.clone())
+                .unwrap_or_else(|| entry.name.clone())
+                .replace('-', "_");
+            let dir = entry
+                .manifest_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+            (entry.cargo_id.clone(), (dir, lib))
+        })
+        .collect();
     // `registry = "<name>"` declarations are matched to the index the name stands for.
     let config_dir = opt
         .manifest_path
@@ -293,13 +313,20 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                     .unwrap_or_default();
                 let active: Vec<String> = kinds.into_iter().collect();
                 let source = package_sources_by_id.get(&pkg).cloned().flatten();
+                let (dir, lib_name) = package_dirs_by_id.get(&pkg).cloned().unwrap_or_default();
+                let child = EdgeTarget {
+                    name: &package,
+                    version: &version,
+                    source: source.as_deref(),
+                    dir: &dir,
+                    lib_name: &lib_name,
+                };
                 declaration_edges(
                     &entry.manifest,
+                    entry.manifest_path.parent().unwrap_or(Path::new(".")),
                     &entry.features,
                     &registries,
-                    &package,
-                    &version,
-                    source.as_deref(),
+                    &child,
                     &active,
                 )
                 .into_iter()
@@ -509,8 +536,9 @@ fn package_dependencies(manifest: &CargoToml) -> Vec<Value> {
     dependencies
 }
 
-/// Whether a declaration is the one a resolved package (`source`: its lock source, `None` for
-/// a path package) came from: a path declaration a path package; a git one the same
+/// Whether a non-path declaration is the one a resolved package (`source`: its lock source,
+/// `None` for a path package) came from (path declarations are matched by directory in
+/// `declaration_edges`): a git one the same
 /// repository at the same reference (`?branch=`, `?tag=`, `?rev=` or none); a registry one
 /// the exact index its registry name (crates.io when unnamed) stands for in `registries`.
 fn same_source(dep: &TomlDependency, source: Option<&str>, registries: &RegistryConfig) -> bool {
@@ -524,7 +552,6 @@ fn same_source(dep: &TomlDependency, source: Option<&str>, registries: &Registry
             .to_string()
     };
     match (detail, source) {
-        (Some(d), _) if d.path.is_some() && d.git.is_none() => source.is_none(),
         (Some(d), Some(s)) if d.git.is_some() => {
             let Some(rest) = s.strip_prefix("git+") else {
                 return false;
@@ -582,20 +609,41 @@ fn declaration_active(
     })
 }
 
-/// The edges from `manifest`'s package (built with `features`) to `package` (at `version`,
-/// from `source`): one per extern crate name (the manifest key of a renamed declaration, else
-/// the package name, `-` as `_`), each with the kinds, among the `active` ones, of the
-/// declarations under that name that are part of the build and whose requirement admits
-/// `version`.
+/// The resolved package a dependency edge goes to, as declarations are matched against it.
+struct EdgeTarget<'a> {
+    name: &'a str,
+    version: &'a str,
+    /// Its lock source; `None` for a path package.
+    source: Option<&'a str>,
+    /// Its package directory (a path declaration must point there).
+    dir: &'a Path,
+    /// Its library's crate name: the extern name of an unrenamed declaration.
+    lib_name: &'a str,
+}
+
+/// Whether two package directories are the same one (symlinks and `..` resolved where the
+/// file system allows, else compared as written).
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+/// The edges from `manifest`'s package (in `parent_dir`, built with `features`) to
+/// `child`: one per extern crate name (the manifest key of a renamed declaration, else the
+/// child's library name), each with the kinds, among the `active` ones, of the declarations
+/// under that name that are part of the build, come from the child's source and whose
+/// requirement admits its version.
 fn declaration_edges(
     manifest: &CargoToml,
+    parent_dir: &Path,
     features: &BTreeSet<String>,
     registries: &RegistryConfig,
-    package: &str,
-    version: &str,
-    source: Option<&str>,
+    child: &EdgeTarget<'_>,
     active: &[String],
 ) -> Vec<(String, Vec<String>)> {
+    let (package, version, source) = (child.name, child.version, child.source);
     // (table, kind, target)
     type Table<'a> = (
         &'a HashMap<String, TomlDependency>,
@@ -629,27 +677,37 @@ fn declaration_edges(
                     d.version.as_deref(),
                 ),
             };
-            if real != package
-                || !same_source(dep, source, registries)
-                || !declaration_active(manifest, key, dep, features)
-            {
+            let from_child = match dep {
+                TomlDependency::Detailed(d) if d.path.is_some() && d.git.is_none() => {
+                    source.is_none()
+                        && same_dir(
+                            &parent_dir.join(d.path.as_deref().unwrap_or(".")),
+                            child.dir,
+                        )
+                }
+                _ => same_source(dep, source, registries),
+            };
+            if real != package || !from_child || !declaration_active(manifest, key, dep, features) {
                 continue;
             }
+            // Renamed: the manifest key is the extern name; otherwise the library's name.
+            let extern_name = if real != key.as_str() {
+                key.replace('-', "_")
+            } else {
+                child.lib_name.to_string()
+            };
             let admits = match (req.map(semver::VersionReq::parse), &parsed) {
                 (Some(Ok(r)), Some(v)) => r.matches(v),
                 _ => true,
             };
             let kind_json = json!({"kind": kind, "target": target}).to_string();
             if admits && active.contains(&kind_json) {
-                edges
-                    .entry(key.replace('-', "_"))
-                    .or_default()
-                    .insert(kind_json);
+                edges.entry(extern_name).or_default().insert(kind_json);
             }
         }
     }
     if edges.is_empty() {
-        return vec![(package.replace('-', "_"), active.to_vec())];
+        return vec![(child.lib_name.to_string(), active.to_vec())];
     }
     edges
         .into_iter()

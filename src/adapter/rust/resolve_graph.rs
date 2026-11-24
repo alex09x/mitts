@@ -14,7 +14,7 @@
 //! Requirements that overlap one compatibility range share one version; incompatible
 //! ones get their own. A patched package replaces its registry version.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use semver::{Version, VersionReq};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -333,6 +333,15 @@ impl std::fmt::Display for Unsatisfiable {
 /// Resolution attempts one `generate-lockfile` may spend across all backtracking branches.
 const RESOLVE_ATTEMPTS: usize = 1024;
 
+/// The search ran out of attempts before it settled: an error of its own, never
+/// `Unsatisfiable`, since unexplored choices may still resolve.
+fn search_budget_exhausted() -> anyhow::Error {
+    anyhow::anyhow!(
+        "dependency resolution did not finish within {RESOLVE_ATTEMPTS} attempts; the graph \
+         may still have a solution"
+    )
+}
+
 /// The resolver key as one string, for the sets of packages the Rust limit is relaxed for.
 fn key_string(k: &Key) -> String {
     format!("{}\u{1f}{}", k.0, k.1)
@@ -486,15 +495,13 @@ impl NativeResolver {
                 stack.push(child);
             }
             first_error.get_or_insert(error);
-            if budget == 0 {
-                break;
+            if budget == 0 && !stack.is_empty() {
+                // Branches left unexplored: not a proof that the graph has no solution, so
+                // not `Unsatisfiable` (which would relax the Rust limit).
+                return Err(search_budget_exhausted());
             }
         }
-        Err(first_error.unwrap_or_else(|| {
-            anyhow::Error::new(Unsatisfiable::new(format!(
-                "dependency resolution did not converge after {RESOLVE_ATTEMPTS} attempts"
-            )))
-        }))
+        Err(first_error.unwrap_or_else(search_budget_exhausted))
     }
 
     /// One branch of the search: resolution restarted with the requirements and features
@@ -510,9 +517,7 @@ impl NativeResolver {
         let mut pins: HashMap<PinKey, Pin> = HashMap::new();
         loop {
             if *budget == 0 {
-                return Err(anyhow::Error::new(Unsatisfiable::new(format!(
-                    "dependency resolution did not converge after {RESOLVE_ATTEMPTS} attempts"
-                ))));
+                return Err(search_budget_exhausted());
             }
             *budget -= 1;
             let restart = match self.resolve_once(roots, offline, &pins, index_cache, excluded)? {
@@ -634,10 +639,15 @@ impl NativeResolver {
                             if !Version::parse(&primary.version)
                                 .is_ok_and(|v| req_of(&r.req).matches(&v))
                             {
-                                bail!(
-                                    "patch for `{}` has version {}, which does not satisfy the requirement `{}`",
-                                    r.name, primary.version, r.req
-                                );
+                                // A conflict of this branch: a parent version that asked
+                                // for it may be ruled out and another branch tried.
+                                return Err(anyhow::Error::new(Unsatisfiable {
+                                    message: format!(
+                                        "patch for `{}` has version {}, which does not satisfy the requirement `{}`",
+                                        r.name, primary.version, r.req
+                                    ),
+                                    blame: parent_of.get(&k).cloned().unwrap_or_default(),
+                                }));
                             }
                             queue.extend(res.registry_deps);
                             extra.extend(res.packages);

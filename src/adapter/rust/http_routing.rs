@@ -255,12 +255,14 @@ impl NoProxy {
                 out.nets.push((addr, if addr.is_ipv4() { 32 } else { 128 }));
                 continue;
             }
-            let host = host
-                .trim_start_matches("*.")
-                .trim_start_matches('.')
-                .to_ascii_lowercase();
-            if !host.is_empty() {
-                out.hosts.push(host);
+            let host = host.trim_start_matches("*.").trim_start_matches('.');
+            // Normalized as the URL parser normalizes request hosts: IDNA to ASCII, and
+            // shorthand IPv4 (`127.1`) to its address.
+            match url::Host::parse(host) {
+                Ok(url::Host::Domain(d)) if !d.is_empty() => out.hosts.push(d),
+                Ok(url::Host::Ipv4(a)) => out.nets.push((IpAddr::V4(a), 32)),
+                Ok(url::Host::Ipv6(a)) => out.nets.push((IpAddr::V6(a), 128)),
+                _ => {}
             }
         }
         out
