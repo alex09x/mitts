@@ -123,9 +123,13 @@ fn dev_and_test_default_to_line_tables_and_backtraces_keep_lines() {
     // deferred by the owner.
     if !cfg!(target_os = "macos") {
         assert!(
-            // `src\lib.rs` on Windows.
+            // `src\lib.rs` on Windows, where the MSVC symbolizer gives the line without a
+            // column.
             out.lines().any(|l| {
-                l.trim_start().starts_with("at ") && l.replace('\\', "/").contains("src/lib.rs:7:")
+                let l = l.replace('\\', "/");
+                l.trim_start().starts_with("at ")
+                    && (l.contains("src/lib.rs:7:")
+                        || (cfg!(target_env = "msvc") && l.trim_end().ends_with("src/lib.rs:7")))
             }),
             "a backtrace frame names the failing line: {out}"
         );

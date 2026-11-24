@@ -106,17 +106,23 @@ pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedD
     Ok(parsed)
 }
 
+/// Splits a rule line at the colon after its target. A drive colon (`C:\`, `C:/`, also
+/// after a verbatim `\\?\` or a space) is part of a path, not the separator; a backslash
+/// escapes only whitespace, as rustc writes it.
 fn split_dep_target(line: &str) -> Option<(&str, &str)> {
     let bytes = line.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'\\' {
+        if bytes[i] == b'\\' && matches!(bytes.get(i + 1), Some(b' ' | b'\t' | b'#')) {
             i += 2;
             continue;
         }
         if bytes[i] == b':' {
-            // Avoid splitting on Windows drive letter like C:\
-            if i == 1 && bytes[0].is_ascii_alphabetic() && bytes.get(2) == Some(&b'\\') {
+            let drive = i >= 1
+                && bytes[i - 1].is_ascii_alphabetic()
+                && (i == 1 || matches!(bytes[i - 2], b'\\' | b'/' | b' ' | b'\t'))
+                && matches!(bytes.get(i + 1), Some(b'\\' | b'/'));
+            if drive {
                 i += 1;
                 continue;
             }
@@ -193,7 +199,28 @@ pub fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
 
 #[cfg(test)]
 mod tests {
-    use super::tokenize_dep_info_paths;
+    use super::{split_dep_target, tokenize_dep_info_paths};
+
+    #[test]
+    fn a_rule_splits_after_its_target_not_at_a_drive() {
+        assert_eq!(
+            split_dep_target(r"C:\t\app.d: C:\w\src\lib.rs"),
+            Some((r"C:\t\app.d", r" C:\w\src\lib.rs"))
+        );
+        // A verbatim path's own rule line (`path:` with no dependencies).
+        assert_eq!(
+            split_dep_target(r"\\?\C:\w\assets\a.txt:"),
+            Some((r"\\?\C:\w\assets\a.txt", ""))
+        );
+        assert_eq!(
+            split_dep_target("/t/app.d: /w/src/lib.rs"),
+            Some(("/t/app.d", " /w/src/lib.rs"))
+        );
+        assert_eq!(
+            split_dep_target(r"/a\ b/x.d: y"),
+            Some((r"/a\ b/x.d", " y"))
+        );
+    }
 
     #[test]
     fn windows_paths_keep_their_backslashes_and_lose_a_verbatim_prefix() {
