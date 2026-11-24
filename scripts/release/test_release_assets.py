@@ -21,6 +21,7 @@ from assets import (
     SIGNING_MARKERS,
     TARGETS,
     digest,
+    executable_name,
     main,
     validate,
     validate_notarized,
@@ -41,11 +42,12 @@ class ReleaseAssetTests(unittest.TestCase):
         for target in TARGETS:
             self.archive(target)
 
-    def archive(self, target, sha=SHA, symlink=False, duplicate=False):
+    def archive(self, target, sha=SHA, symlink=False, duplicate=False, exe=None):
         name = f"mitts-{TAG}-{target}.tar.gz"
         archive = self.folder / name
+        exe = exe or executable_name(target)
         contents = {
-            "mitts": b"fixture binary",
+            exe: b"fixture binary",
             "LICENSE-MIT": b"fixture license",
             "LICENSE-APACHE": b"fixture license",
             "BUILD.txt": (
@@ -58,21 +60,28 @@ class ReleaseAssetTests(unittest.TestCase):
             for entry, data in contents.items():
                 info = tarfile.TarInfo(entry)
                 info.size = len(data)
-                if symlink and entry == "mitts":
+                if symlink and entry == exe:
                     info.type = tarfile.SYMTYPE
                     info.linkname = "/unexpected"
                     info.size = 0
                 tar.addfile(info, io.BytesIO(data))
             if duplicate:
-                info = tarfile.TarInfo("mitts")
+                info = tarfile.TarInfo(exe)
                 tar.addfile(info, io.BytesIO())
         (self.folder / (name + ".sha256")).write_text(f"{digest(archive)}  {name}\n")
         return archive
 
-    def test_complete_supported_set_has_seven_verified_assets(self):
+    def test_complete_supported_set_has_nine_verified_assets(self):
         manifest = validate(self.folder, TAG, SHA)
-        self.assertEqual(len(manifest), 7)
-        self.assertEqual(len((self.folder / "SHA256SUMS").read_text().splitlines()), 3)
+        self.assertEqual(len(manifest), 9)
+        self.assertEqual(len((self.folder / "SHA256SUMS").read_text().splitlines()), 4)
+
+    def test_windows_archive_holds_mitts_exe(self):
+        windows = "x86_64-pc-windows-msvc"
+        self.assertIn(windows, TARGETS)
+        self.archive(windows, exe="mitts")
+        with self.assertRaises(ValueError):
+            validate(self.folder, TAG, SHA)
 
     def test_missing_native_target_prevents_publication(self):
         self.archive(TARGETS[0]).unlink()
@@ -152,7 +161,7 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
         ]
         metadata = "\n".join([*base_lines, *extra_lines]) + "\n"
         contents = {
-            "mitts": payload,
+            executable_name(target): payload,
             "LICENSE-MIT": b"fixture license",
             "LICENSE-APACHE": b"fixture license",
             "BUILD.txt": metadata.encode(),
@@ -226,12 +235,12 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
         self.assertFalse((self.folder / "SHA256SUMS").exists())
         raw = self.run_cli()
         self.assertEqual(raw.returncode, 0, raw.stderr)
-        self.assertEqual(len(json.loads(raw.stdout)), 7)
+        self.assertEqual(len(json.loads(raw.stdout)), 9)
 
     def test_complete_notarized_set_passes_validators_cli_and_cdhash_variants(self):
         with patch.dict(os.environ, {"APPLE_TEAM_ID": TEAM}):
             manifest = validate_notarized(self.folder, "0.4.0", SHA)
-            self.assertEqual(len(manifest), 7)
+            self.assertEqual(len(manifest), 9)
             self.assertEqual(validate(self.folder, TAG, SHA), manifest)
             with io.StringIO() as buf, patch("sys.stdout", buf):
                 main(["--require-notarized", str(self.folder), TAG, SHA])
@@ -242,7 +251,7 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
             with tarfile.open(self.folder / f"mitts-{TAG}-{target}.tar.gz") as tar:
                 self.assertEqual(
                     {m.name for m in tar.getmembers()},
-                    {"mitts", "BUILD.txt", "LICENSE-MIT", "LICENSE-APACHE"},
+                    {executable_name(target), "BUILD.txt", "LICENSE-MIT", "LICENSE-APACHE"},
                 )
                 body = tar.extractfile("BUILD.txt").read().decode()
                 if target not in DARWIN_ARCHES:
@@ -265,7 +274,7 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
             )
             self.write_archive(target, extra_lines=lines)
         with patch.dict(os.environ, {"APPLE_TEAM_ID": TEAM}):
-            self.assertEqual(len(validate_notarized(self.folder, TAG, SHA)), 7)
+            self.assertEqual(len(validate_notarized(self.folder, TAG, SHA)), 9)
 
     def test_missing_or_invalid_team_env_and_team_mismatch_are_rejected(self):
         with patch.dict(os.environ, {}, clear=False):

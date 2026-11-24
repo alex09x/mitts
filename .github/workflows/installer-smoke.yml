@@ -81,3 +81,41 @@ jobs:
             shasum -a 256 "$temporary/install.sh" "$temporary/prefix/bin/mitts"
           fi
           printf 'PUBLIC INSTALL OK: %s / %s\n' "$version" "$RELEASE_TARGET"
+  public-install-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify and execute the public PowerShell installer
+        shell: pwsh
+        env:
+          EXPECTED_TAG: ${{ inputs.expected-tag }}
+          EXPECTED_SHA: ${{ inputs.expected-sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $temporary = Join-Path $env:RUNNER_TEMP 'public-install'
+          New-Item -ItemType Directory -Path $temporary | Out-Null
+          $script = Join-Path $temporary 'install.ps1'
+          $response = Invoke-WebRequest -Uri 'https://mittsbuild.com/install.ps1' -OutFile $script -PassThru -UseBasicParsing
+          if ("$($response.Headers['Content-Type'])" -notmatch '^text/plain') { throw 'install.ps1 is not served as text/plain' }
+          if ((Get-FileHash site/install.ps1).Hash -ne (Get-FileHash $script).Hash) { throw 'public install.ps1 differs from the repository' }
+          # No version override: this exercises latest stable resolution.
+          $env:MITTS_INSTALL_ROOT = Join-Path $temporary 'prefix'
+          & $script
+          $binary = Join-Path $env:MITTS_INSTALL_ROOT 'bin/mitts.exe'
+          $version = (& $binary --version)
+          & $binary --help | Out-Null
+          $tag = 'v' + ($version -split ' ')[1]
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw "unexpected version $version" }
+          if ($env:EXPECTED_TAG -and $tag -ne $env:EXPECTED_TAG) { throw "expected $env:EXPECTED_TAG, got $tag" }
+          if ($env:EXPECTED_SHA -and $version -ne "mitts $($tag.Substring(1)) ($env:EXPECTED_SHA)") { throw "unexpected $version" }
+          $asset = "mitts-$tag-x86_64-pc-windows-msvc.tar.gz"
+          $archive = Join-Path $temporary $asset
+          Invoke-WebRequest -Uri "https://github.com/alex09x/mitts/releases/download/$tag/$asset" -OutFile $archive -UseBasicParsing
+          $unpacked = Join-Path $temporary 'unpacked'
+          New-Item -ItemType Directory -Path $unpacked | Out-Null
+          & "$env:SystemRoot\System32\tar.exe" -xzf $archive -C $unpacked mitts.exe BUILD.txt
+          if ((Get-FileHash (Join-Path $unpacked 'mitts.exe')).Hash -ne (Get-FileHash $binary).Hash) { throw 'installed bytes differ from the release archive' }
+          Get-Content (Join-Path $unpacked 'BUILD.txt')
+          Write-Host "PUBLIC INSTALL OK: $version / x86_64-pc-windows-msvc"

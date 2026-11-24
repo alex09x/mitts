@@ -17,8 +17,16 @@ from plan import stable_tag
 TARGETS = (
     "aarch64-apple-darwin",
     "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 )
+
+
+def executable_name(target):
+    """The executable inside a target's archive: `mitts.exe` for Windows."""
+    return "mitts.exe" if "-windows" in target else "mitts"
+
+
 DARWIN_ARCHES = {
     "aarch64-apple-darwin": "arm64",
 }
@@ -60,7 +68,7 @@ def validate(folder, tag, sha):
             raise ValueError("Invalid checksum: " + name)
         with tarfile.open(archive) as content:
             members = content.getmembers()
-            required = {"mitts", "BUILD.txt", "LICENSE-MIT", "LICENSE-APACHE"}
+            required = {executable_name(target), "BUILD.txt", "LICENSE-MIT", "LICENSE-APACHE"}
             if len(members) != 4 or {m.name for m in members} != required:
                 raise ValueError("Invalid archive member set: " + name)
             if not all(m.isfile() for m in members):
@@ -78,7 +86,7 @@ def validate(folder, tag, sha):
     sums = folder / "SHA256SUMS"
     assembled = "".join(sorted(lines, key=lambda line: line.split()[1]))
     if sums.exists() and sums.read_text() != assembled:
-        raise ValueError("Existing SHA256SUMS does not match all four archives")
+        raise ValueError("Existing SHA256SUMS does not match every archive")
     sums.write_text(assembled)
     names.add("SHA256SUMS")
     if {p.name for p in folder.iterdir() if p.is_file()} != names:

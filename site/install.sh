@@ -44,10 +44,13 @@ source_install() {
     exit 0
 }
 
+exe=mitts
 case "$(uname -s)" in
     Darwin) system=apple-darwin ;;
     Linux) system=unknown-linux-gnu ;;
-    *) fail 'Supported systems: macOS and Linux.' ;;
+    # Git Bash, MSYS2 or Cygwin on Windows (PowerShell: install.ps1).
+    MINGW*|MSYS*|CYGWIN*) system=pc-windows-msvc exe=mitts.exe ;;
+    *) fail 'Supported systems: macOS, Linux and Windows.' ;;
 esac
 case "$(uname -m)" in
     arm64|aarch64) architecture=aarch64 ;;
@@ -57,6 +60,9 @@ esac
 target=$architecture-$system
 if [ "$target" = x86_64-apple-darwin ]; then
     source_install 'macOS Intel prebuilt support ended with v0.3.19; current macOS prebuilt builds require Apple Silicon.'
+fi
+if [ "$target" = aarch64-pc-windows-msvc ]; then
+    source_install 'No prebuilt binary for Windows on ARM64 (prebuilt: x86-64).'
 fi
 repository=https://github.com/alex09x/mitts
 download() { curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" -o "$2"; }
@@ -92,12 +98,17 @@ else
     fail 'SHA-256 requires sha256sum or shasum.'
 fi
 [ "$actual" = "$expected" ] || fail 'Archive checksum mismatch; existing installation was preserved.'
-tar -xzf "$temporary/$asset" -C "$temporary" mitts || fail 'Archive does not contain mitts.'
-[ -f "$temporary/mitts" ] && [ ! -L "$temporary/mitts" ] || fail 'Release executable is not a regular file.'
+tar -xzf "$temporary/$asset" -C "$temporary" "$exe" || fail "Archive does not contain $exe."
+[ -f "$temporary/$exe" ] && [ ! -L "$temporary/$exe" ] || fail 'Release executable is not a regular file.'
 mkdir -p "$destination" || fail "Cannot create $destination"
-[ ! -d "$destination/mitts" ] || fail 'Install destination is a directory.'
+[ ! -d "$destination/$exe" ] || fail 'Install destination is a directory.'
 pending=$(mktemp "$destination/.mitts-install.XXXXXX") || fail 'Cannot stage the installation.'
-cp "$temporary/mitts" "$pending"
+# Windows runs only a file named `.exe`.
+if [ "$exe" = mitts.exe ]; then
+    mv "$pending" "$pending.exe" || fail 'Cannot stage the installation.'
+    pending=$pending.exe
+fi
+cp "$temporary/$exe" "$pending"
 chmod 755 "$pending"
 installed_version=$("$pending" --version) ||
     fail 'Cannot execute release binary at destination; check mount permissions and OS/libc compatibility.'
@@ -105,7 +116,7 @@ case "$installed_version" in
     "mitts ${version#v}"|"mitts ${version#v} ("*")") ;;
     *) fail "Unexpected binary version: $installed_version" ;;
 esac
-mv -f "$pending" "$destination/mitts"
+mv -f "$pending" "$destination/$exe"
 pending=
-printf '%s installed at %s/mitts\n' "$installed_version" "$destination"
+printf '%s installed at %s/%s\n' "$installed_version" "$destination" "$exe"
 printf 'Ensure %s is on PATH. Rust and a native linker are needed to build Rust projects.\n' "$destination"

@@ -112,6 +112,12 @@
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+على Windows (x86-64، PowerShell؛ بدءاً من 0.5.0):
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 </div>
 
 لبناء النسخة من المصدر، ثبّت أولاً أحدث إصدار منشور من Mitts، ثم استخدم Mitts لبناء النسخة المستنسخة:

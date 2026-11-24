@@ -138,6 +138,12 @@ Installieren Sie das neueste signierte native Release:
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+Unter Windows (x86-64, PowerShell; ab 0.5.0):
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 Um den Quellcode-Checkout zu bauen, installieren Sie zuerst das neueste veröffentlichte Mitts und verwenden
 Sie dann Mitts, um den Checkout zu bauen:
 

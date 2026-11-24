@@ -107,6 +107,12 @@ Mittsは異なるアプローチをとります。コンパイラではなくCar
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+Windows（x86-64、PowerShell、0.5.0 以降）では:
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 ソースチェックアウトからビルドするには、まずリリース版の最新Mittsをインストールし、次にMittsを使ってチェックアウトをビルドします：
 
 ```sh

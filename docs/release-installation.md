@@ -6,13 +6,26 @@ Mitts installs a ready binary from the latest stable GitHub Release:
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
-The installer supports macOS (Apple Silicon, macOS 11+) and Linux
-(ARM64 and x86-64, glibc 2.34+). Linux binaries are packaged in an Amazon Linux
+The installer supports macOS (Apple Silicon, macOS 11+), Linux
+(ARM64 and x86-64, glibc 2.34+) and, from 0.5.0, Windows x86-64 under Git Bash,
+MSYS2 or Cygwin. Linux binaries are packaged in an Amazon Linux
 2023 build environment, so they also run in Amazon Linux 2023 containers. The
 installer needs curl, tar and either shasum or sha256sum. Rust and a native
 linker are needed when building Rust projects; Cargo is not used to install the
-ready binary. Windows and musl Linux are not provided as binary targets. Source
-installation remains available through Cargo.
+ready binary. musl Linux and Windows on ARM64 are not provided as binary targets.
+Source installation remains available through Cargo.
+
+From PowerShell on Windows (10 or later, x86-64):
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
+It installs `mitts.exe` into `%USERPROFILE%\.cargo\bin` (or `MITTS_INSTALL_ROOT`,
+`CARGO_INSTALL_ROOT`, `CARGO_HOME`), with the same latest-tag resolution, SHA256SUMS
+check and version check before the old binary is replaced; `MITTS_VERSION` picks a
+release. The Windows binary links the C runtime statically, so it needs no Visual C++
+redistributable; building Rust projects needs Rust with the MSVC build tools.
 
 When no verified prebuilt binary can be fetched, the installer builds from
 crates.io instead, if Cargo is on `PATH`: when GitHub does not answer (latest-tag
@@ -65,16 +78,20 @@ claim of independent publisher authentication.
 
 1. Use an isolated worktree. Resolve the existing release tag to its commit;
    never move a published tag. Package from that exact source, not current main.
-2. Run the Release binaries workflow for the tag. It builds native Linux and
-   macOS Apple Silicon binaries, remaps build paths, checks the actual
-   binary version/commit and scans for checkout/home paths. Each archive has
-   mitts, both licenses and BUILD.txt with compiler/source/platform provenance.
-3. For a NEW version, create a draft Release; keep it a draft until all three
+2. Run the Release binaries workflow for the tag. It builds native Linux,
+   macOS Apple Silicon and Windows x86-64 (MSVC) binaries, remaps build paths, checks
+   the actual binary version/commit and scans for checkout/home paths. Each archive has
+   the executable (`mitts`, or `mitts.exe` for Windows), both licenses and BUILD.txt
+   with compiler/source/platform provenance. Windows has no earlier Mitts to build
+   with, so the exact-source Linux Mitts cross-builds a bootstrap `mitts.exe` (MinGW)
+   that builds the release binary natively; the archive is installed with
+   `install.ps1` before upload.
+3. For a NEW version, create a draft Release; keep it a draft until all four
    native archives, their checksums and SHA256SUMS are attached and verified.
    Publish only then. Drafts do not become latest; never publish an empty Release
    and add binaries later as a routine process. The existing 0.3.18 empty Release
    is repaired in place without moving its tag.
-   Inspect all three job logs and archive checksums. Download the CI artifacts,
+   Inspect all four job logs and archive checksums. Download the CI artifacts,
    assemble SHA256SUMS, and smoke-test the real archives on their native runners.
    Upload only missing assets to the existing Release. Do not use --clobber.
 4. Release assets are immutable. Future versions get new filenames/tags. Record
@@ -87,7 +104,7 @@ claim of independent publisher authentication.
    exact reviewed SHA256 and valid shell syntax. HTTP 200 alone is insufficient:
    unknown routes can return the homepage with status 200.
 7. Run the Public installer smoke workflow after deployment. It executes the
-   downloaded public script into an isolated prefix on all three native targets;
+   downloaded public scripts (install.sh, and install.ps1 on Windows) into an isolated prefix on all four native targets;
    checks version/commit, help and installed bytes against the released archive.
    Confirm
    homepage HTML is unchanged during an installer-only deployment. Record these
