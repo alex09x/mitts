@@ -27,7 +27,6 @@ use std::sync::Mutex;
 
 /// Name prefix of the private directories in a cache root.
 pub const PREFIX: &str = "cas-ephemeral-";
-use super::owned_dir::OWNER_LOCK;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -68,10 +67,7 @@ pub fn sweep_dead(cache_root: &Path) -> usize {
         }
         // The lock can be taken only when no process holds it; a directory without a lock file
         // was left half created and has no owner either.
-        let Ok(Some(_lock)) = FileLock::try_acquire_exclusive(&dir.join(OWNER_LOCK)) else {
-            continue;
-        };
-        if fs::remove_dir_all(&dir).is_ok() {
+        if super::owned_dir::remove_owned(&dir) {
             removed += 1;
         }
     }
@@ -82,6 +78,7 @@ pub fn sweep_dead(cache_root: &Path) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::owned_dir::OWNER_LOCK;
 
     fn store_dirs(root: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(root)

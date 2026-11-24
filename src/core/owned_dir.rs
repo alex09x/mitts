@@ -37,14 +37,19 @@ fn staging_name(name: &str) -> String {
 /// Creates `parent/name` already locked by this process and returns it with its lock.
 ///
 /// Windows cannot rename a directory holding an open file, so there the directory is
-/// created under its name and locked at once; a sweep that removed it in the instant
-/// before is answered by creating it again. Once the lock file is open, Windows refuses to
-/// delete it, so a live directory is never swept.
+/// created under its name and locked at once. A sweeper ([`remove_owned`]) that took the
+/// lock in the instant before makes this open fail or removes the directory; either is
+/// answered by creating it again. Once this process holds the lock file open, no sweeper
+/// can delete it (lock files are opened without delete sharing), so a live directory is
+/// never swept.
 #[cfg(windows)]
 pub fn create_locked(parent: &Path, name: &str) -> Result<(PathBuf, FileLock)> {
     let dir = parent.join(name);
     let mut last = None;
-    for _ in 0..16 {
+    for attempt in 0..64 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         if let Err(e) = fs::create_dir_all(&dir) {
             last = Some(anyhow::Error::new(e));
             continue;
@@ -95,11 +100,40 @@ pub fn sweep_abandoned_staging(parent: &Path, prefix: &str) {
         if !old {
             continue;
         }
-        let dir = entry.path();
-        if let Ok(Some(_lock)) = FileLock::try_acquire_exclusive(&dir.join(OWNER_LOCK)) {
-            let _ = fs::remove_dir_all(&dir);
+        remove_owned(&entry.path());
+    }
+}
+
+/// Removes an owned directory whose owner is gone: only when its lock can be taken, and
+/// the lock file last, deleted while held, so a creator that takes the name again finds
+/// either no directory or one it locks itself. Returns whether the directory is gone.
+pub fn remove_owned(dir: &Path) -> bool {
+    let Ok(Some(lock)) = FileLock::try_acquire_exclusive_for_removal(&dir.join(OWNER_LOCK)) else {
+        return false;
+    };
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.file_name() == OWNER_LOCK {
+                continue;
+            }
+            let path = entry.path();
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                let _ = fs::remove_dir_all(&path);
+            } else if fs::remove_file(&path).is_err() {
+                // A read-only store object: writable first (Windows refuses otherwise).
+                if let Ok(meta) = fs::metadata(&path) {
+                    let mut perms = meta.permissions();
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    perms.set_readonly(false);
+                    let _ = fs::set_permissions(&path, perms);
+                }
+                let _ = fs::remove_file(&path);
+            }
         }
     }
+    let deleted = lock.delete_file().is_ok();
+    drop(lock);
+    deleted && fs::remove_dir(dir).is_ok()
 }
 
 #[cfg(test)]
@@ -119,6 +153,27 @@ mod tests {
     }
 
     #[test]
+    fn a_held_directory_is_kept_and_an_abandoned_one_removed() {
+        let root = tempfile::tempdir().unwrap();
+        let (live, lock) = create_locked(root.path(), "deps-live").unwrap();
+        fs::write(live.join("work"), "x").unwrap();
+        assert!(!remove_owned(&live));
+        assert!(live.join(OWNER_LOCK).is_file() && live.join("work").is_file());
+
+        let (dead, dead_lock) = create_locked(root.path(), "deps-dead").unwrap();
+        fs::create_dir_all(dead.join("sub")).unwrap();
+        fs::write(dead.join("sub/obj"), "x").unwrap();
+        fs::write(dead.join("ro"), "x").unwrap();
+        let mut perms = fs::metadata(dead.join("ro")).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(dead.join("ro"), perms).unwrap();
+        drop(dead_lock);
+        assert!(remove_owned(&dead));
+        assert!(!dead.exists());
+        drop(lock);
+    }
+
+    #[test]
     fn concurrent_creators_and_sweepers_never_remove_a_live_directory() {
         let root = tempfile::tempdir().unwrap();
         let root_path = root.path().to_path_buf();
@@ -131,10 +186,7 @@ mod tests {
                         if !entry.file_name().to_string_lossy().starts_with("deps-") {
                             continue;
                         }
-                        if let Ok(Some(_l)) = FileLock::try_acquire_exclusive(&dir.join(OWNER_LOCK))
-                        {
-                            let _ = fs::remove_dir_all(&dir);
-                        }
+                        remove_owned(&dir);
                     }
                 }
             })
