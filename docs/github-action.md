@@ -47,7 +47,7 @@ Use `if: always()` to keep the work of a failed build, which still speeds up the
 
 ## Supported runners
 
-Linux x86-64 and ARM64, and macOS on Apple Silicon. Intel macOS and Windows have no prebuilt Mitts. A Rust toolchain and a native linker must already be present, as with any Rust build; `dtolnay/rust-toolchain` or the preinstalled toolchain both work.
+Linux x86-64 and ARM64, macOS on Apple Silicon, and (from 0.5.0) Windows x86-64, where the action's bash steps run in Git Bash. Intel macOS and Windows on ARM64 have no prebuilt Mitts. A Rust toolchain and a native linker must already be present, as with any Rust build; `dtolnay/rust-toolchain` or the preinstalled toolchain both work.
 
 ## Limits
 

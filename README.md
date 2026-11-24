@@ -131,6 +131,12 @@ Install the latest signed native release:
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+On Windows (x86-64, PowerShell; from 0.5.0):
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 To build the source checkout, first install the latest released Mitts, then use
 Mitts to build the checkout:
 

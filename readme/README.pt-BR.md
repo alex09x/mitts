@@ -136,6 +136,12 @@ Instale a versão nativa assinada mais recente:
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+No Windows (x86-64, PowerShell; a partir da 0.5.0):
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 Para compilar a partir do checkout do código-fonte, primeiro instale a versão mais recente lançada do Mitts e, em seguida,
 use o Mitts para compilar o checkout:
 

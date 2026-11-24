@@ -103,6 +103,12 @@ Mitts 采用了不同的路线：它替换的是 Cargo 的执行器，而不是�
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+在 Windows 上（x86-64，PowerShell；0.5.0 起）：
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 要从源码检出构建，请先安装最新发布的 Mitts，再用 Mitts 构建该检出：
 
 ```sh

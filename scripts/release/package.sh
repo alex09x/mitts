@@ -14,9 +14,15 @@ mkdir -p "$4"
 output=$(cd "$4" && pwd -P)
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 case "$target" in
-    x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin) ;;
+    x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin|x86_64-pc-windows-msvc) ;;
     *) echo 'Unsupported release target' >&2; exit 1 ;;
 esac
+exe=mitts
+# Git Bash on Windows: rustc and the binary see native paths (`D:\a\…`), not `/d/a/…`.
+native() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+if [[ "$target" == *-windows-* ]]; then
+    exe=mitts.exe
+fi
 cd "$source_root"
 commit=$(git rev-parse HEAD)
 [[ $(git rev-parse "$tag^{commit}") == "$commit" ]]
@@ -25,7 +31,11 @@ package_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 [[ "$tag" == "v$package_version" ]]
 # Native dependency assembly may retain absolute paths in DWARF despite Rust
 # remapping. Distribution binaries omit debug info while keeping normal symbols.
-export RUSTFLAGS="--remap-path-prefix=$source_root=. --remap-path-prefix=$HOME=/rust-home -C strip=debuginfo"
+export RUSTFLAGS="--remap-path-prefix=$(native "$source_root")=. --remap-path-prefix=$(native "$HOME")=/rust-home -C strip=debuginfo"
+if [[ "$target" == *-windows-msvc ]]; then
+    # The C runtime linked in, so the binary does not need the VC++ redistributable.
+    RUSTFLAGS="$RUSTFLAGS -C target-feature=+crt-static"
+fi
 export CARGO_INCREMENTAL=0
 export MACOSX_DEPLOYMENT_TARGET=11.0
 builder=${MITTS_CI_BIN:-mitts}
@@ -43,10 +53,12 @@ lock_before=$(lock_digest)
 # Mitts outputs may share immutable CAS inodes. Sign only an owned private copy.
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-cp target/release/mitts "$stage/mitts"
-chmod u+w "$stage/mitts"
-binary="$stage/mitts"
-if [[ "$target" == *apple-darwin ]]; then
+cp "target/release/$exe" "$stage/$exe"
+chmod u+w "$stage/$exe"
+binary="$stage/$exe"
+if [[ "$target" == *-windows-* ]]; then
+    : # No glibc floor and no codesign step for the MSVC build.
+elif [[ "$target" == *apple-darwin ]]; then
     # rustc strips debug info with rust-objcopy, which some runner toolchains cannot start
     # (libLLVM.dylib missing). The linker's debug map then still names the precompiled std
     # objects under $HOME/.rustup, which the path check below rejects. Apple's strip removes
@@ -59,8 +71,9 @@ fi
 version=$("$binary" --version)
 [[ "$version" == "mitts $package_version ($commit)" ]]
 # Reject either checkout/home spelling, including canonical aliases on macOS.
-for needle in "$source_root" "$HOME" "$(cd "$HOME" && pwd -P)"; do
-    if grep -aFq "$needle" "$binary"; then
+for needle in "$source_root" "$HOME" "$(cd "$HOME" && pwd -P)" \
+    "$(native "$source_root")" "$(native "$HOME")"; do
+    if grep -aFiq "$needle" "$binary"; then
         echo 'Private build path found in release binary' >&2
         exit 1
     fi
@@ -73,14 +86,16 @@ cp LICENSE-MIT LICENSE-APACHE "$stage/"
     if [[ "$target" == *linux* ]]; then
         printf 'Required GLIBC symbols:\n'
         readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9.]+' | sort -Vu
+    elif [[ "$target" == *-windows-* ]]; then
+        printf 'Built on: %s\n' "$(uname -sr)"
     else
         sw_vers
         codesign --verify "$binary"
     fi
 } > "$stage/BUILD.txt"
-"$stage/mitts" --help > /dev/null
+"$binary" --help > /dev/null
 archive=mitts-$tag-$target.tar.gz
-tar -czf "$output/$archive" -C "$stage" mitts LICENSE-MIT LICENSE-APACHE BUILD.txt
+tar -czf "$output/$archive" -C "$stage" "$exe" LICENSE-MIT LICENSE-APACHE BUILD.txt
 cd "$output"
 if command -v sha256sum >/dev/null; then
     sha256sum "$archive" > "$archive.sha256"

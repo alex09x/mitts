@@ -247,6 +247,12 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: inputs.mode != 'verify'
         with:
+          pattern: release-*-pc-windows-msvc
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: inputs.mode != 'verify'
+        with:
           artifact-ids: ${{ needs.apple-sign.outputs.artifact-id }}
           merge-multiple: true
           path: dist

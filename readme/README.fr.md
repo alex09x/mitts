@@ -137,6 +137,12 @@ Installez la dernière version native signée :
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+Sous Windows (x86-64, PowerShell ; à partir de 0.5.0) :
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 Pour compiler le code source cloné, installez d'abord la dernière version distribuée de Mitts, puis utilisez
 Mitts pour compiler le dépôt :
 

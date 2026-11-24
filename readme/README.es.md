@@ -110,6 +110,12 @@ Instala la versión nativa firmada más reciente:
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+En Windows (x86-64, PowerShell; desde 0.5.0):
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 Para compilar desde el código fuente del repositorio, primero instala la última versión publicada de Mitts y luego usa Mitts para compilar el repositorio:
 
 ```sh

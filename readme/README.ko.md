@@ -104,6 +104,12 @@ Mitts는 다른 방식을 취합니다: 컴파일러가 아닌 Cargo의 실행 �
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+Windows(x86-64, PowerShell, 0.5.0부터)에서는:
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 소스 체크아웃을 빌드하려면 먼저 최신 릴리스된 Mitts를 설치한 후, Mitts를 사용하여 체크아웃을 빌드하십시오:
 
 ```sh

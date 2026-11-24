@@ -138,6 +138,12 @@ Mitts идет другим путем: он заменяет исполните
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+В Windows (x86-64, PowerShell; начиная с 0.5.0):
+
+```powershell
+irm https://mittsbuild.com/install.ps1 | iex
+```
+
 Чтобы собрать из исходного чекаута, сначала установите последний выпущенный Mitts, затем используйте
 Mitts для сборки чекаута:
 

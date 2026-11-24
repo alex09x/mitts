@@ -128,5 +128,108 @@ jobs:
           name: release-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
+  # Windows: the exact-source Linux Mitts cross-builds a bootstrap mitts.exe (MinGW), which
+  # builds the release binary natively for MSVC, the same chain as CI; Cargo is never used.
+  windows-bootstrap:
+    needs: source
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          path: release-source
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          targets: x86_64-pc-windows-gnu
+      - name: MinGW-w64 toolchain
+        run: sudo apt-get update -q && sudo apt-get install -y -q mingw-w64
+      - name: Install latest stable Mitts
+        env:
+          MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
+        run: |
+          sh site/install.sh
+          echo "MITTS=$MITTS_INSTALL_ROOT/bin/mitts" >> "$GITHUB_ENV"
+      - name: Build the exact-source Linux Mitts
+        working-directory: release-source
+        run: |
+          "$MITTS" build --locked --release --bin mitts --cache-dir "$RUNNER_TEMP/mitts-cache" \
+            --target-dir "$RUNNER_TEMP/host"
+          echo "MITTS=$RUNNER_TEMP/host/release/mitts" >> "$GITHUB_ENV"
+      - name: Cross-build the bootstrap mitts.exe
+        working-directory: release-source
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
+          AR_x86_64_pc_windows_gnu: x86_64-w64-mingw32-ar
+        run: |
+          "$MITTS" build --locked --release --bin mitts --target x86_64-pc-windows-gnu \
+            --cache-dir "$RUNNER_TEMP/mitts-cache" --target-dir "$RUNNER_TEMP/target"
+          cp "$RUNNER_TEMP/target/x86_64-pc-windows-gnu/release/mitts.exe" "$GITHUB_WORKSPACE/mitts.exe"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bootstrap-windows
+          path: mitts.exe
+          if-no-files-found: error
+  package-windows:
+    needs: [source, windows-bootstrap]
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          path: release-source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: bootstrap-windows
+          path: ${{ runner.temp }}/bootstrap
+      - name: Bootstrap builder
+        run: |
+          binary="$RUNNER_TEMP/bootstrap/mitts.exe"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\nMITTS_CI_CACHE_DIR=%s\n' "$binary" "$RUNNER_TEMP/mitts-release-cache" >> "$GITHUB_ENV"
+      - name: Point only the disposable runner tag at the tested candidate; never push it
+        if: inputs.verify-only
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        working-directory: release-source
+        run: git tag --force "$RELEASE_TAG" HEAD
+      - name: Package exact-tag binary and prove path hygiene
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        run: bash scripts/release/package.sh release-source "$RELEASE_TAG" x86_64-pc-windows-msvc dist
+      - name: Install the packaged binary with the PowerShell installer into an isolated prefix
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        run: |
+          $archive = "dist/mitts-$env:RELEASE_TAG-x86_64-pc-windows-msvc.tar.gz"
+          $env:MITTS_INSTALL_ROOT = Join-Path $env:RUNNER_TEMP 'mitts-install'
+          $env:MITTS_ARCHIVE = (Resolve-Path $archive).Path
+          $env:MITTS_VERSION = $env:RELEASE_TAG
+          ./site/install.ps1
+          & (Join-Path $env:MITTS_INSTALL_ROOT 'bin/mitts.exe') --version
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-x86_64-pc-windows-msvc
+          path: dist/*
+          if-no-files-found: error
   # Publication is a separate reviewed operation. Never create/move tags or
   # overwrite existing release assets from an ordinary branch push.

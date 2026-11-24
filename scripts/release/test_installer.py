@@ -92,7 +92,7 @@ class InstallerTests(unittest.TestCase):
             script += 'case "$0" in "$MITTS_INSTALL_ROOT/bin/.mitts-install."*) ;; *) exit 77;; esac\n'
         data = (script + f'printf "mitts {version} (fixture)\\n"\n').encode()
         with tarfile.open(path, "w:gz") as archive:
-            info = tarfile.TarInfo("mitts")
+            info = tarfile.TarInfo("mitts.exe" if "-windows-" in target else "mitts")
             info.size = len(data)
             info.mode = 0o755
             archive.addfile(info, io.BytesIO(data))
@@ -103,7 +103,7 @@ class InstallerTests(unittest.TestCase):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         (self.fixtures / "SHA256SUMS").write_text(f"{digest}  {path.name}\n")
 
-    def run_installer(self, success=True):
+    def run_installer(self, success=True, exe="mitts"):
         result = subprocess.run(
             ["sh", str(INSTALLER)],
             env=self.env,
@@ -114,7 +114,7 @@ class InstallerTests(unittest.TestCase):
         )
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertTrue((self.prefix / "bin/mitts").is_file())
+            self.assertTrue((self.prefix / "bin" / exe).is_file())
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(list(self.prefix.glob("bin/.mitts-install.*")))
@@ -131,6 +131,15 @@ class InstallerTests(unittest.TestCase):
                 self.archive(target)
                 result = self.run_installer()
                 self.assertIn(target, result.stdout)
+
+    def test_git_bash_on_windows_installs_mitts_exe(self):
+        for system in ["MINGW64_NT-10.0-20348", "MSYS_NT-10.0-20348"]:
+            with self.subTest(system=system):
+                self.platform(system, "x86_64")
+                self.archive("x86_64-pc-windows-msvc")
+                result = self.run_installer(exe="mitts.exe")
+                self.assertIn("x86_64-pc-windows-msvc", result.stdout)
+                self.assertFalse((self.prefix / "bin/mitts").exists())
 
     def test_explicit_version_skips_latest(self):
         self.archive()
