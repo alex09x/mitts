@@ -97,9 +97,11 @@ cp LICENSE-MIT LICENSE-APACHE "$stage/"
 archive=mitts-$tag-$target.tar.gz
 tar -czf "$output/$archive" -C "$stage" "$exe" LICENSE-MIT LICENSE-APACHE BUILD.txt
 cd "$output"
+# `<hash>  <name>` on every platform: Git Bash's sha256sum marks binary mode with `*name`.
 if command -v sha256sum >/dev/null; then
-    sha256sum "$archive" > "$archive.sha256"
+    hash=$(sha256sum < "$archive")
 else
-    shasum -a 256 "$archive" > "$archive.sha256"
+    hash=$(shasum -a 256 < "$archive")
 fi
+printf '%s  %s\n' "${hash%% *}" "$archive" > "$archive.sha256"
 cat "$archive.sha256"
