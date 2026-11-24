@@ -21,6 +21,9 @@ use unix::{create_managed_unix, try_open_inherited};
 #[cfg(unix)]
 mod managed_slots;
 
+#[cfg(windows)]
+mod windows;
+
 static TOKENS_ACQUIRED: AtomicUsize = AtomicUsize::new(0);
 
 /// Global or process-level jobserver coordination pool for rustc codegen units.
@@ -35,6 +38,16 @@ pub enum JobserverPool {
         write_fd: Option<std::os::raw::c_int>,
         #[cfg(unix)]
         owned: bool,
+        /// The named semaphore the auth names (Windows).
+        #[cfg(windows)]
+        sem: Option<windows::Semaphore>,
+    },
+    /// This process's own named semaphore (Windows): `capacity` tokens for its units and
+    /// the rustc processes they start, named by `auth`.
+    #[cfg(windows)]
+    Semaphore {
+        sem: windows::Semaphore,
+        auth: String,
     },
     /// Global or process managed token pool backed by kernel-reclaimed flock slots
     /// for worker concurrency and a replenished FIFO for child `rustc` codegen threads.
@@ -93,7 +106,11 @@ impl JobserverPool {
                     ) {
                         return Ok(pool);
                     }
-                    #[cfg(not(unix))]
+                    #[cfg(windows)]
+                    if matches!(pool, Self::Inherited { sem: Some(_), .. }) {
+                        return Ok(pool);
+                    }
+                    #[cfg(not(any(unix, windows)))]
                     return Ok(pool);
                 }
             }
@@ -116,7 +133,18 @@ impl JobserverPool {
                 owned,
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            let sem = windows::Semaphore::open(auth).ok();
+            if sem.is_none() {
+                eprintln!("[mitts] warning: inherited jobserver auth '{auth}' could not be opened; running unthrottled");
+            }
+            Self::Inherited {
+                auth: auth.to_string(),
+                sem,
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
         Self::Inherited {
             auth: auth.to_string(),
         }
@@ -131,7 +159,17 @@ impl JobserverPool {
             create_managed_unix(cache_root, token_count)
         }
 
-        #[cfg(not(unix))]
+        // Windows: a semaphore of this process (a shared one would lose the tokens of a
+        // process that died holding them; the kernel does not give them back).
+        #[cfg(windows)]
+        {
+            let _ = cache_root;
+            let auth = windows::fresh_name();
+            let sem = windows::Semaphore::create(&auth, token_count)?;
+            Ok(Self::Semaphore { sem, auth })
+        }
+
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (cache_root, token_count);
             Ok(Self::None)
@@ -160,7 +198,9 @@ impl JobserverPool {
                 ..
             }
         );
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        return matches!(self.resolve_lazy(), Self::Inherited { sem: Some(_), .. });
+        #[cfg(not(any(unix, windows)))]
         return matches!(self.resolve_lazy(), Self::Inherited { .. });
     }
     fn resolve_lazy(&self) -> &JobserverPool {
@@ -227,6 +267,24 @@ impl JobserverPool {
                 _ => {}
             }
         }
+        #[cfg(windows)]
+        {
+            let sem = match self {
+                Self::Semaphore { sem, .. } => Some(sem),
+                Self::Inherited { sem, .. } => sem.as_ref(),
+                _ => None,
+            };
+            if let Some(sem) = sem {
+                sem.acquire()
+                    .map_err(|e| anyhow::anyhow!("Failed to acquire jobserver token: {e}"))?;
+                TOKENS_ACQUIRED.fetch_add(1, Ordering::Relaxed);
+                return Ok(Some(JobToken {
+                    pool: self,
+                    byte: b'|',
+                    slot_lock: None,
+                }));
+            }
+        }
         Ok(None)
     }
 
@@ -264,12 +322,26 @@ impl JobserverPool {
                 }
             }
         }
+        #[cfg(windows)]
+        {
+            let _ = byte;
+            let sem = match self {
+                Self::Semaphore { sem, .. } => Some(sem),
+                Self::Inherited { sem, .. } => sem.as_ref(),
+                _ => None,
+            };
+            if let Some(Err(err)) = sem.map(windows::Semaphore::release) {
+                eprintln!("mitts: warning: failed to release jobserver token: {err}");
+            }
+        }
     }
 
     /// Returns the `--jobserver-auth=...` string if active.
     pub fn auth(&self) -> Option<&str> {
         match self.resolve_lazy() {
             Self::Inherited { auth, .. } | Self::Managed { auth, .. } => Some(auth),
+            #[cfg(windows)]
+            Self::Semaphore { auth, .. } => Some(auth),
             Self::Lazy { .. } | Self::None => None,
         }
     }
