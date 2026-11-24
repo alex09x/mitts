@@ -46,6 +46,12 @@ jobs:
         run: |
           sh site/install.sh
           echo "MITTS=$MITTS_INSTALL_ROOT/bin/mitts" >> "$GITHUB_ENV"
+      - name: Build the exact-source Linux Mitts (the cross build needs this source's fixes)
+        run: |
+          "$MITTS" build --locked --release --bin mitts --cache-dir "$RUNNER_TEMP/mitts-cache" \
+            --target-dir "$RUNNER_TEMP/host"
+          "$RUNNER_TEMP/host/release/mitts" --version
+          echo "MITTS=$RUNNER_TEMP/host/release/mitts" >> "$GITHUB_ENV"
       - name: Build mitts.exe
         env:
           CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
@@ -55,8 +61,6 @@ jobs:
           "$MITTS" build --locked --release --bin mitts \
             --target x86_64-pc-windows-gnu \
             --cache-dir "$RUNNER_TEMP/mitts-cache" --target-dir "$RUNNER_TEMP/target"
-          find "$RUNNER_TEMP/target" -name '*mitts*' -type f | head -40
-          find "$RUNNER_TEMP/target" -maxdepth 3 | head -40
           cp "$RUNNER_TEMP/target/x86_64-pc-windows-gnu/release/mitts.exe" mitts.exe
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
