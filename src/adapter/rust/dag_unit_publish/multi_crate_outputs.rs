@@ -60,7 +60,7 @@ pub(super) fn publish_link_outputs(
         });
         action_outputs.push(named.clone());
 
-        let priority = extern_artifact_priority(ext);
+        let priority = extern_artifact_priority(path);
         let extern_candidate = if let Some(ref bdeps) = active_bdeps {
             crate::adapter::rust::build_deps::materialize_in_dir(
                 ctx.cas,
@@ -81,7 +81,7 @@ pub(super) fn publish_link_outputs(
 
         if !ctx.opt.native || unit.is_workspace {
             let profile = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
-            let is_staticlib = matches!(ext, "a" | "lib");
+            let is_staticlib = crate::adapter::rust::artifact_kind::is_static(path);
             let dep_copy = if is_staticlib {
                 ctx.target_dir.join(profile).join(file_name)
             } else {
@@ -132,7 +132,6 @@ pub(super) fn publish_link_outputs(
 }
 
 fn collect_link_outputs(staging_dir: &Path, clean_crate: &str) -> Vec<PathBuf> {
-    let prefix = format!("lib{clean_crate}");
     fs::read_dir(staging_dir)
         .into_iter()
         .flatten()
@@ -143,31 +142,25 @@ fn collect_link_outputs(staging_dir: &Path, clean_crate: &str) -> Vec<PathBuf> {
                 && path
                     .file_name()
                     .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with(&prefix))
+                    .is_some_and(|name| {
+                        crate::adapter::rust::artifact_kind::names_crate(name, clean_crate)
+                    })
         })
         .collect()
 }
 
 fn is_link_output(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|ext| matches!(ext, "rlib" | "dylib" | "so" | "a" | "lib"))
+    use crate::adapter::rust::artifact_kind::{classify, ArtifactKind};
+    matches!(
+        classify(path),
+        Some(ArtifactKind::Rlib | ArtifactKind::Dynamic | ArtifactKind::Static)
+    )
 }
 
 fn link_output_priority(path: &Path) -> u8 {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("rlib") => 0,
-        Some("dylib" | "so") => 1,
-        Some("a" | "lib") => 2,
-        _ => 3,
-    }
+    3 - crate::adapter::rust::artifact_kind::extern_priority(path).min(3)
 }
 
-fn extern_artifact_priority(ext: &str) -> u8 {
-    match ext {
-        "rlib" => 3,
-        "dylib" | "so" => 2,
-        "a" | "lib" => 1,
-        _ => 0,
-    }
+fn extern_artifact_priority(path: &Path) -> u8 {
+    crate::adapter::rust::artifact_kind::extern_priority(path)
 }

@@ -355,12 +355,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             target_scopes: vec![crate::core::action_cache::target_scope(&unit.manifest_path)],
         };
         let has_linkable = |outs: &[CachedOutput]| {
-            outs.iter().any(|o| {
-                matches!(
-                    o.relative_path.extension().and_then(|e| e.to_str()),
-                    Some("rlib" | "dylib" | "so")
-                )
-            })
+            outs.iter()
+                .any(|o| super::artifact_kind::is_linkable(&o.relative_path))
         };
         let should_put = has_linkable(&entry.outputs)
             || !ctx

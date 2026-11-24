@@ -135,16 +135,32 @@ impl<'a> RustcInvocation<'a> {
             // Find generated .rlib / .dylib and .rmeta in out_dir if not captured by streaming
             if primary_output.is_none() || metadata_output.is_none() {
                 if let Ok(entries) = fs::read_dir(self.out_dir) {
+                    // The crate itself, by kind: an rlib, else a dynamic library (`.dll` on
+                    // Windows, where a proc-macro or dylib also leaves an import library
+                    // `NAME.dll.lib` beside it that rustc cannot load), else a static one.
+                    let rank = |p: &Path| match p.extension().and_then(|e| e.to_str()) {
+                        Some("rlib") => Some(0),
+                        Some("dll" | "dylib" | "so") => Some(1),
+                        Some("a") => Some(2),
+                        Some("lib") => Some(3),
+                        _ => None,
+                    };
+                    let mut best: Option<(u8, PathBuf)> = None;
                     for p in entries.flatten().map(|e| e.path()) {
-                        match p.extension().and_then(|e| e.to_str()) {
-                            Some("rlib" | "dylib" | "so" | "a" | "lib")
-                                if primary_output.is_none() =>
-                            {
-                                primary_output = Some(p)
+                        if p.extension().is_some_and(|e| e == "rmeta") {
+                            if metadata_output.is_none() {
+                                metadata_output = Some(p);
                             }
-                            Some("rmeta") if metadata_output.is_none() => metadata_output = Some(p),
-                            _ => {}
+                            continue;
                         }
+                        if let Some(r) = rank(&p) {
+                            if best.as_ref().is_none_or(|(b, _)| r < *b) {
+                                best = Some((r, p));
+                            }
+                        }
+                    }
+                    if primary_output.is_none() {
+                        primary_output = best.map(|(_, p)| p);
                     }
                 }
             }

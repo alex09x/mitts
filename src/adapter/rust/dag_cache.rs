@@ -187,12 +187,10 @@ pub fn try_restore_from_cache_with_directives_and_purity(
             ));
     let mut valid = !entry.outputs.is_empty()
         && (!needs_linkable_lib
-            || entry.outputs.iter().any(|o| {
-                matches!(
-                    o.relative_path.extension().and_then(|e| e.to_str()),
-                    Some("rlib" | "dylib" | "so")
-                )
-            }));
+            || entry
+                .outputs
+                .iter()
+                .any(|o| super::artifact_kind::is_linkable(&o.relative_path)));
     for out in &entry.outputs {
         if fs::metadata(ctx.cas.object_path(&out.cas_hash))
             .map(|m| m.len() != out.file_size)
