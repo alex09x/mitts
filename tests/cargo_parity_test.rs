@@ -1802,10 +1802,13 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
         scratch_dir.display()
     );
     assert!(scratch_dir.join("generated.h").is_file());
-    // Built again from the cache: still writable, still this project's.
+    // `clean` removes the directory with what was written there, as Cargo's clean does.
     env.ok(&first, &["clean"]);
+    assert!(!scratch_dir.exists(), "{}", scratch_dir.display());
+    // Built again from the cache: the script that wrote there runs again, so its file is back.
     let (again, _) = env.ok(&first, &["run", "-q"]);
     assert_eq!(again.trim(), out.trim());
+    assert!(scratch_dir.join("generated.h").is_file());
 
     // A second project with the same cache gets its own directory.
     let second = make("second");
@@ -1814,4 +1817,7 @@ fn build_scripts_write_into_scratch_out_dir_per_target_directory() {
         std::path::Path::new(other.trim()).starts_with(second.join("target")),
         "{other}"
     );
+    assert!(std::path::Path::new(other.trim())
+        .join("generated.h")
+        .is_file());
 }

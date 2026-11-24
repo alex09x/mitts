@@ -142,6 +142,22 @@ pub(crate) fn run_build_script_if_needed<'a>(
             Some(&build_dep_env),
         )?
     };
+    // A cached script that writes into a writable OUT_DIR (`scratch`) is restored only where
+    // its writes are present; elsewhere (another project, after `clean`) it runs again.
+    let script_cache_dir = build_key_opt.as_deref().map(|key| {
+        (
+            ctx.cas.root().join("build_scripts").join(key),
+            key.to_string(),
+        )
+    });
+    let side_effects_missing = |d: Option<BuildScriptDirectives>| {
+        d.filter(|_| {
+            !script_cache_dir
+                .as_ref()
+                .is_some_and(|(dir, key)| super::writable_out_dir::writes_missing(dir, key))
+        })
+    };
+    let cached_directives = side_effects_missing(cached_directives);
     // Owns the stable staging lock from creation on: every early return below releases it.
     let mut stage_guard = None;
     let (directives, staging_dir_opt, retained_job) = if let Some(d) = cached_directives {
@@ -200,7 +216,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
         // A result published while we waited (another worktree of the swarm ran the
         // script) is used like a first-try hit: the clippy pass over build.rs below still
         // runs, so the lint shows up whichever process ran the script.
-        if let Some(d) = rechecked {
+        if let Some(d) = side_effects_missing(rechecked) {
             (d, None, None)
         } else {
             let job_reservation = super::dag_unit::acquire_unit_job_token(ctx)?;
@@ -208,6 +224,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
             stage_guard = Some(super::compiler_args::incremental::StableStageRelease(
                 staging_dir.clone(),
             ));
+            let before = super::writable_out_dir::snapshot();
             let d = match execute_build_script_with_key(
                 unit,
                 &staging_dir,
@@ -236,6 +253,14 @@ pub(crate) fn run_build_script_if_needed<'a>(
                     );
                 }
             };
+            if let Some((dir, key)) = script_cache_dir.as_ref() {
+                super::writable_out_dir::record_writes(
+                    &before,
+                    &super::writable_out_dir::snapshot(),
+                    Some(dir),
+                    key,
+                );
+            }
             if d.rerun_if_changed_hashes
                 .values()
                 .any(|hash| hash == "<missing>")
