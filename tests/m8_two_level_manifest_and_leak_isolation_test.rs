@@ -114,7 +114,9 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     };
     let (plan_c, res_c) = RustAdapter::build(&opt_c).expect("Clone C build failed");
     assert!(res_c.success);
-    let bin_c = clone_c.path().join("target/debug/app");
+    let bin_c = clone_c
+        .path()
+        .join(format!("target/debug/app{}", std::env::consts::EXE_SUFFIX));
     assert!(bin_c.is_file());
     let out_c = Command::new(&bin_c).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_c.stdout), "ASSET:v1");
@@ -174,7 +176,8 @@ proc-macro = true
 #[proc_macro]
 pub fn leak_dir(_input: TokenStream) -> TokenStream {
     let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| "UNKNOWN".into());
-    format!("\"{}\"", dir).parse().unwrap()
+    // `{:?}`: an escaped literal, also for a Windows path's backslashes.
+    format!("{:?}", dir).parse().unwrap()
 }
 "#,
     )

@@ -137,7 +137,10 @@ fn test_m8_transitive_dependent_dynamic_keys_across_clones() {
     let (_, res_c) = RustAdapter::build_native(&opt_c).expect("Clone C build failed");
     assert_eq!(res_c.exit_code, 0);
 
-    let bin_c = clone_c.path().join("target/debug/bin_b");
+    let bin_c = clone_c.path().join(format!(
+        "target/debug/bin_b{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(bin_c.is_file(), "Binary in Clone C must exist");
     let out_c = Command::new(&bin_c).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out_c.stdout), "TRANSITIVE:V1");

@@ -117,7 +117,6 @@ impl<'a> CacheGc<'a> {
             hash: String,
             size: u64,
             mtime: SystemTime,
-            #[cfg(unix)]
             ino_key: (u64, u64),
             /// Other names of the inode (a store hardlink in a workspace, a named
             /// artifact): pruning the object frees nothing while they remain.
@@ -143,19 +142,13 @@ impl<'a> CacheGc<'a> {
                 let size = meta.len();
                 let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                 total_bytes += size;
-                #[cfg(unix)]
-                let (ino_key, linked) = {
-                    use std::os::unix::fs::MetadataExt;
-                    ((meta.dev(), meta.ino()), meta.nlink() > 1)
-                };
-                #[cfg(not(unix))]
-                let linked = false;
+                let (ino_key, linked) = crate::core::file_id::of(&path)
+                    .map_or(((0, 0), false), |id| (id.key(), id.nlink > 1));
                 objects.push(CasObjectMeta {
                     path,
                     hash,
                     size,
                     mtime,
-                    #[cfg(unix)]
                     ino_key,
                     linked,
                 });
@@ -179,18 +172,8 @@ impl<'a> CacheGc<'a> {
             }
             fs::remove_file(p).is_ok()
         };
-        let other_names = |p: &std::path::Path| -> bool {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::MetadataExt;
-                fs::metadata(p).is_ok_and(|m| m.nlink() > 1)
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = p;
-                false
-            }
-        };
+        let other_names =
+            |p: &std::path::Path| crate::core::file_id::of(p).is_some_and(|id| id.nlink > 1);
         // A build holding the cache keeps what it may still use (see `eviction`): objects
         // used within the grace window, and linked ones, whose names stay until no build
         // holds the cache and which free nothing before that.
@@ -260,13 +243,11 @@ impl<'a> CacheGc<'a> {
                 .filter(|o| !pruned_hashes.contains(&o.hash))
                 .map(|o| o.hash.as_str())
                 .collect();
-            #[cfg(unix)]
             let remaining_inodes: HashSet<(u64, u64)> = objects
                 .iter()
                 .filter(|o| !pruned_hashes.contains(&o.hash))
                 .map(|o| o.ino_key)
                 .collect();
-            #[cfg(unix)]
             let mut counted_inodes: HashSet<(u64, u64)> =
                 objects.iter().map(|o| o.ino_key).collect();
 
@@ -304,47 +285,34 @@ impl<'a> CacheGc<'a> {
                     !remaining_hashes
                         .contains(fs::read_to_string(&sidecar).unwrap_or_default().trim())
                 } else {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::MetadataExt;
-                        fs::metadata(&path).is_ok_and(|m| {
-                            m.nlink() <= 1 || !remaining_inodes.contains(&(m.dev(), m.ino()))
-                        })
-                    }
-                    #[cfg(not(unix))]
-                    false
+                    crate::core::file_id::of(&path)
+                        .is_some_and(|id| id.nlink <= 1 || !remaining_inodes.contains(&id.key()))
                 };
                 if is_orphaned {
-                    let meta_opt = fs::metadata(&path).ok();
+                    let id = crate::core::file_id::of(&path);
+                    let size = fs::metadata(&path).map_or(0, |m| m.len());
                     if remove_readonly_file(&path) {
                         let _ = remove_readonly_file(&sidecar);
-                        #[cfg(unix)]
-                        if let Some(m) = meta_opt {
-                            use std::os::unix::fs::MetadataExt;
-                            if counted_inodes.insert((m.dev(), m.ino())) {
-                                bytes_freed += m.len();
-                            }
+                        if id.is_some_and(|id| counted_inodes.insert(id.key())) {
+                            bytes_freed += size;
                         }
                     }
                 }
             }
         } else if !pruned_hashes.is_empty() {
-            #[cfg(unix)]
+            let still_linked: HashSet<(u64, u64)> = artifact_dirs
+                .iter()
+                .filter_map(|d| fs::read_dir(d).ok())
+                .flatten()
+                .flatten()
+                .filter_map(|e| crate::core::file_id::of(&e.path()).map(|id| id.key()))
+                .collect();
+            for obj in objects
+                .iter()
+                .filter(|o| pruned_hashes.contains(&o.hash) && still_linked.contains(&o.ino_key))
             {
-                use std::os::unix::fs::MetadataExt;
-                let still_linked: HashSet<(u64, u64)> = artifact_dirs
-                    .iter()
-                    .filter_map(|d| fs::read_dir(d).ok())
-                    .flatten()
-                    .flatten()
-                    .filter_map(|e| fs::metadata(e.path()).ok().map(|m| (m.dev(), m.ino())))
-                    .collect();
-                for obj in objects.iter().filter(|o| {
-                    pruned_hashes.contains(&o.hash) && still_linked.contains(&o.ino_key)
-                }) {
-                    bytes_freed = bytes_freed.saturating_sub(obj.size);
-                    total_bytes += obj.size;
-                }
+                bytes_freed = bytes_freed.saturating_sub(obj.size);
+                total_bytes += obj.size;
             }
         }
 

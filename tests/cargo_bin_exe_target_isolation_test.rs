@@ -88,8 +88,11 @@ path = "tests/integration.rs"
 #[test]
 fn test_bin_execution() {
     let bin_path = env!("CARGO_BIN_EXE_my-cli");
+    let layout = std::path::Path::new(bin_path);
+    let name = format!("my-cli{}", std::env::consts::EXE_SUFFIX);
     assert!(
-        bin_path.contains("target/debug/my-cli") || bin_path.contains("target/release/my-cli"),
+        layout.ends_with(std::path::Path::new("target/debug").join(&name))
+            || layout.ends_with(std::path::Path::new("target/release").join(&name)),
         "CARGO_BIN_EXE_my-cli must point to the standard target layout, got: {}",
         bin_path
     );
@@ -115,11 +118,12 @@ fn test_bin_execution() {
         log
     );
 
-    let mitts_cli = ws.join("target/debug/my-cli");
+    let exe = std::env::consts::EXE_SUFFIX;
+    let mitts_cli = ws.join(format!("target/debug/my-cli{exe}"));
     assert!(mitts_cli.exists(), "Expected binary at target/debug/my-cli");
 
     assert!(
-        !ws.join("target/mitts/debug/my-cli").exists(),
+        !ws.join(format!("target/mitts/debug/my-cli{exe}")).exists(),
         "Mitts must not duplicate the standard executable under target/mitts"
     );
 }

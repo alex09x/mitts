@@ -158,13 +158,7 @@ impl SourceStore {
             if pid == std::process::id() {
                 continue;
             }
-            #[cfg(unix)]
-            let is_dead = unsafe {
-                libc::kill(pid as i32, 0) == -1
-                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-            };
-            #[cfg(not(unix))]
-            let is_dead = false;
+            let is_dead = crate::core::process::is_dead(pid);
             let is_stale = entry
                 .metadata()
                 .and_then(|m| m.modified())
