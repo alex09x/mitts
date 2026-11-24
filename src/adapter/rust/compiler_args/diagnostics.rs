@@ -120,19 +120,46 @@ pub(crate) fn append_extra_and_diagnostic_args(
         && inv.mode != BuildMode::Check
         && inv.mode != BuildMode::Clippy;
     let diag_format = resolve_diagnostic_format(inv.extra_compiler_args);
+    // Like Cargo, dependencies report future-incompatibility lints (a JSON record, even
+    // with capped lints) on every build; the build's report is assembled from them.
+    let dependency = !inv.unit.is_workspace;
 
     if is_pipelined_lib {
+        let future = if dependency { ",future-incompat" } else { "" };
         match diag_format {
             DiagnosticFormat::Human | DiagnosticFormat::Json => {
-                cmd.args(["--error-format=json", "--json=artifacts"]);
+                cmd.args(["--error-format=json", &format!("--json=artifacts{future}")]);
             }
             DiagnosticFormat::Short | DiagnosticFormat::JsonShort => {
-                cmd.args(["--error-format=json", "--json=artifacts,diagnostic-short"]);
+                cmd.args([
+                    "--error-format=json",
+                    &format!("--json=artifacts,diagnostic-short{future}"),
+                ]);
             }
             DiagnosticFormat::JsonAnsi => {
                 cmd.args([
                     "--error-format=json",
-                    "--json=artifacts,diagnostic-rendered-ansi",
+                    &format!("--json=artifacts,diagnostic-rendered-ansi{future}"),
+                ]);
+            }
+        }
+    } else if dependency {
+        // JSON so the future-incompatibility record can be read; the diagnostics are
+        // rendered back as text where text is shown (`unit_output`).
+        match diag_format {
+            DiagnosticFormat::Human | DiagnosticFormat::Json => {
+                cmd.args([JSON_DIAGNOSTICS_ARG, "--json=future-incompat"]);
+            }
+            DiagnosticFormat::Short | DiagnosticFormat::JsonShort => {
+                cmd.args([
+                    JSON_DIAGNOSTICS_ARG,
+                    "--json=diagnostic-short,future-incompat",
+                ]);
+            }
+            DiagnosticFormat::JsonAnsi => {
+                cmd.args([
+                    JSON_DIAGNOSTICS_ARG,
+                    "--json=diagnostic-rendered-ansi,future-incompat",
                 ]);
             }
         }

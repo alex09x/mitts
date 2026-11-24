@@ -319,23 +319,6 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         );
         return 1;
     }
-    if mitts_dir.exists() {
-        // A build with `--target` marks the target's own directory.
-        let has_marker = clean_target::has_owned_state(&mitts_dir)
-            || args.target.as_ref().is_some_and(|t| {
-                std::path::Path::new(t)
-                    .components()
-                    .all(|c| matches!(c, std::path::Component::Normal(_)))
-                    && clean_target::has_owned_state(&mitts_dir.join(t))
-            });
-        if !has_marker {
-            eprintln!(
-                "mitts error: refusing to clean unowned directory without Mitts marker (.mitts-target): {}",
-                mitts_dir.display()
-            );
-            return 1;
-        }
-    }
     let legacy_mitts_dir = project_dir.join(".mitts");
 
     let selective = args.doc
@@ -356,7 +339,7 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
     // Builds hold this lock shared while they write the target directory: every clean,
     // the narrowed ones too, waits for them.
     let clean_lock_path = mitts_dir.join(".mitts-clean.lock");
-    let _clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
+    let clean_guard = match crate::core::lock::FileLock::acquire_exclusive(&clean_lock_path) {
         Ok(guard) => guard,
         Err(err) => {
             Ui::report_error(&err);
@@ -373,22 +356,40 @@ pub fn handle_clean(args: &CleanArgs) -> i32 {
         };
     }
 
-    if !args.quiet {
-        Ui::header("clean");
-    }
-
-    if mitts_dir.exists() {
-        match clean_target::remove_owned_artifacts(&mitts_dir, args.release) {
-            Ok(count) => Ui::stage_item(
-                true,
-                &Ui::badge_cached(),
-                &format!("Removed {count} owned target artifacts"),
-            ),
-            Err(err) => {
-                Ui::report_error(&err);
-                return 1;
+    // As Cargo: the whole target directory, or with `--release` its release profile
+    // directories (`target/release`, `target/<triple>/release`).
+    let removed = if args.release {
+        clean_target::remove_release_dirs(&mitts_dir)
+    } else {
+        clean_target::remove_target_dir(&mitts_dir, &clean_lock_path)
+    };
+    match removed {
+        Ok((files, bytes)) => {
+            if !args.quiet {
+                eprintln!(
+                    "{:>12} {files} files, {} total",
+                    "Removed",
+                    clean_target::human_size(bytes)
+                );
             }
         }
+        Err(err) => {
+            Ui::report_error(&err);
+            return 1;
+        }
+    }
+    if !args.release {
+        // The clean lock last, once released, then the now empty directory.
+        drop(clean_guard);
+        let _ = std::fs::remove_file(&clean_lock_path);
+        let _ = std::fs::remove_dir(&mitts_dir);
+        if legacy_mitts_dir.exists() {
+            let _ = std::fs::remove_dir_all(&legacy_mitts_dir);
+        }
+        if args.cache {
+            clean_target::prune_cache(args.cache_dir.as_ref());
+        }
+        return 0;
     }
 
     let profiles: &[&str] = if args.release {

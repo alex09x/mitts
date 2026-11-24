@@ -38,7 +38,9 @@
   Treat unknown inputs as uncached or explicitly unsupported, never as unchanged.
 - Separate immutable shared artifacts from mutable workspace state. Do not share
   writable artifacts through unsafe hardlinks or manipulate timestamps to force hits.
-- Cleanup must respect active builds and target only validated, owned artifacts.
+- `mitts clean` behaves as `cargo clean` (removes the target directory, waits for active
+  builds). Cache cleanup (GC) must respect active builds and remove only validated,
+  owned artifacts.
 
 ## Validation and delivery
 

@@ -20,8 +20,8 @@ Cargo's do. Options every command takes: `--config`, `--color`, `-C DIR`, `-Z`,
 | `package`, `publish` | A verified `.crate`; upload to crates.io or `--registry` | `--exclude-lockfile`, `--message-format` (Cargo: unstable) are refused |
 | `install`, `uninstall` | Build a binary from a registry, `--path` or `--git` into `<root>/bin`, tracked in `.crates.toml` / `.crates2.json` | |
 | `search`, `info`, `login`, `logout`, `owner`, `yank` | The registry's web API; tokens through the configured credential providers (`$CARGO_HOME/credentials.toml` by default) | |
-| `report future-incompatibilities` | Shows the last `--future-incompat-report` | The report is produced by an extra check run when `--future-incompat-report` is given, not after every build |
-| `clean` | Removes the target directory's Mitts artifacts: `-p`, `--doc`, `--profile`, `--target`, `--dry-run` | Only files Mitts recorded are removed; `--cache` also prunes the shared cache |
+| `report future-incompatibilities` | Shows a report kept by a build (every build that finds future-incompatible dependency code keeps one; `--future-incompat-report` prints it at once) | |
+| `clean` | Removes the target directory, or with `-p`, `--doc`, `--profile`, `--release`, `--target` part of it; `--dry-run`; waits for a running Cargo build | `--cache` also prunes the shared cache |
 | `version`, `help` | | |
 
 Commands Mitts adds: `explain` (the plan and why each unit is or is not cached),

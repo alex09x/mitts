@@ -140,7 +140,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 Cargo의 나머지 명령도 모두 있으며, 옵션과 출력은 Cargo와 같습니다.
@@ -367,7 +367,7 @@ Mitts는 기존 Cargo 매니페스트와 lockfile을 읽고 이 프로젝트에 
 예. 이 저장소의 CI는 안정적인 최신 버전의 Mitts를 설치한 후 네이티브 빌드, 테스트, 커버리지, 포맷팅 및 Clippy에 이를 사용합니다. 공유 아티팩트 저장소는 각 러너의 로컬에 유지되며, 머신 간 원격 캐시는 아직 지원되지 않습니다.
 
 **rust-analyzer나 기존 Cargo 출력과 충돌합니까?**
-Mitts는 Cargo와 동일한 기본 출력 경로를 사용합니다. 공유 아티팩트 저장소는 별도로 분리되어 있으며, `mitts clean`은 기록된 콘텐츠와 여전히 일치하는 색인된 Mitts 출력물만 제거하고 관련이 없거나 대체된 Cargo 파일은 보존합니다. Cargo가 특정 프로필의 빌드 디렉터리 잠금을 보유하고 있는 경우, 해당 빌드가 완료될 때까지 정리가 건너뛰어집니다.
+Mitts는 Cargo와 동일한 기본 출력 경로를 사용합니다. 공유 아티팩트 저장소는 별도로 분리되어 있으며, `mitts clean`은 `cargo clean`처럼 대상 디렉터리를 제거하며, 실행 중인 Cargo 빌드가 끝나기를 기다립니다. 공유 저장소는 건드리지 않습니다.
 
 **캐시는 어디에 있으며 어떻게 삭제합니까?**
 `--cache-dir`, 미지정 시 `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` 또는 `~/.cache/mitts`. Mitts가 캐시하는 모든 항목은 이 단일 루트 아래에 상주합니다. 할당량 내에서 정리하려면 `mitts gc`를 실행하십시오. 실행 중인 빌드가 없을 때는 디렉터리를 직접 삭제해도 안전합니다.

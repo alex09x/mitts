@@ -146,7 +146,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 Todos los demás comandos de Cargo también están, con las opciones y la salida de Cargo:
@@ -377,7 +377,7 @@ Mitts lee los manifiestos y archivos de bloqueo existentes de Cargo y proporcion
 Sí. El CI de este repositorio instala la versión estable más reciente de Mitts y luego la usa para las compilaciones nativas, pruebas, cobertura, formateo y Clippy. El almacén de artefactos compartido es local para cada ejecutor; una caché remota entre máquinas aún no está disponible.
 
 **¿Entrará en conflicto con rust-analyzer o las salidas existentes de Cargo?**
-Mitts utiliza las mismas rutas de salida predeterminadas que Cargo. Su almacén de artefactos compartido permanece independiente, y `mitts clean` elimina únicamente las salidas indexadas de Mitts que todavía coinciden con su contenido registrado; preserva los archivos no relacionados o reemplazados de Cargo. Si Cargo mantiene el bloqueo del directorio de compilación de un perfil, la limpieza se omite hasta que esa compilación termine.
+Mitts utiliza las mismas rutas de salida predeterminadas que Cargo. Su almacén de artefactos compartido permanece independiente, y `mitts clean` elimina el directorio de destino como `cargo clean`, esperando a una compilación de Cargo que lo esté usando; el almacén compartido no se toca.
 
 **¿Dónde está la caché y cómo la limpio?**
 `--cache-dir`, si no `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` o `~/.cache/mitts`; todo lo que Mitts almacena en caché reside bajo esa única raíz. Utiliza `mitts gc` para limpiar dentro de las cuotas; eliminar el directorio también es seguro cuando no hay ninguna compilación en ejecución.

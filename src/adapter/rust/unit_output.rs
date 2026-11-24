@@ -26,6 +26,43 @@ pub fn shown_text(ctx: &ExecutionContext, unit: &PlannedCompilationUnit, raw: &s
     }
 }
 
+/// The future-incompatibility records of this process's build, `(package id, JSON)`.
+static FUTURE_INCOMPAT: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// The records collected so far, emptied.
+pub fn take_future_incompat_records() -> Vec<(String, String)> {
+    std::mem::take(&mut *FUTURE_INCOMPAT.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Takes the future-incompatibility records out of a unit's output (fresh or replayed) and
+/// keeps them for the build's report; in text modes the JSON diagnostics a dependency was
+/// compiled with are rendered back as text.
+fn take_future_incompat(unit: &PlannedCompilationUnit, raw: &str, fmt: DiagnosticFormat) -> String {
+    let text_mode = matches!(fmt, DiagnosticFormat::Human | DiagnosticFormat::Short);
+    let mut out = String::with_capacity(raw.len());
+    for line in raw.lines() {
+        if line.contains("\"$message_type\":\"future_incompat\"") {
+            FUTURE_INCOMPAT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((unit.package_id.clone(), line.to_string()));
+            continue;
+        }
+        if text_mode && !unit.is_workspace {
+            if let Some(rendered) = super::pipelining::parse_rustc_rendered_diagnostic(line) {
+                out.push_str(&rendered);
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !raw.ends_with('\n') && out.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
 /// Records `raw` as compiler output of `unit` and reports it to the progress callback.
 /// `failed_command` is the command line of a failed unit; it prefixes human text so the
 /// failing invocation is visible, and is left out of JSON and short modes.
@@ -35,6 +72,10 @@ pub fn publish(
     raw: &str,
     failed_command: Option<&str>,
 ) {
+    if raw.is_empty() {
+        return;
+    }
+    let raw = &take_future_incompat(unit, raw, ctx.opt.effective_diagnostic_format());
     if raw.is_empty() {
         return;
     }

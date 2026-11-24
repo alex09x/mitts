@@ -175,7 +175,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 Есть и все остальные команды Cargo, с теми же параметрами и выводом:
@@ -481,10 +481,7 @@ Mitts читает существующие манифесты и локфайл
 
 **Будет ли он конфликтовать с rust-analyzer или существующими результатами Cargo?**
 Mitts использует те же стандартные пути вывода, что и Cargo. Его общее хранилище артефактов остается
-отдельным, а `mitts clean` удаляет только проиндексированные выходные данные Mitts, которые все еще соответствуют
-их записанному содержимому; он сохраняет несвязанные или замененные файлы Cargo.
-Если Cargo удерживает блокировку каталога сборки профиля, очистка пропускается, пока эта
-сборка не завершится.
+отдельным, а `mitts clean` удаляет целевой каталог так же, как `cargo clean`, дожидаясь идущей сборки Cargo; общее хранилище не затрагивается.
 
 **Где находится кэш и как его очистить?**
 Параметр `--cache-dir`, иначе `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` или

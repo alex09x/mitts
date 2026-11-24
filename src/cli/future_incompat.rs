@@ -8,17 +8,17 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-//! Future-incompatibility reports: `--future-incompat-report` checks the workspace once
-//! more with rustc's `--json=future-incompat`, prints what packages will stop compiling in
-//! a future Rust, and keeps the report in `target/.future-incompat-report.json` for
-//! `mitts report future-incompatibilities`. Ordinary builds are not changed by it.
+//! Future-incompatibility reports, as Cargo makes them: dependencies are compiled with
+//! rustc's `--json=future-incompat` (and replay its records from the cache); after every
+//! build that found some, Mitts names the packages, keeps the report in
+//! `target/.future-incompat-report.json` for `mitts report future-incompatibilities`, and
+//! with `--future-incompat-report` prints it in full.
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Args, Debug, Clone)]
 pub struct ReportArgs {
@@ -166,14 +166,54 @@ fn render(per_package: &BTreeMap<String, Vec<String>>, id: u64) -> String {
     text
 }
 
-/// After a build with `--future-incompat-report`: check again with the report enabled,
-/// print it and store it.
-/// `test_like`: the finished command was `test` or `bench` (as the CLI parser read it),
-/// whose default targets include the test targets.
-pub fn run_after_build(argv: &[std::ffi::OsString], test_like: bool) {
-    if let Err(error) = run_after_build_inner(argv, test_like) {
+/// After every build, as Cargo: the future-incompatibility records its dependencies gave
+/// (fresh or replayed) are stored as a report; the packages are named, and with
+/// `--future-incompat-report` (`full`) the report is printed whole.
+pub fn report_after_build(full: bool) {
+    let records = crate::adapter::rust::unit_output::take_future_incompat_records();
+    if let Err(error) = report_records(&records, full) {
         eprintln!("warning: future-incompatibility report not produced: {error:#}");
     }
+}
+
+/// `name@version` of a Mitts package id `name version (source)`.
+fn package_spec(id: &str) -> String {
+    let base = id.split(" (").next().unwrap_or(id);
+    match base.split_once(' ') {
+        Some((name, version)) => format!("{name}@{version}"),
+        None => base.to_string(),
+    }
+}
+
+fn report_records(records: &[(String, String)], full: bool) -> Result<()> {
+    let text: String = records
+        .iter()
+        .filter_map(|(id, line)| {
+            let message: Value = serde_json::from_str(line).ok()?;
+            Some(json!({"package_id": package_spec(id), "message": message}).to_string() + "\n")
+        })
+        .collect();
+    let per_package = collect(&text);
+    if per_package.is_empty() {
+        if full {
+            eprintln!("note: 0 dependencies had future-incompatible warnings");
+        }
+        return Ok(());
+    }
+    let id = store(&per_package)?;
+    if full {
+        eprint!("{}", render(&per_package, id));
+    } else {
+        let names: Vec<&str> = per_package.keys().map(String::as_str).collect();
+        eprintln!(
+            "warning: the following packages contain code that will be rejected by a future version of Rust: {}",
+            names.join(", ")
+        );
+        eprintln!(
+            "note: to see what the problems were, use the option `--future-incompat-report`, or run `mitts report future-incompatibilities --id {id}`"
+        );
+    }
+    Ok(())
 }
 
 /// The options of the finished command that decide what was built: the same manifest,
@@ -240,55 +280,9 @@ pub fn selection_args(argv: &[String]) -> Vec<String> {
     out
 }
 
-fn run_after_build_inner(argv: &[std::ffi::OsString], test_like: bool) -> Result<()> {
-    let exe = std::env::current_exe()?;
-    let mut flags = std::env::var("RUSTFLAGS").unwrap_or_default();
-    if !flags.is_empty() {
-        flags.push(' ');
-    }
-    flags.push_str("--json=future-incompat");
-    // argv: the program, global options, the command, then its options.
-    let words: Vec<String> = argv
-        .iter()
-        .skip(1)
-        .map(|w| w.to_string_lossy().into_owned())
-        .collect();
-    // The same targets the command built: its own selectors; with none, what the command
-    // compiles by default (`test` and `bench` also their test targets).
-    let selection = selection_args(&words);
-    let selectors = [
-        "--lib",
-        "--bins",
-        "--bin",
-        "--examples",
-        "--example",
-        "--tests",
-        "--test",
-        "--benches",
-        "--bench",
-        "--all-targets",
-    ];
-    let selected = selection.iter().any(|w| selectors.contains(&w.as_str()));
-    let mut cmd = Command::new(exe);
-    cmd.args(["check", "--message-format", "json", "-q"]);
-    if !selected && test_like {
-        cmd.arg("--tests");
-    }
-    let output = cmd
-        .args(selection)
-        .args(crate::adapter::rust::cargo_config_cli::child_args())
-        .env("RUSTFLAGS", flags)
-        .output()
-        .context("run mitts check")?;
-    // Records come wrapped on stdout or, unwrapped, among the progress lines on stderr.
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push('\n');
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    let per_package = collect(&text);
-    if per_package.is_empty() {
-        eprintln!("note: 0 dependencies had future-incompatible warnings");
-        return Ok(());
-    }
+/// Adds the report to `target/.future-incompat-report.json` (the last five are kept, as
+/// Cargo keeps them); returns its id.
+fn store(per_package: &BTreeMap<String, Vec<String>>) -> Result<u64> {
     let path = report_path(&None)?;
     let mut doc: Value = std::fs::read_to_string(&path)
         .ok()
@@ -305,8 +299,7 @@ fn run_after_build_inner(argv: &[std::ffi::OsString], test_like: bool) -> Result
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&path, serde_json::to_string_pretty(&doc)?)?;
-    eprint!("{}", render(&per_package, id));
-    Ok(())
+    Ok(id)
 }
 
 pub fn handle_report(args: &ReportArgs) -> i32 {

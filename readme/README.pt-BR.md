@@ -173,7 +173,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 Todos os outros comandos do Cargo também estão lá, com as opções e a saída do Cargo:
@@ -479,10 +479,7 @@ compilações nativas, testes, cobertura, formatação e Clippy. O armazenamento
 
 **Haverá conflito com o rust-analyzer ou saídas existentes do Cargo?**
 O Mitts usa os mesmos caminhos de saída padrão do Cargo. Seu armazenamento compartilhado de artefatos permanece
-separado, e `mitts clean` remove apenas as saídas indexadas do Mitts que ainda correspondem
-ao conteúdo registrado; ele preserva arquivos do Cargo não relacionados ou substituídos.
-Se o Cargo mantiver o lock do diretório de build de um perfil, a limpeza será ignorada até que essa
-compilação termine.
+separado, e `mitts clean` remove o diretório de destino como o `cargo clean`, esperando um build do Cargo em andamento; o armazenamento compartilhado não é tocado.
 
 **Onde fica o cache e como posso limpá-lo?**
 `--cache-dir`, caso contrário `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` ou

@@ -174,7 +174,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 Toutes les autres commandes de Cargo sont là aussi, avec les options et la sortie de Cargo :
@@ -480,10 +480,7 @@ est local à chaque exécuteur ; un cache distant multi-machines n'est pas encor
 
 **Entrera-t-il en conflit avec rust-analyzer ou les sorties existantes de Cargo ?**
 Mitts utilise les mêmes chemins de sortie par défaut que Cargo. Son magasin partagé d'artefacts reste
-séparé, et `mitts clean` ne supprime que les sorties indexées de Mitts qui correspondent encore
-à leur contenu enregistré ; il préserve les fichiers Cargo non liés ou remplacés.
-Si Cargo détient le verrou du répertoire de build d'un profil, le nettoyage est ignoré tant que ce
-build n'est pas terminé.
+séparé, et `mitts clean` supprime le répertoire cible comme `cargo clean`, en attendant un build Cargo en cours ; le stockage partagé n'est pas touché.
 
 **Où se trouve le cache et comment le vider ?**
 `--cache-dir`, sinon `$MITTS_CACHE_DIR`, `$XDG_CACHE_HOME/mitts` ou

@@ -143,7 +143,7 @@ mitts fetch                  # prefetch dependencies into the source store
 mitts package                # create and verify a source archive
 mitts publish --dry-run      # prepare publication without uploading
 mitts gc                     # prune the shared store within quotas
-mitts clean                  # remove this workspace's Mitts artifacts (-p, --doc, --dry-run)
+mitts clean                  # remove the target directory (-p, --doc, --dry-run)
 ```
 
 Cargo のその他のコマンドもすべてあり、Cargo と同じオプションと出力です。
@@ -370,7 +370,7 @@ Mittsは既存のCargoマニフェストとロックファイルを読み込み�
 はい。このリポジトリのCIでは最新の安定版Mittsをインストールし、ネイティブビルド、テスト、カバレッジ、フォーマット、およびClippyに使用しています。共有アーティファクトストアは各ランナーにローカルです。マシン間をまたぐリモートキャッシュはまだ利用できません。
 
 **rust-analyzerや既存のCargo出力と衝突しませんか？**
-MittsはCargoと同じデフォルトの出力パスを使用します。共有アーティファクトストアは分離されており、`mitts clean` は記録された内容と一致しているインデックス付きのMitts出力のみを削除します。無関係な、または置き換えられたCargoファイルは保持されます。Cargoがプロファイルのビルドディレクトリロックを保持している場合、そのビルドが終了するまでクリーンアップはスキップされます。
+MittsはCargoと同じデフォルトの出力パスを使用します。共有アーティファクトストアは分離されており、`mitts clean` は `cargo clean` と同様にターゲットディレクトリを削除し、実行中の Cargo ビルドを待ちます。共有ストアには触れません。
 
 **キャッシュはどこにあり、どのようにクリアしますか？**
 `--cache-dir`、未指定なら `$MITTS_CACHE_DIR`、`$XDG_CACHE_HOME/mitts`、または `~/.cache/mitts` です。Mittsがキャッシュするものはすべてその単一のルートの下に配置されます。クォータ内でプルーニングを行うには `mitts gc` を使用してください。ビルドが実行されていない状態であれば、ディレクトリを削除しても安全です。
