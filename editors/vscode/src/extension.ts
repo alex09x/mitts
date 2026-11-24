@@ -163,6 +163,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (choice !== "Replace") {
           return;
         }
+        // The confirmation covered the values it showed; if they changed meanwhile, stop.
+        const now = vscode.workspace.getConfiguration("rust-analyzer");
+        if (JSON.stringify(workspaceValues(now)) !== JSON.stringify(current)) {
+          void vscode.window.showWarningMessage(
+            "The rust-analyzer settings changed while you were deciding. Nothing was changed; run the command again.",
+          );
+          return;
+        }
       }
       // Per key: a key still on Mitts' last value keeps its original previous value.
       const saved = nextSaved(current, ours, context.workspaceState.get<Saved>(SAVED_KEY));
@@ -182,8 +190,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await config.update(key, value, vscode.ConfigurationTarget.Workspace);
       }
       await context.workspaceState.update(SAVED_KEY, undefined);
+      const kept = RUST_ANALYZER_KEYS.filter((key) => !(key in plan));
       void vscode.window.showInformationMessage(
-        "rust-analyzer settings in this workspace are back to what they were before Mitts.",
+        kept.length === 0
+          ? "rust-analyzer settings in this workspace are back to what they were before Mitts."
+          : `Restored what Mitts had set. Left as you changed it: ${kept
+              .map((k) => `rust-analyzer.${k}`)
+              .join(", ")}.`,
       );
     }),
   );
