@@ -249,19 +249,13 @@ pub fn handle_build(args: &BuildArgs) -> i32 {
         return code;
     }
     if args.message_format != MessageFormat::Human {
-        let code = message_format::run_non_human_build(&mut opt, args.message_format);
-        if code == 0 {
-            if let Some(dir) = &args.artifact_dir {
-                if let Err(error) = copy_final_artifacts(&opt, dir) {
-                    eprintln!("error: {error:#}");
-                    // The stream already said the build finished; the command as a whole
-                    // did not succeed, and the last record says so.
-                    message_format::emit_build_finished(false);
-                    return 101;
-                }
+        // The export runs before the one closing `build-finished`, which covers it.
+        return message_format::run_non_human_build_then(&mut opt, args.message_format, |opt| {
+            match &args.artifact_dir {
+                Some(dir) => copy_final_artifacts(opt, dir),
+                None => Ok(()),
             }
-        }
-        return code;
+        });
     }
     let start = std::time::Instant::now();
     let profile = &crate::adapter::rust::profile::profile_name(opt.release);

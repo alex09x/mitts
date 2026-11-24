@@ -1720,3 +1720,40 @@ fn corrupt_credentials_or_records_change_nothing() {
         "{err}"
     );
 }
+
+#[test]
+fn json_build_reports_a_failed_artifact_export_once() {
+    let env = Env::new();
+    let registry = serve(Vec::new());
+    let app = env.app(&registry, "");
+    fs::create_dir_all(app.join("examples")).unwrap();
+    fs::write(app.join("examples/app.rs"), "fn main() {}\n").unwrap();
+    let out_dir = env.path("artifacts");
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
+    cmd.args([
+        "build",
+        "--bins",
+        "--examples",
+        "--message-format",
+        "json",
+        "-Z",
+        "unstable-options",
+        "--artifact-dir",
+        out_dir.to_str().unwrap(),
+    ])
+    .current_dir(&app)
+    .env("CARGO_HOME", env.path("cargo-home"))
+    .env("MITTS_CACHE_DIR", env.path("cache"));
+    let out = cmd.output().unwrap();
+    assert_eq!(out.status.code(), Some(101));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let finished: Vec<&str> = stdout
+        .lines()
+        .filter(|l| l.contains("\"build-finished\""))
+        .collect();
+    assert_eq!(
+        finished,
+        ["{\"reason\":\"build-finished\",\"success\":false}"],
+        "{stdout}"
+    );
+}
