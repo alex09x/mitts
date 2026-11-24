@@ -8,7 +8,8 @@ name: Release binaries
 
 on:
   push:
-    tags: ['v*']
+    # Mitts release tags only (v0.4.0); `vscode-v*` tags belong to vscode-extension.yml.
+    tags: ['v[0-9]*']
   workflow_dispatch:
     inputs:
       tag:
