@@ -9,6 +9,7 @@
  */
 
 use mitts::core::cas::ContentAddressedStore;
+#[cfg(unix)]
 use mitts::core::lock::FileLock;
 use mitts::core::source_store::SourceStore;
 use std::fs;
