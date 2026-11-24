@@ -233,6 +233,10 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         .values()
         .map(|entry| (entry.cargo_id.clone(), entry.version.clone()))
         .collect();
+    let package_sources_by_id: HashMap<String, Option<String>> = packages
+        .values()
+        .map(|entry| (entry.cargo_id.clone(), entry.source.clone()))
+        .collect();
 
     let mut nodes = Vec::new();
     for (internal_id, entry) in &packages {
@@ -279,16 +283,23 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                     .cloned()
                     .unwrap_or_default();
                 let active: Vec<String> = kinds.into_iter().collect();
-                declaration_edges(&entry.manifest, &package, &version, &active)
-                    .into_iter()
-                    .map(move |(name, edge_kinds)| {
-                        let dep_kinds = edge_kinds
-                            .iter()
-                            .map(|kind| serde_json::from_str::<Value>(kind).unwrap_or(Value::Null))
-                            .collect::<Vec<_>>();
-                        json!({"name": name, "pkg": pkg.clone(), "dep_kinds": dep_kinds})
-                    })
-                    .collect::<Vec<_>>()
+                let source = package_sources_by_id.get(&pkg).cloned().flatten();
+                declaration_edges(
+                    &entry.manifest,
+                    &package,
+                    &version,
+                    source.as_deref(),
+                    &active,
+                )
+                .into_iter()
+                .map(move |(name, edge_kinds)| {
+                    let dep_kinds = edge_kinds
+                        .iter()
+                        .map(|kind| serde_json::from_str::<Value>(kind).unwrap_or(Value::Null))
+                        .collect::<Vec<_>>();
+                    json!({"name": name, "pkg": pkg.clone(), "dep_kinds": dep_kinds})
+                })
+                .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         let dependencies = deps
@@ -487,6 +498,33 @@ fn package_dependencies(manifest: &CargoToml) -> Vec<Value> {
     dependencies
 }
 
+/// Whether a declaration can be the one a resolved package (`source`: its lock source, `None`
+/// for a path package) came from: a path declaration a path package, a git one the same
+/// repository, a named registry an alternative registry, a plain one crates.io.
+fn same_source(dep: &TomlDependency, source: Option<&str>) -> bool {
+    const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
+    let detail = match dep {
+        TomlDependency::Simple(_) => None,
+        TomlDependency::Detailed(d) => Some(d),
+    };
+    let trim = |url: &str| {
+        url.trim_end_matches('/')
+            .trim_end_matches(".git")
+            .to_string()
+    };
+    match (detail, source) {
+        (Some(d), _) if d.path.is_some() && d.git.is_none() => source.is_none(),
+        (Some(d), Some(s)) if d.git.is_some() => {
+            let base = s.strip_prefix("git+").unwrap_or(s);
+            let base = base.split(['?', '#']).next().unwrap_or(base);
+            s.starts_with("git+") && trim(base) == trim(d.git.as_deref().unwrap_or_default())
+        }
+        (Some(d), Some(s)) if d.registry.is_some() => s != CRATES_IO,
+        (_, Some(s)) => s.starts_with("registry+") || s.starts_with("sparse+"),
+        (_, None) => false,
+    }
+}
+
 /// The edges from `manifest`'s package to `package` (at `version`): one per extern crate name
 /// (the manifest key of a renamed declaration, else the package name, `-` as `_`), each with
 /// the kinds, among the `active` ones, of the declarations under that name whose
@@ -495,6 +533,7 @@ fn declaration_edges(
     manifest: &CargoToml,
     package: &str,
     version: &str,
+    source: Option<&str>,
     active: &[String],
 ) -> Vec<(String, Vec<String>)> {
     // (table, kind, target)
@@ -530,7 +569,7 @@ fn declaration_edges(
                     d.version.as_deref(),
                 ),
             };
-            if real != package {
+            if real != package || !same_source(dep, source) {
                 continue;
             }
             let admits = match (req.map(semver::VersionReq::parse), &parsed) {

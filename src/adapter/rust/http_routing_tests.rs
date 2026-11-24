@@ -72,6 +72,9 @@ fn query_fragment_and_dot_segment_references_follow_rfc_3986() {
     let hop = join(base, "https://example.com/a/..");
     assert_eq!(hop, "https://example.com/");
     assert_eq!(join(&hop, "next"), "https://example.com/next");
+    // Percent-encoded dot segments count as dot segments.
+    assert_eq!(join(base, "https://h/a/b/%2e/../next"), "https://h/a/next");
+    assert_eq!(join(base, "https://h/a/b/%2E%2e/c"), "https://h/a/c");
 }
 
 #[test]

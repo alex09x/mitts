@@ -437,9 +437,11 @@ fn hg_target_ignored(text: &str) -> (bool, String) {
             syntax = s.trim().to_string();
             continue;
         }
-        // A `kind:` prefix on the line overrides the section's syntax.
+        // A `kind:` prefix on the line overrides the section's syntax, for the kinds
+        // Mercurial's pattern-file reader (`match.readpatternfile`) accepts there: `re`,
+        // `regexp`, `glob`, `rootglob`. Anything else (`path:`) is a pattern of the section.
         let (kind, pattern) = match line.split_once(':') {
-            Some((k, p)) if matches!(k, "re" | "regexp" | "glob" | "rootglob" | "path") => {
+            Some((k, p)) if matches!(k, "re" | "regexp" | "glob" | "rootglob") => {
                 (k.to_string(), p.trim())
             }
             _ => (syntax.clone(), line),
@@ -450,7 +452,7 @@ fn hg_target_ignored(text: &str) -> (bool, String) {
             "regexp" | "re" => {
                 pattern == "^target$" || pattern == "^target/" || pattern == "^target(/|$)"
             }
-            "rootglob" | "path" => pattern == "target" || pattern == "target/**",
+            "rootglob" => pattern == "target" || pattern == "target/**",
             _ => pattern == "target" || pattern == "target/**",
         };
         ignored |= rule;

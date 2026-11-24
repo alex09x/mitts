@@ -312,14 +312,14 @@ pub(crate) struct Unsatisfiable {
     message: String,
     /// The registry package version whose dependency could not be satisfied: resolving
     /// again without that version is how the resolver backtracks.
-    blame: Option<(Key, String)>,
+    blame: Vec<(Key, String)>,
 }
 
 impl Unsatisfiable {
     pub(crate) fn new(message: String) -> Self {
         Unsatisfiable {
             message,
-            blame: None,
+            blame: Vec::new(),
         }
     }
 }
@@ -358,44 +358,66 @@ impl NativeResolver {
         if !limited || !unsatisfiable {
             return result;
         }
+        let outcome = self.relax_until_resolved(roots, offline);
+        self.set_relaxed(HashSet::new(), false);
+        match outcome {
+            Ok(Some(lock)) => Ok(lock),
+            Ok(None) => result,
+            Err(other) => Err(other),
+        }
+    }
+
+    /// One attempt under the current relaxation: `Ok(None)` when the graph has no solution,
+    /// any other error (fetch, configuration) passed on unchanged.
+    fn try_relaxed(&self, roots: &[ManifestDirectDep], offline: bool) -> Result<Option<CargoLock>> {
+        match self.resolve_graph_with_limit(roots, offline) {
+            Ok(lock) => Ok(Some(lock)),
+            Err(e) if e.downcast_ref::<Unsatisfiable>().is_some() => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn relax_until_resolved(
+        &self,
+        roots: &[ManifestDirectDep],
+        offline: bool,
+    ) -> Result<Option<CargoLock>> {
         let affected: Vec<String> = self.rust_affected.lock().unwrap().clone();
         for one in &affected {
             self.set_relaxed(HashSet::from([one.clone()]), false);
-            if let Ok(lock) = self.resolve_graph_with_limit(roots, offline) {
-                return Ok(lock);
+            if let Some(lock) = self.try_relaxed(roots, offline)? {
+                return Ok(Some(lock));
             }
         }
         let mut relaxed: HashSet<String> = affected.iter().cloned().collect();
         self.set_relaxed(relaxed.clone(), false);
-        let mut found = self.resolve_graph_with_limit(roots, offline).ok();
+        let mut found = self.try_relaxed(roots, offline)?;
         if found.is_none() {
-            // Everywhere; the run still records every package the limit would change.
+            // Everywhere; the run still records every decision the limit would change.
             self.set_relaxed(HashSet::new(), true);
-            if self.resolve_graph_with_limit(roots, offline).is_err() {
-                self.set_relaxed(HashSet::new(), false);
-                return result;
+            if self.try_relaxed(roots, offline)?.is_none() {
+                return Ok(None);
             }
             relaxed = self.rust_affected.lock().unwrap().iter().cloned().collect();
             self.set_relaxed(relaxed.clone(), false);
-            found = self.resolve_graph_with_limit(roots, offline).ok();
+            found = self.try_relaxed(roots, offline)?;
         }
         let Some(mut lock) = found else {
-            self.set_relaxed(HashSet::new(), false);
-            return result;
+            return Ok(None);
         };
+        // Narrow: every decision that still resolves under the limit goes back under it.
         let mut candidates: Vec<String> = relaxed.iter().cloned().collect();
         candidates.sort();
-        for name in candidates {
+        for decision in candidates {
             let mut fewer = relaxed.clone();
-            fewer.remove(&name);
+            fewer.remove(&decision);
             self.set_relaxed(fewer.clone(), false);
-            if let Ok(smaller) = self.resolve_graph_with_limit(roots, offline) {
+            if let Some(smaller) = self.try_relaxed(roots, offline)? {
                 relaxed = fewer;
                 lock = smaller;
             }
         }
-        self.set_relaxed(HashSet::new(), false);
-        Ok(lock)
+        Ok(Some(lock))
     }
 
     fn set_relaxed(&self, keys: HashSet<String>, all: bool) {
@@ -421,13 +443,34 @@ impl NativeResolver {
                     Err(error) => {
                         let blame = error
                             .downcast_ref::<Unsatisfiable>()
-                            .and_then(|u| u.blame.clone());
-                        match blame {
-                            Some(b) if !excluded.contains(&b) => {
+                            .map(|u| u.blame.clone())
+                            .unwrap_or_default();
+                        // Of the registry versions that asked for the failing request, rule
+                        // out one that has another version to fall back to (else any).
+                        let open: Vec<&(Key, String)> =
+                            blame.iter().filter(|b| !excluded.contains(*b)).collect();
+                        let has_alternative = |(k, v): &&(Key, String)| {
+                            index_cache.get(k).is_some_and(|entries| {
+                                entries.iter().any(|e| {
+                                    !e.yanked
+                                        && e.vers != *v
+                                        && !excluded.contains(&(k.clone(), e.vers.clone()))
+                                })
+                            })
+                        };
+                        let pick = open
+                            .iter()
+                            .find(|b| has_alternative(b))
+                            .or_else(|| open.first())
+                            .map(|b| (*b).clone());
+                        match pick {
+                            Some(b) => {
                                 excluded.insert(b);
+                                // What was learnt under the abandoned version no longer holds.
+                                pins.clear();
                                 continue;
                             }
-                            _ => return Err(error),
+                            None => return Err(error),
                         }
                     }
                     Ok(attempt) => attempt,
@@ -469,7 +512,7 @@ impl NativeResolver {
         let relax_all = *self.rust_relax_all.lock().unwrap();
         // For each registry package requested by another registry package: that parent and
         // its version, to blame when the request has no solution.
-        let mut parent_of: HashMap<Key, (Key, String)> = HashMap::new();
+        let mut parent_of: HashMap<Key, Vec<(Key, String)>> = HashMap::new();
         let mut git = GitResolver::for_cache_dir(self.cache_dir.as_deref(), config.clone());
         let mut nodes: Vec<Node> = Vec::new();
         let mut by_key: HashMap<Key, Vec<usize>> = HashMap::new();
@@ -571,7 +614,9 @@ impl NativeResolver {
                             // pin of the range the pick landed in, pick again, until a pick lands
                             // in a range whose pin is already applied (or has none).
                             let mut applied: HashSet<String> = HashSet::new();
-                            let k_str = key_string(&k);
+                            // A decision is this package for this requirement: relaxing one
+                            // version range leaves the package's other ranges under the limit.
+                            let k_str = format!("{}|{}", key_string(&k), r.req);
                             let limit =
                                 rust_limit.filter(|_| !relax_all && !relaxed.contains(&k_str));
                             let chosen = loop {
@@ -608,7 +653,7 @@ impl NativeResolver {
                                         "resolving {} {}{by} from {}: {what}",
                                         r.name, r.req, r.source
                                     ),
-                                    blame: parent_of.get(&k).cloned(),
+                                    blame: parent_of.get(&k).cloned().unwrap_or_default(),
                                 })
                             })?;
                             // Where the Rust limit changes the pick: a candidate for relaxing
@@ -673,12 +718,11 @@ impl NativeResolver {
                     if parent_is_registry {
                         parent_of
                             .entry((source.clone(), pkg_name.clone()))
-                            .or_insert_with(|| {
-                                (
-                                    (parent_source.clone(), nodes[idx].name.clone()),
-                                    nodes[idx].version.clone(),
-                                )
-                            });
+                            .or_default()
+                            .push((
+                                (parent_source.clone(), nodes[idx].name.clone()),
+                                nodes[idx].version.clone(),
+                            ));
                     }
                     let mut features = d.features.clone();
                     features.extend(more);

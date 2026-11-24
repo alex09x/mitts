@@ -209,10 +209,11 @@ members = ["crates/*"]
 }
 
 #[test]
-fn test_discover_workspace_members_unsupported_pattern_returns_error() {
+fn test_discover_workspace_members_character_class_pattern() {
+    // Character classes are glob syntax Cargo accepts: `crates/[a-z]*` matches `crates/alpha`
+    // and not `crates/9lives`.
     let temp = TempDir::new().unwrap();
     let root = temp.path();
-
     fs::write(
         root.join("Cargo.toml"),
         r#"[workspace]
@@ -220,13 +221,22 @@ members = ["crates/[a-z]*"]
 "#,
     )
     .unwrap();
-
+    for name in ["alpha", "9lives"] {
+        let dir = root.join("crates").join(name);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            format!("[package]\nname = \"p{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        )
+        .unwrap();
+        fs::write(dir.join("src/lib.rs"), "").unwrap();
+    }
     let ws_toml = CargoToml::from_file(&root.join("Cargo.toml")).unwrap();
-    let res = ws_toml.discover_workspace_members(root);
-    assert!(
-        res.is_err(),
-        "Expected error for unsupported glob character class"
-    );
-    let err_str = res.unwrap_err().to_string();
-    assert!(err_str.contains("glob character classes and `?` wildcards are not supported"));
+    let names: Vec<String> = ws_toml
+        .discover_workspace_members(root)
+        .unwrap()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert_eq!(names, ["palpha"]);
 }

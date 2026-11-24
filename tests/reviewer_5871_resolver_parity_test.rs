@@ -619,31 +619,15 @@ fn test_workspace_pattern_unsupported_glob_syntax() {
     assert!(validate_workspace_pattern("crates/**").is_ok());
     assert!(validate_workspace_pattern("crates/tokio-*").is_ok());
 
-    let err_inter = validate_workspace_pattern("crates/*/sub");
-    assert!(err_inter.is_err());
-    assert!(err_inter
-        .unwrap_err()
-        .to_string()
-        .contains("wildcards in intermediate directories are not supported"));
-
-    let err_q = validate_workspace_pattern("crates/?/foo");
-    assert!(err_q.is_err());
-    assert!(err_q
-        .unwrap_err()
-        .to_string()
-        .contains("glob character classes and `?` wildcards are not supported"));
-
-    let err_bracket = validate_workspace_pattern("crates/[a-z]");
-    assert!(err_bracket.is_err());
-    assert!(err_bracket
-        .unwrap_err()
-        .to_string()
-        .contains("glob character classes and `?` wildcards are not supported"));
-
-    let err_multi = validate_workspace_pattern("crates/*foo*");
-    assert!(err_multi.is_err());
-    assert!(err_multi
-        .unwrap_err()
-        .to_string()
-        .contains("multiple wildcards in a component are not supported"));
+    // Everything Cargo's `glob` accepts: wildcards in any component, `?`, classes, several
+    // wildcards in one component.
+    for pattern in [
+        "crates/*/sub",
+        "crates/?/foo",
+        "crates/[a-z]",
+        "crates/*foo*",
+    ] {
+        assert!(validate_workspace_pattern(pattern).is_ok(), "{pattern}");
+    }
+    assert!(validate_workspace_pattern("").is_err());
 }

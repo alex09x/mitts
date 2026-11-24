@@ -2362,3 +2362,51 @@ fn a_rooted_glob_target_rule_does_not_count_in_hgignore() {
         "syntax: glob\n/target\nsyntax: regexp\n^target$\n"
     );
 }
+
+#[test]
+fn members_matched_by_a_glob_in_a_middle_component_count_for_msrv() {
+    let env = Env::new();
+    let registry = serve(vec![
+        Published {
+            rust_version: Some("1.40"),
+            ..version("aa", "1.0.0")
+        },
+        Published {
+            rust_version: Some("1.60"),
+            ..version("aa", "1.1.0")
+        },
+    ]);
+    let app = env.app(
+        &registry,
+        "[dependencies]\naa = \"1\"\n\n[workspace]\nresolver = \"3\"\nmembers = [\"vendor/*/fixtures\"]\n",
+    );
+    let manifest = read(app.join("Cargo.toml")).replace(
+        "edition = \"2021\"",
+        "edition = \"2021\"\nrust-version = \"1.70\"",
+    );
+    fs::write(app.join("Cargo.toml"), manifest).unwrap();
+    let member = app.join("vendor/one/fixtures");
+    fs::create_dir_all(member.join("src")).unwrap();
+    fs::write(
+        member.join("Cargo.toml"),
+        "[package]\nname = \"fixtures\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.50\"\n",
+    )
+    .unwrap();
+    fs::write(member.join("src/lib.rs"), "").unwrap();
+    let (out, _) = env.ok(&app, &["metadata", "--no-deps", "--format-version", "1"]);
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(
+        doc["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "fixtures"),
+        "the member is found: {out}"
+    );
+    env.ok(&app, &["generate-lockfile"]);
+    let lock = read(app.join("Cargo.lock"));
+    assert!(
+        lock.contains("name = \"aa\"\nversion = \"1.0.0\""),
+        "the member's 1.50 is the limit: {lock}"
+    );
+}

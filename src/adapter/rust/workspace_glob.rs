@@ -47,9 +47,41 @@ fn component(p: &[char], s: &[char]) -> bool {
         (None, None) => true,
         (Some('*'), _) => component(&p[1..], s) || (!s.is_empty() && component(p, &s[1..])),
         (Some('?'), Some(_)) => component(&p[1..], &s[1..]),
+        (Some('['), Some(c)) => match class(&p[1..], *c) {
+            Some((true, rest)) => component(rest, &s[1..]),
+            Some((false, _)) => false,
+            // No closing `]`: a literal `[`.
+            None => *c == '[' && component(&p[1..], &s[1..]),
+        },
         (Some(a), Some(b)) if a == b => component(&p[1..], &s[1..]),
         _ => false,
     }
+}
+
+/// A `[...]` character class (after the `[`), as the `glob` crate Cargo uses reads it:
+/// ranges `a-z`, negation `!` (or `^`), `]` first is literal. Whether `c` matches, and the
+/// pattern after the class; `None` when the class is not closed.
+fn class(p: &[char], c: char) -> Option<(bool, &[char])> {
+    let (negated, mut i) = match p.first() {
+        Some('!') | Some('^') => (true, 1),
+        _ => (false, 0),
+    };
+    let mut matched = false;
+    let mut first = true;
+    while i < p.len() {
+        if p[i] == ']' && !first {
+            return Some((matched != negated, &p[i + 1..]));
+        }
+        if i + 2 < p.len() && p[i + 1] == '-' && p[i + 2] != ']' {
+            matched |= p[i] <= c && c <= p[i + 2];
+            i += 3;
+        } else {
+            matched |= p[i] == c;
+            i += 1;
+        }
+        first = false;
+    }
+    None
 }
 
 #[cfg(test)]
@@ -72,5 +104,9 @@ mod tests {
             Path::new("vendor/a/b/fixtures")
         ));
         assert!(!path_glob("crates/legacy-*", Path::new("crates/modern")));
+        assert!(path_glob("crates/*foo*", Path::new("crates/afoob")));
+        assert!(path_glob("crates/[a-c]x", Path::new("crates/bx")));
+        assert!(!path_glob("crates/[a-c]x", Path::new("crates/dx")));
+        assert!(path_glob("crates/[!a-c]x", Path::new("crates/dx")));
     }
 }

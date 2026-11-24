@@ -255,11 +255,14 @@ fn normalize(url: &str) -> String {
 }
 
 fn remove_dot_segments(path: &str) -> String {
+    // The URL parser treats `%2e` (any case) as `.` in a dot segment; so do we.
+    let dots = |s: &str| s.to_ascii_lowercase().replace("%2e", ".");
     let mut out: Vec<&str> = Vec::new();
     let segments: Vec<&str> = path.split('/').collect();
     for (i, segment) in segments.iter().enumerate() {
         let last = i + 1 == segments.len();
-        match *segment {
+        let decoded = dots(segment);
+        match decoded.as_str() {
             "." => {
                 if last {
                     out.push("");
@@ -273,7 +276,7 @@ fn remove_dot_segments(path: &str) -> String {
                     out.push("");
                 }
             }
-            s => out.push(s),
+            _ => out.push(segment),
         }
     }
     let joined = out.join("/");

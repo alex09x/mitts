@@ -145,23 +145,43 @@ impl CargoToml {
                             members.push((pkg.name.clone(), root_dir.to_path_buf()));
                         }
                     }
-                } else if pattern.contains('*') {
-                    let pattern_path = Path::new(pattern);
-                    let base_dir = pattern_path
-                        .parent()
-                        .map(|p| root_dir.join(p))
-                        .unwrap_or_else(|| root_dir.to_path_buf());
-                    if let Ok(entries) = fs::read_dir(&base_dir) {
+                } else if pattern.contains(['*', '?', '[']) {
+                    // Wildcards in any component (`vendor/*/fixtures`): the directories under
+                    // the pattern's literal prefix, to the pattern's depth (any depth for
+                    // `**`), matched component by component.
+                    let parts: Vec<&str> = pattern
+                        .trim_start_matches("./")
+                        .split('/')
+                        .filter(|c| !c.is_empty())
+                        .collect();
+                    let literal: PathBuf = parts
+                        .iter()
+                        .take_while(|c| !c.contains(['*', '?', '[']))
+                        .collect();
+                    let max_depth = if parts.contains(&"**") {
+                        16
+                    } else {
+                        parts.len()
+                    };
+                    let mut dirs: Vec<PathBuf> = Vec::new();
+                    collect_dirs(&root_dir.join(&literal), root_dir, max_depth, &mut dirs);
+                    {
                         // Sorted: `read_dir` order is the filesystem's, and two matched
                         // directories declaring one package name resolved differently.
-                        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
                         dirs.sort();
                         for candidate_dir in dirs {
                             if candidate_dir.is_dir() {
                                 if let Ok(rel) = candidate_dir.strip_prefix(root_dir) {
-                                    let is_excluded =
-                                        ws.exclude.iter().any(|ex| matches_path_pattern(ex, rel));
-                                    if !is_excluded && matches_path_pattern(pattern, rel) {
+                                    let is_excluded = ws.exclude.iter().any(|ex| {
+                                        matches_path_pattern(ex, rel)
+                                            || rel.ancestors().any(|a| {
+                                                !a.as_os_str().is_empty()
+                                                    && super::workspace_glob::path_glob(ex, a)
+                                            })
+                                    });
+                                    if !is_excluded
+                                        && super::workspace_glob::path_glob(pattern, rel)
+                                    {
                                         let candidate_manifest = candidate_dir.join("Cargo.toml");
                                         if candidate_manifest.is_file() {
                                             let toml = CargoToml::from_file(&candidate_manifest)
@@ -243,6 +263,12 @@ impl CargoToml {
 }
 
 pub fn matches_path_pattern(pattern: &str, rel: &Path) -> bool {
+    if pattern.contains(['*', '?', '['])
+        && !rel.as_os_str().is_empty()
+        && super::workspace_glob::path_glob(pattern, rel)
+    {
+        return true;
+    }
     let pattern = pattern.trim_end_matches('/');
     let rel_str = rel.to_string_lossy();
     if pattern == rel_str || (pattern == "." && (rel_str.is_empty() || rel_str == ".")) {
@@ -297,33 +323,35 @@ pub fn matches_path_pattern(pattern: &str, rel: &Path) -> bool {
     false
 }
 
-/// Validates that a workspace member or exclude pattern uses supported glob syntax.
-/// Disallows character classes (`[...]`), `?` wildcards, multiple wildcards in one component,
-/// or wildcards in intermediate directories (e.g. `crates/*/sub`).
+/// Validates a workspace member or exclude pattern. Everything the `glob` crate Cargo uses
+/// accepts is supported (`*`, `?`, `**`, `[...]` in any component, see `workspace_glob`);
+/// only an empty pattern is refused.
 pub fn validate_workspace_pattern(pattern: &str) -> Result<()> {
-    let p = pattern.trim_end_matches('/');
-    if p.contains('?') || p.contains('[') || p.contains(']') {
-        anyhow::bail!(
-            "unsupported member pattern `{}`: glob character classes and `?` wildcards are not supported",
-            pattern
-        );
-    }
-    let components: Vec<&str> = p.split('/').collect();
-    for (idx, comp) in components.iter().enumerate() {
-        if comp.contains('*') {
-            if idx + 1 < components.len() {
-                anyhow::bail!(
-                    "unsupported member pattern `{}`: wildcards in intermediate directories are not supported",
-                    pattern
-                );
-            }
-            if comp.chars().filter(|c| *c == '*').count() > 1 && *comp != "**" {
-                anyhow::bail!(
-                    "unsupported member pattern `{}`: multiple wildcards in a component are not supported",
-                    pattern
-                );
-            }
-        }
+    if pattern.trim().is_empty() {
+        anyhow::bail!("empty workspace member pattern");
     }
     Ok(())
+}
+
+/// Directories under `dir` (and `dir` itself), down to `depth` components below `root`,
+/// skipping hidden directories and `target`.
+fn collect_dirs(dir: &Path, root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    let level = dir
+        .strip_prefix(root)
+        .map(|r| r.components().count())
+        .unwrap_or(usize::MAX);
+    if level > depth || !dir.is_dir() {
+        return;
+    }
+    out.push(dir.to_path_buf());
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || name == "target" {
+            continue;
+        }
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            collect_dirs(&entry.path(), root, depth, out);
+        }
+    }
 }
