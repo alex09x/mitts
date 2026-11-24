@@ -251,39 +251,75 @@ fn discover_cfg_atoms(
     start_dir: &Path,
 ) -> Result<HashSet<String>, String> {
     let target_for_base = if for_host { None } else { explicit_target };
-    let base_atoms = get_base_cfg_atoms(target_for_base)?;
-    let mut atoms = (*base_atoms).clone();
 
     // Rustflags precedence:
     // When cross-compiling (explicit_target is Some), host units do NOT receive target rustflags!
-    if for_host && explicit_target.is_some() {
-        if let Ok(host_flags) = std::env::var("CARGO_HOST_RUSTFLAGS") {
-            parse_cfg_from_iter(host_flags.split_whitespace(), &mut atoms);
-        }
+    let flags: Vec<String> = if for_host && explicit_target.is_some() {
+        std::env::var("CARGO_HOST_RUSTFLAGS")
+            .map(|f| f.split_whitespace().map(String::from).collect())
+            .unwrap_or_default()
     } else {
         // Target units (or host units when native):
         // 1. CARGO_ENCODED_RUSTFLAGS -> 2. RUSTFLAGS -> 3. Cargo config files
         if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
-            if !encoded.is_empty() {
-                parse_cfg_from_iter(encoded.split('\x1f'), &mut atoms);
-            }
+            encoded
+                .split('\x1f')
+                .filter(|f| !f.is_empty())
+                .map(String::from)
+                .collect()
         } else if let Ok(flags) = std::env::var("RUSTFLAGS") {
-            if !flags.trim().is_empty() {
-                parse_cfg_from_iter(flags.split_whitespace(), &mut atoms);
-            }
+            flags.split_whitespace().map(String::from).collect()
         } else {
             let config_dir =
                 crate::adapter::rust::cargo_config::resolve_config_start_dir(start_dir);
-            let cfg_flags = crate::adapter::rust::cargo_config::load_cargo_config_rustflags(
+            crate::adapter::rust::cargo_config::load_cargo_config_rustflags(
                 &config_dir,
                 explicit_target,
             )
-            .map_err(|e| format!("Failed to load cargo config rustflags: {}", e))?;
-            parse_cfg_from_iter(cfg_flags.iter().map(|s| s.as_str()), &mut atoms);
+            .map_err(|e| format!("Failed to load cargo config rustflags: {}", e))?
         }
-    }
+    };
 
+    // `-C target-feature`, `-C target-cpu` and the like change what rustc reports, so with
+    // flags rustc is asked with them, as Cargo asks it; `--cfg` values are kept either way.
+    let mut atoms = match print_cfg_with_flags(target_for_base, &flags) {
+        Some(atoms) => atoms,
+        None => (*get_base_cfg_atoms(target_for_base)?).clone(),
+    };
+    parse_cfg_from_iter(flags.iter().map(String::as_str), &mut atoms);
     Ok(atoms)
+}
+
+type FlagCfgKey = (PathBuf, Option<String>, Vec<String>);
+static FLAG_CFG_CACHE: OnceLock<Mutex<HashMap<FlagCfgKey, Option<HashSet<String>>>>> =
+    OnceLock::new();
+
+/// `rustc --print cfg [--target T] FLAGS`, or `None` without flags or when rustc refuses
+/// them (then the base atoms and the flags' `--cfg` values stand).
+fn print_cfg_with_flags(target: Option<&str>, flags: &[String]) -> Option<HashSet<String>> {
+    if flags.is_empty() {
+        return None;
+    }
+    let rustc = crate::adapter::rust::compiler_resolve::resolve_rustc();
+    let key = (rustc.clone(), target.map(String::from), flags.to_vec());
+    let cache = FLAG_CFG_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return cached.clone();
+    }
+    let atoms = super::toolchain_probes::rustc_print_cfg_with_flags(&rustc, target, flags)
+        .ok()
+        .map(|text| {
+            text.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect::<HashSet<_>>()
+        });
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, atoms.clone());
+    atoms
 }
 
 fn parse_cfg_from_iter<'a>(iter: impl Iterator<Item = &'a str>, atoms: &mut HashSet<String>) {

@@ -22,7 +22,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -322,11 +322,10 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 
 لا يزال Mitts في مرحلة ما قبل الإصدار. يرجى الانتباه للنقاط التالية قبل الاعتماد عليه:
 
-- **Linux و macOS فقط.** تعتمد الأقفال وخادم المهام على معايير POSIX.
 - **الهدف المضيف فقط.** الترجمة المتقاطعة غير مدعومة حتى الآن.
 - **لا توجد ذاكرة مؤقتة عن بُعد بعد.** المستودع محلي لكل جهاز.
 - **سجلات sparse فقط.** تُرفض السجلات التي تعمل عبر فهرس git (أي <bdi>`registry+…`</bdi> بخلاف crates.io، أو <bdi>`[source] registry = "https://…"`</bdi> بدون <bdi>`sparse+`</bdi>) ومصادر `local-registry` مع تقديم نصائح بديلة.
-- **تُحفظ الرموز حيث يحفظها Cargo.** يكتب الأمران <bdi>`mitts login`</bdi> و <bdi>`mitts logout`</bdi> في <bdi>`$CARGO_HOME/credentials.toml`</bdi> كما يفعل Cargo؛ ويتم تجاهل `cargo:wincred` لكونه خاصاً بنظام Windows فقط.
+- **تُحفظ الرموز حيث يحفظها Cargo.** يكتب الأمران <bdi>`mitts login`</bdi> و <bdi>`mitts logout`</bdi> في <bdi>`$CARGO_HOME/credentials.toml`</bdi> كما يفعل Cargo؛ وتُقرأ الرموز المخزنة عبر `cargo:macos-keychain` أو `cargo:libsecret` أو `cargo:wincred` دون الكتابة إليها.
 - **بعض الوحدات لا تُخزن مؤقتاً أبداً:** الحزم من الأنواع `cdylib` و `dylib` و `staticlib`، والحزم التي يتعذر تتبع قراءاتها لـ <bdi>`env!`</bdi>. يتم بناؤها دائماً؛ ويبلغ عنها الأمر `mitts explain`.
 - **حزم مساحات العمل عبر نسخ العمل.** يُعاد استخدام حزمك الخاصة عبر شجرات العمل فقط عندما يكون مفتاحها مستقلاً عن المسار (عدم وجود قراءات لـ `CARGO_MANIFEST_DIR`، وعدم وجود سكربت بناء، وعدم وجود ماكرو إجرائي غير نقي مُعلن عنه). وإلا فإن المفتاح سيتضمن المسار المطلق. على نظام macOS، تُكتب علامات تصحيح الأخطاء الخاصة بالرابط نسبة إلى مساحة العمل (<bdi>`-oso_prefix`</bdi>)، مما يسمح بمشاركة الملفات الثنائية المرتبطة أيضاً؛ ابدأ المصحح في جذر مساحة العمل ليتمكن من العثور على ملفات الكائنات.
 - **وحدات الماكرو التي تقرأ ملفاتك تقع مسؤولية إعلانها عليك.** يُعامل الماكرو الإجرائي كـ نقي ما لم يدرجه المشروع في القائمة (انظر أعلاه). تتبع الوحدات المعتمدة على الماكرو المدرج كل ملف في حزمتها؛ أما الماكرو غير المدرج الذي يقرأ ملفاً دون تسجيله لدى rustc فيمكن أن ينتج نتيجة قديمة، تماماً كما هو الحال في Cargo.

@@ -19,7 +19,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -289,11 +289,10 @@ BazelやBuck2はより大きな課題（リモート実行を伴う密閉型・�
 
 Mittsはプレリリース段階です。依存する前に以下を把握してください：
 
-- **LinuxおよびmacOSのみ。** ロックおよびジョブサーバーはPOSIX仕様です。
 - **ホストターゲットのみ。** クロスコンパイルはまだサポートされていません。
 - **リモートキャッシュは未提供。** ストアはマシン単位です。
 - **sparseレジストリのみ。** gitインデックスとして提供されるレジストリ（crates.io以外の `registry+…`、または `sparse+` のない `[source] registry = "https://…"`）および `local-registry` ソースはアドバイスとともに拒否されます。
-- **トークンは Cargo と同じ場所に保存されます。** `mitts login` と `mitts logout` は Cargo と同様に `$CARGO_HOME/credentials.toml` に書き込みます。`cargo:wincred` はWindows専用のためスキップされます。
+- **トークンは Cargo と同じ場所に保存されます。** `mitts login` と `mitts logout` は Cargo と同様に `$CARGO_HOME/credentials.toml` に書き込みます。`cargo:macos-keychain`、`cargo:libsecret`、`cargo:wincred` に保存されたトークンは読み取りのみで、書き込みはしません。
 - **一部のユニットは決してキャッシュされません:** `cdylib`、`dylib`、または `staticlib` タイプのクレート、および `env!` の読み取りを追跡できないクレート。これらは常にビルドされます。`mitts explain` によって報告されます。
 - **チェックアウトをまたぐワークスペースクレート。** 自身のクレートがワークツリー間で再利用されるのは、そのキーをパス非依存にできる場合（`CARGO_MANIFEST_DIR` の読み取りがなく、ビルドスクリプトがなく、宣言された非純粋（impure）な手続き型マクロがない場合）に限られます。それ以外の場合、キーには絶対パスが含まれます。macOSではリンカのデバッグスタブがワークスペース相対（`-oso_prefix`）で書き込まれるため、リンクされたバイナリも共有されます。デバッガがオブジェクトファイルを見つけられるように、ワークスペースのルートでデバッガを起動してください。
 - **ファイルを読み取るマクロの宣言は利用者の責任です。** プロジェクトがリストに明記しない限り、手続き型マクロは純粋なものとして扱われます（上記参照）。リストされたマクロの依存先はパッケージ内のすべてのファイルに従います。rustcに登録せずにファイルを読み取るリスト外のマクロは、Cargoとまったく同様に古い結果を生成する可能性があります。

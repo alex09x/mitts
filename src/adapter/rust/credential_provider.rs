@@ -10,7 +10,7 @@
 
 //! Cargo's credential providers, as `cargo` runs them for a read: the built-in
 //! `cargo:token` (credentials file and environment), `cargo:token-from-stdout <cmd>`,
-//! `cargo:macos-keychain`, `cargo:libsecret`, and plugins speaking the credential
+//! `cargo:macos-keychain`, `cargo:libsecret`, `cargo:wincred`, and plugins speaking the credential
 //! provider protocol (`{"v":[1]}` hello, one JSON request, one JSON reply). Providers
 //! come from `[registries.<name>] credential-provider`, else
 //! `[registry] global-credential-providers` (later entries first), with
@@ -64,7 +64,7 @@ pub fn token_for(
             "cargo:token-from-stdout" => Some(token_from_stdout(&spec[1..], registry)?),
             "cargo:macos-keychain" => keychain(registry.index_url)?,
             "cargo:libsecret" => libsecret(registry.index_url)?,
-            "cargo:wincred" => None,
+            "cargo:wincred" => wincred(registry.index_url),
             _ => plugin(spec, registry)?,
         };
         if let Some(t) = got.filter(|t| !t.is_empty()) {
@@ -150,6 +150,61 @@ fn libsecret(index_url: &str) -> Result<Option<String>> {
     })
 }
 
+/// The Windows Credential Manager entry Cargo's wincred provider stores: a generic
+/// credential named `cargo-registry:<index>` whose blob is the token in UTF-8. None
+/// elsewhere, and when there is no such entry.
+#[cfg(windows)]
+fn wincred(index_url: &str) -> Option<String> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct CredentialW {
+        flags: u32,
+        kind: u32,
+        target_name: *mut u16,
+        comment: *mut u16,
+        last_written: [u32; 2],
+        blob_size: u32,
+        blob: *mut u8,
+        persist: u32,
+        attribute_count: u32,
+        attributes: *mut c_void,
+        target_alias: *mut u16,
+        user_name: *mut u16,
+    }
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn CredReadW(target: *const u16, kind: u32, flags: u32, out: *mut *mut CredentialW) -> i32;
+        fn CredFree(buffer: *mut c_void);
+    }
+    const CRED_TYPE_GENERIC: u32 = 1;
+    let target: Vec<u16> = format!("cargo-registry:{index_url}")
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut cred: *mut CredentialW = std::ptr::null_mut();
+    // SAFETY: `target` is NUL-terminated; a successful read returns a buffer that is
+    // freed with CredFree after its blob is copied.
+    unsafe {
+        if CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut cred) == 0 || cred.is_null() {
+            return None;
+        }
+        let c = &*cred;
+        let token = if c.blob.is_null() {
+            None
+        } else {
+            let bytes = std::slice::from_raw_parts(c.blob, c.blob_size as usize);
+            Some(String::from_utf8_lossy(bytes).trim().to_string())
+        };
+        CredFree(cred.cast());
+        token
+    }
+}
+
+#[cfg(not(windows))]
+fn wincred(_index_url: &str) -> Option<String> {
+    None
+}
+
 /// A plugin following Cargo's credential provider protocol, version 1.
 fn plugin(spec: &[String], registry: &RegistryRef<'_>) -> Result<Option<String>> {
     let (exe, args) = spec.split_first().expect("non-empty spec");
@@ -223,5 +278,79 @@ pub fn spec_from_toml(value: &toml::Value) -> Option<ProviderSpec> {
                 .collect(),
         ),
         _ => None,
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    struct CredentialW {
+        flags: u32,
+        kind: u32,
+        target_name: *const u16,
+        comment: *const u16,
+        last_written: [u32; 2],
+        blob_size: u32,
+        blob: *const u8,
+        persist: u32,
+        attribute_count: u32,
+        attributes: *mut c_void,
+        target_alias: *const u16,
+        user_name: *const u16,
+    }
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn CredWriteW(credential: *const CredentialW, flags: u32) -> i32;
+        fn CredDeleteW(target: *const u16, kind: u32, flags: u32) -> i32;
+    }
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Stored the way Cargo's wincred provider stores it; read back through `token_for`.
+    #[test]
+    fn a_wincred_token_is_read_from_the_credential_manager() {
+        let index = format!(
+            "sparse+https://mitts-wincred-test-{}.invalid/index/",
+            std::process::id()
+        );
+        let target = wide(&format!("cargo-registry:{index}"));
+        let user = wide("token");
+        let secret = b"wincred-secret-token";
+        let cred = CredentialW {
+            flags: 0,
+            kind: 1,
+            target_name: target.as_ptr(),
+            comment: std::ptr::null(),
+            last_written: [0, 0],
+            blob_size: secret.len() as u32,
+            blob: secret.as_ptr(),
+            persist: 2,
+            attribute_count: 0,
+            attributes: std::ptr::null_mut(),
+            target_alias: std::ptr::null(),
+            user_name: user.as_ptr(),
+        };
+        assert_ne!(unsafe { CredWriteW(&cred, 0) }, 0, "CredWriteW");
+        let registry = RegistryRef {
+            name: None,
+            index_url: &index,
+        };
+        let got = token_for(&[vec!["cargo:wincred".to_string()]], &registry, &|| None);
+        unsafe { CredDeleteW(target.as_ptr(), 1, 0) };
+        assert_eq!(got.unwrap().as_deref(), Some("wincred-secret-token"));
+
+        let missing = RegistryRef {
+            name: None,
+            index_url: "sparse+https://mitts-wincred-none.invalid/index/",
+        };
+        assert_eq!(
+            token_for(&[vec!["cargo:wincred".to_string()]], &missing, &|| None).unwrap(),
+            None
+        );
     }
 }

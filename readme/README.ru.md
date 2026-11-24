@@ -20,7 +20,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -376,14 +376,13 @@ Bazel и Buck2 решают более масштабную задачу — г�
 
 Mitts находится в статусе предварительного релиза (pre-release). Учитывайте следующее, прежде чем полагаться на него:
 
-- **Только Linux и macOS.** Блокировки и jobserver реализованы по стандартам POSIX.
 - **Только хост-таргет.** Кросс-компиляция пока не поддерживается.
 - **Пока нет удаленного кэша.** Хранилище создается на каждую машину.
 - **Только sparse-реестры.** Реестры с git-индексом (`registry+…`,
   отличные от crates.io, или `[source] registry = "https://…"` без
   `sparse+`) и источники `local-registry` отклоняются с выводом рекомендаций.
 - **Токены хранятся там же, где их хранит Cargo.** `mitts login` и `mitts logout` записывают
-  `$CARGO_HOME/credentials.toml`, как Cargo; `cargo:wincred` поддерживается только на Windows и пропускается.
+  `$CARGO_HOME/credentials.toml`, как Cargo; токены из `cargo:macos-keychain`, `cargo:libsecret` и `cargo:wincred` читаются, но не записываются.
 - **Некоторые единицы никогда не кэшируются:** крейты типов `cdylib`, `dylib` или
   `staticlib`, а также крейты, чьи чтения `env!` невозможно отследить. Они собираются
   всегда; о них сообщает `mitts explain`.

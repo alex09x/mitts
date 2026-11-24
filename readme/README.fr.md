@@ -19,7 +19,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -375,14 +375,13 @@ exécution distante — mais nécessitent leurs propres fichiers de build au lie
 
 Mitts est en version préliminaire. Sachez ceci avant de vous appuyer dessus :
 
-- **Linux et macOS uniquement.** Les verrous et le jobserver sont POSIX.
 - **Cible hôte uniquement.** La compilation croisée n'est pas encore prise en charge.
 - **Pas encore de cache distant.** Le magasin est propre à chaque machine.
 - **Registres sparse uniquement.** Un registre fourni sous forme d'index git (`registry+…`
   autre que crates.io, ou `[source] registry = "https://…"` sans
   `sparse+`) et les sources `local-registry` sont refusés avec des conseils.
 - **Les jetons sont rangés là où Cargo les range.** `mitts login` et `mitts logout` écrivent
-  `$CARGO_HOME/credentials.toml`, comme Cargo ; `cargo:wincred` est réservé à Windows et ignoré.
+  `$CARGO_HOME/credentials.toml`, comme Cargo ; les jetons stockés par `cargo:macos-keychain`, `cargo:libsecret` ou `cargo:wincred` sont lus, pas écrits.
 - **Certaines unités ne sont jamais mises en cache :** les crates de type `cdylib`, `dylib` ou
   `staticlib`, et les crates dont les lectures de `env!` ne peuvent pas être suivies. Elles sont toujours
   compilées ; elles sont signalées par `mitts explain`.

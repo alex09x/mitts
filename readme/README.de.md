@@ -20,7 +20,7 @@
   <a href="https://mittsbuild.com"><img src="https://img.shields.io/badge/site-mittsbuild.com-ff3b30" alt="Website"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-c9ced4" alt="License: MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/language-Rust-1b1d20?logo=rust" alt="Written in Rust">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-1b1d20" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-1b1d20" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-pre--release-ff3b30" alt="Status: pre-release">
   <a href="https://doi.org/10.5281/zenodo.24030067"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24030067.svg" alt="DOI: 10.5281/zenodo.24030067"></a>
 </p>
@@ -375,14 +375,13 @@ Remote-Ausführung –, erfordern jedoch eigene Build-Dateien anstelle von `Carg
 
 Mitts befindet sich im Pre-Release-Stadium. Beachten Sie Folgendes, bevor Sie darauf aufbauen:
 
-- **Nur Linux und macOS.** Sperren und der Jobserver basieren auf POSIX.
 - **Nur Host-Target.** Cross-Kompilierung wird noch nicht unterstützt.
 - **Noch kein Remote-Cache.** Der Speicher ist maschinenlokal.
 - **Nur Sparse-Registries.** Eine Registry, die als Git-Index bereitgestellt wird (`registry+…`
   außerhalb von crates.io oder `[source] registry = "https://…"` ohne
   `sparse+`), sowie `local-registry`-Quellen werden mit Hinweisen abgelehnt.
 - **Tokens liegen dort, wo Cargo sie ablegt.** `mitts login` und `mitts logout` schreiben
-  `$CARGO_HOME/credentials.toml` wie Cargo; `cargo:wincred` ist Windows-spezifisch und wird übersprungen.
+  `$CARGO_HOME/credentials.toml` wie Cargo; Tokens aus `cargo:macos-keychain`, `cargo:libsecret` oder `cargo:wincred` werden gelesen, nicht geschrieben.
 - **Manche Einheiten werden niemals zwischengespeichert:** Crates vom Typ `cdylib`, `dylib` oder
   `staticlib` sowie Crates, deren `env!`-Lesevorgänge nicht erfasst werden können. Sie werden stets
   neu gebaut und von `mitts explain` ausgewiesen.
