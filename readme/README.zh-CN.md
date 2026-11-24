@@ -276,7 +276,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 | 缓存 build-script 运行 | 否 | 否 | 是 |
 | 同一依赖项的并发构建 | 等待 `target/` 锁 | 未命中时两者均可能编译 | 一个编译，另一个复用 |
 | 远程 / 团队缓存 | 否 | 是（S3、GCS、Redis、…） | 计划中 |
-| Windows | 是 | 是 | 是（x86-64 MSVC，0.5.0 之前从源码构建） |
+| Windows | 是 | 是 | 是（x86-64 MSVC） |
 
 Bazel 和 Buck2 解决的是更广泛的问题——带远程执行的封闭式（hermetic）多语言构建——但需要它们自己的构建文件，而不是 `Cargo.toml`。
 
