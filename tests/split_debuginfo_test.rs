@@ -183,7 +183,8 @@ struct Built {
 }
 
 fn inspect(dir: &Path, ext: &str) -> Built {
-    let run = Command::new(dir.join("debug/app")).output().unwrap();
+    let app = dir.join(format!("debug/app{}", std::env::consts::EXE_SUFFIX));
+    let run = Command::new(&app).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "42");
     let mut files: Vec<_> = files_with_ext(&dir.join("debug/deps"), ext)
         .iter()
@@ -194,7 +195,7 @@ fn inspect(dir: &Path, ext: &str) -> Built {
         dir: dir.to_path_buf(),
         files,
         dwp_beside_binary: dir.join("debug/app.dwp").is_file(),
-        binary: fs::read(dir.join("debug/app")).unwrap(),
+        binary: fs::read(&app).unwrap(),
     }
 }
 
@@ -259,8 +260,12 @@ fn unpacked_split_debuginfo_matches_cargo_and_survives_a_cache_hit() {
 
 #[test]
 fn packed_split_debuginfo_puts_the_package_beside_the_executable() {
-    if cfg!(target_os = "macos") || !supported().iter().any(|v| v == "packed") {
-        // macOS `packed` runs dsymutil; covered by the unit tests of the placement.
+    if cfg!(target_os = "macos")
+        || cfg!(target_env = "msvc")
+        || !supported().iter().any(|v| v == "packed")
+    {
+        // macOS `packed` runs dsymutil; covered by the unit tests of the placement. MSVC's
+        // `packed` is the linker's `.pdb`, not a `.dwp`.
         return;
     }
     let (_temp, cold, warm, log) = build_twice(Some("packed"), "dwp");
@@ -323,6 +328,9 @@ fn an_unknown_split_debuginfo_value_is_refused() {
 
 /// `mitts rustc -- -C split-debuginfo=…` reaches the primary target only; a dependency's
 /// key must not change with it (it would rebuild with a key naming a value it never got).
+/// MSVC accepts only `packed`, so the `off` this test passes is refused there (by rustc,
+/// under Cargo too).
+#[cfg(not(target_env = "msvc"))]
 #[test]
 fn a_command_line_split_flag_does_not_change_a_dependency_key() {
     let temp = TempDir::new().unwrap();

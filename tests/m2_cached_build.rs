@@ -217,7 +217,9 @@ fn test_cold_and_warm_build_with_cas_and_action_cache() {
     assert!(result_cold.success);
     assert!(!result_cold.cached, "Cold build must not be marked cached");
 
-    let bin_path = target_dir.join("debug").join("hello-rust");
+    let bin_path = target_dir
+        .join("debug")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(
         bin_path.exists(),
         "Target binary must exist after cold build"
@@ -862,7 +864,9 @@ fn test_concurrent_warm_restores_in_same_workspace() {
     }
 
     // Verify binary is intact and executable
-    let bin_path = target_dir.join("debug").join("hello-rust");
+    let bin_path = target_dir
+        .join("debug")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(bin_path.is_file());
     let out = Command::new(&bin_path)
         .env("MITTS_CACHE_DIR", isolated_cache.path())

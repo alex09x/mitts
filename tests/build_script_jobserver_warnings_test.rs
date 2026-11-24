@@ -160,7 +160,9 @@ fn a_failing_build_script_shows_its_output() {
 }
 
 /// A pool address with a space (cache path with spaces) cannot be written into MAKEFLAGS:
-/// the script then runs with NUM_JOBS only, and the build still works.
+/// the script then runs with NUM_JOBS only, and the build still works. (Unix: there the
+/// pool is a FIFO in the cache; Windows names a semaphore, which has no spaces.)
+#[cfg(unix)]
 #[test]
 fn a_cache_path_with_spaces_keeps_the_pool_out_of_makeflags() {
     let temp = TempDir::new().unwrap();

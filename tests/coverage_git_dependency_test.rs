@@ -126,8 +126,9 @@ fn reported_files(symlinked_cache: bool) -> Option<Vec<String>> {
         app.join("Cargo.toml"),
         format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
-             [dependencies]\ngitdep = {{ git = \"file://{}\" }}\n",
-            dep.display()
+             [dependencies]\ngitdep = {{ git = \"{}\" }}\n",
+            // `file:///C:/…` on Windows; a bare `file://C:\…` is no URL.
+            url::Url::from_file_path(&dep).unwrap()
         ),
     )
     .unwrap();
@@ -159,7 +160,8 @@ fn reported_files(symlinked_cache: bool) -> Option<Vec<String>> {
         report
             .lines()
             .filter_map(|line| line.strip_prefix("SF:"))
-            .map(str::to_owned)
+            // llvm-cov writes the platform's separator; compared with `/`.
+            .map(|name| name.replace('\\', "/"))
             .collect(),
     )
 }

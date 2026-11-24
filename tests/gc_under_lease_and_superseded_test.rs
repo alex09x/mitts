@@ -55,8 +55,7 @@ fn object(s: &Store, bytes: &[u8], age: Duration) -> String {
 }
 
 fn set_age(path: &Path, age: Duration) {
-    let file = fs::File::open(path).unwrap();
-    file.set_modified(SystemTime::now() - age).unwrap();
+    mitts::core::file_time::set_modified(path, SystemTime::now() - age).unwrap();
 }
 
 fn age_of(path: &Path) -> Duration {

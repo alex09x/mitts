@@ -118,7 +118,11 @@ pub fn compute_unit_rustc_env_with_target(
                         .as_ref()
                         .is_none_or(|reqs| reqs.iter().all(|r| unit.features.contains(r)));
                     if req_ok {
-                        let mitts_bin = mitts_profile_dir.join(&b.name);
+                        let mitts_bin = mitts_profile_dir.join(format!(
+                            "{}{}",
+                            b.name,
+                            exe_suffix_in(&mitts_profile_dir)
+                        ));
                         env.insert(
                             format!("CARGO_BIN_EXE_{}", b.name),
                             mitts_bin.to_string_lossy().to_string(),
@@ -194,6 +198,52 @@ pub fn unit_has_build_script(unit: &PlannedCompilationUnit) -> bool {
     }
 }
 
+/// The executable suffix of binaries placed in `profile_dir`: an explicit `--target` names
+/// its directory (`target/x86_64-pc-windows-msvc/debug`), so a Windows triple there means
+/// `.exe` and any other triple none; without one the binaries are the host's.
+fn exe_suffix_in(profile_dir: &Path) -> &'static str {
+    // Only the directory right above the profile can be the target's; the checkout path
+    // above it is the user's and says nothing.
+    const ARCHES: &[&str] = &[
+        "x86_64",
+        "i586",
+        "i686",
+        "aarch64",
+        "arm",
+        "thumb",
+        "riscv",
+        "wasm",
+        "mips",
+        "powerpc",
+        "s390x",
+        "sparc",
+        "loongarch",
+        "csky",
+        "hexagon",
+        "avr",
+        "bpf",
+        "nvptx",
+        "m68k",
+        "msp430",
+        "xtensa",
+    ];
+    let triple = profile_dir
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .filter(|name| {
+            name.matches('-').count() >= 2
+                && ARCHES
+                    .iter()
+                    .any(|arch| name.split('-').next().is_some_and(|a| a.starts_with(arch)))
+        });
+    match triple {
+        Some(t) if t.contains("-windows") => ".exe",
+        Some(_) => "",
+        None => std::env::consts::EXE_SUFFIX,
+    }
+}
+
 /// Applies `CARGO_BIN_EXE_<name>` and `CARGO_TARGET_TMPDIR` environment variables for test units.
 pub fn apply_test_binary_env(
     cmd: &mut std::process::Command,
@@ -220,7 +270,11 @@ pub fn apply_test_binary_env(
                 if req_ok {
                     cmd.env(
                         format!("CARGO_BIN_EXE_{}", b.name),
-                        mitts_profile_dir.join(&b.name),
+                        mitts_profile_dir.join(format!(
+                            "{}{}",
+                            b.name,
+                            exe_suffix_in(&mitts_profile_dir)
+                        )),
                     );
                 }
             }
@@ -347,6 +401,22 @@ pub fn apply_runtime_execution_env(
         }
     }
 
+    // Windows finds a program's DLLs through PATH: the library directories go in front of
+    // it, as Cargo puts them.
+    if cfg!(windows) {
+        let current = cmd
+            .get_envs()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default();
+        let mut paths = lib_dirs;
+        paths.extend(std::env::split_paths(&current));
+        if let Ok(joined) = std::env::join_paths(paths) {
+            cmd.env("PATH", joined);
+        }
+        return;
+    }
     for var_name in ["LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
         let mut paths = lib_dirs.clone();
         match std::env::var_os(var_name) {
@@ -365,5 +435,35 @@ pub fn apply_runtime_execution_env(
         if let Ok(joined) = std::env::join_paths(paths) {
             cmd.env(var_name, joined);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exe_suffix_in;
+    use std::path::Path;
+
+    #[test]
+    fn the_suffix_comes_from_the_target_directory_not_the_checkout_path() {
+        let host = std::env::consts::EXE_SUFFIX;
+        assert_eq!(exe_suffix_in(Path::new("/w/app/target/debug")), host);
+        assert_eq!(
+            exe_suffix_in(Path::new("/w/app/target/x86_64-pc-windows-msvc/debug")),
+            ".exe"
+        );
+        assert_eq!(
+            exe_suffix_in(Path::new("/w/app/target/aarch64-unknown-linux-gnu/debug")),
+            ""
+        );
+        // A checkout whose path looks like a triple changes nothing.
+        assert_eq!(
+            exe_suffix_in(Path::new("/home/u/rust-windows-tools/app/target/debug")),
+            host
+        );
+        assert_eq!(
+            exe_suffix_in(Path::new("/home/u/x86_64-pc-windows-msvc/app/target/debug")),
+            host
+        );
+        assert_eq!(exe_suffix_in(Path::new("/w/my-unknown-app/debug")), host);
     }
 }

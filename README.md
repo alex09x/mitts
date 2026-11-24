@@ -356,7 +356,7 @@ performance claim.
 | Caches build-script runs | no | no | yes |
 | Concurrent builds of one dependency | wait on the `target/` lock | both may compile on a miss | one compiles, the other reuses |
 | Remote / team cache | no | yes (S3, GCS, Redis, …) | planned |
-| Windows | yes | yes | no |
+| Windows | yes | yes | yes (x86-64 MSVC, from source until 0.5.0) |
 
 Bazel and Buck2 solve a larger problem — hermetic, multi-language builds with
 remote execution — but require their own build files instead of `Cargo.toml`.
@@ -391,15 +391,14 @@ Mitts is pre-release. Know these before you rely on it:
 - **Build scripts are not sandboxed.** A script that reads files or variables it
   did not declare with `rerun-if-*` can produce a stale result — exactly as with
   Cargo.
-- **Unsupported Cargo features fail loudly.** For example `--profile`, globs
-  with wildcards in intermediate directories in `workspace.members`. Mitts
-  reports them instead of guessing.
+- **Unsupported Cargo features fail loudly.** Mitts reports them instead of
+  guessing.
 - **Same-filesystem zero-copy.** Zero-copy unit promotion from staging requires
   `MITTS_CACHE_DIR` and the workspace `target/` directory to reside on the same
   filesystem mount. Crossing filesystem boundaries safely falls back to standard copy.
 
-**Don't use Mitts yet** if you need Windows, cross-compilation, a team cache, or
-a stable release. Cargo, optionally with sccache, is the safe choice there.
+**Don't use Mitts yet** if you need cross-compilation, a team cache, or a stable
+release. Cargo, optionally with sccache, is the safe choice there.
 
 ## Performance
 
@@ -456,7 +455,8 @@ CPU time on macOS drops from **20.3 h** (`cargo`) and **8.0 h** (`sccache`) to *
 | Path-independent keys for workspace crates | partial |
 | Reproducible benchmark study | done |
 | Remote / team cache | planned |
-| Windows, cross-compilation | not supported |
+| Windows (x86-64 MSVC) | done, binaries with 0.5.0 |
+| Cross-compilation | not supported |
 
 Milestones and evidence: [ROADMAP.md](ROADMAP.md).
 

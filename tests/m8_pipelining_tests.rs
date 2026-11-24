@@ -144,7 +144,10 @@ itoa = "1.0.14"
     let (_, res) = RustAdapter::build_native(&opt).expect("native dag build with pipelining");
     assert!(res.success, "Build must succeed: {}", res.stderr);
 
-    let bin_path = ws_dir.join("target").join("debug").join("pipe-app");
+    let bin_path = ws_dir
+        .join("target")
+        .join("debug")
+        .join(format!("pipe-app{}", std::env::consts::EXE_SUFFIX));
     assert!(bin_path.is_file(), "Binary must be produced");
 
     let out = Command::new(&bin_path).output().expect("execute binary");

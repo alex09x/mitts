@@ -200,7 +200,7 @@ pub(crate) fn restore_importable_unit_outputs(
             let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
             let deps_dir = ctx.target_dir.join(profile_name).join("deps");
             let _ = fs::create_dir_all(&deps_dir);
-            let is_staticlib = matches!(ext, "a" | "lib");
+            let is_staticlib = super::artifact_kind::is_static(&out.relative_path);
             let target_dep_dest = if is_staticlib {
                 ctx.target_dir.join(profile_name).join(&out.relative_path)
             } else {
@@ -242,12 +242,14 @@ pub(crate) fn restore_importable_unit_outputs(
             }
         }
 
-        if matches!(ext, "rlib" | "dylib" | "so" | "a" | "lib" | "rmeta") {
-            let is_meta_only = ext == "rmeta"
+        use super::artifact_kind::{classify, ArtifactKind};
+        let kind = classify(&out.relative_path);
+        if kind.is_some_and(|k| k != ArtifactKind::ImportLib) {
+            let is_meta_only = kind == Some(ArtifactKind::Rmeta)
                 && !outputs.iter().any(|o| {
                     matches!(
-                        o.relative_path.extension().and_then(|e| e.to_str()),
-                        Some("rlib" | "dylib" | "so" | "a" | "lib")
+                        classify(&o.relative_path),
+                        Some(ArtifactKind::Rlib | ArtifactKind::Dynamic | ArtifactKind::Static)
                     )
                 });
             let disambig = if is_meta_only {
@@ -273,12 +275,7 @@ pub(crate) fn restore_importable_unit_outputs(
             } else {
                 named
             };
-            let priority = match ext {
-                "rlib" => 3,
-                "dylib" | "so" => 2,
-                "a" | "lib" => 1,
-                _ => 0,
-            };
+            let priority = super::artifact_kind::extern_priority(&out.relative_path);
             staged_completed.push((unit.unit_id(), extern_path, priority));
         }
     }

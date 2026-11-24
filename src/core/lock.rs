@@ -60,6 +60,10 @@ impl FileLock {
                 anyhow::bail!("Failed to acquire exclusive lock on {:?}: {}", path, err);
             }
         }
+        // Elsewhere (Windows: `LockFileEx`) the standard library's file locks.
+        #[cfg(not(unix))]
+        file.lock()
+            .with_context(|| format!("Failed to acquire exclusive lock on {:?}", path))?;
 
         Ok(Self {
             file,
@@ -100,6 +104,16 @@ impl FileLock {
                 );
             }
         }
+        #[cfg(not(unix))]
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::fs::TryLockError::Error(err)) => anyhow::bail!(
+                "Failed to try-acquire exclusive lock on {:?}: {}",
+                path,
+                err
+            ),
+        }
 
         Ok(Some(Self {
             file,
@@ -133,6 +147,9 @@ impl FileLock {
                 anyhow::bail!("Failed to acquire shared lock on {:?}: {}", path, err);
             }
         }
+        #[cfg(not(unix))]
+        file.lock_shared()
+            .with_context(|| format!("Failed to acquire shared lock on {:?}", path))?;
 
         Ok(Self {
             file,
@@ -151,6 +168,15 @@ impl FileLock {
                 let err = std::io::Error::last_os_error();
                 anyhow::bail!("Failed to downgrade lock on {:?}: {}", self.path, err);
             }
+        }
+        // `LockFileEx` cannot convert a lock in place: release, then take it shared (another
+        // process may take it exclusively in between, as with any fresh shared lock).
+        #[cfg(not(unix))]
+        {
+            self.file
+                .unlock()
+                .and_then(|()| self.file.lock_shared())
+                .with_context(|| format!("Failed to downgrade lock on {:?}", self.path))?;
         }
         Ok(())
     }
@@ -194,6 +220,10 @@ impl Drop for FileLock {
             unsafe {
                 sys::flock(fd, sys::LOCK_UN);
             }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self.file.unlock();
         }
     }
 }

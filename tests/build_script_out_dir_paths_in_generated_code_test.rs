@@ -37,7 +37,8 @@ fn main() {
     fs::write(gen.join("inner/mod.rs"), "pub fn answer() -> u32 { 42 }\n").unwrap();
     fs::write(
         gen.join("mod.rs"),
-        format!("#[path = \"{}\"]\npub mod inner;\n", gen.join("inner/mod.rs").display()),
+        // `{:?}`: an escaped string literal, also for a Windows path's backslashes.
+        format!("#[path = {:?}]\npub mod inner;\n", gen.join("inner/mod.rs")),
     )
     .unwrap();
     println!("cargo:rerun-if-changed=build.rs");

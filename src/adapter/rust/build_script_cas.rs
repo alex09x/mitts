@@ -247,6 +247,28 @@ fn rewrite_out_dir_in_text_files(dir: &Path, from: &str, to: &str) {
     if from.is_empty() || from == to {
         return;
     }
+    // A Windows path may be written escaped (a Rust literal) or with `/`: each spelling of
+    // `from` becomes the same spelling of `to`.
+    for (from, to) in path_spellings(from).iter().zip(path_spellings(to).iter()) {
+        rewrite_spelling(dir, from, to);
+    }
+}
+
+/// The ways a path is written into generated text: as given and, when it has backslashes
+/// (Windows), escaped as in a Rust or C string literal (`\\`) and with `/` separators. The
+/// same index names the same spelling for any path, so two lists can be zipped.
+pub(crate) fn path_spellings(path: &str) -> Vec<String> {
+    if !path.contains('\\') {
+        return vec![path.to_string()];
+    }
+    vec![
+        path.to_string(),
+        path.replace('\\', "\\\\"),
+        path.replace('\\', "/"),
+    ]
+}
+
+fn rewrite_spelling(dir: &Path, from: &str, to: &str) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -256,7 +278,7 @@ fn rewrite_out_dir_in_text_files(dir: &Path, from: &str, to: &str) {
             continue;
         };
         if ft.is_dir() {
-            rewrite_out_dir_in_text_files(&path, from, to);
+            rewrite_spelling(&path, from, to);
             continue;
         }
         if !ft.is_file() {

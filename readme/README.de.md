@@ -359,7 +359,7 @@ keine Leistungsbehauptung.
 | Cacht Build-Skript-Läufe | nein | nein | ja |
 | Parallele Builds derselben Abhängigkeit | warten auf die `target/`-Sperre | beide kompilieren eventuell bei einem Miss | einer kompiliert, der andere verwendet wieder |
 | Remote- / Team-Cache | nein | ja (S3, GCS, Redis, …) | geplant |
-| Windows | ja | ja | nein |
+| Windows | ja | ja | ja (x86-64 MSVC, bis 0.5.0 aus dem Quellcode) |
 
 Bazel und Buck2 lösen ein größeres Problem – hermetische, mehrsprachige Builds mit
 Remote-Ausführung –, erfordern jedoch eigene Build-Dateien anstelle von `Cargo.toml`.
@@ -402,7 +402,7 @@ Mitts befindet sich im Pre-Release-Stadium. Beachten Sie Folgendes, bevor Sie da
   dass `MITTS_CACHE_DIR` und das `target/`-Verzeichnis des Workspace auf demselben
   Dateisystem-Mount liegen. Beim Überschreiten von Dateisystemgrenzen greift das System sicher auf standardmäßiges Kopieren zurück.
 
-**Verwenden Sie Mitts noch nicht**, wenn Sie Windows, Cross-Kompilierung, einen Team-Cache oder
+**Verwenden Sie Mitts noch nicht**, wenn Sie Cross-Kompilierung, einen Team-Cache oder
 ein stabiles Release benötigen. Cargo (optional mit sccache) ist in diesen Fällen die sichere Wahl.
 
 <a id="performance"></a>
@@ -462,7 +462,8 @@ Die CPU-Zeit unter macOS sinkt von **20.3 h** (`cargo`) und **8.0 h** (`sccache`
 | Pfadunabhängige Schlüssel für Workspace-Crates | teilweise |
 | Reproduzierbare Benchmark-Studie | erledigt |
 | Remote- / Team-Cache | geplant |
-| Windows, Cross-Kompilierung | nicht unterstützt |
+| Windows (x86-64 MSVC) | fertig, Binärdateien mit 0.5.0 |
+| Cross-Kompilierung | nicht unterstützt |
 
 Meilensteine und Nachweise: [ROADMAP.md](../ROADMAP.md).
 

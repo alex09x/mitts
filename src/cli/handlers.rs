@@ -582,14 +582,7 @@ fn clean_selective(
 }
 
 fn is_pid_stale(pid: u32) -> bool {
-    #[cfg(unix)]
-    unsafe {
-        if libc::kill(pid as libc::pid_t, 0) == -1 {
-            return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
-        }
-    }
-    let _ = pid;
-    false
+    crate::core::process::is_dead(pid)
 }
 
 fn is_stray_tmp_link_file(entry: &std::fs::DirEntry) -> bool {

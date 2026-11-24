@@ -175,7 +175,13 @@ impl CAdapter {
         }
 
         let src_hash = Sha256::digest_file(&src_file)?;
-        let dest_bin = profile_dir.join(&manifest.package.name);
+        // A host build: the host's executable name (`NAME.exe` on Windows, which the C
+        // compiler would append to `-o NAME` itself).
+        let dest_bin = profile_dir.join(format!(
+            "{}{}",
+            manifest.package.name,
+            std::env::consts::EXE_SUFFIX
+        ));
 
         let cas = match opt.cache_dir {
             Some(ref cd) => ContentAddressedStore::new(cd.join("cas"))?,

@@ -195,7 +195,10 @@ fn clean_skips_a_locked_profile_and_preserves_foreign_replacement() {
     let root = temp.path();
     fixture(root);
     build_mitts(root, false);
-    let binary = root.join("target/debug/layout-app");
+    let binary = root.join(format!(
+        "target/debug/layout-app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     let guard =
         mitts::core::lock::FileLock::acquire_exclusive(&root.join("target/debug/.cargo-lock"))
             .unwrap();

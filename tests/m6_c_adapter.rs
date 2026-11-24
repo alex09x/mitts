@@ -91,7 +91,10 @@ fn test_m6_c_adapter_cold_and_warm_build() {
     assert!(!result.cached, "Cold build must not be marked as cached");
     assert_eq!(plan.actions.len(), 1);
 
-    let bin_path = temp_target.path().join("debug").join("hello-c");
+    let bin_path = temp_target
+        .path()
+        .join("debug")
+        .join(format!("hello-c{}", std::env::consts::EXE_SUFFIX));
     assert!(
         bin_path.is_file(),
         "Compiled binary must exist at {:?}",

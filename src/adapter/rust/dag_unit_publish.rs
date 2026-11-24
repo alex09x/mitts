@@ -27,23 +27,41 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// The executable suffix of the platform the build targets: `.exe` for Windows (an explicit
+/// `--target`, `build.target` or the toolchain's host), as rustc names its executables.
+pub(crate) fn exe_suffix(ctx: &ExecutionContext<'_>) -> &'static str {
+    if super::key_flags::resolve_effective_target_triple(ctx.opt, ctx.toolchain)
+        .contains("-windows")
+    {
+        ".exe"
+    } else {
+        ""
+    }
+}
+
+/// Where an executable unit (bin, example, test) is published in the target directory,
+/// with the platform's executable suffix, as Cargo places it.
 pub(crate) fn unit_dest_binary(
     unit: &PlannedCompilationUnit,
-    target_dir: &Path,
+    ctx: &ExecutionContext<'_>,
     profile: &str,
 ) -> PathBuf {
+    let target_dir = ctx.target_dir;
+    let exe = exe_suffix(ctx);
     if unit.kind == "example" {
         target_dir
             .join(profile)
             .join("examples")
-            .join(&unit.target_name)
+            .join(format!("{}{exe}", unit.target_name))
     } else if unit.kind == "test" || unit.kind == "custom-test" {
         target_dir
             .join(profile)
             .join("deps")
-            .join(format!("{}-{}", unit.package_name, unit.target_name))
+            .join(format!("{}-{}{exe}", unit.package_name, unit.target_name))
     } else {
-        target_dir.join(profile).join(&unit.target_name)
+        target_dir
+            .join(profile)
+            .join(format!("{}{exe}", unit.target_name))
     }
 }
 
@@ -337,12 +355,8 @@ pub(crate) fn publish_unit_artifacts(args: PublishArgs<'_>) -> Result<Vec<PathBu
             target_scopes: vec![crate::core::action_cache::target_scope(&unit.manifest_path)],
         };
         let has_linkable = |outs: &[CachedOutput]| {
-            outs.iter().any(|o| {
-                matches!(
-                    o.relative_path.extension().and_then(|e| e.to_str()),
-                    Some("rlib" | "dylib" | "so")
-                )
-            })
+            outs.iter()
+                .any(|o| super::artifact_kind::is_linkable(&o.relative_path))
         };
         let should_put = has_linkable(&entry.outputs)
             || !ctx

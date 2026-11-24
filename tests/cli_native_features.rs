@@ -29,6 +29,7 @@ fn invoke_mitts(directory: &Path, args: &[&str]) -> Output {
         .expect("run Mitts CLI")
 }
 
+#[cfg(unix)]
 fn host_triple() -> String {
     let output = Command::new("rustc")
         .arg("-vV")
@@ -48,6 +49,8 @@ fn write_file(path: impl AsRef<Path>, contents: &str) {
     fs::write(path, contents).unwrap();
 }
 
+// The linker is a `#!/bin/sh` wrapper around `cc`, which only a unix host runs.
+#[cfg(unix)]
 #[test]
 fn examples_target_triple_quiet_and_program_args_work_together() {
     let temp = TempDir::new().unwrap();
@@ -294,6 +297,9 @@ fn metadata_json_filters_optional_and_foreign_target_dependencies() {
         .is_some_and(|target| target.contains("target_os") && target.contains("macos")));
 }
 
+// The consumer is linked with `cc`, which cannot link an MSVC static library (on Windows
+// runners `cc` is MinGW's gcc).
+#[cfg(not(target_env = "msvc"))]
 #[test]
 fn rustc_native_static_libs_output_links_a_c_consumer() {
     let temp = TempDir::new().unwrap();
@@ -344,7 +350,12 @@ fn rustc_native_static_libs_output_links_a_c_consumer() {
                 .map(|(_, flags)| flags.trim())
         })
         .expect("rustc reports native-static-libs");
-    let archive = temp.path().join("target/release/libstaticlib_fixture.a");
+    // rustc's static library name: `NAME.lib` for MSVC, `libNAME.a` elsewhere.
+    let archive = temp.path().join(if cfg!(target_env = "msvc") {
+        "target/release/staticlib_fixture.lib"
+    } else {
+        "target/release/libstaticlib_fixture.a"
+    });
     assert!(archive.is_file(), "missing {}", archive.display());
     let c_source = temp.path().join("consumer.c");
     write_file(

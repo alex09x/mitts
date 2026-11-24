@@ -203,7 +203,9 @@ fn member_directory_uses_the_workspace_lock_and_members() {
     assert_ok(&sibling);
     assert!(!root.join("slint/Cargo.lock").exists());
     assert!(!root.join("slint/target").exists());
-    assert!(root.join("target/debug/todo").is_file());
+    assert!(root
+        .join(format!("target/debug/todo{}", std::env::consts::EXE_SUFFIX))
+        .is_file());
 }
 
 /// `mitts package` started below a member packages that member into the workspace
@@ -282,7 +284,9 @@ fn member_subdirectory_build_uses_the_workspace_target() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(root.join("target/debug/todo").is_file());
+    assert!(root
+        .join(format!("target/debug/todo{}", std::env::consts::EXE_SUFFIX))
+        .is_file());
     assert!(!root.join("todo/target").exists());
 }
 
@@ -303,7 +307,9 @@ fn member_directory_build_uses_the_workspace_target() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(root.join("target/debug/todo").is_file());
+    assert!(root
+        .join(format!("target/debug/todo{}", std::env::consts::EXE_SUFFIX))
+        .is_file());
     assert!(!root.join("todo/target").exists());
 }
 

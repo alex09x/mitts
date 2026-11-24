@@ -81,7 +81,10 @@ fn build_produces_the_inferred_binary_and_the_table_binary() {
     assert!(output.status.success(), "{}", text(&output));
     for name in ["explicit", "auto"] {
         assert!(
-            dir.path().join("target/debug").join(name).is_file(),
+            dir.path()
+                .join("target/debug")
+                .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+                .is_file(),
             "{name} is not built:\n{}",
             text(&output)
         );
@@ -93,6 +96,10 @@ fn autobins_false_keeps_only_the_table() {
     let dir = project("autobins = false\n");
     let output = mitts(&dir, &["build", "--offline"]);
     assert!(output.status.success(), "{}", text(&output));
-    assert!(dir.path().join("target/debug/explicit").is_file());
-    assert!(!dir.path().join("target/debug/auto").exists());
+    let exe = std::env::consts::EXE_SUFFIX;
+    assert!(dir
+        .path()
+        .join(format!("target/debug/explicit{exe}"))
+        .is_file());
+    assert!(!dir.path().join(format!("target/debug/auto{exe}")).exists());
 }

@@ -187,12 +187,10 @@ pub fn try_restore_from_cache_with_directives_and_purity(
             ));
     let mut valid = !entry.outputs.is_empty()
         && (!needs_linkable_lib
-            || entry.outputs.iter().any(|o| {
-                matches!(
-                    o.relative_path.extension().and_then(|e| e.to_str()),
-                    Some("rlib" | "dylib" | "so")
-                )
-            }));
+            || entry
+                .outputs
+                .iter()
+                .any(|o| super::artifact_kind::is_linkable(&o.relative_path)));
     for out in &entry.outputs {
         if fs::metadata(ctx.cas.object_path(&out.cas_hash))
             .map(|m| m.len() != out.file_size)
@@ -221,8 +219,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
     if valid {
         if is_bin {
             let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
-            let dest_bin =
-                super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name);
+            let dest_bin = super::dag_unit_publish::unit_dest_binary(unit, ctx, profile_name);
             for out in &entry.outputs {
                 if out.executable {
                     let rel_dest = ctx.target_dir.join(&out.relative_path);
@@ -266,7 +263,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
         let dest_bin = is_bin.then(|| {
             let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
-            super::dag_unit_publish::unit_dest_binary(unit, ctx.target_dir, profile_name)
+            super::dag_unit_publish::unit_dest_binary(unit, ctx, profile_name)
         });
         if !super::split_debuginfo::restore(
             ctx.cas,

@@ -23,15 +23,16 @@ fn test_m8_resolve_llvm_tool_fallbacks() {
     let temp = TempDir::new().unwrap();
     let bin_dir = temp.path().join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
-    let mock_tool = bin_dir.join("mock-llvm-dummy");
+    // An executable is `NAME.exe` on Windows.
+    let mock_tool = bin_dir.join(format!("mock-llvm-dummy{}", std::env::consts::EXE_SUFFIX));
     fs::write(&mock_tool, "#!/bin/sh\nexit 0\n").unwrap();
 
     let old_path = std::env::var_os("PATH");
-    let mut new_path = bin_dir.into_os_string();
+    let mut dirs = vec![bin_dir];
     if let Some(ref p) = old_path {
-        new_path.push(":");
-        new_path.push(p);
+        dirs.extend(std::env::split_paths(p));
     }
+    let new_path = std::env::join_paths(dirs).unwrap();
     std::env::set_var("PATH", &new_path);
 
     let resolved = resolve_llvm_tool("mock-llvm-dummy");
@@ -39,7 +40,7 @@ fn test_m8_resolve_llvm_tool_fallbacks() {
         std::env::set_var("PATH", orig);
     }
     assert!(resolved.is_some());
-    assert_eq!(resolved.unwrap().file_name().unwrap(), "mock-llvm-dummy");
+    assert_eq!(resolved.unwrap(), mock_tool);
 }
 
 #[test]

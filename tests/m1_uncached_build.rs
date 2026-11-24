@@ -52,7 +52,7 @@ fn test_fixture_uncached_build_and_oracle() {
 
     // Locate the built binary in the isolated target
     let debug_dir = target_dir.join("debug");
-    let bin_path = debug_dir.join("hello-rust");
+    let bin_path = debug_dir.join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(bin_path.exists(), "Executable must exist: {:?}", bin_path);
 
     // Verify observable behavior against M0 oracle
@@ -154,7 +154,9 @@ fn test_cli_and_adapter_share_standard_target() {
     assert!(cargo_status.success(), "Mitts CLI build must succeed");
 
     let ordinary_target = fixture_dir.join("target");
-    let ordinary_bin = ordinary_target.join("debug").join("hello-rust");
+    let ordinary_bin = ordinary_target
+        .join("debug")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(ordinary_bin.exists(), "CLI binary must exist");
 
     // 2. Run Mitts build with the standard target directory
@@ -168,7 +170,9 @@ fn test_cli_and_adapter_share_standard_target() {
 
     let mitts_target = fixture_dir.join("target");
     assert_eq!(plan.target_directory, mitts_target);
-    let mitts_bin = mitts_target.join("debug").join("hello-rust");
+    let mitts_bin = mitts_target
+        .join("debug")
+        .join(format!("hello-rust{}", std::env::consts::EXE_SUFFIX));
     assert!(mitts_bin.exists(), "Mitts binary must exist");
 
     // 3. Verify the shared executable path is usable after the Mitts build

@@ -61,15 +61,18 @@ pub fn select(toolchain: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// rustup on PATH, else in Cargo's home (`$CARGO_HOME/bin`, else `~/.cargo/bin`), named
+/// `rustup.exe` on Windows.
 fn rustup_binary() -> Option<PathBuf> {
+    let name = format!("rustup{}", std::env::consts::EXE_SUFFIX);
     let on_path = std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths)
-            .map(|dir| dir.join("rustup"))
+            .map(|dir| dir.join(&name))
             .find(|p| p.is_file())
     });
     on_path.or_else(|| {
-        std::env::var_os("HOME")
-            .map(|home| PathBuf::from(home).join(".cargo/bin/rustup"))
+        crate::core::source_store::SourceStore::active_cargo_home()
+            .map(|home| home.join("bin").join(&name))
             .filter(|p| p.is_file())
     })
 }

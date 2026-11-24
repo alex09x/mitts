@@ -125,10 +125,13 @@ pub fn assess_build_script_purity_with_dep_info(
     referenced_out_files: Option<&HashSet<String>>,
 ) -> Result<BuildScriptPurity> {
     let mut forbidden_needles: Vec<Vec<u8>> = Vec::new();
+    // Every spelling of a path a script may write (escaped or with `/` on Windows).
     let mut add_needle = |p: &Path| {
         let s = p.to_string_lossy();
         if s.len() >= 3 {
-            forbidden_needles.push(s.as_bytes().to_vec());
+            for spelling in super::build_script_cas::path_spellings(&s) {
+                forbidden_needles.push(spelling.into_bytes());
+            }
         }
     };
 

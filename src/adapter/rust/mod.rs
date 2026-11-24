@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+pub mod artifact_kind;
 pub(crate) mod build_deps;
 pub mod build_script;
 pub mod build_script_cas;

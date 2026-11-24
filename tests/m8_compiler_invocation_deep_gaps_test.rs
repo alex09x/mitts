@@ -23,7 +23,7 @@ fn test_m8_resolve_clippy_driver_fallback() {
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }
-    assert!(resolved.ends_with("clippy-driver"));
+    assert!(resolved.ends_with(format!("clippy-driver{}", std::env::consts::EXE_SUFFIX)));
 }
 
 #[test]

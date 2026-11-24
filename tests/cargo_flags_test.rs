@@ -83,7 +83,14 @@ fn deps(root: &Path) -> Vec<String> {
         .map(|entries| {
             entries
                 .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
+                // Executables by their name without the platform's suffix (`.exe`).
+                .map(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    match name.strip_suffix(std::env::consts::EXE_SUFFIX) {
+                        Some(stem) if !std::env::consts::EXE_SUFFIX.is_empty() => stem.into(),
+                        _ => name,
+                    }
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -146,8 +153,11 @@ fn all_targets_builds_bins_tests_examples_and_benches() {
         &["build", "-q", "-p", "a", "--all-targets"],
         &[],
     ));
-    assert!(root.join("target/debug/tool").is_file());
-    assert!(root.join("target/debug/examples/ex").is_file());
+    let exe = std::env::consts::EXE_SUFFIX;
+    assert!(root.join(format!("target/debug/tool{exe}")).is_file());
+    assert!(root
+        .join(format!("target/debug/examples/ex{exe}"))
+        .is_file());
     let built = deps(root);
     assert!(built.iter().any(|n| n == "a-it"), "{built:?}");
     assert!(built.iter().any(|n| n == "a-bn"), "{built:?}");

@@ -214,9 +214,7 @@ workspace and never shared.
   S3/HTTP, written only by trusted CI, with the action cache kept separate from
   any CDN.
 - Cross-compilation beyond the host target.
-- Windows (locks and the jobserver are POSIX-only today).
 - Empty or omitted `workspace.members` defaults strictly to the root package (`.`); implicit path-dependencies outside the root package are not auto-promoted to members and must be listed in `workspace.members`.
-- Wildcards in intermediate directories (`crates/*/sub`) and character-class globs (`?`, `[...]`) in `workspace.members` are unsupported and fail closed.
 
 ## 11. Diagnostic Environment Variables
 

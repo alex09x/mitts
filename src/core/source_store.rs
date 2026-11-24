@@ -53,14 +53,13 @@ impl SourceStore {
         Self::new(Self::default_root())
     }
 
-    /// Resolves the active Cargo home directory (`$CARGO_HOME` if explicitly set, otherwise `$HOME/.cargo`).
+    /// Resolves the active Cargo home directory as Cargo does: `$CARGO_HOME` if set, else
+    /// `.cargo` in the user's home (`%USERPROFILE%` on Windows, `$HOME` elsewhere).
     pub fn active_cargo_home() -> Option<PathBuf> {
         if let Some(ch) = std::env::var_os("CARGO_HOME").filter(|v| !v.is_empty()) {
             return Some(PathBuf::from(ch));
         }
-        std::env::var_os("HOME")
-            .filter(|v| !v.is_empty())
-            .map(|h| PathBuf::from(h).join(".cargo"))
+        crate::core::cache_root::user_home().map(|h| h.join(".cargo"))
     }
 
     fn discover_cargo_registry_subdir(sub: &str) -> Option<PathBuf> {
@@ -158,13 +157,7 @@ impl SourceStore {
             if pid == std::process::id() {
                 continue;
             }
-            #[cfg(unix)]
-            let is_dead = unsafe {
-                libc::kill(pid as i32, 0) == -1
-                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-            };
-            #[cfg(not(unix))]
-            let is_dead = false;
+            let is_dead = crate::core::process::is_dead(pid);
             let is_stale = entry
                 .metadata()
                 .and_then(|m| m.modified())

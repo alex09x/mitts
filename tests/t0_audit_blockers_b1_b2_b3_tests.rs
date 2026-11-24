@@ -327,10 +327,7 @@ fn test_t0_n1_and_n2_dead_pid_staging_cleanup() {
     }
     let stale_time = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
     for dir in [&dead_staging, &dead_trash, &live_staging] {
-        fs::File::open(dir)
-            .unwrap()
-            .set_modified(stale_time)
-            .unwrap();
+        mitts::core::file_time::set_modified(dir, stale_time).unwrap();
     }
 
     assert_eq!(store.cleanup_dead_staging(), 2);
@@ -378,7 +375,7 @@ fn test_t0_r1_patch_or_path_package_without_source_never_uses_crates_io_store() 
         let err = RustAdapter::explain_plan(&opt).expect_err(
             "explain_plan must reject source == None package outside workspace/path_dependencies instead of substituting crates.io copy",
         );
-        let msg = format!("{:#}", err);
+        let msg = format!("{:#}", err).replace('\\', "/");
         // The patch names a directory that does not exist: the planner reports that
         // directory and never substitutes the crates.io copy.
         assert!(

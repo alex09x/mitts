@@ -135,7 +135,9 @@ fn test_m8_dag_cache_restores_bin_and_rlib_non_native() {
     assert_eq!(res2.exit_code, 0);
 
     // Check that target/debug/restore_bin was restored
-    let bin_path = target_dir.join("debug").join("restore_bin");
+    let bin_path = target_dir
+        .join("debug")
+        .join(format!("restore_bin{}", std::env::consts::EXE_SUFFIX));
     assert!(
         bin_path.is_file(),
         "Binary must be restored from CAS into target/debug"

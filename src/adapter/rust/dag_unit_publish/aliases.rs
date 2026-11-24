@@ -19,7 +19,7 @@ pub(crate) fn publish_library_alias(
     hash: &str,
 ) {
     let profile = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
-    let name = format!("lib{crate_name}.{extension}");
+    let name = crate::adapter::rust::artifact_kind::library_file_name(crate_name, extension);
     let relative = format!("{profile}/deps/{name}");
     let alias = ctx.target_dir.join(&relative);
     if alias != artifact
@@ -45,11 +45,14 @@ pub(crate) fn publish_uplifted_library(
     extension: &str,
     hash: &str,
 ) {
-    if !matches!(extension, "dylib" | "so" | "rlib") {
+    if !matches!(extension, "dylib" | "so" | "dll" | "rlib") {
         return;
     }
     let profile = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
-    let relative = format!("{profile}/lib{crate_name}.{extension}");
+    let relative = format!(
+        "{profile}/{}",
+        crate::adapter::rust::artifact_kind::library_file_name(crate_name, extension)
+    );
     let uplifted = ctx.target_dir.join(&relative);
     if uplifted != artifact
         && crate::core::link_intra_workspace(artifact, &uplifted, &[ctx.target_dir], false).is_ok()

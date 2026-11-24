@@ -8,6 +8,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+// The fixture test binaries are shell scripts.
+#![cfg(unix)]
+
 use mitts::cli::test::TestArgs;
 use mitts::cli::test_runner::{execute_test_binaries, DiscoveredBinaries};
 use std::collections::HashMap;

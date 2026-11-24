@@ -333,9 +333,105 @@ jobs:
         if: always()
         working-directory: source
         run: git diff --exit-code -- Cargo.toml Cargo.lock
+  # Windows has no released Mitts to bootstrap from before 0.5.0, and the Cargo CLI is not
+  # used: the exact-source Mitts, built on Linux, cross-builds `mitts.exe` for
+  # x86_64-pc-windows-gnu (MinGW); the Windows job builds Mitts natively for MSVC with it and
+  # runs the checks and the whole suite there.
+  windows-bootstrap:
+    name: windows bootstrap (cross-built mitts.exe)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          targets: x86_64-pc-windows-gnu
+      - name: MinGW-w64 toolchain
+        run: sudo apt-get update -q && sudo apt-get install -y -q mingw-w64
+      - name: Install latest stable Mitts
+        env:
+          MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
+        run: |
+          sh site/install.sh
+          echo "MITTS=$MITTS_INSTALL_ROOT/bin/mitts" >> "$GITHUB_ENV"
+      - name: Build the exact-source Linux Mitts
+        working-directory: source
+        run: |
+          "$MITTS" build --locked --release --bin mitts --cache-dir "$RUNNER_TEMP/mitts-cache" \
+            --target-dir "$RUNNER_TEMP/host"
+          echo "MITTS=$RUNNER_TEMP/host/release/mitts" >> "$GITHUB_ENV"
+      - name: Cross-build mitts.exe
+        working-directory: source
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
+          AR_x86_64_pc_windows_gnu: x86_64-w64-mingw32-ar
+        run: |
+          "$MITTS" build --locked --release --bin mitts --target x86_64-pc-windows-gnu \
+            --cache-dir "$RUNNER_TEMP/mitts-cache" --target-dir "$RUNNER_TEMP/target"
+          cp "$RUNNER_TEMP/target/x86_64-pc-windows-gnu/release/mitts.exe" "$GITHUB_WORKSPACE/mitts.exe"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mitts-windows-bootstrap
+          path: mitts.exe
+          if-no-files-found: error
+  windows:
+    name: native (windows-2022)
+    needs: windows-bootstrap
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mitts-windows-bootstrap
+          path: ${{ runner.temp }}/bootstrap
+      - name: Build the exact-source Mitts driver natively (MSVC)
+        working-directory: source
+        run: |
+          "$RUNNER_TEMP/bootstrap/mitts.exe" build --locked --bin mitts \
+            --cache-dir "$RUNNER_TEMP/mitts-ci-cache" --target-dir "$RUNNER_TEMP/mitts-candidate"
+          binary="$RUNNER_TEMP/mitts-candidate/debug/mitts.exe"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\nMITTS_CI_CACHE_DIR=%s\n' "$binary" "$RUNNER_TEMP/mitts-ci-cache" >> "$GITHUB_ENV"
+      - name: Clippy
+        working-directory: source
+        run: '"$MITTS_CI_BIN" clippy --workspace --all-targets --keep-going --cache-dir "$MITTS_CI_CACHE_DIR" -- -D warnings'
+      - name: Full native suite in an isolated store
+        working-directory: source
+        run: |
+          mkdir -p .ci-tools
+          cp "$GITHUB_WORKSPACE/scripts/run_tests_isolated.sh" .ci-tools/run-tests.sh
+          bash .ci-tools/run-tests.sh --no-fail-fast
+      - name: Source manifests and lockfile remain unchanged
+        if: always()
+        working-directory: source
+        run: git diff --exit-code -- Cargo.toml Cargo.lock
   gate:
     if: always()
-    needs: [automation, native, probe, action]
+    needs: [automation, native, probe, action, windows]
     runs-on: ubuntu-22.04
     steps:
       - name: Require every check
@@ -344,4 +440,5 @@ jobs:
           NATIVE: ${{ needs.native.result }}
           PROBE: ${{ needs.probe.result }}
           ACTION: ${{ needs.action.result }}
-        run: test "$AUTOMATION" = success && test "$NATIVE" = success && test "$PROBE" = success && test "$ACTION" = success
+          WINDOWS: ${{ needs.windows.result }}
+        run: test "$AUTOMATION" = success && test "$NATIVE" = success && test "$PROBE" = success && test "$ACTION" = success && test "$WINDOWS" = success

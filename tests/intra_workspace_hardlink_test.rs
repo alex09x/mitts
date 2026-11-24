@@ -257,12 +257,13 @@ version = "0.1.0"
     );
 
     let debug_dir = target_dir.join("debug");
-    let dest = debug_dir.join("my-hyphen-pkg");
+    let exe = std::env::consts::EXE_SUFFIX;
+    let dest = debug_dir.join(format!("my-hyphen-pkg{exe}"));
     // Explicit copies exercise linking without an automatic executable alias.
-    let alt_path = debug_dir.join("workspace-copy");
+    let alt_path = debug_dir.join(format!("workspace-copy{exe}"));
 
     assert!(dest.is_file(), "Primary binary must exist: {:?}", dest);
-    assert!(!debug_dir.join("my_hyphen_pkg").exists());
+    assert!(!debug_dir.join(format!("my_hyphen_pkg{exe}")).exists());
     mitts::core::link_intra_workspace(&dest, &alt_path, &[target_dir.as_path()], true).unwrap();
     assert!(
         alt_path.is_file(),
@@ -503,6 +504,9 @@ version = "0.1.0"
 
     let hashed_rlib = hashed_rlib.expect("hashed rlib must exist in deps");
     let hashed_rmeta = hashed_rmeta.expect("hashed rmeta must exist in deps");
+    // The inode checks below are unix-only; elsewhere both outputs only have to exist.
+    #[cfg(not(unix))]
+    assert!(hashed_rlib.is_file() && hashed_rmeta.is_file());
 
     #[cfg(unix)]
     {

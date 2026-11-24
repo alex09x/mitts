@@ -309,7 +309,10 @@ pure_lib = { path = "../pure_lib" }
     );
 
     // 3. Executable runs successfully and output matches
-    let app2 = clone2.path().join("target/debug/pure_app");
+    let app2 = clone2.path().join(format!(
+        "target/debug/pure_app{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(app2.is_file(), "pure_app binary must exist in clone 2");
     let output = Command::new(&app2).output().expect("run app2");
     assert!(output.status.success());
@@ -494,7 +497,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-external_dep = {{ path = "{}" }}
+external_dep = {{ path = '{}' }}
 "#,
                 ext_dir.display()
             ),
@@ -574,7 +577,7 @@ edition = "2021"
 fn main() {
     let cwd = env::current_dir().unwrap();
     // Leaks workspace path into rustc-cfg, making it impure
-    println!("cargo:rustc-cfg=leaked_path=\"{}\"", cwd.display());
+    println!("cargo:rustc-cfg=leaked_path={:?}", cwd.display().to_string());
     println!("cargo:rerun-if-changed=build.rs");
 }
 "##,

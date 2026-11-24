@@ -58,8 +58,17 @@ fn build(root: &Path, cache: &Path, release: bool) -> Output {
     command.output().unwrap()
 }
 
+/// The uplifted outputs as rustc names them: Windows (MSVC) drops the `lib` prefix of the
+/// static and dynamic libraries (`core_demo.lib`, `core_demo.dll`).
 fn expected(root: &Path, profile: &str) -> Vec<PathBuf> {
     let dir = root.join("target").join(profile);
+    if cfg!(target_env = "msvc") {
+        return vec![
+            dir.join("core_demo.lib"),
+            dir.join("core_demo.dll"),
+            dir.join("libcore_demo.rlib"),
+        ];
+    }
     vec![
         dir.join("libcore_demo.a"),
         dir.join(format!("libcore_demo.{DYLIB}")),

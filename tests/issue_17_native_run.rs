@@ -252,13 +252,19 @@ bridge_dep = { package = "bridge-dep", path = "bridge", optional = true }
 
     let debug = target.join("debug");
     assert!(debug.join("deps/libissue17_native.rlib").is_file());
-    assert!(debug.join("libissue17_native.a").is_file());
-    let dylib_ext = if cfg!(target_os = "macos") {
-        "dylib"
-    } else {
-        "so"
-    };
     assert!(debug
-        .join(format!("deps/libissue17_native.{dylib_ext}"))
+        .join(if cfg!(target_env = "msvc") {
+            "issue17_native.lib"
+        } else {
+            "libissue17_native.a"
+        })
         .is_file());
+    let dylib = if cfg!(windows) {
+        "deps/issue17_native.dll"
+    } else if cfg!(target_os = "macos") {
+        "deps/libissue17_native.dylib"
+    } else {
+        "deps/libissue17_native.so"
+    };
+    assert!(debug.join(dylib).is_file());
 }

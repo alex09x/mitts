@@ -18,6 +18,18 @@ use tempfile::TempDir;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+/// Puts an environment variable back as it was when dropped.
+struct RestoreVar(&'static str, Option<std::ffi::OsString>);
+
+impl Drop for RestoreVar {
+    fn drop(&mut self) {
+        match self.1.take() {
+            Some(value) => std::env::set_var(self.0, value),
+            None => std::env::remove_var(self.0),
+        }
+    }
+}
+
 #[test]
 fn test_m8_action_cache_default_paths_and_error_handling() {
     let _guard = ENV_LOCK.lock().unwrap();
@@ -55,12 +67,17 @@ fn test_m8_action_cache_default_paths_and_error_handling() {
             .join("ac")
     );
 
-    // 4. No env vars
+    // 4. No env vars (the Windows profile directory is the home fallback)
     std::env::remove_var("HOME");
+    let orig_profile = std::env::var_os("USERPROFILE");
+    std::env::remove_var("USERPROFILE");
     assert_eq!(
         ActionCache::default_path(),
         PathBuf::from(".mitts_cache").join("ac")
     );
+    if let Some(v) = orig_profile {
+        std::env::set_var("USERPROFILE", v);
+    }
 
     // Restore env vars
     if let Some(v) = orig_mitts {
@@ -134,8 +151,11 @@ fn test_m8_cas_default_paths_and_named_artifact_caching() {
             .join("cas")
     );
 
-    // 4. No env vars
+    // 4. No env vars (the Windows profile directory is the home fallback)
     std::env::remove_var("HOME");
+    let cas_profile = std::env::var_os("USERPROFILE");
+    std::env::remove_var("USERPROFILE");
+    let _restore_profile = RestoreVar("USERPROFILE", cas_profile);
     assert_eq!(
         ContentAddressedStore::default_path(),
         PathBuf::from(".mitts_cache").join("cas")

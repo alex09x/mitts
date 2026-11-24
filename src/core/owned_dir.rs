@@ -16,7 +16,9 @@
 //! with the lock already held: `flock` belongs to the open file, not to its path.
 
 use super::lock::FileLock;
-use anyhow::{Context, Result};
+#[cfg(not(windows))]
+use anyhow::Context;
+use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,11 +29,39 @@ pub const OWNER_LOCK: &str = ".owner.lock";
 /// A staging directory older than this was left by a process that died while creating it.
 const STALE_STAGING: Duration = Duration::from_secs(600);
 
+#[cfg(not(windows))]
 fn staging_name(name: &str) -> String {
     format!(".{name}.staging")
 }
 
 /// Creates `parent/name` already locked by this process and returns it with its lock.
+///
+/// Windows cannot rename a directory holding an open file, so there the directory is
+/// created under its name and locked at once; a sweep that removed it in the instant
+/// before is answered by creating it again. Once the lock file is open, Windows refuses to
+/// delete it, so a live directory is never swept.
+#[cfg(windows)]
+pub fn create_locked(parent: &Path, name: &str) -> Result<(PathBuf, FileLock)> {
+    let dir = parent.join(name);
+    let mut last = None;
+    for _ in 0..16 {
+        if let Err(e) = fs::create_dir_all(&dir) {
+            last = Some(anyhow::Error::new(e));
+            continue;
+        }
+        match FileLock::acquire_exclusive(&dir.join(OWNER_LOCK)) {
+            Ok(lock) if dir.join(OWNER_LOCK).is_file() => return Ok((dir, lock)),
+            Ok(_) => {}
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last
+        .unwrap_or_else(|| anyhow::anyhow!("directory kept disappearing"))
+        .context(format!("Failed to create {}", dir.display())))
+}
+
+/// Creates `parent/name` already locked by this process and returns it with its lock.
+#[cfg(not(windows))]
 pub fn create_locked(parent: &Path, name: &str) -> Result<(PathBuf, FileLock)> {
     let staging = parent.join(staging_name(name));
     fs::create_dir_all(&staging)
