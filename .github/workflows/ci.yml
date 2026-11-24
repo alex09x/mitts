@@ -234,10 +234,14 @@ jobs:
   # source. The x86_64 job cross-builds the exact-source Mitts driver; the riscv64 job runs
   # the end-to-end smoke set with it on a physical board. Not part of the gate: the shared
   # pool can queue, and it must not hold up merges. No secrets reach these jobs.
+  # Off until the repository variable RISE_RUNNERS is `true` (set once the RISE GitHub App
+  # is installed): a job whose runner does not exist stays queued, and a queued job keeps
+  # the whole run from completing, which the release waits for.
   riscv-driver:
     if: >-
+      vars.RISE_RUNNERS == 'true' && (
       github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
@@ -287,8 +291,9 @@ jobs:
     # there (main, release calls, pull requests from branches of this repository), never a
     # fork's pull request. RISE runners are ephemeral pods, one fresh environment per job.
     if: >-
+      vars.RISE_RUNNERS == 'true' && (
       github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04-riscv
     timeout-minutes: 240
     env:
