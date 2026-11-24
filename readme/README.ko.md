@@ -277,7 +277,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 | 빌드 스크립트 실행 캐시 | 아니요 | 아니요 | 예 |
 | 단일 종속성의 동시 빌드 | `target/` 잠금에서 대기 | 미스 발생 시 둘 다 컴파일할 수 있음 | 하나는 컴파일하고, 다른 하나는 재사용 |
 | 원격 / 팀 캐시 | 아니요 | 예 (S3, GCS, Redis, …) | 계획됨 |
-| Windows | 예 | 예 | 예 (x86-64 MSVC, 0.5.0 전까지 소스에서 빌드) |
+| Windows | 예 | 예 | 예 (x86-64 MSVC) |
 
 Bazel과 Buck2는 더 큰 문제(원격 실행을 지원하는 밀폐형 다중 언어 빌드)를 해결하지만 `Cargo.toml` 대신 자체 빌드 파일이 필요합니다.
 
@@ -392,17 +392,17 @@ Mitts는 Cargo와 동일한 기본 출력 경로를 사용합니다. 공유 아�
 
 ## 인용
 
-Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.5.0 버전의 DOI는 [10.5281/zenodo.24512542](https://doi.org/10.5281/zenodo.24512542)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
+Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.5.1 버전의 DOI는 [10.5281/zenodo.24516929](https://doi.org/10.5281/zenodo.24516929)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
 
 ```bibtex
-@software{panasenko_2026_24512542,
+@software{panasenko_2026_24516929,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.0},
-  doi       = {10.5281/zenodo.24512542},
-  url       = {https://doi.org/10.5281/zenodo.24512542}
+  version   = {0.5.1},
+  doi       = {10.5281/zenodo.24516929},
+  url       = {https://doi.org/10.5281/zenodo.24516929}
 }
 ```
 

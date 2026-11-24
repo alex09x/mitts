@@ -276,7 +276,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 | 缓存 build-script 运行 | 否 | 否 | 是 |
 | 同一依赖项的并发构建 | 等待 `target/` 锁 | 未命中时两者均可能编译 | 一个编译，另一个复用 |
 | 远程 / 团队缓存 | 否 | 是（S3、GCS、Redis、…） | 计划中 |
-| Windows | 是 | 是 | 是（x86-64 MSVC，0.5.0 之前从源码构建） |
+| Windows | 是 | 是 | 是（x86-64 MSVC） |
 
 Bazel 和 Buck2 解决的是更广泛的问题——带远程执行的封闭式（hermetic）多语言构建——但需要它们自己的构建文件，而不是 `Cargo.toml`。
 
@@ -390,17 +390,17 @@ Mitts 使用与 Cargo 相同的默认输出路径。其共享工件存储保持�
 
 ## 引用
 
-引用 Mitts 时，请使用已归档的发布版本。概念 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) 始终指向最新版本；0.5.0 的版本 DOI 为 [10.5281/zenodo.24512542](https://doi.org/10.5281/zenodo.24512542)。GitHub 的「Cite this repository」会读取 [CITATION.cff](../CITATION.cff)。
+引用 Mitts 时，请使用已归档的发布版本。概念 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) 始终指向最新版本；0.5.1 的版本 DOI 为 [10.5281/zenodo.24516929](https://doi.org/10.5281/zenodo.24516929)。GitHub 的「Cite this repository」会读取 [CITATION.cff](../CITATION.cff)。
 
 ```bibtex
-@software{panasenko_2026_24512542,
+@software{panasenko_2026_24516929,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.0},
-  doi       = {10.5281/zenodo.24512542},
-  url       = {https://doi.org/10.5281/zenodo.24512542}
+  version   = {0.5.1},
+  doi       = {10.5281/zenodo.24516929},
+  url       = {https://doi.org/10.5281/zenodo.24516929}
 }
 ```
 
