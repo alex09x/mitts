@@ -135,12 +135,28 @@ pub fn handle_locate_project(args: &LocateProjectArgs) -> i32 {
     })())
 }
 
+/// The `path+file://` URL of a local directory as Cargo writes it: forward slashes, and a
+/// Windows drive path behind a third slash (`path+file:///C:/w/app`), without the `\\?\`
+/// prefix `canonicalize` adds there.
+pub fn path_source_url(dir: &Path) -> String {
+    let text = dir.to_string_lossy();
+    let text = text
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&text)
+        .replace('\\', "/");
+    if text.starts_with('/') {
+        format!("path+file://{text}")
+    } else {
+        format!("path+file:///{text}")
+    }
+}
+
 /// Cargo's package ID: `<source>#<name>@<version>`, with `path+file://` for local
 /// packages and the name dropped when it is the directory's last component.
 pub fn package_id(pkg: &CargoLockPackage, local_dir: Option<&Path>) -> String {
     match (&pkg.source, local_dir) {
         (None, Some(dir)) => {
-            let url = format!("path+file://{}", dir.to_string_lossy().replace('\\', "/"));
+            let url = path_source_url(dir);
             let last = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if last == pkg.name {
                 format!("{url}#{}", pkg.version)
@@ -294,6 +310,15 @@ mod tests {
         assert_eq!(
             package_id(&local, Some(Path::new("/w/other"))),
             "path+file:///w/other#app@0.1.0"
+        );
+        // Windows drive paths, plain and as `canonicalize` returns them.
+        assert_eq!(
+            path_source_url(Path::new(r"C:\w\app")),
+            "path+file:///C:/w/app"
+        );
+        assert_eq!(
+            path_source_url(Path::new(r"\\?\C:\w\app")),
+            "path+file:///C:/w/app"
         );
         let reg = pkg(
             "serde",

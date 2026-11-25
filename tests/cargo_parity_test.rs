@@ -506,7 +506,11 @@ fn add_and_remove_edit_the_manifest_and_lock() {
         text.contains("cc2 = { version = \"2.0.0\", package = \"cc\" }"),
         "{text}"
     );
-    assert!(text.contains("local = { path = \"../local\" }"), "{text}");
+    // As Cargo: the package's version beside its path.
+    assert!(
+        text.contains("local = { version = \"0.2.0\", path = \"../local\" }"),
+        "{text}"
+    );
     assert!(
         text.contains("[dev-dependencies]\nbb = \"0.3\"\n"),
         "{text}"
@@ -1645,8 +1649,9 @@ fn metadata_no_deps_reports_cargos_default_members() {
     assert_eq!(doc["workspace_members"].as_array().unwrap().len(), 2);
     let defaults = doc["workspace_default_members"].as_array().unwrap();
     assert_eq!(defaults.len(), 1, "{doc}");
+    // Cargo's package ID spec leaves the name out when the directory already is the name.
     assert!(
-        defaults[0].as_str().unwrap().ends_with("#app@0.1.0"),
+        defaults[0].as_str().unwrap().ends_with("/app#0.1.0"),
         "{doc}"
     );
 }

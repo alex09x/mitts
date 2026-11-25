@@ -474,7 +474,7 @@ fn locate(args: &InstallArgs, spec: &str) -> Result<Source> {
         let (dir, name, version) = package_of(&abs, Some(wanted_name))?;
         let canonical = dir.canonicalize().unwrap_or(dir.clone());
         return Ok(Source {
-            source_id: format!("path+file://{}", canonical.display()),
+            source_id: super::project_info::path_source_url(&canonical),
             dir,
             name,
             version,

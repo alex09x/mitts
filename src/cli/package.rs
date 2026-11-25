@@ -352,7 +352,7 @@ fn prepare(args: &PackageArgs, manifest: &Path) -> Result<(serde_json::Value, Ve
         )?
         .prefer_locked(lock)
         .resolve_manifest(&manifest, args.offline || args.frozen)?;
-        fresh.version = fresh.version.max(lock.version);
+        fresh.version = lock.version;
         Ok(fresh.to_string_formatted().into_bytes())
     };
     let lock = if lock_path.is_file() {

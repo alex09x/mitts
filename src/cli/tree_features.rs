@@ -231,7 +231,9 @@ impl Builder {
             if default {
                 requested.insert("default".to_string());
             }
-            requested.retain(|f| self.active(&child, f));
+            // `default` is shown whenever default features are on, as Cargo shows it, even
+            // for a package that declares no `default` feature.
+            requested.retain(|f| (default && f == "default") || self.active(&child, f));
             if requested.is_empty() {
                 self.edge(id, child.clone(), kind);
                 continue;

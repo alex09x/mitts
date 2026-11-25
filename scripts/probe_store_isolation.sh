@@ -50,6 +50,9 @@ controller_xdg="$controller/xdg"
 controller_cache="$controller/cache"
 mkdir -p "$controller_home" "$controller_xdg" "$controller_cache" || exit 2
 mkdir -p "$controller/guard"
+# The real Cargo, for tests/cargo_differential_test.rs alone (the reference; see
+# run_tests_isolated.sh).
+reference_cargo=$(command -v cargo 2>/dev/null || true)
 cat > "$controller/guard/cargo" <<'EOF'
 #!/bin/sh
 echo 'Cargo CLI is forbidden in Mitts test workflows' >&2
@@ -177,6 +180,7 @@ run_target() {
     XDG_CACHE_HOME="$sandbox/xdg" \
     CARGO_HOME="$cargo_home" \
     RUSTUP_HOME="$rustup_home" \
+    REFERENCE_CARGO="$reference_cargo" \
     PATH="$controller/guard:$PATH" CARGO="$mitts_bin" \
     RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
     CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \
