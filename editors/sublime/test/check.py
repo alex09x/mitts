@@ -25,6 +25,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
 failures = []
+# Mitts prints non-ASCII (⚡, box drawing); Windows' console encoding is not UTF-8.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def expect(ok, what):

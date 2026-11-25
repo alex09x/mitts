@@ -65,10 +65,11 @@ endfunction
 function! Test_makeprg_is_mitts_or_the_configured_executable() abort
   compiler! mitts
   call assert_equal('mitts', &makeprg)
-  let g:mitts_executable = '/opt/mitts dir/mitts'
+  " A path with forward slashes, as people write them on Windows too.
+  let g:mitts_executable = has('win32') ? 'C:/mitts dir/mitts' : '/opt/mitts dir/mitts'
   unlet! g:current_compiler
   compiler! mitts
-  call assert_equal(has('win32') ? '\opt\mitts dir\mitts' : '/opt/mitts dir/mitts', &makeprg)
+  call assert_equal(has('win32') ? 'C:\mitts dir\mitts' : '/opt/mitts dir/mitts', &makeprg)
   unlet g:mitts_executable
   unlet! g:current_compiler
   compiler! mitts

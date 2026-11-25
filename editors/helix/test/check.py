@@ -26,6 +26,8 @@ HERE = Path(__file__).resolve().parent.parent
 HX = os.environ.get("HX") or shutil.which("hx") or "hx"
 CHECK = ["mitts", "check", "--workspace", "--all-targets", "--message-format=json"]
 failures = []
+# Windows' console encoding is not UTF-8; Helix's report is.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def expect(ok, what):
