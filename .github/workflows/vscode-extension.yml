@@ -77,9 +77,48 @@ jobs:
           path: ${{ runner.temp }}/${{ steps.pack.outputs.vsix }}
           if-no-files-found: error
 
+  # The packaged VSIX in a real VS Code on each desktop system: `code --install-extension`
+  # takes it and lists it with its version, then the tasks and diagnostics test runs there.
+  os:
+    name: VS Code on ${{ matrix.os }}
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: vscode-extension
+          path: ${{ runner.temp }}/vsix
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:unit
+      - name: The VSIX installs, then tasks and diagnostics in VS Code
+        shell: bash
+        env:
+          MITTS_IT_RUST_ANALYZER: '0'
+          MITTS_IT_VSIX: ${{ runner.temp }}/vsix/${{ needs.package.outputs.vsix }}
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm run test:integration; else npm run test:integration; fi
+
   publish:
     if: startsWith(github.ref, 'refs/tags/vscode-v')
-    needs: package
+    needs: [package, os]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: vscode-marketplace

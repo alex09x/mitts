@@ -12,6 +12,7 @@ import { execFile } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as vscode from "vscode";
+import { installCommand } from "./install";
 import { atLeast, locateMitts, parseVersion } from "./locate";
 import {
   RUST_ANALYZER_KEYS,
@@ -36,7 +37,6 @@ import { MittsTaskProvider, TASK_TYPE } from "./tasks";
 
 /** The first release with every Cargo command; older ones still work for build/check/test. */
 const RECOMMENDED = "0.4.0";
-const INSTALL_UNIX = "curl -fsSL https://mittsbuild.com/install.sh | sh";
 
 function findExecutable(): string | undefined {
   const configured = vscode.workspace.getConfiguration("mitts").get<string>("path", "");
@@ -112,14 +112,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
     }),
     vscode.commands.registerCommand("mitts.install", async () => {
-      if (process.platform === "win32") {
-        void vscode.window.showWarningMessage(
-          "Mitts does not support Windows yet. See https://mittsbuild.com for the platforms it runs on.",
-        );
-        return;
-      }
+      const line = installCommand(process.platform);
       const choice = await vscode.window.showInformationMessage(
-        `Install Mitts with the official installer? It runs in a terminal: ${INSTALL_UNIX}`,
+        `Install Mitts with the official installer? It runs in a terminal: ${line}`,
         { modal: true },
         "Run installer",
       );
@@ -128,7 +123,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const terminal = vscode.window.createTerminal({ name: "Install Mitts" });
       terminal.show();
-      terminal.sendText(INSTALL_UNIX);
+      terminal.sendText(line);
       const done = vscode.window.onDidCloseTerminal((closed) => {
         if (closed === terminal) {
           done.dispose();

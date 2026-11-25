@@ -91,8 +91,8 @@ export async function run(): Promise<void> {
   const override = ra.get<string[]>("check.overrideCommand");
   log(`rust-analyzer.check.overrideCommand = ${JSON.stringify(override)}`);
   assert.equal(override?.[1], "check");
-  assert.ok(override?.[0].endsWith("mitts"));
-  assert.ok(ra.get<string>("runnables.command")?.endsWith("mitts"));
+  assert.match(override?.[0] ?? "", /mitts(\.exe)?$/);
+  assert.match(ra.get<string>("runnables.command") ?? "", /mitts(\.exe)?$/);
 
   const cache = process.env.MITTS_TEST_CACHE!;
   // Remove what the task built, so the incremental directory below can only come from
