@@ -36,12 +36,14 @@ jobs:
         os: [windows-2022, windows-2025]
         shell: [pwsh, powershell]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - name: install.ps1 scenarios
-        shell: ${{ matrix.shell }}
         run: ./scripts/ci/windows_install_test.ps1 -Installer site/install.ps1
 
   cmd:
@@ -141,12 +143,14 @@ jobs:
       matrix:
         shell: [pwsh, powershell]
     runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - name: install.ps1 refuses by name, with no prebuilt ARM64 binary
-        shell: ${{ matrix.shell }}
         run: |
           Write-Host "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
           ./scripts/ci/windows_install_test.ps1 -Installer site/install.ps1 -Native
