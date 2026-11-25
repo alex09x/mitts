@@ -170,6 +170,10 @@ pub struct RustBuildOptions {
     pub package: Option<String>,
     /// Additional package selectors, resolved together with `package` in one graph.
     pub packages: Vec<String>,
+    /// The versions `-p name@version` asked for, by name. `package`/`packages` hold names
+    /// only once `with_package_specs_split` ran: code across the planner compares them with
+    /// package names, and `tokio@1.43.0` matched none (tokio-util lost every dependency).
+    pub package_versions: Vec<(String, String)>,
     /// `release` profile, or for a custom profile: whether it derives from `release`.
     pub release: bool,
     /// A custom profile (`--profile NAME`, not `dev` / `release`); its outputs go to
@@ -226,6 +230,38 @@ pub struct RustBuildOptions {
 }
 
 impl RustBuildOptions {
+    /// These options with every `-p name@version` split: the name in `package`/`packages`,
+    /// the version in `package_versions`. Idempotent.
+    pub fn with_package_specs_split(&self) -> RustBuildOptions {
+        let mut opt = self.clone();
+        let mut split = |spec: &mut String| {
+            if let Some((name, version)) = spec.split_once('@') {
+                let (name, version) = (name.to_string(), version.to_string());
+                opt.package_versions.push((name.clone(), version));
+                *spec = name;
+            }
+        };
+        let mut package = opt.package.take();
+        if let Some(spec) = package.as_mut() {
+            split(spec);
+        }
+        let mut packages = std::mem::take(&mut opt.packages);
+        for spec in &mut packages {
+            split(spec);
+        }
+        opt.package = package;
+        opt.packages = packages;
+        opt
+    }
+
+    /// The version `-p name@version` asked for `name`, if any.
+    pub fn requested_version(&self, name: &str) -> Option<&str> {
+        self.package_versions
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
+
     pub fn selected_package_names(&self) -> impl Iterator<Item = &str> {
         self.package
             .iter()

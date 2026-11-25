@@ -75,11 +75,13 @@ pub fn select_packages<'a>(
     let mut root_pkgs: Vec<&'a CargoLockPackage> = Vec::new();
     let selected_roots: Vec<&str> = opt.selected_package_names().collect();
     if !selected_roots.is_empty() {
-        for spec in selected_roots {
-            // `name@version`, the version possibly partial (`tokio@1`), as Cargo takes it.
-            let (target_pkg, wanted) = match spec.split_once('@') {
-                Some((name, version)) => (name, Some(version)),
-                None => (spec, None),
+        for target_pkg in selected_roots {
+            // `name@version`, the version possibly partial (`tokio@1`), as Cargo takes it;
+            // split into name and version on the way in (`with_package_specs_split`).
+            let wanted = opt.requested_version(target_pkg);
+            let spec = match wanted {
+                Some(v) => format!("{target_pkg}@{v}"),
+                None => target_pkg.to_string(),
             };
             let narrowed: Option<Vec<&'a CargoLockPackage>> =
                 packages_by_name.get(target_pkg).map(|pkgs| {
