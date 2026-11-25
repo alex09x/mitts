@@ -73,7 +73,7 @@ env ${drop[@]+"${drop[@]}"} \
   XDG_CACHE_HOME="$sandbox/xdg" \
   CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
   RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
-  MITTS_REFERENCE_CARGO="$reference_cargo" \
+  REFERENCE_CARGO="$reference_cargo" \
   PATH="$sandbox/guard:$PATH" CARGO="${MITTS_CI_BIN:-mitts}" \
   RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
   CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \

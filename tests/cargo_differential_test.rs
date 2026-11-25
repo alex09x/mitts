@@ -22,10 +22,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::TempDir;
 
-/// The reference Cargo: `MITTS_REFERENCE_CARGO`, which the isolated runner sets to the real
+/// The reference Cargo: `REFERENCE_CARGO` (no `MITTS_` prefix: no `MITTS_*` variable may
+/// reach the suite), which the isolated runner sets to the real
 /// Cargo it hides behind its guard for every other test, else `cargo` from PATH.
 fn cargo() -> String {
-    std::env::var("MITTS_REFERENCE_CARGO")
+    std::env::var("REFERENCE_CARGO")
         .ok()
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| "cargo".to_string())
