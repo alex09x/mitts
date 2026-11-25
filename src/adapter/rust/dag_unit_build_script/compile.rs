@@ -27,6 +27,10 @@ pub struct BuildScriptCompileArgs<'a> {
     pub extern_crates: &'a [(String, PathBuf)],
     pub extra_env: Option<&'a HashMap<String, String>>,
     pub target: &'a str,
+    /// `rustc-link-search` directories of the build dependencies' build scripts, as Cargo
+    /// passes them to the build script's link: a build dependency on windows-sys needs
+    /// `windows.0.52.0.lib` from windows_x86_64_msvc's directory (hyperfine on Windows).
+    pub link_searches: &'a [String],
 }
 
 pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<()> {
@@ -182,6 +186,9 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
             "--extern",
             &format!("{}={}", crate_name.replace('-', "_"), effective.display()),
         ]);
+    }
+    for dir in args.link_searches {
+        compile_cmd.args(["-L", dir]);
     }
     if let Some(bdeps) = crate::adapter::rust::build_deps::active_dir() {
         compile_cmd.args(["-L", &format!("dependency={}", bdeps.display())]);

@@ -230,6 +230,11 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 Some((dir, _)) => super::writable_out_dir::mark_may_write(dir)?,
                 None => false,
             };
+            let build_dep_link_searches = inherit_dep_link_searches(
+                unit,
+                &BuildScriptDirectives::default(),
+                ctx.completed_link_args,
+            );
             let d = match execute_build_script_with_key(
                 unit,
                 &staging_dir,
@@ -242,6 +247,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 build_key_opt.as_deref(),
                 !ctx.opt.no_cache,
                 ctx.jobserver.and_then(|j| j.auth()),
+                &build_dep_link_searches,
             ) {
                 Ok(d) => d,
                 Err(err) => {

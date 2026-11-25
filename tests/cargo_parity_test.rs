@@ -2795,3 +2795,43 @@ fn a_package_spec_matching_two_versions_is_ambiguous() {
         "{text}"
     );
 }
+
+/// A build dependency's `rustc-link-search` reaches the link of the build script that uses
+/// it, as Cargo passes it: a build dependency on windows-sys needs `windows.0.52.0.lib` from
+/// windows_x86_64_msvc's directory (hyperfine's build script failed with LNK1181 on Windows).
+#[test]
+fn a_build_dependency_link_search_reaches_the_build_script_link() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [build-dependencies]\nnat = { path = \"../nat\" }\n",
+    );
+    write("app/src/main.rs", "fn main() {}\n");
+    write("app/build.rs", "fn main() { nat::touch(); }\n");
+    write(
+        "nat/Cargo.toml",
+        "[package]\nname = \"nat\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("nat/src/lib.rs", "pub fn touch() {}\n");
+    write(
+        "nat/build.rs",
+        "fn main() {\n    let dir = std::path::Path::new(&std::env::var(\"OUT_DIR\").unwrap()).join(\"nat-libs\");\n    \
+         std::fs::create_dir_all(&dir).unwrap();\n    \
+         println!(\"cargo:rustc-link-search=native={}\", dir.display());\n}\n",
+    );
+    let app = env.path("app");
+    env.ok(&app, &["generate-lockfile"]);
+    let (out, err) = env.ok(&app, &["build", "-v"]);
+    let log = format!("{out}{err}");
+    let script_link = log
+        .lines()
+        .find(|l| l.contains("--crate-name build_script_build") && l.contains("app"))
+        .unwrap_or_else(|| panic!("no build script command for app:\n{log}"));
+    assert!(script_link.contains("nat-libs"), "{script_link}");
+}

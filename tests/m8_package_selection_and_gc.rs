@@ -42,7 +42,9 @@ fn test_m8_package_selection_target_not_found() {
         select_transitive_packages(&lockfile, &manifests, &root_toml, &PathBuf::from("."), &opt);
     assert!(res.is_err(), "Non-existent package must return error");
     let err_str = res.unwrap_err().to_string();
-    assert!(err_str.contains("Package 'non-existent-crate' not found"));
+    // Cargo's wording.
+    assert!(err_str
+        .contains("package ID specification `non-existent-crate` did not match any packages"));
 }
 
 #[test]

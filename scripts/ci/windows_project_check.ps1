@@ -83,6 +83,17 @@ foreach ($side in @(@('Cargo', $c), @('Mitts', $m))) {
                 Select-Object -Last 40 | Out-String)
     }
 }
+if ($m.Code -ne 0) {
+    # For every crate rustc could not find: the --extern path it was given, whether that file
+    # exists now, and what the shared artifacts directory holds under that crate's name.
+    $artifacts = Join-Path $env:MITTS_CACHE_DIR 'cas\artifacts'
+    foreach ($crate in @([regex]::Matches($m.Text, "can't find crate for ``([A-Za-z0-9_]+)``") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)) {
+        $given = @([regex]::Matches($m.Text, "--extern '$crate=([^']+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        foreach ($path in $given) { Write-Host "  extern $crate -> $path (exists: $(Test-Path -LiteralPath $path))" }
+        $present = @(Get-ChildItem -LiteralPath $artifacts -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*lib$crate-*" -or $_.Name -like ".tmp_$crate*" } | ForEach-Object { "$($_.Name) ($($_.Length) bytes)" })
+        Write-Host "  in artifacts: $($present -join ', ')"
+    }
+}
 Check ($c.Code -eq 0) 'Cargo builds it (reference sanity)'
 Check ($m.Code -eq $c.Code) "Mitts exits as Cargo ($($m.Code) vs $($c.Code))"
 $cp = @(Products $cargoTarget)
