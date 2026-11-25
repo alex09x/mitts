@@ -19,6 +19,10 @@ let s:cpo_save = &cpo
 set cpo&vim
 
 let s:mitts = get(g:, 'mitts_executable', 'mitts')
+if has('win32')
+  " cmd.exe reads a '/' in the command's path as a switch.
+  let s:mitts = tr(s:mitts, '/', '\')
+endif
 execute 'CompilerSet makeprg=' . escape(s:mitts, ' \|"')
 
 " A diagnostic is a head line (`error[E0308]: ...`, `warning: ...`) and its location on

@@ -68,7 +68,7 @@ function! Test_makeprg_is_mitts_or_the_configured_executable() abort
   let g:mitts_executable = '/opt/mitts dir/mitts'
   unlet! g:current_compiler
   compiler! mitts
-  call assert_equal('/opt/mitts dir/mitts', &makeprg)
+  call assert_equal(has('win32') ? '\opt\mitts dir\mitts' : '/opt/mitts dir/mitts', &makeprg)
   unlet g:mitts_executable
   unlet! g:current_compiler
   compiler! mitts
