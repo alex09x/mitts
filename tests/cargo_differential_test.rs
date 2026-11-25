@@ -192,6 +192,8 @@ fn norm(s: &str, root: &Path) -> String {
     let mut forms = Vec::new();
     for path in [canonical.display().to_string(), root.display().to_string()] {
         let plain = path.strip_prefix(r"\\?\").unwrap_or(&path).to_string();
+        // Inside JSON a backslash is written twice.
+        forms.push(plain.replace('\\', r"\\"));
         forms.push(plain.replace('\\', "/"));
         forms.push(plain);
         forms.push(path);
