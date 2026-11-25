@@ -227,18 +227,40 @@ fn parse_rustc_errors(body: &str) -> Vec<ParsedRustcError> {
     let mut cur_code = String::new();
     let mut cur_msg = String::new();
     let mut cur_loc = None;
-    let mut cur_help = None;
+    let mut cur_help: Option<String> = None;
+    // `= note:` text, and the indented lines that continue it: a linker failure says what
+    // went wrong only there (`LINK : fatal error LNK1181: cannot open input file ...`), and
+    // dropping it left hyperfine's Windows failure without a cause.
+    let mut cur_notes: Vec<String> = Vec::new();
+    let mut in_note = false;
+    let with_notes = |help: Option<String>, notes: &mut Vec<String>| -> Option<String> {
+        if notes.is_empty() {
+            return help;
+        }
+        let mut text = help.unwrap_or_default();
+        for note in notes.drain(..) {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&note);
+        }
+        Some(text)
+    };
 
     for line in body.lines() {
         let trimmed = line.trim();
+        if in_note {
+            if trimmed.is_empty() || trimmed.starts_with("error") || trimmed.starts_with("= ") {
+                in_note = false;
+            } else {
+                cur_notes.push(clip(trimmed));
+                continue;
+            }
+        }
         if trimmed.starts_with("error[") || trimmed.starts_with("error:") {
             if !cur_code.is_empty() || !cur_msg.is_empty() {
-                errors.push((
-                    cur_code.clone(),
-                    cur_msg.clone(),
-                    cur_loc.take(),
-                    cur_help.take(),
-                ));
+                let help = with_notes(cur_help.take(), &mut cur_notes);
+                errors.push((cur_code.clone(), cur_msg.clone(), cur_loc.take(), help));
             }
             if let Some(rest) = trimmed.strip_prefix("error[") {
                 let (code, msg) = rest.split_once("]: ").unwrap_or((rest, ""));
@@ -264,14 +286,31 @@ fn parse_rustc_errors(body: &str) -> Vec<ParsedRustcError> {
         } else if trimmed.starts_with("= help: ") {
             let h = trimmed.strip_prefix("= help: ").unwrap_or("").trim();
             cur_help = Some(h.to_string());
+        } else if let Some(note) = trimmed.strip_prefix("= note: ") {
+            cur_notes.push(format!("note: {}", clip(note.trim())));
+            in_note = true;
         }
     }
 
     if !cur_code.is_empty() || !cur_msg.is_empty() {
-        errors.push((cur_code, cur_msg, cur_loc, cur_help));
+        let help = with_notes(cur_help, &mut cur_notes);
+        errors.push((cur_code, cur_msg, cur_loc, help));
     }
 
     errors
+}
+
+/// A note line as shown: the linker's own command line can run to tens of kilobytes.
+fn clip(line: &str) -> String {
+    const MAX: usize = 400;
+    if line.len() <= MAX {
+        return line.to_string();
+    }
+    let mut end = MAX;
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{} …", &line[..end])
 }
 
 fn resolve_source_span(
@@ -317,6 +356,29 @@ fn resolve_source_span(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_linker_failure_keeps_the_notes_that_say_why() {
+        let long_command = format!("\"link.exe\" {}", "\"/LIBPATH:x\" ".repeat(200));
+        let body = format!(
+            "error: linking with `link.exe` failed: exit code: 1181\n  |\n  \
+             = note: {long_command}\n  \
+             = note: LINK : fatal error LNK1181: cannot open input file 'foo.lib'\n          \
+             continued linker line\n\nerror: aborting due to 1 previous error\n"
+        );
+        let errors = parse_rustc_errors(&body);
+        let help = errors[0].3.as_deref().unwrap();
+        assert!(
+            help.contains("LNK1181: cannot open input file 'foo.lib'"),
+            "{help}"
+        );
+        assert!(help.contains("continued linker line"), "{help}");
+        assert!(
+            help.len() < 1200,
+            "the linker command is clipped: {}",
+            help.len()
+        );
+    }
 
     #[test]
     fn test_parse_rustc_error_with_code_and_location() {
