@@ -95,3 +95,24 @@ fn scoped_link_args_change_the_compile_hash() {
     assert!(!a.is_empty());
     assert_ne!(a.compute_compile_hash(), b.compute_compile_hash());
 }
+
+#[test]
+fn out_dir_paths_in_directives_follow_the_out_dir() {
+    let mut dir = BuildScriptDirectives::parse_stdout(
+        "cargo:rustc-link-arg-bins=/stage/a/out/app.lib\n\
+         cargo:rustc-link-search=native=/stage/a/out\n\
+         cargo:rustc-link-arg=/elsewhere/x.lib\n\
+         cargo:rustc-flags=-L /stage/a/out/sub\n",
+    );
+    rebase_out_dir(
+        &mut dir,
+        std::path::Path::new("/stage/a/out"),
+        std::path::Path::new("/stable/out"),
+    );
+    assert_eq!(
+        dir.link_args_for("bin", "app"),
+        ["/elsewhere/x.lib", "/stable/out/app.lib"]
+    );
+    assert_eq!(dir.link_searches, ["/stable/out"]);
+    assert_eq!(dir.flags, ["-L /stable/out/sub"]);
+}

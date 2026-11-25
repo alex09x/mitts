@@ -95,7 +95,18 @@ pub(crate) fn execute_unit(
     };
 
     // 1. Check Action Cache (read phase)
-    if try_restore(ctx)? {
+    let restored = try_restore(ctx)?;
+    if std::env::var_os("MITTS_LOG_KEYS").is_some() {
+        // With the base key's inputs (`key::log_unit_key`): a unit that misses with an
+        // unchanged base key differs here, or was refused at restore.
+        eprintln!(
+            "[mitts::unit_lookup] {} effective={} fallback={} restored={restored}",
+            unit.unit_id(),
+            effective_action_key,
+            pre_key_info.ws_fallback_key.as_deref().unwrap_or("-"),
+        );
+    }
+    if restored {
         return Ok(UnitExecutionStatus::Success);
     }
 
@@ -193,11 +204,14 @@ pub(crate) fn execute_unit(
     );
     let mut rustc_directives = directives.clone();
     rustc_directives.link_searches.extend(inherited_dirs);
-    if let Some(view) = rustc_directives
-        .out_dir
-        .as_deref()
-        .and_then(|out| super::compiler_args::incremental::stable_out_dir(&staging_dir, out))
-    {
+    if let Some((original, view)) = rustc_directives.out_dir.clone().and_then(|out| {
+        super::compiler_args::incremental::stable_out_dir(&staging_dir, &out).map(|v| (out, v))
+    }) {
+        // The script's own paths into OUT_DIR follow it to the view: alacritty's
+        // `rustc-link-arg-bins=<OUT_DIR>/alacritty.lib` still named the staging directory of
+        // the unit that ran the script, which that unit recreates while others link
+        // (LNK1181 on Windows; starship's resource file LNK1123).
+        super::build_script_directives::rebase_out_dir(&mut rustc_directives, &original, &view);
         rustc_directives.out_dir = Some(view);
     }
 

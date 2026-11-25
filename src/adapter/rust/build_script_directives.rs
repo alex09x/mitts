@@ -17,6 +17,29 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Points every directive path under `from` (the OUT_DIR the script ran with) at `to`:
+/// link and search arguments, scoped link arguments and `rustc-flags`. The spelling the
+/// script printed is matched with either separator.
+pub fn rebase_out_dir(directives: &mut BuildScriptDirectives, from: &Path, to: &Path) {
+    let from_text = from.to_string_lossy().to_string();
+    let spellings = [from_text.clone(), from_text.replace('\\', "/")];
+    let to_text = to.to_string_lossy().to_string();
+    let rebase = |value: &mut String| {
+        for spelling in &spellings {
+            if !spelling.is_empty() && value.contains(spelling.as_str()) {
+                *value = value.replace(spelling.as_str(), &to_text);
+            }
+        }
+    };
+    directives.link_args.iter_mut().for_each(rebase);
+    directives.link_searches.iter_mut().for_each(rebase);
+    directives.flags.iter_mut().for_each(rebase);
+    directives
+        .scoped_link_args
+        .iter_mut()
+        .for_each(|(_, arg)| rebase(arg));
+}
+
 /// Output captured from running a `build.rs` build script.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BuildScriptDirectives {
