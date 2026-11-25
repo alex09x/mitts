@@ -22,8 +22,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::TempDir;
 
+/// The reference Cargo: `MITTS_REFERENCE_CARGO`, which the isolated runner sets to the real
+/// Cargo it hides behind its guard for every other test, else `cargo` from PATH.
+fn cargo() -> String {
+    std::env::var("MITTS_REFERENCE_CARGO")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| "cargo".to_string())
+}
+
 fn cargo_available() -> bool {
-    let ok = Command::new("cargo")
+    let ok = Command::new(cargo())
         .arg("--version")
         .output()
         .is_ok_and(|o| o.status.success());
@@ -145,7 +154,7 @@ impl Pair {
         ] {
             cmd.env_remove(name);
         }
-        if program != "cargo" {
+        if program != cargo() {
             cmd.env(
                 "MITTS_CACHE_DIR",
                 self.home.parent().unwrap().join("mitts-cache"),
@@ -156,7 +165,7 @@ impl Pair {
 
     /// The same command through both, from the same relative directory.
     fn both(&self, rel: &str, args: &[&str]) -> (Output, Output) {
-        let c = self.run("cargo", &self.cargo_root.join(rel), args);
+        let c = self.run(&cargo(), &self.cargo_root.join(rel), args);
         let m = self.run(
             env!("CARGO_BIN_EXE_mitts"),
             &self.mitts_root.join(rel),

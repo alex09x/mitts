@@ -883,7 +883,7 @@ fn cargo_package_id(internal_id: &str, name: &str, version: &str, manifest: &Pat
                     .unwrap_or_else(|| Path::new("."))
                     .to_path_buf()
             });
-        format!("path+file://{}", path.display())
+        super::project_info::path_source_url(&path)
     });
     // As Cargo writes a package ID spec: the name is left out when the URL's last path
     // segment already is the name (`path+file:///w/app#0.3.0`).

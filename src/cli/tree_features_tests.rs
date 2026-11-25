@@ -47,7 +47,9 @@ fn dependency_edges_go_through_requested_features() {
         edges(&g, "app"),
         [
             (feature_id("log", "default"), EdgeKind::Normal),
-            ("plain".to_string(), EdgeKind::Normal)
+            // As Cargo: with default features on, the edge goes through `default` even
+            // when the package declares no features.
+            (feature_id("plain", "default"), EdgeKind::Normal)
         ]
     );
     assert_eq!(
