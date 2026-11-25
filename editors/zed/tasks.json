@@ -1,0 +1,95 @@
+// Mitts Build for Zed — editor integration for the Mitts Rust build tool
+// Copyright (c) 2026 Alexander Panasenko
+// Contact: alex@prod.codes
+// Author: https://prod.codes/about/
+// Project: https://github.com/alex09x/mitts
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
+// Zed's own Rust tasks, run with Mitts. Add them to ~/.config/zed/tasks.json (all
+// projects; `zed: open tasks`) or a project's .zed/tasks.json. The tags put them next to
+// Zed's Cargo tasks behind the run buttons in the gutter.
+[
+  {
+    "label": "mitts check (package: $ZED_CUSTOM_RUST_PACKAGE)",
+    "command": "mitts",
+    "args": ["check", "-p", "$ZED_CUSTOM_RUST_PACKAGE"],
+    "cwd": "$ZED_DIRNAME"
+  },
+  {
+    "label": "mitts check all targets (workspace)",
+    "command": "mitts",
+    "args": ["check", "--workspace", "--all-targets"],
+    "cwd": "$ZED_DIRNAME"
+  },
+  {
+    "label": "mitts test '$ZED_CUSTOM_RUST_TEST_NAME' (package: $ZED_CUSTOM_RUST_PACKAGE)",
+    "command": "mitts",
+    "args": [
+      "test",
+      "-p",
+      "$ZED_CUSTOM_RUST_PACKAGE",
+      "--",
+      "--nocapture",
+      "--include-ignored",
+      "$ZED_CUSTOM_RUST_TEST_NAME"
+    ],
+    "tags": ["rust-test"],
+    "cwd": "$ZED_CUSTOM_RUST_MANIFEST_DIRNAME"
+  },
+  {
+    "label": "mitts doc test '$ZED_CUSTOM_RUST_DOC_TEST_NAME' (package: $ZED_CUSTOM_RUST_PACKAGE)",
+    "command": "mitts",
+    "args": [
+      "test",
+      "--doc",
+      "-p",
+      "$ZED_CUSTOM_RUST_PACKAGE",
+      "--",
+      "--nocapture",
+      "--include-ignored",
+      "$ZED_CUSTOM_RUST_DOC_TEST_NAME"
+    ],
+    "tags": ["rust-doc-test"],
+    "cwd": "$ZED_CUSTOM_RUST_MANIFEST_DIRNAME"
+  },
+  {
+    "label": "mitts test mod '$ZED_STEM' (package: $ZED_CUSTOM_RUST_PACKAGE)",
+    "command": "mitts",
+    "args": ["test", "-p", "$ZED_CUSTOM_RUST_PACKAGE", "--", "$ZED_CUSTOM_RUST_TEST_FRAGMENT"],
+    "tags": ["rust-mod-test"],
+    "cwd": "$ZED_CUSTOM_RUST_MANIFEST_DIRNAME"
+  },
+  {
+    "label": "mitts run $ZED_CUSTOM_RUST_BIN_KIND $ZED_CUSTOM_RUST_BIN_NAME (package: $ZED_CUSTOM_RUST_PACKAGE)",
+    "command": "mitts",
+    "args": [
+      "run",
+      "-p",
+      "$ZED_CUSTOM_RUST_PACKAGE",
+      "--$ZED_CUSTOM_RUST_BIN_KIND",
+      "$ZED_CUSTOM_RUST_BIN_NAME",
+      "$ZED_CUSTOM_RUST_BIN_REQUIRED_FEATURES_FLAG",
+      "$ZED_CUSTOM_RUST_BIN_REQUIRED_FEATURES"
+    ],
+    "tags": ["rust-main"],
+    "cwd": "$ZED_CUSTOM_RUST_MANIFEST_DIRNAME"
+  },
+  {
+    "label": "mitts test (package: $ZED_CUSTOM_RUST_PACKAGE)",
+    "command": "mitts",
+    "args": ["test", "-p", "$ZED_CUSTOM_RUST_PACKAGE"],
+    "cwd": "$ZED_CUSTOM_RUST_MANIFEST_DIRNAME"
+  },
+  {
+    "label": "mitts run",
+    "command": "mitts",
+    "args": ["run"],
+    "cwd": "$ZED_CUSTOM_RUST_MANIFEST_DIRNAME"
+  },
+  {
+    "label": "mitts clean",
+    "command": "mitts",
+    "args": ["clean"],
+    "cwd": "$ZED_CUSTOM_RUST_MANIFEST_DIRNAME"
+  }
+]

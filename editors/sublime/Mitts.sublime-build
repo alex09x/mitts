@@ -1,0 +1,51 @@
+{
+	"//": "Mitts Build for Sublime Text. Copyright (c) 2026 Alexander Panasenko. MIT OR Apache-2.0. https://github.com/alex09x/mitts",
+	"cmd": [
+		"mitts",
+		"build"
+	],
+	"working_dir": "$folder",
+	"selector": "source.rust",
+	"keyfiles": [
+		"Cargo.toml"
+	],
+	"file_regex": "^\\s*-->\\s*(.+?):(\\d+):(\\d+)\\s*$",
+	"variants": [
+		{
+			"name": "Check",
+			"cmd": [
+				"mitts",
+				"check"
+			]
+		},
+		{
+			"name": "Test",
+			"cmd": [
+				"mitts",
+				"test"
+			]
+		},
+		{
+			"name": "Run",
+			"cmd": [
+				"mitts",
+				"run"
+			]
+		},
+		{
+			"name": "Clippy",
+			"cmd": [
+				"mitts",
+				"clippy"
+			]
+		},
+		{
+			"name": "Build --release",
+			"cmd": [
+				"mitts",
+				"build",
+				"--release"
+			]
+		}
+	]
+}
