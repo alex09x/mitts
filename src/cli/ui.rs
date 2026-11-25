@@ -174,7 +174,7 @@ impl Ui {
 
     /// Creates an animated spinner using indicatif for indeterminate tasks.
     pub fn create_spinner(msg: &str) -> ProgressBar {
-        let pb = ProgressBar::new_spinner();
+        let pb = super::progress_when::new_bar(None);
         let style = ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
             .template("{spinner:.cyan.bold} {msg}")
@@ -187,7 +187,7 @@ impl Ui {
 
     /// Creates an animated build progress bar that starts with indeterminate planning and transitions to a fractional progress bar.
     pub fn create_build_progress(prefix: &str) -> ProgressBar {
-        let pb = ProgressBar::new(0);
+        let pb = super::progress_when::new_bar(Some(0));
         let style = ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
             .template("{spinner:.cyan.bold} [{prefix:.bold}] {msg}")
@@ -215,7 +215,7 @@ impl Ui {
 
     /// Creates a styled progress bar using indicatif with Unicode fractional blocks.
     pub fn create_progress_bar(total: u64, prefix: &str) -> ProgressBar {
-        let pb = ProgressBar::new(total);
+        let pb = super::progress_when::new_bar(Some(total));
         let style = ProgressStyle::default_bar()
             .template("{prefix:.bold.cyan} {spinner:.green} [{elapsed_precise}] [{bar:30.cyan/blue}] {pos}/{len} ({msg})")
             .unwrap_or_else(|_| ProgressStyle::default_bar())

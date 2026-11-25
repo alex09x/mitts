@@ -77,11 +77,22 @@ impl TerminalGuard {
     /// Attempts to acquire control over the interactive terminal.
     /// If stdin is not a TTY, this is a safe no-op.
     pub fn acquire() -> Self {
+        // Only for a progress bar drawn on a terminal: none is drawn on a dumb terminal,
+        // under CI or with `term.progress.when = "never"`, and the cursor codes would land
+        // in a file or an editor's buffer.
+        Self::acquire_for(super::progress_when::progress_shown())
+    }
+
+    /// [`Self::acquire`] once it is known whether progress is drawn.
+    fn acquire_for(progress: bool) -> Self {
+        if !progress {
+            return Self { active: false };
+        }
         #[cfg(unix)]
         {
             let fd = libc::STDIN_FILENO;
             unsafe {
-                if libc::isatty(fd) != 1 {
+                if libc::isatty(fd) != 1 || libc::isatty(libc::STDERR_FILENO) != 1 {
                     return Self { active: false };
                 }
                 if HAS_ORIGINAL
@@ -170,21 +181,39 @@ mod tests {
                         let slave = libc::open(slave_name, libc::O_RDWR | libc::O_NOCTTY);
                         if slave >= 0 {
                             let old_stdin = libc::dup(libc::STDIN_FILENO);
-                            if libc::dup2(slave, libc::STDIN_FILENO) >= 0 {
-                                let guard = TerminalGuard::acquire();
-                                assert!(guard.active);
+                            let old_stderr = libc::dup(libc::STDERR_FILENO);
+                            if libc::dup2(slave, libc::STDIN_FILENO) >= 0
+                                && libc::dup2(slave, libc::STDERR_FILENO) >= 0
+                            {
+                                let guard = TerminalGuard::acquire_for(true);
+                                let active = guard.active;
 
                                 // Second concurrent acquire fails because HAS_ORIGINAL is already true
-                                let second = TerminalGuard::acquire();
-                                assert!(!second.active);
+                                let second = TerminalGuard::acquire_for(true);
+                                let second_active = second.active;
                                 drop(second);
 
+                                // No progress drawn: no guard, even on a terminal.
+                                let no_progress = TerminalGuard::acquire_for(false).active;
+
                                 drop(guard);
-                                assert!(!HAS_ORIGINAL.load(Ordering::SeqCst));
+                                let restored = !HAS_ORIGINAL.load(Ordering::SeqCst);
+                                // Put stderr back before asserting, so a failure is visible.
+                                if old_stderr >= 0 {
+                                    libc::dup2(old_stderr, libc::STDERR_FILENO);
+                                }
+                                assert!(active);
+                                assert!(!second_active);
+                                assert!(!no_progress);
+                                assert!(restored);
                             }
                             if old_stdin >= 0 {
                                 libc::dup2(old_stdin, libc::STDIN_FILENO);
                                 libc::close(old_stdin);
+                            }
+                            if old_stderr >= 0 {
+                                libc::dup2(old_stderr, libc::STDERR_FILENO);
+                                libc::close(old_stderr);
                             }
                             libc::close(slave);
                         }
