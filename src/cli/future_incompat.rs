@@ -24,6 +24,26 @@ use std::path::{Path, PathBuf};
 pub struct ReportArgs {
     #[command(subcommand)]
     pub command: ReportCommand,
+
+    /// Do not print Mitts log messages
+    #[arg(short, long)]
+    pub quiet: bool,
+
+    /// Use verbose output
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// Require Cargo.lock is up to date (accepted for Cargo compatibility)
+    #[arg(long)]
+    pub locked: bool,
+
+    /// Run without accessing the network (accepted for Cargo compatibility)
+    #[arg(long)]
+    pub offline: bool,
+
+    /// Equivalent to specifying both --locked and --offline
+    #[arg(long)]
+    pub frozen: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
