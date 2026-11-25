@@ -82,7 +82,7 @@ if ($Native -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
     Check $r.Completed 'completes'
     Check ((Version-Of (Join-Path $work 'emu\bin\mitts.exe')) -like 'mitts *') 'mitts.exe runs'
 } elseif ($Native) {
-    Write-Host "== native $env:PROCESSOR_ARCHITECTURE: clear refusal without Cargo fallback"
+    Write-Host "== native $($env:PROCESSOR_ARCHITECTURE): clear refusal without Cargo fallback"
     $r = Invoke-Installer @{ MITTS_INSTALL_ROOT = (Join-Path $work 'arm'); MITTS_NO_SOURCE_FALLBACK = '1' }
     Check (-not $r.Completed) 'the installer stops'
     Check ($r.Output -match "No prebuilt binary for Windows on $env:PROCESSOR_ARCHITECTURE") 'names the architecture'
@@ -155,6 +155,8 @@ fn main() {
     $env:MITTS_CACHE_DIR = Join-Path $work 'cache'
     $build = Start-Process -FilePath $exe -ArgumentList @('build', '--manifest-path', "`"$project\Cargo.toml`"") `
         -PassThru -NoNewWindow -RedirectStandardError (Join-Path $work 'hold.err') -RedirectStandardOutput (Join-Path $work 'hold.out')
+    # Without an open handle, Process.ExitCode is empty once the process has exited.
+    $null = $build.Handle
     $deadline = (Get-Date).AddMinutes(5)
     while (-not (Test-Path $marker) -and -not $build.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
     Check (Test-Path $marker) 'the build is running (its build script started)'
@@ -208,3 +210,5 @@ if ($script:failures.Count -gt 0) {
     exit 1
 }
 Write-Host 'ALL INSTALLER CHECKS PASSED'
+# Not the exit code of the last installer run that was expected to fail.
+exit 0

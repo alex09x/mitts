@@ -128,7 +128,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'cmd cannot run mitts' }
           bash -c 'mitts --version'
           if ($LASTEXITCODE -ne 0) { throw 'bash cannot run mitts' }
-          $project = Join-Path $env:RUNNER_TEMP 'action project'
+          $project = Join-Path $env:RUNNER_TEMP 'action-project'
           mitts new --vcs none $project
           if ($LASTEXITCODE -ne 0) { throw 'mitts new failed' }
           Push-Location $project
