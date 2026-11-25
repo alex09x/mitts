@@ -115,7 +115,9 @@ pub(super) fn publish_link_outputs(
                 action_outputs.push(dep_copy);
             } else {
                 publish_library_alias(ctx, &dep_copy, clean_crate, ext, &hash);
-                if unit.is_workspace {
+                // Cargo uplifts the requested packages' libraries only: `-p tokio` left no
+                // tokio_macros.dll in target/debug under Cargo, one under Mitts.
+                if unit.is_primary {
                     publish_uplifted_library(ctx, &dep_copy, clean_crate, ext, &hash);
                 }
             }

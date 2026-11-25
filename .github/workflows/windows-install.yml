@@ -1,0 +1,156 @@
+# Mitts Build — every way to install Mitts on Windows, on GitHub's Windows runners.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# The repository's installers against the published releases: PowerShell 7 and Windows
+# PowerShell 5.1 (`irm | iex`, Restricted policy), cmd.exe, Git Bash, the MSYS2
+# environments, Cygwin, the setup action, and Windows on ARM64.
+name: Windows install
+
+on:
+  pull_request:
+    paths:
+      - site/install.ps1
+      - site/install.sh
+      - action.yml
+      - scripts/ci/windows_install_*
+      - .github/workflows/windows-install.yml
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  powershell:
+    name: ${{ matrix.shell }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        shell: [pwsh, powershell]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: install.ps1 scenarios
+        run: ./scripts/ci/windows_install_test.ps1 -Installer site/install.ps1
+
+  cmd:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: From cmd.exe through Windows PowerShell and through pwsh
+        shell: cmd
+        run: |
+          set "MITTS_INSTALL_ROOT=%RUNNER_TEMP%\cmd one"
+          powershell -NoProfile -ExecutionPolicy Restricted -Command "Get-Content -Raw site\install.ps1 | iex" || exit /b 1
+          "%MITTS_INSTALL_ROOT%\bin\mitts.exe" --version || exit /b 1
+          set "MITTS_INSTALL_ROOT=%RUNNER_TEMP%\cmd two"
+          pwsh -NoProfile -ExecutionPolicy Restricted -Command "Get-Content -Raw site\install.ps1 | iex" || exit /b 1
+          "%MITTS_INSTALL_ROOT%\bin\mitts.exe" --version || exit /b 1
+
+  git-bash:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: install.sh in Git Bash
+        shell: bash
+        run: sh scripts/ci/windows_install_sh_test.sh site/install.sh --hold
+
+  msys2:
+    name: MSYS2 ${{ matrix.msystem }}
+    strategy:
+      fail-fast: false
+      matrix:
+        msystem: [MSYS, MINGW64, UCRT64, CLANG64]
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c # v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: false
+          install: curl tar gawk grep sed
+      - name: install.sh in MSYS2 ${{ matrix.msystem }}
+        run: sh scripts/ci/windows_install_sh_test.sh site/install.sh
+
+  cygwin:
+    runs-on: windows-2022
+    steps:
+      - run: git config --global core.autocrlf input
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: cygwin/cygwin-install-action@5a1b0cd107181fa6bb6bf3f90d500f4fb3132f18 # v7
+        with:
+          packages: curl tar gawk grep sed
+      - name: install.sh in Cygwin
+        shell: C:\cygwin\bin\bash.exe --noprofile --norc -eo pipefail -o igncr '{0}'
+        run: |
+          export PATH=/usr/bin:$PATH
+          sh scripts/ci/windows_install_sh_test.sh site/install.sh
+
+  setup-action:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: mitts
+        uses: ./
+      - name: The action's mitts in PowerShell, cmd and bash, and a real build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $v = (mitts --version)
+          if ($v -notlike "mitts ${{ steps.mitts.outputs.version }}*") { throw "unexpected $v" }
+          cmd /c "mitts --version"
+          if ($LASTEXITCODE -ne 0) { throw 'cmd cannot run mitts' }
+          bash -c 'mitts --version'
+          if ($LASTEXITCODE -ne 0) { throw 'bash cannot run mitts' }
+          $project = Join-Path $env:RUNNER_TEMP 'action-project'
+          mitts new --vcs none $project
+          if ($LASTEXITCODE -ne 0) { throw 'mitts new failed' }
+          Push-Location $project
+          mitts run
+          if ($LASTEXITCODE -ne 0) { throw 'mitts run failed' }
+          Pop-Location
+
+  windows-arm64:
+    name: Windows on ARM64 (${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [pwsh, powershell]
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: install.ps1 refuses by name, with no prebuilt ARM64 binary
+        run: |
+          Write-Host "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
+          ./scripts/ci/windows_install_test.ps1 -Installer site/install.ps1 -Native

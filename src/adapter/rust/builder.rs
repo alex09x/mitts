@@ -120,7 +120,7 @@ pub fn compute_options_hash(
 /// Executes the build purely natively with parallel rustc DAG compilation and CAS caching.
 pub fn build(opt: &RustBuildOptions) -> Result<(BuildPlan, ActionResult)> {
     crate::core::jobs::limit()?;
-    let mut selected = opt.clone();
+    let mut selected = opt.with_package_specs_split();
     super::profile::custom::select(&mut selected)?;
     let opt = &selected;
     super::diagnostic_dedupe::reset();

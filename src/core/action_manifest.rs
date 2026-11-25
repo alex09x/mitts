@@ -101,6 +101,7 @@ impl ActionManifest {
                         }
                     };
                     if actual_hash != *expected_hash {
+                        log_mismatch(path_str, "value differs");
                         matches = false;
                         break;
                     }
@@ -124,6 +125,7 @@ impl ActionManifest {
                 };
 
                 if !file_path.is_file() {
+                    log_mismatch(&file_path.to_string_lossy(), "missing");
                     matches = false;
                     break;
                 }
@@ -131,6 +133,7 @@ impl ActionManifest {
                 match Sha256::digest_file(&file_path) {
                     Ok(actual_hash) if actual_hash == *expected_hash => {}
                     _ => {
+                        log_mismatch(&file_path.to_string_lossy(), "content differs");
                         matches = false;
                         break;
                     }
@@ -164,5 +167,13 @@ impl ActionManifest {
         if self.entries.len() > 50 {
             self.entries.drain(0..self.entries.len() - 50);
         }
+    }
+}
+
+/// With MITTS_LOG_KEYS: the first recorded input of a manifest entry that no longer matches,
+/// which is why a mutable unit with an unchanged key was not restored.
+fn log_mismatch(input: &str, how: &str) {
+    if std::env::var_os("MITTS_LOG_KEYS").is_some() {
+        eprintln!("[mitts::manifest_mismatch] {input}: {how}");
     }
 }

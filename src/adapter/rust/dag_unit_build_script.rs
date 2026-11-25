@@ -230,6 +230,21 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 Some((dir, _)) => super::writable_out_dir::mark_may_write(dir)?,
                 None => false,
             };
+            let mut build_dep_link_searches = inherit_dep_link_searches(
+                unit,
+                &BuildScriptDirectives::default(),
+                ctx.completed_link_args,
+            );
+            // The directory the unit's own compile searches for transitive dependencies
+            // (`execute_unit`): outside `--native` the target's `deps/`. With the store's
+            // artifacts directory alone, rustc found the `--extern` rlib but could not load
+            // it on Windows (E0463 for serde_with in bat's build script, shadow_rs in
+            // starship's, clap in bottom's); adding this directory made the same command pass.
+            if !ctx.opt.native {
+                let profile = super::profile::profile_dir(ctx.opt.release);
+                let deps = ctx.target_dir.join(&profile).join("deps");
+                build_dep_link_searches.push(format!("dependency={}", deps.display()));
+            }
             let d = match execute_build_script_with_key(
                 unit,
                 &staging_dir,
@@ -242,6 +257,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 build_key_opt.as_deref(),
                 !ctx.opt.no_cache,
                 ctx.jobserver.and_then(|j| j.auth()),
+                &build_dep_link_searches,
             ) {
                 Ok(d) => d,
                 Err(err) => {

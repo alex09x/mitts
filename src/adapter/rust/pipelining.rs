@@ -43,6 +43,19 @@ pub fn is_linking_kind(kind: &str) -> bool {
     })
 }
 
+/// Whether the package has a library target: `[lib]`, or `src/lib.rs` when the manifest
+/// declares none (Cargo's inference).
+pub fn package_has_lib_target(manifest_path: &Path) -> bool {
+    let pkg_dir = manifest_path.parent().unwrap_or(Path::new("."));
+    match CargoToml::from_file(manifest_path) {
+        Ok(toml) => match toml.lib.as_ref().and_then(|l| l.path.as_ref()) {
+            Some(path) => pkg_dir.join(path).is_file(),
+            None => toml.lib.is_some() || pkg_dir.join("src").join("lib.rs").is_file(),
+        },
+        Err(_) => pkg_dir.join("src").join("lib.rs").is_file(),
+    }
+}
+
 /// Returns true if the package described by manifest_path has a configured build script that exists.
 pub fn package_has_build_script(manifest_path: &Path) -> bool {
     let pkg_dir = manifest_path.parent().unwrap_or(Path::new("."));

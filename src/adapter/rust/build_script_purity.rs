@@ -229,7 +229,13 @@ pub fn assess_build_script_purity_with_dep_info(
     };
 
     // 1. Scan directives
+    let scoped_link_args: Vec<String> = directives
+        .scoped_link_args
+        .iter()
+        .map(|(_, arg)| arg.clone())
+        .collect();
     for (label, list) in [
+        ("rustc-link-arg", &scoped_link_args),
         ("rustc-cfg", &directives.cfgs),
         ("rustc-flag", &directives.flags),
         ("rustc-link-lib", &directives.link_libs),

@@ -52,6 +52,10 @@ pub fn remap_out_dir(directives: &mut BuildScriptDirectives, from: &str, to: &st
             *val = val.replace(from, to);
         }
     }
+    // Link arguments, scoped ones and rustc-flags name OUT_DIR files too: a restored
+    // alacritty build script still linked `<OUT_DIR of the run that cached it>/alacritty.lib`,
+    // another unit's staging directory (LNK1181 whenever that unit was recreating it).
+    super::build_script_directives::rebase_out_dir(directives, Path::new(from), Path::new(to));
 }
 
 pub fn try_restore_build_script_cas(

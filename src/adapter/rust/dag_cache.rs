@@ -131,6 +131,12 @@ pub fn try_restore_from_cache_with_directives_and_purity(
     }
 
     if candidate_keys.is_empty() {
+        if std::env::var_os("MITTS_LOG_KEYS").is_some() {
+            eprintln!(
+                "[mitts::restore_refused] {} no manifest entry matches this workspace and environment",
+                unit.unit_id()
+            );
+        }
         return Ok(false);
     }
 
@@ -144,9 +150,16 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
     }
 
+    // With MITTS_LOG_KEYS: why an entry that exists was not restored.
+    let refuse = |reason: &str| -> Result<bool> {
+        if std::env::var_os("MITTS_LOG_KEYS").is_some() {
+            eprintln!("[mitts::restore_refused] {} {reason}", unit.unit_id());
+        }
+        Ok(false)
+    };
     let mut entry = match matched_entry {
         Some(e) => e,
-        None => return Ok(false),
+        None => return refuse("no entry under the candidate keys"),
     };
     // This project uses the entry too: GC must not see it as only another project's.
     ctx.ac.record_scope(
@@ -170,7 +183,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         || !super::split_debuginfo::valid_entry(&debuginfo_outputs)
         || !debuginfo_outputs.iter().all(in_store)
     {
-        return Ok(false);
+        return refuse("wrapper or split-debuginfo outputs missing from the store");
     }
     let res_key = effective_key
         .split(":ws_leak:")
@@ -234,7 +247,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                     )
                     .is_err()
                     {
-                        return Ok(false);
+                        return refuse("executable could not be placed in the target directory");
                     }
 
                     if rel_dest != dest_bin {
@@ -256,10 +269,10 @@ pub fn try_restore_from_cache_with_directives_and_purity(
                 &artifact_key,
             )
         {
-            return Ok(false);
+            return refuse("library outputs could not be restored");
         }
         if !super::wrapper_outputs::restore(ctx.cas, &wrapper_outputs) {
-            return Ok(false);
+            return refuse("wrapper outputs could not be restored");
         }
         let dest_bin = is_bin.then(|| {
             let profile_name = &crate::adapter::rust::profile::profile_dir(ctx.opt.release);
@@ -271,7 +284,7 @@ pub fn try_restore_from_cache_with_directives_and_purity(
             &super::split_debuginfo::deps_dir(ctx.target_dir, ctx.opt.release),
             dest_bin.as_deref(),
         ) {
-            return Ok(false);
+            return refuse("split debug info (.pdb/.dwp/.dSYM) could not be restored");
         }
 
         // A hit is a use: keeps the objects at the young end of the cache's LRU order.
@@ -375,5 +388,5 @@ pub fn try_restore_from_cache_with_directives_and_purity(
         }
         return Ok(true);
     }
-    Ok(false)
+    refuse("entry outputs missing from the store, or no linkable library")
 }

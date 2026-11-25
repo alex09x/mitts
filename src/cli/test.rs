@@ -235,6 +235,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
             .skip(usize::from(args.package.is_none()))
             .cloned()
             .collect(),
+        package_versions: Vec::new(),
         release: args.release,
         profile: None,
         target_dir: args.target_dir.clone(),

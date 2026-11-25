@@ -57,3 +57,62 @@ fn test_is_fresh_with_missing_file() {
     fs::write(temp.path().join("nonexistent_header.h"), "now exists").unwrap();
     assert!(!dir.is_fresh(temp.path()));
 }
+
+#[test]
+fn scoped_link_args_reach_only_their_targets() {
+    let dir = BuildScriptDirectives::parse_stdout(
+        "cargo:rustc-link-arg=-all\n\
+         cargo:rustc-link-arg-bin=rg=/MANIFEST:EMBED\n\
+         cargo::rustc-link-arg-bins=-bins\n\
+         cargo:rustc-link-arg-tests=-tests\n\
+         cargo:rustc-link-arg-benches=-benches\n\
+         cargo:rustc-link-arg-examples=-examples\n\
+         cargo:rustc-cdylib-link-arg=-cdylib\n",
+    );
+    assert_eq!(dir.link_args, ["-all"]);
+    assert_eq!(
+        dir.link_args_for("bin", "rg"),
+        ["-all", "/MANIFEST:EMBED", "-bins"]
+    );
+    assert_eq!(dir.link_args_for("bin", "other"), ["-all", "-bins"]);
+    // A binary's unit test is a binary target to Cargo.
+    assert_eq!(
+        dir.link_args_for("test", "rg_bin_test"),
+        ["-all", "/MANIFEST:EMBED", "-bins"]
+    );
+    assert_eq!(dir.link_args_for("test", "it"), ["-all", "-tests"]);
+    assert_eq!(dir.link_args_for("test", "pkg_unit_test"), ["-all"]);
+    assert_eq!(dir.link_args_for("bench", "b"), ["-all", "-benches"]);
+    assert_eq!(dir.link_args_for("example", "e"), ["-all", "-examples"]);
+    assert_eq!(dir.link_args_for("lib,cdylib", "pkg"), ["-all", "-cdylib"]);
+    assert_eq!(dir.link_args_for("lib", "pkg"), ["-all"]);
+}
+
+#[test]
+fn scoped_link_args_change_the_compile_hash() {
+    let a = BuildScriptDirectives::parse_stdout("cargo:rustc-link-arg-bin=a=-x\n");
+    let b = BuildScriptDirectives::parse_stdout("cargo:rustc-link-arg-bin=b=-x\n");
+    assert!(!a.is_empty());
+    assert_ne!(a.compute_compile_hash(), b.compute_compile_hash());
+}
+
+#[test]
+fn out_dir_paths_in_directives_follow_the_out_dir() {
+    let mut dir = BuildScriptDirectives::parse_stdout(
+        "cargo:rustc-link-arg-bins=/stage/a/out/app.lib\n\
+         cargo:rustc-link-search=native=/stage/a/out\n\
+         cargo:rustc-link-arg=/elsewhere/x.lib\n\
+         cargo:rustc-flags=-L /stage/a/out/sub\n",
+    );
+    rebase_out_dir(
+        &mut dir,
+        std::path::Path::new("/stage/a/out"),
+        std::path::Path::new("/stable/out"),
+    );
+    assert_eq!(
+        dir.link_args_for("bin", "app"),
+        ["/elsewhere/x.lib", "/stable/out/app.lib"]
+    );
+    assert_eq!(dir.link_searches, ["/stable/out"]);
+    assert_eq!(dir.flags, ["-L /stable/out/sub"]);
+}

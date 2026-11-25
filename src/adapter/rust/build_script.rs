@@ -140,6 +140,7 @@ pub fn execute_build_script(
         None,
         true,
         None,
+        &[],
     )
 }
 
@@ -156,6 +157,8 @@ pub(crate) fn execute_build_script_with_key(
     precomputed_build_key: Option<&str>,
     cache_enabled: bool,
     jobserver_auth: Option<&str>,
+    // `rustc-link-search` directories of the build dependencies' build scripts.
+    link_searches: &[String],
 ) -> Result<BuildScriptDirectives> {
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     let pkg_toml = CargoToml::from_file(&unit.manifest_path).unwrap_or_default();
@@ -237,6 +240,7 @@ pub(crate) fn execute_build_script_with_key(
             extern_crates,
             extra_env,
             target: &target,
+            link_searches,
         },
     )?;
 

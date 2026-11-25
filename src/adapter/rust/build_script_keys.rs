@@ -16,9 +16,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// What a cached build-script result holds. v10: its `cargo:warning=` lines too. Also part of
-/// the fast build lock's fingerprint, so a lock recorded by an older protocol is stale.
-pub const PROTOCOL: &str = "build_script_v10";
+/// What a cached build-script result holds. v10: its `cargo:warning=` lines too. v11: scripts
+/// run with RUSTUP_TOOLCHAIN and a PATH joined with the platform's separator, so results
+/// recorded without them (shadow-rs's empty build_env) are not reused. Also part of the fast
+/// build lock's fingerprint, so a lock recorded by an older protocol is stale.
+pub const PROTOCOL: &str = "build_script_v11";
 
 pub fn get_rustc_verbose_version() -> Result<String> {
     Ok(crate::adapter::rust::compiler_resolve::active_toolchain()?.verbose_version)

@@ -2743,3 +2743,267 @@ fn members_matched_by_a_glob_in_a_middle_component_count_for_msrv() {
         "the member's 1.50 is the limit: {lock}"
     );
 }
+
+/// `-p name` matching two versions is refused, as Cargo refuses it (tokio's workspace has
+/// its member tokio beside a published one); `-p name@version` picks one.
+#[test]
+fn a_package_spec_matching_two_versions_is_ambiguous() {
+    let env = Env::new();
+    let root = env.path("ws");
+    // The two `dup` packages live outside the workspace directory: path dependencies, not
+    // members.
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "ws/Cargo.toml",
+        "[workspace]\nmembers = [\"app\"]\nresolver = \"2\"\n",
+    );
+    write(
+        "ws/app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nold = { package = \"dup\", path = \"../../dup1\" }\n\
+         new = { package = \"dup\", path = \"../../dup2\" }\n",
+    );
+    write(
+        "ws/app/src/lib.rs",
+        "pub fn f() -> u32 { old::v() + new::v() }\n",
+    );
+    for (dir, version) in [("dup1", "0.1.0"), ("dup2", "0.2.0")] {
+        write(
+            &format!("{dir}/Cargo.toml"),
+            &format!("[package]\nname = \"dup\"\nversion = \"{version}\"\nedition = \"2021\"\n"),
+        );
+        write(&format!("{dir}/src/lib.rs"), "pub fn v() -> u32 { 1 }\n");
+    }
+    env.ok(&root, &["generate-lockfile"]);
+    let text = env.fails(&root, &["build", "-p", "dup"]);
+    assert!(
+        // The report wraps long lines.
+        text.contains("There are multiple `dup` packages in your project")
+            && text.contains("`dup` is ambiguous.")
+            && text.contains("dup@0.1.0")
+            && text.contains("dup@0.2.0"),
+        "{text}"
+    );
+    env.ok(&root, &["build", "-p", "dup@0.2.0"]);
+    let text = env.fails(&root, &["build", "-p", "nope"]);
+    assert!(
+        text.contains("package ID specification `nope` did not match any packages"),
+        "{text}"
+    );
+}
+
+/// A build dependency's `rustc-link-search` reaches the link of the build script that uses
+/// it, as Cargo passes it: a build dependency on windows-sys needs `windows.0.52.0.lib` from
+/// windows_x86_64_msvc's directory (hyperfine's build script failed with LNK1181 on Windows).
+#[test]
+fn a_build_dependency_link_search_reaches_the_build_script_link() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [build-dependencies]\nnat = { path = \"../nat\" }\n",
+    );
+    write("app/src/main.rs", "fn main() {}\n");
+    write("app/build.rs", "fn main() { nat::touch(); }\n");
+    write(
+        "nat/Cargo.toml",
+        "[package]\nname = \"nat\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("nat/src/lib.rs", "pub fn touch() {}\n");
+    write(
+        "nat/build.rs",
+        "fn main() {\n    let dir = std::path::Path::new(&std::env::var(\"OUT_DIR\").unwrap()).join(\"nat-libs\");\n    \
+         std::fs::create_dir_all(&dir).unwrap();\n    \
+         println!(\"cargo:rustc-link-search=native={}\", dir.display());\n}\n",
+    );
+    let app = env.path("app");
+    env.ok(&app, &["generate-lockfile"]);
+    let (out, err) = env.ok(&app, &["build", "-v"]);
+    let log = format!("{out}{err}");
+    let script_link = log
+        .lines()
+        .find(|l| {
+            l.contains("--crate-name build_script_build")
+                && (l.contains("app/build.rs") || l.contains("app\\build.rs"))
+        })
+        .unwrap_or_else(|| panic!("no build script command for app:\n{log}"));
+    assert!(script_link.contains("nat-libs"), "{script_link}");
+}
+
+/// A build script is compiled only after its build dependencies' rlibs exist: a slow build
+/// dependency (its own build script sleeps) must not let the consumer's build script start
+/// on metadata alone. On Windows bat, starship, bottom and alacritty failed with E0463 for
+/// a build dependency whose rlib appeared moments later.
+#[test]
+fn a_build_script_waits_for_a_slow_build_dependency() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nslow = { path = \"../slow\" }\n\n\
+         [build-dependencies]\nslow = { path = \"../slow\" }\n",
+    );
+    write("app/src/lib.rs", "pub fn f() -> u32 { slow::v() }\n");
+    write("app/build.rs", "fn main() { assert_eq!(slow::v(), 7); }\n");
+    write(
+        "slow/Cargo.toml",
+        "[package]\nname = \"slow\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    // Big enough that codegen takes a while after the metadata is out.
+    let mut body = String::from("pub fn v() -> u32 { 7 }\n");
+    for i in 0..3000 {
+        body.push_str(&format!(
+            "pub fn f{i}(x: u64) -> u64 {{ (0..x).map(|y| y.wrapping_mul({i}) ^ (y >> 3)).sum() }}\n"
+        ));
+    }
+    write("slow/src/lib.rs", &body);
+    let app = env.path("app");
+    env.ok(&app, &["generate-lockfile"]);
+    env.ok(&app, &["build"]);
+}
+
+/// Only the requested packages' libraries are uplifted to `target/<profile>`, as in Cargo:
+/// `-p app` leaves a member `app` depends on in `deps/` alone (`-p tokio` uplifted
+/// tokio_macros.dll under Mitts, not under Cargo).
+#[test]
+fn only_requested_packages_are_uplifted() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "ws/Cargo.toml",
+        "[workspace]\nmembers = [\"app\", \"util\"]\nresolver = \"2\"\n",
+    );
+    write(
+        "ws/app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nutil = { path = \"../util\" }\n",
+    );
+    write("ws/app/src/lib.rs", "pub fn f() -> u32 { util::v() }\n");
+    write(
+        "ws/util/Cargo.toml",
+        "[package]\nname = \"util\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("ws/util/src/lib.rs", "pub fn v() -> u32 { 1 }\n");
+    let ws = env.path("ws");
+    env.ok(&ws, &["generate-lockfile"]);
+    env.ok(&ws, &["build", "-p", "app"]);
+    let debug = ws.join("target/debug");
+    assert!(
+        debug.join("libapp.rlib").is_file(),
+        "the requested library is uplifted"
+    );
+    assert!(
+        !debug.join("libutil.rlib").exists(),
+        "a member it only depends on stays in deps/"
+    );
+    env.ok(&ws, &["build"]);
+    assert!(
+        debug.join("libutil.rlib").is_file(),
+        "a build of every member uplifts it"
+    );
+}
+
+/// `rustc-link-lib` goes to the package's library only when it has one, as Cargo's
+/// `pass_l_flag` does; the binary gets it through the rlib. Passed to both, starship's
+/// version resource was linked twice on Windows (CVT1100 duplicate resource, LNK1123).
+#[cfg(unix)]
+#[test]
+fn link_lib_goes_to_the_library_not_to_its_binaries() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(
+        "app/build.rs",
+        "fn main() { println!(\"cargo:rustc-link-lib=dylib=m\"); }\n",
+    );
+    write("app/src/lib.rs", "pub fn f() -> u32 { 1 }\n");
+    write(
+        "app/src/main.rs",
+        "fn main() { println!(\"{}\", app::f()); }\n",
+    );
+    let app = env.path("app");
+    env.ok(&app, &["generate-lockfile"]);
+    let (out, err) = env.ok(&app, &["build", "-v"]);
+    let log = format!("{out}{err}");
+    let command = |src: &str| {
+        log.lines()
+            .find(|l| l.contains("--crate-name app") && l.contains(src))
+            .unwrap_or_else(|| panic!("no rustc command for {src}:\n{log}"))
+            .to_string()
+    };
+    assert!(
+        command("src/lib.rs").contains("-l dylib=m"),
+        "the library links it"
+    );
+    assert!(
+        !command("src/main.rs").contains("-l dylib=m"),
+        "the binary does not"
+    );
+}
+
+/// A build script sees the toolchain's name in RUSTUP_TOOLCHAIN, as under Cargo started
+/// through rustup's proxy (shadow-rs reports it: starship's build_env was empty under
+/// Mitts), and a PATH whose first entry is the toolchain's bin directory.
+#[test]
+fn build_scripts_see_rustup_toolchain_and_a_proper_path() {
+    let env = Env::new();
+    let app = env.path("app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::write(
+        app.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(
+        app.join("build.rs"),
+        "fn main() {\n    \
+         let tc = std::env::var(\"RUSTUP_TOOLCHAIN\").unwrap_or_default();\n    \
+         let first = std::env::split_paths(&std::env::var_os(\"PATH\").unwrap()).next().unwrap();\n    \
+         println!(\"cargo:warning=toolchain=[{tc}] first_path_is_dir={}\", first.is_dir());\n}\n",
+    )
+    .unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let rustc = Command::new("rustc")
+        .arg("--print")
+        .arg("sysroot")
+        .output()
+        .unwrap();
+    let sysroot = String::from_utf8_lossy(&rustc.stdout).trim().to_string();
+    let (out, err) = env.ok(&app, &["build"]);
+    let log = format!("{out}{err}");
+    assert!(log.contains("first_path_is_dir=true"), "{log}");
+    if sysroot.contains("toolchains") && std::env::var_os("RUSTUP_TOOLCHAIN").is_none() {
+        let name = Path::new(&sysroot)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert!(log.contains(&format!("toolchain=[{name}]")), "{log}");
+    }
+}

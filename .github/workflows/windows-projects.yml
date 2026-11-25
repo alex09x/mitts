@@ -1,0 +1,107 @@
+# Mitts Build — real projects on Windows (x86-64 MSVC), Mitts against Cargo as reference.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# The Mitts of this commit builds, runs and tests real projects that exercise what is
+# Windows-specific: C through the `cc` crate and MSVC (bat's oniguruma, zstd), resource
+# scripts (starship), the `windows` crates (sysinfo), proc-macro DLLs (serde, clap, tokio).
+# Cargo runs only as the reference (owner decision 2026-11-25, AGENTS.md).
+name: Windows projects
+
+on:
+  pull_request:
+    paths:
+      - src/**
+      - Cargo.toml
+      - Cargo.lock
+      - scripts/ci/windows_project_check.ps1
+      - .github/workflows/windows-projects.yml
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  mitts:
+    name: build mitts.exe
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build this commit's mitts.exe with the released Mitts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:MITTS_INSTALL_ROOT = Join-Path $env:RUNNER_TEMP 'released'
+          Get-Content -Raw site/install.ps1 | Invoke-Expression
+          $released = Join-Path $env:MITTS_INSTALL_ROOT 'bin\mitts.exe'
+          $env:MITTS_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'bootstrap-cache'
+          & $released build --locked --release --bin mitts
+          if ($LASTEXITCODE -ne 0) { throw 'mitts build failed' }
+          & target\release\mitts.exe --version
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mitts-windows
+          path: target/release/mitts.exe
+          retention-days: 3
+
+  project:
+    name: ${{ matrix.name }}
+    needs: mitts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ripgrep, repo: BurntSushi/ripgrep, ref: 14.1.1, bin: rg }
+          - { name: fd, repo: sharkdp/fd, ref: v10.2.0, bin: fd }
+          - { name: bat (oniguruma C), repo: sharkdp/bat, ref: v0.25.0, bin: bat }
+          - { name: starship (resource script), repo: starship/starship, ref: v1.22.1, bin: starship }
+          - { name: clap, repo: clap-rs/clap, ref: v4.5.27 }
+          - { name: difftastic (tree-sitter C), repo: Wilfred/difftastic, ref: 0.62.0, bin: difft }
+          - { name: bottom (windows crate), repo: ClementTsang/bottom, ref: 0.10.2, bin: btm }
+          - { name: just, repo: casey/just, ref: 1.38.0, bin: just }
+          - { name: hyperfine, repo: sharkdp/hyperfine, ref: v1.19.0, bin: hyperfine }
+          - { name: alacritty, repo: alacritty/alacritty, ref: v0.15.0, bin: alacritty, skip-tests: true }
+          # No Cargo.lock: both resolve now. `-p tokio` alone is ambiguous (a published tokio
+          # sits beside the member), and Mitts refuses it as Cargo does.
+          - { name: tokio, repo: tokio-rs/tokio, ref: tokio-1.43.0, args: '-p tokio@1.43.0 --features full', skip-tests: true }
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mitts-windows
+          path: ${{ runner.temp }}/mitts
+      - name: Check out ${{ matrix.repo }} ${{ matrix.ref }}
+        shell: pwsh
+        env:
+          REPO: ${{ matrix.repo }}
+          REF: ${{ matrix.ref }}
+        run: |
+          git -c core.autocrlf=false -c core.longpaths=true clone --quiet --depth 1 --branch $env:REF "https://github.com/$env:REPO" "$env:RUNNER_TEMP\project"
+          if ($LASTEXITCODE -ne 0) { throw 'clone failed' }
+      - name: Mitts against Cargo
+        shell: pwsh
+        env:
+          BIN: ${{ matrix.bin }}
+          ARGS: ${{ matrix.args }}
+          SKIP_TESTS: ${{ matrix.skip-tests }}
+        run: |
+          $params = @{ Project = "$env:RUNNER_TEMP\project"; Mitts = "$env:RUNNER_TEMP\mitts\mitts.exe"; Bin = "$env:BIN"; BuildArgs = "$env:ARGS" }
+          if ($env:SKIP_TESTS -eq 'true') { $params['SkipTests'] = $true }
+          ./scripts/ci/windows_project_check.ps1 @params
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: logs-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/project-check/*.log
+          retention-days: 7

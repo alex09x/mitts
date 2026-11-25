@@ -51,6 +51,32 @@ pub struct ParsedDepInfo {
     pub env_deps: Vec<(String, Option<String>)>,
 }
 
+/// An `env-dep` value as rustc's `escape_dep_env` wrote it, read back: `\\` is a backslash,
+/// `\n` and `\r` are line breaks. Read raw, a Windows path such as CARGO_MANIFEST_DIR kept
+/// doubled backslashes and never equalled the real value, so every integration test of a
+/// workspace (clap's builder and macros, bottom's integration) missed the cache on Windows.
+pub fn unescape_env_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('\\') => out.push('\\'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
 /// Parses a Makefile-style dep-info (.d) file produced by rustc to extract included paths
 /// and tracked environment variables (`# env-dep:VAR=value`), resolving relative paths against root.
 pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedDepInfo> {
@@ -67,7 +93,7 @@ pub fn parse_dep_info_full(d_path: &Path, root: Option<&Path>) -> Result<ParsedD
             if let Some((var, val)) = rest.split_once('=') {
                 parsed
                     .env_deps
-                    .push((var.trim().to_string(), Some(val.trim().to_string())));
+                    .push((var.trim().to_string(), Some(unescape_env_value(val.trim()))));
             } else if !rest.is_empty() {
                 parsed.env_deps.push((rest.to_string(), None));
             }
@@ -200,6 +226,30 @@ pub fn parse_dep_info(d_path: &Path) -> Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::{split_dep_target, tokenize_dep_info_paths};
+
+    #[test]
+    fn env_dep_values_are_read_back_unescaped() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().join("x.d");
+        std::fs::write(
+            &d,
+            "x.exe: src/main.rs\n\n# env-dep:CARGO_MANIFEST_DIR=D:\\\\a\\\\_temp\\\\project\n\
+             # env-dep:MULTI=one\\ntwo\n# env-dep:UNSET\n",
+        )
+        .unwrap();
+        let parsed = super::parse_dep_info_full(&d, None).unwrap();
+        assert_eq!(
+            parsed.env_deps,
+            vec![
+                (
+                    "CARGO_MANIFEST_DIR".to_string(),
+                    Some(r"D:\a\_temp\project".to_string())
+                ),
+                ("MULTI".to_string(), Some("one\ntwo".to_string())),
+                ("UNSET".to_string(), None),
+            ]
+        );
+    }
 
     #[test]
     fn a_rule_splits_after_its_target_not_at_a_drive() {
