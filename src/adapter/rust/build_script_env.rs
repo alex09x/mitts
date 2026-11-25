@@ -43,8 +43,21 @@ pub fn configure_build_script_run_cmd(
 
     let rustc_bin = super::compiler::resolve_rustc();
     if let Some(bin_dir) = rustc_bin.parent() {
-        let cur_path = std::env::var("PATH").unwrap_or_default();
-        run_cmd.env("PATH", format!("{}:{}", bin_dir.display(), cur_path));
+        // The platform's separator: `format!("{}:{}")` glued the toolchain directory onto the
+        // first PATH entry on Windows, where entries are separated by `;`.
+        let current = std::env::var_os("PATH").unwrap_or_default();
+        let dirs = std::iter::once(bin_dir.to_path_buf()).chain(std::env::split_paths(&current));
+        if let Ok(path) = std::env::join_paths(dirs) {
+            run_cmd.env("PATH", path);
+        }
+    }
+    // Cargo started through rustup's proxy runs its build scripts with RUSTUP_TOOLCHAIN set;
+    // scripts report it (shadow-rs's build_env in `starship --version` was empty under
+    // Mitts). Without one inherited, the toolchain directory of the rustc in use names it.
+    if std::env::var_os("RUSTUP_TOOLCHAIN").is_none_or(|v| v.is_empty()) {
+        if let Some(name) = super::toolchain_select::toolchain_name(&rustc_bin) {
+            run_cmd.env("RUSTUP_TOOLCHAIN", name);
+        }
     }
 
     let (major, minor, patch, pre) = super::compiler_resolve::parse_version_parts(&unit.version);

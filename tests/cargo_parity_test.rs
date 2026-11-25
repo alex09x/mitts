@@ -2965,3 +2965,45 @@ fn link_lib_goes_to_the_library_not_to_its_binaries() {
         "the binary does not"
     );
 }
+
+/// A build script sees the toolchain's name in RUSTUP_TOOLCHAIN, as under Cargo started
+/// through rustup's proxy (shadow-rs reports it: starship's build_env was empty under
+/// Mitts), and a PATH whose first entry is the toolchain's bin directory.
+#[test]
+fn build_scripts_see_rustup_toolchain_and_a_proper_path() {
+    let env = Env::new();
+    let app = env.path("app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::write(
+        app.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(app.join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(
+        app.join("build.rs"),
+        "fn main() {\n    \
+         let tc = std::env::var(\"RUSTUP_TOOLCHAIN\").unwrap_or_default();\n    \
+         let first = std::env::split_paths(&std::env::var_os(\"PATH\").unwrap()).next().unwrap();\n    \
+         println!(\"cargo:warning=toolchain=[{tc}] first_path_is_dir={}\", first.is_dir());\n}\n",
+    )
+    .unwrap();
+    env.ok(&app, &["generate-lockfile"]);
+    let rustc = Command::new("rustc")
+        .arg("--print")
+        .arg("sysroot")
+        .output()
+        .unwrap();
+    let sysroot = String::from_utf8_lossy(&rustc.stdout).trim().to_string();
+    let (out, err) = env.ok(&app, &["build"]);
+    let log = format!("{out}{err}");
+    assert!(log.contains("first_path_is_dir=true"), "{log}");
+    if sysroot.contains("toolchains") && std::env::var_os("RUSTUP_TOOLCHAIN").is_none() {
+        let name = Path::new(&sysroot)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert!(log.contains(&format!("toolchain=[{name}]")), "{log}");
+    }
+}

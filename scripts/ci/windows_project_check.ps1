@@ -150,8 +150,9 @@ Check ($surplus.Count -eq 0) "no extra executable or DLL (extra: $($surplus -joi
 
 if ($Bin) {
     Write-Host "== $Bin --version"
-    $cv = (& (Join-Path $cargoTarget "debug\$Bin.exe") --version 2>&1 | Out-String).Trim()
-    $mv = (& (Join-Path $mittsTarget "debug\$Bin.exe") --version 2>&1 | Out-String).Trim()
+    # A build timestamp differs between any two builds (shadow-rs's build_time).
+    $cv = (& (Join-Path $cargoTarget "debug\$Bin.exe") --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
+    $mv = (& (Join-Path $mittsTarget "debug\$Bin.exe") --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
     Write-Host "  cargo: $cv"
     Write-Host "  mitts: $mv"
     Check ($cv -eq $mv) 'the same output from both builds'

@@ -205,7 +205,7 @@ fn warnings_are_shown_on_every_build_including_fast_lock_hits() {
 #[test]
 fn the_fast_lock_fingerprint_names_the_build_script_protocol() {
     use mitts::adapter::rust::build_script_keys::PROTOCOL;
-    assert_eq!(PROTOCOL, "build_script_v10");
+    assert_eq!(PROTOCOL, "build_script_v11");
     let dir = TempDir::new().unwrap();
     let manifest = dir.path().join("Cargo.toml");
     let opt = mitts::adapter::RustBuildOptions::default();
