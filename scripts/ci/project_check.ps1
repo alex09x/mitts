@@ -1,4 +1,4 @@
-# Mitts Build — a real project on Windows, Mitts against Cargo as the reference.
+# Mitts Build — a real project on Linux, macOS or Windows, Mitts against Cargo as the reference.
 # Copyright (c) 2026 Alexander Panasenko
 # Contact: alex@prod.codes
 # Author: https://prod.codes/about/
@@ -8,7 +8,7 @@
 # Cargo runs here only as the reference Mitts is compared with (owner decision 2026-11-25,
 # AGENTS.md). For one checked-out project:
 #   1. `build --all-targets` through both, into separate target directories: the same
-#      executables and DLLs must come out;
+#      executables and shared libraries must come out;
 #   2. the project's binary (if named) prints the same `--version` from both;
 #   3. `test --no-fail-fast` through both: Mitts may fail no test Cargo passes, and runs as
 #      many as Cargo does;
@@ -62,6 +62,16 @@ function Run([string]$tool, [string[]]$arguments, [string]$log) {
     return @{ Code = $code; Text = ($text -join "`n"); Seconds = $seconds }
 }
 
+# What a user runs or loads: executables and shared libraries, by the platform's spelling.
+# On Unix an executable has no extension and its execute bit set (rustc's dep-info `.d`
+# and the `.rlib` files are not products).
+function IsProduct([System.IO.FileInfo]$file) {
+    if ($file.Name.StartsWith('.') -or $file.Name -match '-[0-9a-f]{16}(\.|$)') { return $false }
+    if ($IsWindows) { return $file.Extension -in '.exe', '.dll' }
+    if ($file.Extension -in '.so', '.dylib') { return $true }
+    return ($file.Extension -eq '') -and (($file.UnixFileMode -band [System.IO.UnixFileMode]::UserExecute) -ne 0)
+}
+
 function Products([string]$target) {
     $dir = Join-Path $target 'debug'
     $names = @()
@@ -69,7 +79,7 @@ function Products([string]$target) {
         $d = Join-Path $dir $sub
         if (Test-Path $d) {
             $names += Get-ChildItem -LiteralPath $d -File |
-                Where-Object { $_.Extension -in '.exe', '.dll' -and $_.Name -notmatch '-[0-9a-f]{16}\.' } |
+                Where-Object { IsProduct $_ } |
                 ForEach-Object { if ($sub) { "$sub/$($_.Name)" } else { $_.Name } }
         }
     }
@@ -89,7 +99,7 @@ foreach ($side in @(@('Cargo', $c), @('Mitts', $m))) {
 if ($m.Code -ne 0) {
     # For every crate rustc could not find: the --extern path it was given, whether that file
     # exists now, and what the shared artifacts directory holds under that crate's name.
-    $artifacts = Join-Path $env:MITTS_CACHE_DIR 'cas\artifacts'
+    $artifacts = Join-Path (Join-Path $env:MITTS_CACHE_DIR 'cas') 'artifacts'
     foreach ($crate in @([regex]::Matches($m.Text, "can't find crate for ``([A-Za-z0-9_]+)``") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)) {
         $given = @([regex]::Matches($m.Text, "--extern '$crate=([^']+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
         foreach ($path in $given) { Write-Host "  extern $crate -> $path (exists: $(Test-Path -LiteralPath $path))" }
@@ -117,12 +127,12 @@ if ($m.Code -ne 0) {
         Write-Host "  build script compile run again: exit $code"
         $again | Select-Object -First 30 | ForEach-Object { Write-Host "    | $_" }
         # Variants that tell what rustc rejects.
-        $deps = Join-Path $mittsTarget 'debug\deps'
+        $deps = Join-Path (Join-Path $mittsTarget 'debug') 'deps'
         $variants = [ordered]@{
             'plus -L target deps' = @($rest + @('-L', "dependency=$deps"))
             'externs as .rmeta'   = @($rest | ForEach-Object { if ($_ -match '^[A-Za-z0-9_]+=.*\.rlib$') { $_ -replace '\.rlib$', '.rmeta' } else { $_ } })
             'externs from target deps' = @($rest | ForEach-Object {
-                    if ($_ -match '^([A-Za-z0-9_]+)=.*\\lib([A-Za-z0-9_]+)-[0-9a-f]+\.rlib$') {
+                    if ($_ -match '^([A-Za-z0-9_]+)=.*[\\/]lib([A-Za-z0-9_]+)-[0-9a-f]+\.rlib$') {
                         $found = @(Get-ChildItem -LiteralPath $deps -Filter "lib$($Matches[2])-*.rlib" -ErrorAction SilentlyContinue | Select-Object -First 1)
                         if ($found.Count -eq 1) { "$($Matches[1])=$($found[0].FullName)" } else { $_ }
                     } else { $_ } })
@@ -145,14 +155,21 @@ $mp = @(Products $mittsTarget)
 $missing = @($cp | Where-Object { $_ -notin $mp })
 $surplus = @($mp | Where-Object { $_ -notin $cp })
 Write-Host "  products: $($cp.Count) from Cargo, $($mp.Count) from Mitts"
-Check ($missing.Count -eq 0) "no executable or DLL missing (missing: $($missing -join ', '))"
-Check ($surplus.Count -eq 0) "no extra executable or DLL (extra: $($surplus -join ', '))"
+Check ($missing.Count -eq 0) "no executable or shared library missing (missing: $($missing -join ', '))"
+Check ($surplus.Count -eq 0) "no extra executable or shared library (extra: $($surplus -join ', '))"
 
 if ($Bin) {
     Write-Host "== $Bin --version"
     # A build timestamp differs between any two builds (shadow-rs's build_time).
-    $cv = (& (Join-Path $cargoTarget "debug\$Bin.exe") --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
-    $mv = (& (Join-Path $mittsTarget "debug\$Bin.exe") --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
+    $exe = if ($IsWindows) { "$Bin.exe" } else { $Bin }
+    # A binary a failed build did not leave is reported, not run.
+    function Version([string]$target) {
+        $path = Join-Path (Join-Path $target 'debug') $exe
+        if (-not (Test-Path -LiteralPath $path)) { return "(no $exe)" }
+        return (& $path --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
+    }
+    $cv = Version $cargoTarget
+    $mv = Version $mittsTarget
     Write-Host "  cargo: $cv"
     Write-Host "  mitts: $mv"
     Check ($cv -eq $mv) 'the same output from both builds'
@@ -191,7 +208,7 @@ $warm = Run $Mitts (@('build', '-v', '--all-targets', '--target-dir', $mittsTarg
 $stats = ([regex]::Matches($warm.Text, '\[mitts::stats\][^\r\n]*') | Select-Object -Last 1).Value
 Write-Host "  fresh target, warm cache: $stats ($($warm.Seconds)s; cold Mitts $($m.Seconds)s, Cargo $($c.Seconds)s)"
 Check ($warm.Code -eq 0) 'a deleted target directory rebuilds from the cache'
-Check (@(Products $mittsTarget).Count -eq $mp.Count) 'with every executable and DLL back'
+Check (@(Products $mittsTarget).Count -eq $mp.Count) 'with every executable and shared library back'
 
 if ($failures.Count -gt 0) {
     Write-Host "FAILED ($($failures.Count)):"; $failures | ForEach-Object { Write-Host "  - $_" }

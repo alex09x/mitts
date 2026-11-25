@@ -254,12 +254,9 @@ pub(crate) fn execute_build_script_with_key(
     // Not part of the key: the pool's address is specific to this cache and process.
     // A pool address with whitespace (a cache path with spaces) cannot be carried in the
     // whitespace-separated MAKEFLAGS syntax; the script then gets NUM_JOBS only, as before.
-    if let Some(auth) = jobserver_auth.filter(|a| !a.contains(char::is_whitespace)) {
-        run_cmd.env(
-            "CARGO_MAKEFLAGS",
-            super::build_script_env::cargo_makeflags(auth),
-        );
-    }
+    let _pool_fd = jobserver_auth
+        .filter(|a| !a.contains(char::is_whitespace))
+        .and_then(|auth| super::build_script_env::set_cargo_makeflags(&mut run_cmd, auth));
 
     let verbosity = crate::core::verbosity::level();
     if verbosity >= 1 {

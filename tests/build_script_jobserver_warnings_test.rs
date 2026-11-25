@@ -137,6 +137,48 @@ fn makeflags_name_the_pool_in_cargo_form() {
     );
 }
 
+/// The script gets the pool as Cargo gives it: inherited descriptors, which every GNU make
+/// reads. make 4.3 (Ubuntu 24.04) stops on `fifo:<path>`, so a cmake-built `-sys` crate
+/// (libz-ng-sys in starship) failed under Mitts and built under Cargo.
+#[cfg(unix)]
+#[test]
+fn a_build_script_gets_the_pool_as_open_descriptors() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("proj");
+    project(&root);
+    fs::write(
+        root.join("build.rs"),
+        r#"fn main() {
+    let flags = std::env::var("CARGO_MAKEFLAGS").unwrap_or_default();
+    let auth = flags.split(' ').find_map(|w| w.strip_prefix("--jobserver-auth=")).unwrap_or("");
+    let fds = flags.split(' ').find_map(|w| w.strip_prefix("--jobserver-fds=")).unwrap_or("");
+    let (r, w) = auth.split_once(',').unwrap_or(("", ""));
+    let open = |n: &str| !n.is_empty() && std::path::Path::new(&format!("/dev/fd/{n}")).exists();
+    println!("cargo:warning=pool auth=[{auth}] fds=[{fds}] open={}", open(r) && open(w));
+}
+"#,
+    )
+    .unwrap();
+    let out = mitts(&root, "target", &["build", "-j", "3"]);
+    let log = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{log}");
+    let shown = warnings(&log);
+    let line = shown.iter().find(|l| l.starts_with("pool ")).expect(&log);
+    assert!(!line.contains("fifo:"), "make 4.3 rejects fifo: — {line}");
+    assert!(
+        line.ends_with("open=true"),
+        "the descriptors are inherited: {line}"
+    );
+    let auth = line
+        .split("auth=[")
+        .nth(1)
+        .unwrap()
+        .split(']')
+        .next()
+        .unwrap();
+    assert!(line.contains(&format!("fds=[{auth}]")), "{line}");
+}
+
 /// A script that fails shows its whole output, warnings included, as Cargo does.
 #[test]
 fn a_failing_build_script_shows_its_output() {
