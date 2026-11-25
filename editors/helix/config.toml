@@ -1,0 +1,17 @@
+# Mitts Build for Helix — editor integration for the Mitts Rust build tool
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Add to ~/.config/helix/config.toml (Windows: %AppData%\helix\config.toml).
+# Space, then m, then a key: runs Mitts from Helix's working directory and shows its
+# output. Errors also show up as rust-analyzer diagnostics (see languages.toml).
+
+[keys.normal.space.m]
+c = ":sh mitts check"
+b = ":sh mitts build"
+t = ":sh mitts test"
+r = ":sh mitts run"
+k = ":sh mitts clippy"

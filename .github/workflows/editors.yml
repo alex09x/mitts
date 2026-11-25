@@ -1,0 +1,291 @@
+# Mitts Build — editor integrations other than VS Code: tests on Linux, macOS and Windows.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Nothing here publishes anything.
+name: Editors
+
+on:
+  pull_request:
+    paths:
+      - editors/vim/**
+      - editors/emacs/**
+      - editors/helix/**
+      - editors/sublime/**
+      - editors/zed/**
+      - editors/jetbrains/**
+      - .github/workflows/editors.yml
+  push:
+    branches: [main]
+    paths:
+      - editors/vim/**
+      - editors/emacs/**
+      - editors/helix/**
+      - editors/sublime/**
+      - editors/zed/**
+      - editors/jetbrains/**
+      - .github/workflows/editors.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editors-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The Vim and Neovim plugin: the same tests in both, against the released Mitts, which
+  # checks a broken project from inside the editor (MITTS_VIM_E2E).
+  vim:
+    name: ${{ matrix.editor }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+        editor: [vim, neovim]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - id: editor
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
+        with:
+          version: stable
+          neovim: ${{ matrix.editor == 'neovim' }}
+      - name: Tests
+        shell: bash
+        env:
+          MITTS_VIM_E2E: '1'
+          EDITOR_BIN: ${{ steps.editor.outputs.executable }}
+        run: |
+          export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
+          "$EDITOR_BIN" --version | head -1
+          if [ "${{ matrix.editor }}" = neovim ]; then
+            "$EDITOR_BIN" --headless -u NONE -i NONE -S editors/vim/test/run.vim && rc=0 || rc=$?
+          else
+            "$EDITOR_BIN" -Nu NONE -i NONE -es -S editors/vim/test/run.vim && rc=0 || rc=$?
+          fi
+          cat editors/vim/test/result.txt
+          exit $rc
+
+  # mitts.el: byte-compiled with warnings as errors, then its ERT tests, against the
+  # released Mitts (MITTS_EMACS_E2E). 27.2 is the oldest Emacs it supports; it and 28.2
+  # have no built-in `rust' error pattern, so mitts.el's own pattern is in use there.
+  # nix-emacs-ci has no 27.2 for Apple silicon (macos-15): 28.2 there.
+  emacs:
+    name: Emacs ${{ matrix.emacs }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+        emacs: ['27.2', '30.1']
+        exclude:
+          - os: macos-15
+            emacs: '27.2'
+        include:
+          - os: macos-15
+            emacs: '28.2'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - uses: jcs090218/setup-emacs@ffd830bca5865932d99c3d179263d8b0ebdd00c0 # v3
+        with:
+          version: ${{ matrix.emacs }}
+      - name: Byte-compile
+        shell: bash
+        working-directory: editors/emacs
+        run: |
+          emacs --version | head -1
+          emacs --batch --eval '(setq byte-compile-error-on-warn t)' -f batch-byte-compile mitts.el
+      - name: Tests
+        shell: bash
+        working-directory: editors/emacs
+        env:
+          MITTS_EMACS_E2E: '1'
+        run: |
+          export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
+          emacs --batch -L . -l test/mitts-test.el -f ert-run-tests-batch-and-exit
+
+  # The Helix configuration against a real Helix: TOML values, `hx --health rust` reading
+  # languages.toml, and (Unix) Helix starting with config.toml in a pseudo-terminal; each
+  # with a broken counterpart that must be reported. Helix's own release build, checked
+  # against the digests below (its releases publish none).
+  helix:
+    name: Helix on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            asset: x86_64-linux.tar.xz
+            sha256: 3f08e63ecd388fff657ad39722f88bb03dcf326f1f2da2700d99e1dc40ab2e8b
+          - os: macos-15
+            asset: aarch64-macos.tar.xz
+            sha256: 00b1651b4fdbbe0a2ae981c8e76b858bd26a7c33f5b3583f3b6bb9137d54f1ff
+          - os: windows-2022
+            asset: x86_64-windows.zip
+            sha256: 5c8325ced8bacd8418d62706f669e96d9c3578a9237526e34d546900cbc049b6
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      HELIX_VERSION: '25.07.1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Helix
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          SHA256: ${{ matrix.sha256 }}
+        run: |
+          cd "$RUNNER_TEMP"
+          file="helix-$HELIX_VERSION-$ASSET"
+          curl -fsSL --retry 5 -o "$file" "https://github.com/helix-editor/helix/releases/download/$HELIX_VERSION/$file"
+          got=$( (sha256sum "$file" 2>/dev/null || shasum -a 256 "$file") | cut -d' ' -f1)
+          test "$got" = "$SHA256" || { echo "digest $got, expected $SHA256"; exit 1; }
+          case "$file" in
+            *.zip) unzip -q "$file" ;;
+            *) tar -xJf "$file" ;;
+          esac
+          dir="$RUNNER_TEMP/${file%.tar.xz}"
+          dir="${dir%.zip}"
+          echo "HX=$dir/hx$([ "$RUNNER_OS" = Windows ] && echo .exe)" >> "$GITHUB_ENV"
+      - name: Check
+        shell: bash
+        run: |
+          # The runners have Python 3.12 (tomllib needs 3.11); on Windows it is `python`.
+          py=python3; [ "$RUNNER_OS" = Windows ] && py=python
+          "$py" --version
+          "$py" editors/helix/test/check.py
+
+  # Mitts.sublime-build outside Sublime Text: its JSON, and its file_regex on captured
+  # output and on a real `mitts check` (MITTS_SUBLIME_E2E). Sublime itself is not run.
+  sublime:
+    name: Sublime build file on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - name: Check
+        shell: bash
+        env:
+          MITTS_SUBLIME_E2E: '1'
+        run: |
+          export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
+          py=python3; [ "$RUNNER_OS" = Windows ] && py=python
+          "$py" editors/sublime/test/check.py
+
+  # Zed's tasks.json and settings.json outside Zed; with MITTS_ZED_E2E, the workspace
+  # check task and rust-analyzer's check command on a broken project.
+  zed:
+    name: Zed configuration on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - name: Check
+        shell: bash
+        env:
+          MITTS_ZED_E2E: '1'
+        run: |
+          export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
+          py=python3; [ "$RUNNER_OS" = Windows ] && py=python
+          "$py" editors/zed/test/check.py
+
+  # The JetBrains plugin: platform tests (with a real `mitts check` linked in the console,
+  # MITTS_JB_E2E), the plugin zip and its structure checks on three OSes; JetBrains'
+  # Plugin Verifier against RustRover and IntelliJ IDEA on Linux. Gradle and the IDEs it
+  # downloads are the plugin's own toolchain; nothing here builds Mitts.
+  jetbrains:
+    name: JetBrains plugin on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: editors/jetbrains
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      - name: Tests, plugin zip and its checks
+        env:
+          MITTS_JB_E2E: '1'
+        run: |
+          export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
+          ./gradlew test buildPlugin verifyPluginProjectConfiguration verifyPluginStructure
+          grep -h "e2e: running mitts check" build/test-results/test/*.xml
+      - name: Plugin Verifier (RustRover, IntelliJ IDEA)
+        if: runner.os == 'Linux'
+        run: ./gradlew verifyPlugin
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: runner.os == 'Linux'
+        with:
+          name: jetbrains-plugin
+          path: editors/jetbrains/build/distributions/*.zip
+          if-no-files-found: error
