@@ -1,0 +1,46 @@
+<!--
+  Mitts Build for JetBrains IDEs — editor integration for the Mitts Rust build tool
+  Copyright (c) 2026 Alexander Panasenko
+
+  Contact: alex@prod.codes
+  Author: https://prod.codes/about/
+  Project: https://github.com/alex09x/mitts
+  SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+<idea-plugin>
+    <id>codes.prod.mitts</id>
+    <name>Mitts Build</name>
+    <vendor email="alex@prod.codes" url="https://prod.codes/about/">Alexander Panasenko</vendor>
+
+    <description><![CDATA[
+    Runs <a href="https://github.com/alex09x/mitts">Mitts</a>, a Cargo-compatible Rust build
+    tool with a machine-wide artifact cache, from RustRover, IntelliJ IDEA and the other
+    JetBrains IDEs.
+    <ul>
+      <li><b>Tools → Mitts</b>: Check, Build, Test, Run, Clippy in the project's directory.</li>
+      <li>A <b>Mitts</b> run configuration for any Mitts command line.</li>
+      <li>rustc's error and warning locations in the run console are links to the source.</li>
+    </ul>
+    The Mitts executable is set in <b>Settings → Tools → Mitts</b> (default: <code>mitts</code> on PATH).
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <configurationType implementation="codes.prod.mitts.MittsConfigurationType"/>
+        <consoleFilterProvider implementation="codes.prod.mitts.MittsFilterProvider"/>
+        <applicationConfigurable parentId="tools" id="codes.prod.mitts.settings"
+                                 instance="codes.prod.mitts.MittsConfigurable" displayName="Mitts"/>
+    </extensions>
+
+    <actions>
+        <group id="Mitts.Menu" text="Mitts" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="Mitts.Check" class="codes.prod.mitts.MittsCheckAction" text="Mitts Check"/>
+            <action id="Mitts.Build" class="codes.prod.mitts.MittsBuildAction" text="Mitts Build"/>
+            <action id="Mitts.Test" class="codes.prod.mitts.MittsTestAction" text="Mitts Test"/>
+            <action id="Mitts.Run" class="codes.prod.mitts.MittsRunAction" text="Mitts Run"/>
+            <action id="Mitts.Clippy" class="codes.prod.mitts.MittsClippyAction" text="Mitts Clippy"/>
+        </group>
+    </actions>
+</idea-plugin>
