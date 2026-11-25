@@ -20,6 +20,8 @@ use unix::{create_managed_unix, try_open_inherited};
 
 #[cfg(unix)]
 mod managed_slots;
+#[cfg(unix)]
+mod unit_share;
 
 #[cfg(windows)]
 mod windows;
@@ -49,8 +51,9 @@ pub enum JobserverPool {
         sem: windows::Semaphore,
         auth: String,
     },
-    /// Global or process managed token pool backed by kernel-reclaimed flock slots
-    /// for worker concurrency and a replenished FIFO for child `rustc` codegen threads.
+    /// Machine-wide pool: `capacity` kernel-reclaimed flock slots bound the running units,
+    /// and one `-j` budget is shared by the units and the jobs they start (rustc, make,
+    /// cc-rs): each unit holds the implicit token or a FIFO token (see `unit_share`).
     Managed {
         _lock: FileLock,
         fifo_path: PathBuf,
@@ -58,6 +61,9 @@ pub enum JobserverPool {
         capacity: usize,
         #[cfg(unix)]
         open_fd: std::os::raw::c_int,
+        /// This process's implicit token, held by one running unit.
+        #[cfg(unix)]
+        implicit: std::sync::atomic::AtomicBool,
         auth: String,
     },
     /// Lazily initialized pool that defers filesystem lock/FIFO creation until a cache miss.
@@ -75,15 +81,27 @@ pub struct JobToken<'a> {
     pool: &'a JobserverPool,
     byte: u8,
     #[cfg(unix)]
-    slot_lock: Option<managed_slots::ManagedSlotLease>,
+    slot_lock: Option<(managed_slots::ManagedSlotLease, unit_share::UnitShare)>,
     #[cfg(not(unix))]
     slot_lock: Option<FileLock>,
 }
 
 impl<'a> Drop for JobToken<'a> {
     fn drop(&mut self) {
-        if self.slot_lock.take().is_none() {
-            self.pool.release_token(self.byte);
+        match self.slot_lock.take() {
+            None => self.pool.release_token(self.byte),
+            // The share goes back before the slot unlocks (the lease drops last).
+            #[cfg(unix)]
+            Some((lease, share)) => {
+                if let JobserverPool::Managed {
+                    open_fd, implicit, ..
+                } = self.pool
+                {
+                    unit_share::release(*open_fd, implicit, &lease, share);
+                }
+            }
+            #[cfg(not(unix))]
+            Some(_) => {}
         }
     }
 }
@@ -227,14 +245,17 @@ impl JobserverPool {
                 Self::Managed {
                     slots_dir,
                     capacity,
+                    open_fd,
+                    implicit,
                     ..
                 } => {
                     let lock = managed_slots::acquire(slots_dir, *capacity)?;
+                    let share = unit_share::acquire(*open_fd, implicit, &lock)?;
                     TOKENS_ACQUIRED.fetch_add(1, Ordering::Relaxed);
                     return Ok(Some(JobToken {
                         pool: self,
                         byte: b'|',
-                        slot_lock: Some(lock),
+                        slot_lock: Some((lock, share)),
                     }));
                 }
                 Self::Inherited {

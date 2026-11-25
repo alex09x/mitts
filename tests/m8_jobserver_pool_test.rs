@@ -15,6 +15,8 @@ use mitts::core::JobserverPool;
 
 #[path = "m8_jobserver_pool_test/managed_cap.rs"]
 mod managed_cap;
+#[path = "m8_jobserver_pool_test/single_budget.rs"]
+mod single_budget;
 
 #[test]
 fn test_m8_jobserver_pool_managed_fifo_lifecycle() {
@@ -297,6 +299,7 @@ fn test_b4b_follower_does_not_inflate_rustc_fifo_tokens() {
         capacity,
         unread
     );
-    assert_eq!(unread, capacity);
+    // `-j - 1`, as Cargo's pipe: each process's first unit runs on its implicit token.
+    assert_eq!(unread, capacity - 1);
     drop((follower2, follower1, leader));
 }
