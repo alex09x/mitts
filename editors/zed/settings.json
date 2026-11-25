@@ -1,0 +1,24 @@
+// Mitts Build for Zed — editor integration for the Mitts Rust build tool
+// Copyright (c) 2026 Alexander Panasenko
+// Contact: alex@prod.codes
+// Author: https://prod.codes/about/
+// Project: https://github.com/alex09x/mitts
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
+// Merge into ~/.config/zed/settings.json (`zed: open settings`) or a project's
+// .zed/settings.json. rust-analyzer's on-save check and its runnables run through Mitts;
+// rust-analyzer still loads the project with `cargo metadata`.
+{
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "check": {
+          "overrideCommand": ["mitts", "check", "--workspace", "--all-targets", "--message-format=json"]
+        },
+        "runnables": {
+          "command": "mitts"
+        }
+      }
+    }
+  }
+}

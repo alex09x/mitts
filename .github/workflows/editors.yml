@@ -15,6 +15,7 @@ on:
       - editors/emacs/**
       - editors/helix/**
       - editors/sublime/**
+      - editors/zed/**
       - .github/workflows/editors.yml
   push:
     branches: [main]
@@ -23,6 +24,7 @@ on:
       - editors/emacs/**
       - editors/helix/**
       - editors/sublime/**
+      - editors/zed/**
       - .github/workflows/editors.yml
 
 permissions:
@@ -206,3 +208,33 @@ jobs:
           export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
           py=python3; [ "$RUNNER_OS" = Windows ] && py=python
           "$py" editors/sublime/test/check.py
+
+  # Zed's tasks.json and settings.json outside Zed; with MITTS_ZED_E2E, the workspace
+  # check task and rust-analyzer's check command on a broken project.
+  zed:
+    name: Zed configuration on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - name: Check
+        shell: bash
+        env:
+          MITTS_ZED_E2E: '1'
+        run: |
+          export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
+          py=python3; [ "$RUNNER_OS" = Windows ] && py=python
+          "$py" editors/zed/test/check.py
