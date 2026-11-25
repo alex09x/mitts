@@ -25,11 +25,13 @@ export interface LocateEnv {
  * installer and crates.io installs put it. `undefined` when it is nowhere.
  */
 export function locateMitts(configured: string, env: LocateEnv): string | undefined {
+  // The path rules of the platform asked about, not of the one running the code.
+  const paths = env.platform === "win32" ? path.win32 : path.posix;
   const exe = env.platform === "win32" ? "mitts.exe" : "mitts";
   const trimmed = configured.trim();
   if (trimmed !== "") {
     const expanded =
-      trimmed.startsWith("~/") && env.home ? path.join(env.home, trimmed.slice(2)) : trimmed;
+      trimmed.startsWith("~/") && env.home ? paths.join(env.home, trimmed.slice(2)) : trimmed;
     return env.isFile(expanded) ? expanded : undefined;
   }
   const sep = env.platform === "win32" ? ";" : ":";
@@ -37,18 +39,18 @@ export function locateMitts(configured: string, env: LocateEnv): string | undefi
     if (dir === "") {
       continue;
     }
-    const candidate = path.join(dir, exe);
+    const candidate = paths.join(dir, exe);
     if (env.isFile(candidate)) {
       return candidate;
     }
   }
   const cargoBin = env.cargoHome
-    ? path.join(env.cargoHome, "bin")
+    ? paths.join(env.cargoHome, "bin")
     : env.home
-      ? path.join(env.home, ".cargo", "bin")
+      ? paths.join(env.home, ".cargo", "bin")
       : undefined;
   if (cargoBin) {
-    const candidate = path.join(cargoBin, exe);
+    const candidate = paths.join(cargoBin, exe);
     if (env.isFile(candidate)) {
       return candidate;
     }
