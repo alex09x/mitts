@@ -17,6 +17,30 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+/// `CARGO_BIN_NAME` as Cargo sets it: for a binary or example, and for a binary's unit test
+/// (`<bin>_bin_test`), which Cargo compiles as the binary target; never for an integration
+/// test. difftastic's `env!("CARGO_BIN_NAME")` in `src/main.rs` failed under `mitts test`.
+pub fn cargo_bin_name(unit: &PlannedCompilationUnit) -> Option<String> {
+    match unit.kind.as_str() {
+        "bin" | "example" | "custom-test" => Some(unit.target_name.clone()),
+        "test" => {
+            let stem = unit.target_name.strip_suffix("_bin_test")?;
+            // The binary's own spelling (`my-tool`, not `my_tool`), from its manifest.
+            let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+            let named = CargoToml::from_file(&unit.manifest_path)
+                .ok()
+                .and_then(|toml| {
+                    toml.discover_targets(pkg_dir)
+                        .into_iter()
+                        .find(|t| t.kind == "bin" && t.src_path == unit.src_path)
+                        .map(|t| t.name)
+                });
+            Some(named.unwrap_or_else(|| stem.to_string()))
+        }
+        _ => None,
+    }
+}
+
 /// Constructs Cargo-compatible environment variables for a unit's rustc invocation.
 pub fn compute_unit_rustc_env(
     unit: &PlannedCompilationUnit,
@@ -70,8 +94,8 @@ pub fn compute_unit_rustc_env_with_target(
     env.insert("CARGO_PKG_VERSION_PATCH".to_string(), patch);
     env.insert("CARGO_PKG_VERSION_PRE".to_string(), pre);
     env.insert("CARGO_CRATE_NAME".to_string(), unit.target_name.clone());
-    if unit.kind == "bin" || unit.kind == "example" {
-        env.insert("CARGO_BIN_NAME".to_string(), unit.target_name.clone());
+    if let Some(name) = cargo_bin_name(unit) {
+        env.insert("CARGO_BIN_NAME".to_string(), name);
     }
 
     insert_manifest_pkg_metadata(&mut env, &unit.manifest_path);
@@ -464,5 +488,39 @@ mod tests {
             host
         );
         assert_eq!(exe_suffix_in(Path::new("/w/my-unknown-app/debug")), host);
+    }
+
+    #[test]
+    fn a_binary_and_its_unit_test_have_cargo_bin_name_an_integration_test_has_none() {
+        use super::{cargo_bin_name, PlannedCompilationUnit};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/bin")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("src/bin/my-tool.rs"), "fn main() {}").unwrap();
+        let unit = |kind: &str, name: &str, src: &str| PlannedCompilationUnit {
+            kind: kind.into(),
+            target_name: name.into(),
+            src_path: dir.path().join(src),
+            manifest_path: dir.path().join("Cargo.toml"),
+            ..Default::default()
+        };
+        assert_eq!(
+            cargo_bin_name(&unit("bin", "my-tool", "src/bin/my-tool.rs")).as_deref(),
+            Some("my-tool")
+        );
+        assert_eq!(
+            cargo_bin_name(&unit("test", "my_tool_bin_test", "src/bin/my-tool.rs")).as_deref(),
+            Some("my-tool")
+        );
+        assert_eq!(cargo_bin_name(&unit("test", "it", "tests/it.rs")), None);
+        assert_eq!(
+            cargo_bin_name(&unit("test", "pkg_unit_test", "src/lib.rs")),
+            None
+        );
+        assert_eq!(cargo_bin_name(&unit("lib", "pkg", "src/lib.rs")), None);
     }
 }

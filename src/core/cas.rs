@@ -366,17 +366,24 @@ impl ContentAddressedStore {
             }
         }
 
+        // Windows: a hard link is recognized by its file index, as an inode is on Unix. Without
+        // that, a hard-linked alias (which has no sidecar) was replaced on every lookup, and a
+        // rename over an `.rlib` another rustc had open left the name pending deletion: the
+        // next rustc could not open it (E0463 "can't find crate"), for bat, starship, bottom
+        // and alacritty build scripts.
         #[cfg(not(unix))]
-        {
-            if let Ok(meta) = fs::metadata(&artifact_path) {
-                if meta.len() == obj_meta.len()
-                    && fs::read_to_string(&sidecar_path)
-                        .map(|s| s.trim() == content_hash)
-                        .unwrap_or(false)
-                {
-                    return Ok(artifact_path);
-                }
-            }
+        let alias_is_current = || {
+            fs::metadata(&artifact_path).is_ok_and(|meta| {
+                crate::core::file_id::same_file(&artifact_path, &obj_path)
+                    || (meta.len() == obj_meta.len()
+                        && fs::read_to_string(&sidecar_path)
+                            .map(|s| s.trim() == content_hash)
+                            .unwrap_or(false))
+            })
+        };
+        #[cfg(not(unix))]
+        if alias_is_current() {
+            return Ok(artifact_path);
         }
 
         // A cache hit is read-only. Create directories only when publishing or
@@ -392,6 +399,13 @@ impl ContentAddressedStore {
         let hardlinked = fs::hard_link(&obj_path, &tmp_path).is_ok();
         if !hardlinked {
             reflink_or_copy(&obj_path, &tmp_path, false)?;
+        }
+        // A concurrent publisher may have placed it meanwhile; never rename over a current
+        // alias on Windows, where another rustc may be reading it.
+        #[cfg(not(unix))]
+        if alias_is_current() {
+            let _ = fs::remove_file(&tmp_path);
+            return Ok(artifact_path);
         }
         let _ = fs::rename(&tmp_path, &artifact_path);
         let _ = fs::remove_file(&tmp_path);
