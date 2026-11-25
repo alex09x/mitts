@@ -185,11 +185,24 @@ fn err(o: &Output) -> String {
 }
 
 /// Paths and ids made comparable: each side's root becomes `<ws>`.
+/// On Windows the root also appears without canonicalize's `\\?\` prefix and with forward
+/// slashes (`path+file:///C:/...` ids), so every spelling is replaced, longest first.
 fn norm(s: &str, root: &Path) -> String {
     let canonical = root.canonicalize().unwrap_or(root.to_path_buf());
-    s.replace(&canonical.display().to_string(), "<ws>")
-        .replace(&root.display().to_string(), "<ws>")
-        .replace('\\', "/")
+    let mut forms = Vec::new();
+    for path in [canonical.display().to_string(), root.display().to_string()] {
+        let plain = path.strip_prefix(r"\\?\").unwrap_or(&path).to_string();
+        forms.push(plain.replace('\\', "/"));
+        forms.push(plain);
+        forms.push(path);
+    }
+    forms.sort_by_key(|f| std::cmp::Reverse(f.len()));
+    forms.dedup();
+    let mut out = s.to_string();
+    for form in &forms {
+        out = out.replace(form.as_str(), "<ws>");
+    }
+    out.replace('\\', "/")
 }
 
 fn agree(what: &str, c: &Output, m: &Output, pair: &Pair) {
