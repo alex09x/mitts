@@ -8,6 +8,7 @@
 # Publishing uses the Marketplace's trusted publishing for this repository, this file name
 # and the `vscode-marketplace` environment: no token exists. The environment requires the
 # owner's approval, so a `vscode-v*` tag only queues the publish job until he approves it.
+# The `publish-open-vsx` job puts the same VSIX on Open VSX the same way (`open-vsx` environment).
 name: VS Code extension
 
 on:
@@ -138,3 +139,31 @@ jobs:
         env:
           VSIX: ${{ needs.package.outputs.vsix }}
         run: npx --yes @vscode/vsce@4.1.0 publish --oidc --packagePath "$VSIX"
+
+  # The same VSIX on Open VSX, the registry of VSCodium, Cursor, Windsurf, Gitpod and
+  # Eclipse Theia. Trusted publishing: Open VSX exchanges this workflow's OIDC token for a
+  # short-lived one, so no token is stored. Needs, once, by the owner on open-vsx.org: the
+  # `alex09x` namespace, and this repository, file and `open-vsx` environment registered
+  # as its trusted publisher. The environment requires the owner's approval.
+  publish-open-vsx:
+    if: startsWith(github.ref, 'refs/tags/vscode-v')
+    needs: [package, os]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: open-vsx
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: vscode-extension
+          path: ${{ runner.temp }}/vsix
+      - name: Publish with trusted publishing
+        working-directory: ${{ runner.temp }}/vsix
+        env:
+          VSIX: ${{ needs.package.outputs.vsix }}
+        run: npx --yes ovsx@1.4.0 publish --trusted-publishing --packagePath "$VSIX"
