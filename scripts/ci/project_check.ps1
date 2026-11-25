@@ -162,8 +162,14 @@ if ($Bin) {
     Write-Host "== $Bin --version"
     # A build timestamp differs between any two builds (shadow-rs's build_time).
     $exe = if ($IsWindows) { "$Bin.exe" } else { $Bin }
-    $cv = (& (Join-Path (Join-Path $cargoTarget 'debug') $exe) --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
-    $mv = (& (Join-Path (Join-Path $mittsTarget 'debug') $exe) --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
+    # A binary a failed build did not leave is reported, not run.
+    function Version([string]$target) {
+        $path = Join-Path (Join-Path $target 'debug') $exe
+        if (-not (Test-Path -LiteralPath $path)) { return "(no $exe)" }
+        return (& $path --version 2>&1 | Where-Object { "$_" -notmatch '^build_time:' } | Out-String).Trim()
+    }
+    $cv = Version $cargoTarget
+    $mv = Version $mittsTarget
     Write-Host "  cargo: $cv"
     Write-Host "  mitts: $mv"
     Check ($cv -eq $mv) 'the same output from both builds'

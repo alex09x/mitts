@@ -25,6 +25,47 @@ pub fn cargo_makeflags(auth: &str) -> String {
     }
 }
 
+/// Gives `cmd` the job pool the way Cargo gives it to a build script: as descriptors the
+/// child inherits (`-j --jobserver-fds=N,N --jobserver-auth=N,N`). Every GNU make reads
+/// that form; make before 4.4 (Ubuntu 24.04 ships 4.3) stops on a `fifo:` address with
+/// "invalid --jobserver-auth string", which broke cmake-built `-sys` crates (libz-ng-sys
+/// in starship). The returned descriptor must stay open until the child has started.
+#[cfg(unix)]
+pub fn set_cargo_makeflags(cmd: &mut Command, auth: &str) -> Option<std::os::fd::OwnedFd> {
+    use std::os::fd::{AsRawFd, OwnedFd};
+    use std::os::unix::process::CommandExt;
+    if let Some(path) = auth.strip_prefix("fifo:") {
+        // std opens with O_CLOEXEC: no other child of this process inherits it.
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+        {
+            let fd: OwnedFd = file.into();
+            let raw = fd.as_raw_fd();
+            // SAFETY: fcntl is async-signal-safe; it clears close-on-exec in the child only.
+            unsafe {
+                cmd.pre_exec(move || {
+                    if libc::fcntl(raw, libc::F_SETFD, 0) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            cmd.env("CARGO_MAKEFLAGS", cargo_makeflags(&format!("{raw},{raw}")));
+            return Some(fd);
+        }
+    }
+    cmd.env("CARGO_MAKEFLAGS", cargo_makeflags(auth));
+    None
+}
+
+#[cfg(not(unix))]
+pub fn set_cargo_makeflags(cmd: &mut Command, auth: &str) -> Option<()> {
+    cmd.env("CARGO_MAKEFLAGS", cargo_makeflags(auth));
+    None
+}
+
 /// Prepares the Command execution environment for running a compiled build.rs binary.
 #[allow(clippy::too_many_arguments)]
 pub fn configure_build_script_run_cmd(
