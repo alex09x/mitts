@@ -26,6 +26,18 @@ function! s:Problems(lines) abort
   return l:found
 endfunction
 
+" A stand-in for Mitts that exits 0: its path.
+function! s:StandIn() abort
+  let l:bin = tempname()
+  call mkdir(l:bin, 'p')
+  let l:exe = l:bin . (has('win32') ? '/mitts.bat' : '/mitts')
+  call writefile(has('win32') ? ['@exit /b 0'] : ['#!/bin/sh', 'exit 0'], l:exe)
+  if !has('win32')
+    call setfperm(l:exe, 'rwxr-xr-x')
+  endif
+  return l:exe
+endfunction
+
 " Captured Mitts output: a warning, a coded and an uncoded error, with Mitts' own command
 " line, summaries and report around them.
 function! Test_errors_and_warnings_from_mitts_output() abort
@@ -70,13 +82,7 @@ endfunction
 
 " A Rust buffer gets `:compiler mitts` when Mitts is on PATH (here a stand-in script).
 function! Test_rust_buffers_get_the_mitts_compiler() abort
-  let l:bin = tempname()
-  call mkdir(l:bin, 'p')
-  let l:exe = l:bin . (has('win32') ? '/mitts.bat' : '/mitts')
-  call writefile(has('win32') ? ['@exit /b 0'] : ['#!/bin/sh', 'exit 0'], l:exe)
-  if !has('win32')
-    call setfperm(l:exe, 'rwxr-xr-x')
-  endif
+  let l:bin = fnamemodify(s:StandIn(), ':h')
   let l:path = $PATH
   let $PATH = l:bin . (has('win32') ? ';' : ':') . $PATH
   try
@@ -98,7 +104,7 @@ endfunction
 function! Test_mitts_command_restores_the_buffer_compiler() abort
   new
   setlocal makeprg=make errorformat=%f:%l:%m
-  let g:mitts_executable = has('win32') ? 'cmd /c exit 0 &&' : 'true'
+  let g:mitts_executable = s:StandIn()
   try
     silent Mitts! check
   finally
