@@ -124,6 +124,26 @@ pub fn resolve_inherited_workspace_fields(manifest: &mut CargoToml, path: &Path)
                     pkg.rust_version = Some(rv.clone());
                 }
             }
+            // The other `[workspace.package]` fields a member can inherit, as Cargo fills them.
+            let text = |key: &str| ws_pkg.get(key).and_then(|v| v.as_str()).map(String::from);
+            for (key, field) in [
+                ("description", &mut pkg.description),
+                ("homepage", &mut pkg.homepage),
+                ("repository", &mut pkg.repository),
+                ("license", &mut pkg.license),
+                ("readme", &mut pkg.readme),
+            ] {
+                if field.is_none() && opted.contains(key) {
+                    *field = text(key);
+                }
+            }
+            if pkg.authors.is_none() && opted.contains("authors") {
+                pkg.authors = ws_pkg.get("authors").and_then(|v| v.as_array()).map(|a| {
+                    a.iter()
+                        .filter_map(|s| s.as_str().map(String::from))
+                        .collect()
+                });
+            }
         }
     }
 

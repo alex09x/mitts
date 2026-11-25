@@ -123,7 +123,7 @@ pub fn handle_generate_lockfile(args: &GenerateLockfileArgs) -> i32 {
         let previous = CargoLock::from_file(&root.with_file_name("Cargo.lock")).ok();
         let mut lock = resolve_precise(&root, None, None, &[], args)?;
         if let Some(prev) = &previous {
-            lock.version = lock.version.max(prev.version);
+            lock.version = prev.version;
         }
         let changes = diff(previous.as_ref(), &lock);
         if !args.quiet {
@@ -169,7 +169,7 @@ fn run_update(args: &UpdateArgs) -> Result<()> {
         common,
     )?;
     if let Some(prev) = &previous {
-        lock.version = lock.version.max(prev.version);
+        lock.version = prev.version;
     }
     let changes = diff(previous.as_ref(), &lock);
     // The whole lock decides, not only names and versions: a source, checksum or

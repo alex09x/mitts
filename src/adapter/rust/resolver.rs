@@ -488,6 +488,15 @@ impl NativeResolver {
         let direct_remote_names: Vec<String> = remote_deps.iter().map(|d| d.name.clone()).collect();
         remote_deps.append(&mut git_out.registry_deps);
         let mut lock = self.resolve_dependencies(&remote_deps, offline)?;
+        // A new lockfile is written in version 4, as Cargo writes it, unless a workspace
+        // member's `rust-version` predates 1.78 (which cannot read it): then version 3.
+        if let Ok(toml) = CargoToml::from_file(manifest_path) {
+            let old_toolchain = workspace_rust_versions(manifest_dir, &toml)
+                .iter()
+                .filter_map(|v| super::rust_version::parse(v))
+                .any(|(major, minor, _)| (major, minor) < (1, 78));
+            lock.version = if old_toolchain { 3 } else { 4 };
+        }
         lock.packages.append(&mut git_out.packages);
         path_deps.sort();
         path_deps.dedup();

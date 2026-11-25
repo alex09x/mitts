@@ -14,8 +14,10 @@
   formatting, coverage, metadata, fetch, source-package build, and installer
   acceptance task in this repository and its CI/release workflows.
 - Do not invoke the Cargo CLI (`cargo build/test/check/clippy/fmt/fetch/metadata/
-  package/publish/install`) or Mitts' Cargo fallback. Do not use Cargo as a
-  baseline or as a workaround. `Cargo.toml` and `Cargo.lock` remain the project
+  package/publish/install`) or Mitts' Cargo fallback to build, test or package this
+  project. Do not use Cargo as a performance baseline or as a workaround. The one
+  exception (owner, 2026-11-25): differential tests may run Cargo as a reference
+  oracle on their own fixtures to compare observable results with Mitts. `Cargo.toml` and `Cargo.lock` remain the project
   inputs; `CARGO_*` environment names emitted for build-script compatibility do
   not authorize launching Cargo.
 - Do not add CI helpers that invoke Cargo indirectly (for example, Rust cache

@@ -28,7 +28,10 @@ pub fn resolve_build_script_path(unit: &PlannedCompilationUnit) -> Option<PathBu
     resolve_build_script_path_with_toml(pkg_dir, &pkg_toml)
 }
 
-fn resolve_build_script_path_with_toml(pkg_dir: &Path, pkg_toml: &CargoToml) -> Option<PathBuf> {
+pub fn resolve_build_script_path_with_toml(
+    pkg_dir: &Path,
+    pkg_toml: &CargoToml,
+) -> Option<PathBuf> {
     match pkg_toml.package.as_ref().and_then(|p| p.build.as_ref()) {
         Some(TomlBuild::Disabled(false)) => None,
         Some(TomlBuild::Path(ref rel)) => Some(pkg_dir.join(rel)).filter(|p| p.is_file()),

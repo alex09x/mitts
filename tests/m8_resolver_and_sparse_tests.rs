@@ -123,7 +123,8 @@ sub-crate = { path = "sub" }
     let resolver = NativeResolver::with_client(client);
 
     let lock = resolver.resolve_manifest(&root_toml, true).unwrap();
-    assert_eq!(lock.version, 3);
+    // A new lockfile is version 4, as Cargo writes it.
+    assert_eq!(lock.version, 4);
     assert!(lock
         .packages
         .iter()
