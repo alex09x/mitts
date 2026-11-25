@@ -2835,3 +2835,40 @@ fn a_build_dependency_link_search_reaches_the_build_script_link() {
         .unwrap_or_else(|| panic!("no build script command for app:\n{log}"));
     assert!(script_link.contains("nat-libs"), "{script_link}");
 }
+
+/// A build script is compiled only after its build dependencies' rlibs exist: a slow build
+/// dependency (its own build script sleeps) must not let the consumer's build script start
+/// on metadata alone. On Windows bat, starship, bottom and alacritty failed with E0463 for
+/// a build dependency whose rlib appeared moments later.
+#[test]
+fn a_build_script_waits_for_a_slow_build_dependency() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nslow = { path = \"../slow\" }\n\n\
+         [build-dependencies]\nslow = { path = \"../slow\" }\n",
+    );
+    write("app/src/lib.rs", "pub fn f() -> u32 { slow::v() }\n");
+    write("app/build.rs", "fn main() { assert_eq!(slow::v(), 7); }\n");
+    write(
+        "slow/Cargo.toml",
+        "[package]\nname = \"slow\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    // Big enough that codegen takes a while after the metadata is out.
+    let mut body = String::from("pub fn v() -> u32 { 7 }\n");
+    for i in 0..3000 {
+        body.push_str(&format!(
+            "pub fn f{i}(x: u64) -> u64 {{ (0..x).map(|y| y.wrapping_mul({i}) ^ (y >> 3)).sum() }}\n"
+        ));
+    }
+    write("slow/src/lib.rs", &body);
+    let app = env.path("app");
+    env.ok(&app, &["generate-lockfile"]);
+    env.ok(&app, &["build"]);
+}

@@ -31,6 +31,9 @@ $cargoTarget = Join-Path $work 'target-cargo'
 $mittsTarget = Join-Path $work 'target-mitts'
 $env:MITTS_CACHE_DIR = Join-Path $work 'mitts-cache'
 $env:CARGO_TERM_COLOR = 'never'
+# Every input of every unit key, in the logs kept as artifacts: a unit an unchanged rebuild
+# recompiles is explained by the inputs that differ between two runs.
+$env:MITTS_LOG_KEYS = '1'
 $failures = @()
 function Check([bool]$ok, [string]$what) {
     if ($ok) { Write-Host "  ok: $what" } else { Write-Host "  FAIL: $what"; $script:failures += $what }
@@ -92,6 +95,27 @@ if ($m.Code -ne 0) {
         foreach ($path in $given) { Write-Host "  extern $crate -> $path (exists: $(Test-Path -LiteralPath $path))" }
         $present = @(Get-ChildItem -LiteralPath $artifacts -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*lib$crate-*" -or $_.Name -like ".tmp_$crate*" } | ForEach-Object { "$($_.Name) ($($_.Length) bytes)" })
         Write-Host "  in artifacts: $($present -join ', ')"
+    }
+    # The first failed build-script compile, run again now that every artifact exists: a
+    # success means it ran too early; the same error means rustc rejects what it was given.
+    $line = @($m.Text -split "`n" | Where-Object { $_ -match "Running ``'.*--crate-name build_script_build '$([regex]::Escape($Project))" }) | Select-Object -First 1
+    if ($line) {
+        $quoted = $line.Substring($line.IndexOf('`') + 1).TrimEnd().TrimEnd('`')
+        $words = @([regex]::Matches($quoted, "'([^']*)'|(\S+)") | ForEach-Object { if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value } })
+        $exe = $words[0]
+        $rest = @($words | Select-Object -Skip 1)
+        $out = Join-Path $work 'rerun-build-script'
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        $at = [array]::IndexOf($rest, '-o')
+        if ($at -ge 0) { $rest[$at + 1] = Join-Path $out 'build_script_build' }
+        Push-Location $Project
+        $ErrorActionPreference = 'Continue'
+        $again = & $exe @rest 2>&1 | ForEach-Object { "$_" }
+        $code = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+        Pop-Location
+        Write-Host "  build script compile run again: exit $code"
+        $again | Select-Object -First 30 | ForEach-Object { Write-Host "    | $_" }
     }
 }
 Check ($c.Code -eq 0) 'Cargo builds it (reference sanity)'
