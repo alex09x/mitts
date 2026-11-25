@@ -106,7 +106,10 @@ class MittsLocationFilterTest : BasePlatformTestCase() {
             return
         }
         println("e2e: running mitts check")
-        val fixture = File("src/test/fixtures/broken").canonicalFile.toPath()
+        // A copy in a temporary directory: platform tests may only open files under their
+        // allowed roots, and the checkout is not one of them on every runner (Windows).
+        val fixture = FileUtil.createTempDirectory("mitts-broken", null).toPath().toRealPath()
+        FileUtil.copyDir(File("src/test/fixtures/broken"), fixture.toFile())
         val handler = CapturingProcessHandler(MittsCommand.commandLine("check", fixture.toString(), "mitts"))
         val run = handler.runProcess(300_000)
         assertTrue("mitts check fails on the broken project: ${run.stderr}", run.exitCode != 0)
