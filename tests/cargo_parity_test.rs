@@ -2872,3 +2872,48 @@ fn a_build_script_waits_for_a_slow_build_dependency() {
     env.ok(&app, &["generate-lockfile"]);
     env.ok(&app, &["build"]);
 }
+
+/// Only the requested packages' libraries are uplifted to `target/<profile>`, as in Cargo:
+/// `-p app` leaves a member `app` depends on in `deps/` alone (`-p tokio` uplifted
+/// tokio_macros.dll under Mitts, not under Cargo).
+#[test]
+fn only_requested_packages_are_uplifted() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "ws/Cargo.toml",
+        "[workspace]\nmembers = [\"app\", \"util\"]\nresolver = \"2\"\n",
+    );
+    write(
+        "ws/app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nutil = { path = \"../util\" }\n",
+    );
+    write("ws/app/src/lib.rs", "pub fn f() -> u32 { util::v() }\n");
+    write(
+        "ws/util/Cargo.toml",
+        "[package]\nname = \"util\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write("ws/util/src/lib.rs", "pub fn v() -> u32 { 1 }\n");
+    let ws = env.path("ws");
+    env.ok(&ws, &["generate-lockfile"]);
+    env.ok(&ws, &["build", "-p", "app"]);
+    let debug = ws.join("target/debug");
+    assert!(
+        debug.join("libapp.rlib").is_file(),
+        "the requested library is uplifted"
+    );
+    assert!(
+        !debug.join("libutil.rlib").exists(),
+        "a member it only depends on stays in deps/"
+    );
+    env.ok(&ws, &["build"]);
+    assert!(
+        debug.join("libutil.rlib").is_file(),
+        "a build of every member uplifts it"
+    );
+}

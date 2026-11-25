@@ -116,6 +116,26 @@ if ($m.Code -ne 0) {
         Pop-Location
         Write-Host "  build script compile run again: exit $code"
         $again | Select-Object -First 30 | ForEach-Object { Write-Host "    | $_" }
+        # Variants that tell what rustc rejects.
+        $deps = Join-Path $mittsTarget 'debug\deps'
+        $variants = [ordered]@{
+            'plus -L target deps' = @($rest + @('-L', "dependency=$deps"))
+            'externs as .rmeta'   = @($rest | ForEach-Object { if ($_ -match '^[A-Za-z0-9_]+=.*\.rlib$') { $_ -replace '\.rlib$', '.rmeta' } else { $_ } })
+            'externs from target deps' = @($rest | ForEach-Object {
+                    if ($_ -match '^([A-Za-z0-9_]+)=.*\\lib([A-Za-z0-9_]+)-[0-9a-f]+\.rlib$') {
+                        $found = @(Get-ChildItem -LiteralPath $deps -Filter "lib$($Matches[2])-*.rlib" -ErrorAction SilentlyContinue | Select-Object -First 1)
+                        if ($found.Count -eq 1) { "$($Matches[1])=$($found[0].FullName)" } else { $_ }
+                    } else { $_ } })
+        }
+        foreach ($name in $variants.Keys) {
+            Push-Location $Project
+            $ErrorActionPreference = 'Continue'
+            $vout = & $exe @($variants[$name]) 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^error' }
+            $vcode = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            Pop-Location
+            Write-Host "  variant '$name': exit $vcode $(@($vout | Select-Object -First 3) -join ' / ')"
+        }
     }
 }
 Check ($c.Code -eq 0) 'Cargo builds it (reference sanity)'

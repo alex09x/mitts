@@ -227,7 +227,8 @@ pub(crate) fn restore_importable_unit_outputs(
                 ext,
                 &out.cas_hash,
             );
-            if unit.is_workspace && !is_staticlib {
+            // As Cargo: only what was asked for is uplifted, not other members it depends on.
+            if unit.is_primary && !is_staticlib {
                 super::dag_unit_publish::publish_uplifted_library(
                     ctx,
                     &target_dep_dest,
