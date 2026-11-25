@@ -677,6 +677,7 @@ mod package_directory;
 mod package_lock;
 mod package_patterns;
 pub mod profile_flag;
+pub mod progress_when;
 pub mod project_info;
 pub mod project_new;
 pub mod registry_api;
