@@ -1,0 +1,16 @@
+# Mitts Build for Helix — editor integration for the Mitts Rust build tool
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Add to ~/.config/helix/languages.toml (Windows: %AppData%\helix\languages.toml), or to
+# a project's .helix/languages.toml. rust-analyzer's on-save check and its runnables go
+# through Mitts; rust-analyzer still loads the project with `cargo metadata`.
+
+[language-server.rust-analyzer.config.check]
+overrideCommand = ["mitts", "check", "--workspace", "--all-targets", "--message-format=json"]
+
+[language-server.rust-analyzer.config.runnables]
+command = "mitts"

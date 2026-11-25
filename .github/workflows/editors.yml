@@ -13,12 +13,14 @@ on:
     paths:
       - editors/vim/**
       - editors/emacs/**
+      - editors/helix/**
       - .github/workflows/editors.yml
   push:
     branches: [main]
     paths:
       - editors/vim/**
       - editors/emacs/**
+      - editors/helix/**
       - .github/workflows/editors.yml
 
 permissions:
@@ -119,3 +121,56 @@ jobs:
         run: |
           export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
           emacs --batch -L . -l test/mitts-test.el -f ert-run-tests-batch-and-exit
+
+  # The Helix configuration against a real Helix: TOML values, `hx --health rust` reading
+  # languages.toml, and (Unix) Helix starting with config.toml in a pseudo-terminal; each
+  # with a broken counterpart that must be reported. Helix's own release build, checked
+  # against the digests below (its releases publish none).
+  helix:
+    name: Helix on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            asset: x86_64-linux.tar.xz
+            sha256: 3f08e63ecd388fff657ad39722f88bb03dcf326f1f2da2700d99e1dc40ab2e8b
+          - os: macos-15
+            asset: aarch64-macos.tar.xz
+            sha256: 00b1651b4fdbbe0a2ae981c8e76b858bd26a7c33f5b3583f3b6bb9137d54f1ff
+          - os: windows-2022
+            asset: x86_64-windows.zip
+            sha256: 5c8325ced8bacd8418d62706f669e96d9c3578a9237526e34d546900cbc049b6
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      HELIX_VERSION: '25.07.1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Helix
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          SHA256: ${{ matrix.sha256 }}
+        run: |
+          cd "$RUNNER_TEMP"
+          file="helix-$HELIX_VERSION-$ASSET"
+          curl -fsSL --retry 5 -o "$file" "https://github.com/helix-editor/helix/releases/download/$HELIX_VERSION/$file"
+          got=$( (sha256sum "$file" 2>/dev/null || shasum -a 256 "$file") | cut -d' ' -f1)
+          test "$got" = "$SHA256" || { echo "digest $got, expected $SHA256"; exit 1; }
+          case "$file" in
+            *.zip) unzip -q "$file" ;;
+            *) tar -xJf "$file" ;;
+          esac
+          dir="$RUNNER_TEMP/${file%.tar.xz}"
+          dir="${dir%.zip}"
+          echo "HX=$dir/hx$([ "$RUNNER_OS" = Windows ] && echo .exe)" >> "$GITHUB_ENV"
+      - name: Check
+        shell: bash
+        run: |
+          # The runners have Python 3.12 (tomllib needs 3.11); on Windows it is `python`.
+          py=python3; [ "$RUNNER_OS" = Windows ] && py=python
+          "$py" --version
+          "$py" editors/helix/test/check.py
