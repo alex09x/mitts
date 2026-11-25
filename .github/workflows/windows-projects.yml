@@ -67,6 +67,9 @@ jobs:
           - { name: just, repo: casey/just, ref: 1.38.0, bin: just }
           - { name: hyperfine, repo: sharkdp/hyperfine, ref: v1.19.0, bin: hyperfine }
           - { name: alacritty, repo: alacritty/alacritty, ref: v0.15.0, bin: alacritty, skip-tests: true }
+          # keyring with a backend per platform (Windows credential store here); a Milk-V
+          # Titan user once had to patch out its macOS backend to build it with Mitts.
+          - { name: soulseek-rs (keyring), repo: michel/soulseek-rs, ref: v20.0.0, bin: soulseek-rs }
           # No Cargo.lock: both resolve now. `-p tokio` alone is ambiguous (a published tokio
           # sits beside the member), and Mitts refuses it as Cargo does.
           - { name: tokio, repo: tokio-rs/tokio, ref: tokio-1.43.0, args: '-p tokio@1.43.0 --features full', skip-tests: true }
