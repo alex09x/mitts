@@ -263,6 +263,12 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     }
 
     if let Some(dir) = inv.directives {
+        // Cargo's `pass_l_flag`: `rustc-link-lib` goes to the package's library (and its
+        // unit tests) only; the package's binaries get it through that rlib. Passed to the
+        // binary as well, starship's version resource was linked twice (CVT1100 duplicate
+        // resource, LNK1123). A package without a library passes it to every target.
+        let pass_l_flag = unit_is_library_target(inv.unit)
+            || !super::pipelining::package_has_lib_target(&inv.unit.manifest_path);
         for (flag, vals) in [
             ("--cfg", &dir.cfgs),
             ("--check-cfg", &dir.check_cfgs),
@@ -270,6 +276,9 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             ("-L", &dir.link_searches),
         ] {
             if flag == "--check-cfg" && !check_cfg {
+                continue;
+            }
+            if flag == "-l" && !pass_l_flag {
                 continue;
             }
             for v in vals {
@@ -484,6 +493,18 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         is_primary_target,
     );
     Ok((cmd, clean_crate, is_pipelined_lib))
+}
+
+/// Whether a unit compiles the package's library target: the library itself, in any crate
+/// type, or its unit tests (`<pkg>_unit_test`).
+fn unit_is_library_target(unit: &super::types::PlannedCompilationUnit) -> bool {
+    let library_kind = unit.kind.split(',').map(str::trim).any(|k| {
+        matches!(
+            k,
+            "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
+        )
+    });
+    library_kind || (unit.kind == "test" && unit.target_name.ends_with("_unit_test"))
 }
 
 /// The directory as the linker should see it for `-L dependency=`.

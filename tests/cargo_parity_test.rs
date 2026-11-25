@@ -2920,3 +2920,48 @@ fn only_requested_packages_are_uplifted() {
         "a build of every member uplifts it"
     );
 }
+
+/// `rustc-link-lib` goes to the package's library only when it has one, as Cargo's
+/// `pass_l_flag` does; the binary gets it through the rlib. Passed to both, starship's
+/// version resource was linked twice on Windows (CVT1100 duplicate resource, LNK1123).
+#[cfg(unix)]
+#[test]
+fn link_lib_goes_to_the_library_not_to_its_binaries() {
+    let env = Env::new();
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write(
+        "app/build.rs",
+        "fn main() { println!(\"cargo:rustc-link-lib=dylib=m\"); }\n",
+    );
+    write("app/src/lib.rs", "pub fn f() -> u32 { 1 }\n");
+    write(
+        "app/src/main.rs",
+        "fn main() { println!(\"{}\", app::f()); }\n",
+    );
+    let app = env.path("app");
+    env.ok(&app, &["generate-lockfile"]);
+    let (out, err) = env.ok(&app, &["build", "-v"]);
+    let log = format!("{out}{err}");
+    let command = |src: &str| {
+        log.lines()
+            .find(|l| l.contains("--crate-name app") && l.contains(src))
+            .unwrap_or_else(|| panic!("no rustc command for {src}:\n{log}"))
+            .to_string()
+    };
+    assert!(
+        command("src/lib.rs").contains("-l dylib=m"),
+        "the library links it"
+    );
+    assert!(
+        !command("src/main.rs").contains("-l dylib=m"),
+        "the binary does not"
+    );
+}
