@@ -1,0 +1,39 @@
+⚡ Mitts Build check [dev] ──────────────────────────────────────────
+Command: cd "/tmp/ws" && CARGO="cargo" CARGO_CRATE_NAME="a" "/home/u/.rustup/toolchains/stable/bin/rustc" "--crate-name" "a" "/tmp/ws/crates/a/src/lib.rs" "--edition" "2021"
+warning: unused variable: `unused`
+ --> crates/a/src/main.rs:2:9
+  |
+2 |     let unused = 1;
+  |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_unused`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: 1 warning emitted
+
+error[E0308]: mismatched types
+ --> crates/a/src/lib.rs:1:27
+  |
+1 | pub fn f() { let x: i32 = "s"; let unused = 1; }
+  |                     ---   ^^^ expected `i32`, found `&str`
+  |                     |
+  |                     expected due to this
+
+error: literal out of range for `u8`
+ --> crates/a/src/lib.rs:3:20
+  |
+3 | pub fn g() -> u8 { 300 }
+  |                    ^^^
+  |
+  = note: the literal `300` does not fit into the type `u8` whose range is `0..=255`
+  = note: `#[deny(overflowing_literals)]` on by default
+
+error: aborting due to 2 previous errors
+
+For more information about this error, try `rustc --explain E0308`.
+┌─ ❌ Check failed [dev]
+rustc::E0308
+
+  × Failed to compile a v0.1.0 [lib:a]
+  help: mismatched types
+
+└─ ❌ dev profile failed in 0.04s (type check errors)

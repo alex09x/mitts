@@ -1,0 +1,71 @@
+# Mitts Build — editor integrations other than VS Code: tests on Linux, macOS and Windows.
+# Copyright (c) 2026 Alexander Panasenko
+# Contact: alex@prod.codes
+# Author: https://prod.codes/about/
+# Project: https://github.com/alex09x/mitts
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Nothing here publishes anything.
+name: Editors
+
+on:
+  pull_request:
+    paths:
+      - editors/vim/**
+      - .github/workflows/editors.yml
+  push:
+    branches: [main]
+    paths:
+      - editors/vim/**
+      - .github/workflows/editors.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editors-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The Vim and Neovim plugin: the same tests in both, against the released Mitts, which
+  # checks a broken project from inside the editor (MITTS_VIM_E2E).
+  vim:
+    name: ${{ matrix.editor }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+        editor: [vim, neovim]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install latest stable Mitts
+        uses: ./
+        with:
+          cache: 'false'
+      - id: editor
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
+        with:
+          version: stable
+          neovim: ${{ matrix.editor == 'neovim' }}
+      - name: Tests
+        shell: bash
+        env:
+          MITTS_VIM_E2E: '1'
+          EDITOR_BIN: ${{ steps.editor.outputs.executable }}
+        run: |
+          export MITTS_CACHE_DIR="$RUNNER_TEMP/mitts-cache"
+          "$EDITOR_BIN" --version | head -1
+          if [ "${{ matrix.editor }}" = neovim ]; then
+            "$EDITOR_BIN" --headless -u NONE -i NONE -S editors/vim/test/run.vim && rc=0 || rc=$?
+          else
+            "$EDITOR_BIN" -Nu NONE -i NONE -es -S editors/vim/test/run.vim && rc=0 || rc=$?
+          fi
+          cat editors/vim/test/result.txt
+          exit $rc
