@@ -48,7 +48,9 @@ pub(crate) fn create_managed_unix(cache_root: &Path, token_count: usize) -> Resu
             }
             let tokens = token_count.max(1);
             let _ = fs::write(&cap_path, tokens.to_string());
-            let buf = vec![b'|'; tokens];
+            // `-j - 1`, as Cargo's pipe: each process's first unit runs on its implicit
+            // token (see `unit_share`).
+            let buf = vec![b'|'; tokens - 1];
             let written =
                 unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
             if written < 0 {
@@ -74,6 +76,9 @@ pub(crate) fn create_managed_unix(cache_root: &Path, token_count: usize) -> Resu
         }
     };
     drop(init_lock);
+    // Only this process reads its own open file description of the FIFO; children open
+    // the FIFO by path or get a descriptor of their own (`set_cargo_makeflags`).
+    super::unit_share::set_nonblocking(fd);
     Ok(JobserverPool::Managed {
         _lock: pool_lock,
         auth: format!("fifo:{}", fifo_path.display()),
@@ -81,6 +86,7 @@ pub(crate) fn create_managed_unix(cache_root: &Path, token_count: usize) -> Resu
         slots_dir,
         capacity,
         open_fd: fd,
+        implicit: std::sync::atomic::AtomicBool::new(false),
     })
 }
 

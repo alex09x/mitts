@@ -237,6 +237,11 @@ impl FileLock {
         &self.path
     }
 
+    /// The open lock file (read and write).
+    pub fn file(&self) -> &File {
+        &self.file
+    }
+
     /// Deletes the lock file while holding it (a sweeper's last step before removing the
     /// directory). Windows: through this handle, which a lock from
     /// [`Self::try_acquire_exclusive_for_removal`] opened with `DELETE` access; the name

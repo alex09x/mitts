@@ -40,6 +40,15 @@ pub(crate) struct CachedLease {
     slot: Arc<Slot>,
     locked: bool,
 }
+impl ManagedSlotLease {
+    /// The slot's lock file, held exclusively while the lease lives.
+    pub(crate) fn file(&self) -> &File {
+        match self {
+            Self::Single { _lock } => _lock.file(),
+            Self::Cached { _lease } => &_lease.slot.file,
+        }
+    }
+}
 impl Drop for CachedLease {
     fn drop(&mut self) {
         if self.locked {
