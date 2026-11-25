@@ -2831,7 +2831,10 @@ fn a_build_dependency_link_search_reaches_the_build_script_link() {
     let log = format!("{out}{err}");
     let script_link = log
         .lines()
-        .find(|l| l.contains("--crate-name build_script_build") && l.contains("app"))
+        .find(|l| {
+            l.contains("--crate-name build_script_build")
+                && (l.contains("app/build.rs") || l.contains("app\\build.rs"))
+        })
         .unwrap_or_else(|| panic!("no build script command for app:\n{log}"));
     assert!(script_link.contains("nat-libs"), "{script_link}");
 }
