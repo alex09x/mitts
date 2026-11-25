@@ -61,4 +61,5 @@ emacs --batch -L . -l test/mitts-test.el -f ert-run-tests-batch-and-exit
 ```
 
 With `MITTS_EMACS_E2E=1` the tests also run `mitts-check` on a broken project. CI runs
-Emacs 27.2 and 30.1 on Linux, macOS and Windows (`.github/workflows/editors.yml`).
+Emacs 27.2 and 30.1 on Linux and Windows, 28.2 and 30.1 on macOS (Apple silicon has no
+27.2 build), in `.github/workflows/editors.yml`.
