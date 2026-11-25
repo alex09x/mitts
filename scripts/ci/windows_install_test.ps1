@@ -30,6 +30,8 @@ function Check([bool]$condition, [string]$what) {
     else { Write-Host "  FAIL: $what"; $script:failures += $what }
 }
 
+# No scenario may quietly fall back to building from source.
+$env:MITTS_NO_SOURCE_FALLBACK = '1'
 $managed = @('MITTS_VERSION', 'MITTS_INSTALL_ROOT', 'MITTS_ARCHIVE', 'MITTS_NO_SOURCE_FALLBACK',
     'CARGO_INSTALL_ROOT', 'CARGO_HOME', 'USERPROFILE', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_ARCHITEW6432')
 
@@ -39,12 +41,17 @@ $managed = @('MITTS_VERSION', 'MITTS_INSTALL_ROOT', 'MITTS_ARCHIVE', 'MITTS_NO_S
 function Invoke-Installer([hashtable]$vars) {
     # Windows PowerShell 5.1 turns a child's stderr line into a terminating error under Stop.
     $ErrorActionPreference = 'Continue'
+    # Through the env: drive, never [Environment]::SetEnvironmentVariable: PowerShell passes
+    # $null to it as "" and PowerShell 7 then keeps an empty variable instead of none.
     $saved = @{}
-    foreach ($name in $managed) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    foreach ($name in $managed) { $saved[$name] = (Get-Item -LiteralPath "env:$name" -ErrorAction SilentlyContinue).Value }
     foreach ($name in @('MITTS_VERSION', 'MITTS_INSTALL_ROOT', 'MITTS_ARCHIVE', 'CARGO_INSTALL_ROOT', 'CARGO_HOME')) {
-        [Environment]::SetEnvironmentVariable($name, $null)
+        Remove-Item -LiteralPath "env:$name" -ErrorAction SilentlyContinue
     }
-    foreach ($name in $vars.Keys) { [Environment]::SetEnvironmentVariable($name, $vars[$name]) }
+    foreach ($name in $vars.Keys) {
+        if ($null -eq $vars[$name]) { Remove-Item -LiteralPath "env:$name" -ErrorAction SilentlyContinue }
+        else { Set-Item -LiteralPath "env:$name" -Value $vars[$name] }
+    }
     $probe = Join-Path $work ('probe-' + [Guid]::NewGuid() + '.txt')
     $command = @"
 `$ErrorActionPreference = 'Continue'
@@ -63,7 +70,10 @@ Set-Content -LiteralPath '$probe' -Value (`$leak -join ',')
             ForEach-Object { "$_" }
         $code = $LASTEXITCODE
     } finally {
-        foreach ($name in $managed) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+        foreach ($name in $managed) {
+            if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "env:$name" -ErrorAction SilentlyContinue }
+            else { Set-Item -LiteralPath "env:$name" -Value $saved[$name] }
+        }
     }
     $leak = $null
     if (Test-Path $probe) { $leak = (Get-Content -Raw $probe).Trim() }
@@ -201,6 +211,8 @@ fn main() {
     Check (-not (Test-Path (Join-Path $work 'arm'))) 'and installs nothing'
     $r = Invoke-Installer @{ MITTS_INSTALL_ROOT = (Join-Path $work 'wow'); PROCESSOR_ARCHITECTURE = 'x86'; PROCESSOR_ARCHITEW6432 = 'AMD64' }
     Check (Test-Path (Join-Path $work 'wow\bin\mitts.exe')) '32-bit PowerShell on 64-bit Windows installs the x86-64 binary'
+    $r = Invoke-Installer @{ MITTS_INSTALL_ROOT = (Join-Path $work 'noarch'); PROCESSOR_ARCHITECTURE = $null; PROCESSOR_ARCHITEW6432 = $null; MITTS_NO_SOURCE_FALLBACK = '1' }
+    Check (Test-Path (Join-Path $work 'noarch\bin\mitts.exe')) 'without the architecture variables .NET tells x86-64'
 }
 
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

@@ -46,6 +46,16 @@
     # The real architecture, also from a 32-bit or emulated PowerShell.
     $arch = $env:PROCESSOR_ARCHITEW6432
     if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
+    if (-not $arch) {
+        # No variable to go by (a stripped environment): ask .NET.
+        try {
+            $arch = switch ("$([Runtime.InteropServices.RuntimeInformation]::OSArchitecture)") {
+                'X64' { 'AMD64' } 'Arm64' { 'ARM64' } 'X86' { 'x86' } default { "$_" }
+            }
+        } catch {
+            if ([Environment]::Is64BitOperatingSystem) { $arch = 'AMD64' }
+        }
+    }
     if ($arch -ne 'AMD64') {
         # As install.sh: build from crates.io where there is no prebuilt binary.
         $reason = "No prebuilt binary for Windows on $arch (prebuilt: x86-64)."
