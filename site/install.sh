@@ -48,8 +48,9 @@ exe=mitts
 case "$(uname -s)" in
     Darwin) system=apple-darwin ;;
     Linux) system=unknown-linux-gnu ;;
-    # Git Bash, MSYS2 or Cygwin on Windows (PowerShell: install.ps1).
-    MINGW*|MSYS*|CYGWIN*) system=pc-windows-msvc exe=mitts.exe ;;
+    # Git Bash, every MSYS2 environment (MSYS, MINGW64, UCRT64, CLANG64, CLANGARM64),
+    # Cygwin and busybox-w32 on Windows (PowerShell: install.ps1).
+    MINGW*|MSYS*|UCRT*|CLANG*|CYGWIN*|Windows_NT) system=pc-windows-msvc exe=mitts.exe ;;
     *) fail 'Supported systems: macOS, Linux and Windows.' ;;
 esac
 case "$(uname -m)" in
@@ -116,7 +117,16 @@ case "$installed_version" in
     "mitts ${version#v}"|"mitts ${version#v} ("*")") ;;
     *) fail "Unexpected binary version: $installed_version" ;;
 esac
-mv -f "$pending" "$destination/$exe"
+if [ "$exe" = mitts.exe ] && [ -e "$destination/$exe" ]; then
+    # Windows refuses to overwrite a running mitts.exe but lets it be renamed.
+    rm -f "$destination"/.mitts-old-*.exe 2>/dev/null || true
+    old="$destination/.mitts-old-$$.exe"
+    mv -f "$destination/$exe" "$old" || fail "Cannot move the existing $exe aside."
+    mv -f "$pending" "$destination/$exe" || { mv -f "$old" "$destination/$exe"; fail 'Cannot install the new binary.'; }
+    rm -f "$old" 2>/dev/null || true
+else
+    mv -f "$pending" "$destination/$exe"
+fi
 pending=
 printf '%s installed at %s/%s\n' "$installed_version" "$destination" "$exe"
 printf 'Ensure %s is on PATH. Rust and a native linker are needed to build Rust projects.\n' "$destination"
