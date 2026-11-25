@@ -74,7 +74,7 @@ fn metadata_json(args: &MetadataArgs) -> Result<Value> {
     if args.no_deps {
         return no_deps_json(&opt);
     }
-    metadata_for(&opt, args.package.clone())
+    metadata_for(&opt, args.package.clone(), args.filter_platform.is_none())
 }
 
 /// `metadata --no-deps`: the workspace members from their manifests alone, without
@@ -103,11 +103,7 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
             .unwrap_or_else(|| "0.0.0".to_string());
         let canonical = dir.canonicalize().unwrap_or(dir.clone());
         let entry = PackageEntry {
-            cargo_id: format!(
-                "path+file://{}#{}@{version}",
-                canonical.display(),
-                package.name
-            ),
+            cargo_id: cargo_package_id("", &package.name, &version, &canonical.join("Cargo.toml")),
             name: package.name.clone(),
             version,
             source: None,
@@ -181,7 +177,13 @@ fn no_deps_json(opt: &RustBuildOptions) -> Result<Value> {
 
 /// The `cargo metadata` document for a plan made with `opt` (`mitts tree` plans in test
 /// mode, so that dev-dependencies are part of the graph).
-pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> Result<Value> {
+/// `all_platforms`: the graph of every platform and every kind of dependency, as `cargo
+/// metadata` reports it without `--filter-platform` (`tree` filters by the host).
+pub(crate) fn metadata_for(
+    opt: &RustBuildOptions,
+    package: Option<String>,
+    all_platforms: bool,
+) -> Result<Value> {
     let mut opt = opt.clone();
     opt.inspect_only = true;
     let opt = &opt;
@@ -276,9 +278,65 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
     // the configuration the resolver read: the one that applies to the workspace root,
     // where the lockfile is resolved.
     let registries = RegistryConfig::load(patches.root())?;
+    // Without a platform filter Cargo's graph is the lockfile's: every dependency of every
+    // platform and kind. The plan covers the host only, so the lock adds the rest.
+    let lock = all_platforms
+        .then(|| {
+            super::project_info::workspace_root(&root_manifest_path)
+                .ok()
+                .and_then(|root| {
+                    crate::adapter::rust::lockfile::CargoLock::from_file(
+                        &root.with_file_name("Cargo.lock"),
+                    )
+                    .ok()
+                })
+        })
+        .flatten();
+    let id_by_name_version: HashMap<(String, String), String> = packages
+        .values()
+        .map(|e| ((e.name.clone(), e.version.clone()), e.cargo_id.clone()))
+        .collect();
+    let platform_filter = if all_platforms {
+        None
+    } else {
+        Some(opt.target_triple.as_deref())
+    };
     let mut nodes = Vec::new();
     for (internal_id, entry) in &packages {
         let mut outgoing = BTreeMap::<String, BTreeSet<String>>::new();
+        if let Some(lock) = &lock {
+            let locked = lock
+                .packages
+                .iter()
+                .find(|p| p.name == entry.name && p.version == entry.version);
+            for spec in locked
+                .map(|p| p.dependencies.as_slice())
+                .unwrap_or_default()
+            {
+                let (name, version, _) =
+                    crate::adapter::rust::dependency_check::parse_package_spec(spec);
+                let child_id = match version {
+                    Some(v) => id_by_name_version.get(&(name.to_string(), v.to_string())),
+                    None => packages
+                        .values()
+                        .find(|e| e.name == name)
+                        .map(|e| &e.cargo_id),
+                };
+                let Some(child_id) = child_id else { continue };
+                if child_id == &entry.cargo_id {
+                    continue;
+                }
+                for kind in dependency_kinds(
+                    &entry.manifest,
+                    name,
+                    None,
+                    entry.manifest_path.parent().unwrap_or(Path::new(".")),
+                    true,
+                ) {
+                    outgoing.entry(child_id.clone()).or_default().insert(kind);
+                }
+            }
+        }
         for unit in plan
             .units
             .iter()
@@ -301,8 +359,9 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
                 let kinds = dependency_kinds(
                     &entry.manifest,
                     child_name,
-                    opt.target_triple.as_deref(),
+                    platform_filter.flatten(),
                     entry.manifest_path.parent().unwrap_or(Path::new(".")),
+                    platform_filter.is_none(),
                 );
                 for kind in kinds {
                     outgoing.entry(child_id.clone()).or_default().insert(kind);
@@ -366,9 +425,27 @@ pub(crate) fn metadata_for(opt: &RustBuildOptions, package: Option<String>) -> R
         .values()
         .map(|entry| package_json(entry, &registries))
         .collect::<Result<Vec<_>>>()?;
-    let workspace_members = packages
+    // In Cargo's order: the root package and the listed members as declared, then the
+    // members it adds itself (path dependencies inside the workspace) by name.
+    let declared: Vec<String> = super::project_info::workspace_root(&plan.manifest_path)
+        .and_then(|root| super::project_info::local_package_dirs(&root))
+        .map(|dirs| dirs.into_iter().map(|(name, _)| name).collect())
+        .unwrap_or_default();
+    let mut members: Vec<&PackageEntry> = packages
         .values()
         .filter(|entry| entry.is_workspace)
+        .collect();
+    members.sort_by_key(|entry| {
+        (
+            declared
+                .iter()
+                .position(|n| *n == entry.name)
+                .unwrap_or(usize::MAX),
+            entry.name.clone(),
+        )
+    });
+    let workspace_members = members
+        .into_iter()
         .map(|entry| entry.cargo_id.clone())
         .collect::<Vec<_>>();
     let root_manifest = CargoToml::from_file(&plan.manifest_path)?;
@@ -465,7 +542,23 @@ fn package_json(entry: &PackageEntry, registries: &RegistryConfig) -> Result<Val
                 right.src_path.as_path(),
             ))
     });
-    let target_values = targets.iter().map(target_json).collect::<Vec<_>>();
+    let mut target_values = targets.iter().map(target_json).collect::<Vec<_>>();
+    // The build script is a target too, as Cargo lists it.
+    if let Some(script) = crate::adapter::rust::build_script::resolve_build_script_path_with_toml(
+        package_dir,
+        &entry.manifest,
+    ) {
+        target_values.push(json!({
+            "kind": ["custom-build"],
+            "crate_types": ["bin"],
+            "name": "build-script-build",
+            "src_path": script,
+            "edition": package.and_then(|p| p.edition.clone()).unwrap_or_else(|| "2015".to_string()),
+            "doc": false,
+            "doctest": false,
+            "test": false,
+        }));
+    }
     let dependencies = package_dependencies(&entry.manifest, package_dir, registries);
     Ok(json!({
         "id": entry.cargo_id,
@@ -703,14 +796,17 @@ fn dependency_kinds(
     child_name: &str,
     target: Option<&str>,
     start_dir: &Path,
+    all_platforms: bool,
 ) -> Vec<String> {
     let mut active = manifest.clone();
-    active.target.retain(|spec, _| {
-        !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
-            spec, false, target, start_dir,
-        )
-        .unwrap_or(false)
-    });
+    if !all_platforms {
+        active.target.retain(|spec, _| {
+            !crate::adapter::rust::target_filter::is_target_cfg_incompatible_with_target(
+                spec, false, target, start_dir,
+            )
+            .unwrap_or(false)
+        });
+    }
     let manifest = &active;
     let mut kinds = BTreeSet::new();
     collect_dependency_kinds(&mut kinds, &manifest.dependencies, child_name, None, None);
@@ -787,9 +883,16 @@ fn cargo_package_id(internal_id: &str, name: &str, version: &str, manifest: &Pat
                     .unwrap_or_else(|| Path::new("."))
                     .to_path_buf()
             });
-        format!("path+file://{}", path.display())
+        super::project_info::path_source_url(&path)
     });
-    format!("{source}#{name}@{version}")
+    // As Cargo writes a package ID spec: the name is left out when the URL's last path
+    // segment already is the name (`path+file:///w/app#0.3.0`).
+    let url_path = source.split(['?', '#']).next().unwrap_or(&source);
+    if url_path.trim_end_matches('/').rsplit('/').next() == Some(name) {
+        format!("{source}#{version}")
+    } else {
+        format!("{source}#{name}@{version}")
+    }
 }
 
 fn package_source(package_id: &str) -> Option<String> {

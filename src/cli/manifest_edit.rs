@@ -338,6 +338,20 @@ fn run_add(args: &AddArgs) -> Result<()> {
                     "workspace",
                 ],
             );
+            // As Cargo: the package's version beside its path, so the manifest stays
+            // publishable; a dev-dependency is not published and gets none.
+            let dep_manifest = std::env::current_dir()
+                .unwrap_or_default()
+                .join(path)
+                .join("Cargo.toml");
+            if let Some(version) = (!args.dev)
+                .then(|| std::fs::read_to_string(&dep_manifest).ok())
+                .flatten()
+                .and_then(|t| t.parse::<toml::Value>().ok())
+                .and_then(|v| v.get("package")?.get("version")?.as_str().map(String::from))
+            {
+                entry.insert("version", version.as_str().into());
+            }
             entry.insert("path", path.to_string_lossy().replace('\\', "/").into());
         } else if let Some(git) = &args.git {
             clear(
@@ -601,7 +615,7 @@ fn update_lock(root: &Path, common: &EditCommon) -> Result<()> {
     }
     let mut lock = resolver.resolve_manifest(root, common.offline || common.frozen)?;
     if let Some(prev) = &previous {
-        lock.version = lock.version.max(prev.version);
+        lock.version = prev.version;
         let changed = !super::lock_cmds::diff(Some(prev), &lock).is_empty()
             || prev.to_string_formatted() != lock.to_string_formatted();
         if !changed {
@@ -713,6 +727,16 @@ fn drop_feature_references(doc: &mut DocumentMut, name: &str) {
 }
 
 fn clean_empty_target_tables(doc: &mut DocumentMut) {
+    // A dependency table left empty goes, as Cargo removes it.
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        if doc
+            .get(section)
+            .and_then(|t| t.as_table_like())
+            .is_some_and(|t| t.is_empty())
+        {
+            doc.remove(section);
+        }
+    }
     let Some(targets) = doc.get_mut("target").and_then(|t| t.as_table_like_mut()) else {
         return;
     };

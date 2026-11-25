@@ -35,6 +35,12 @@ trap 'rm -rf "$sandbox"' EXIT
 touch "$marker"
 cd "$repo"
 mkdir -p "$sandbox/guard"
+# The real Cargo, before the guard hides it: only tests/cargo_differential_test.rs runs it,
+# as the reference Mitts is compared with (owner decision 2026-11-25, AGENTS.md).
+reference_cargo=$(command -v cargo 2>/dev/null || true)
+if [ -n "$reference_cargo" ] && command -v cygpath >/dev/null 2>&1; then
+  reference_cargo=$(cygpath -w "$reference_cargo")
+fi
 cat > "$sandbox/guard/cargo" <<'EOF'
 #!/bin/sh
 echo 'Cargo CLI is forbidden in Mitts test workflows' >&2
@@ -67,6 +73,7 @@ env ${drop[@]+"${drop[@]}"} \
   XDG_CACHE_HOME="$sandbox/xdg" \
   CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
   RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+  REFERENCE_CARGO="$reference_cargo" \
   PATH="$sandbox/guard:$PATH" CARGO="${MITTS_CI_BIN:-mitts}" \
   RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= \
   CARGO_BUILD_RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= \

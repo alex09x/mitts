@@ -317,8 +317,9 @@ pub fn compute_unit_flags_with_ws(
         format!("CARGO_CRATE_NAME={}", unit.target_name),
         format!("CRATE_KIND={}", unit.kind),
     ]);
-    if matches!(unit.kind.as_str(), "bin" | "example" | "custom-test") {
-        u_flags.push(format!("CARGO_BIN_NAME={}", unit.target_name));
+    let bin_name = super::unit_env::cargo_bin_name(unit);
+    if let Some(name) = &bin_name {
+        u_flags.push(format!("CARGO_BIN_NAME={name}"));
     }
     u_flags.push(format!(
         "CARGO_PRIMARY_PACKAGE={}",
@@ -363,10 +364,8 @@ pub fn compute_unit_flags_with_ws(
             format!("ENV_MACRO:CARGO_PKG_VERSION_PATCH={}", patch)
         } else if var == "CARGO_CRATE_NAME" {
             format!("ENV_MACRO:CARGO_CRATE_NAME={}", unit.target_name)
-        } else if var == "CARGO_BIN_NAME"
-            && matches!(unit.kind.as_str(), "bin" | "example" | "custom-test")
-        {
-            format!("ENV_MACRO:CARGO_BIN_NAME={}", unit.target_name)
+        } else if let (true, Some(name)) = (var == "CARGO_BIN_NAME", &bin_name) {
+            format!("ENV_MACRO:CARGO_BIN_NAME={name}")
         } else if var == "CARGO_BIN_NAME" {
             "ENV_MACRO:CARGO_BIN_NAME=<unset>".to_string()
         } else if var == "CARGO_PKG_AUTHORS" {

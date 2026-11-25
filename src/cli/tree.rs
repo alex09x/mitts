@@ -179,7 +179,7 @@ fn run(args: &TreeArgs) -> Result<String> {
     } else {
         opt.package.clone()
     };
-    let doc = super::metadata::metadata_for(&opt, root)?;
+    let doc = super::metadata::metadata_for(&opt, root, args.target.as_deref() == Some("all"))?;
     let graph = if wants_features(&args.edges) {
         super::tree_features::graph(&doc)
     } else {
