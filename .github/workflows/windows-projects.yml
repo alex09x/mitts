@@ -67,8 +67,9 @@ jobs:
           - { name: just, repo: casey/just, ref: 1.38.0, bin: just }
           - { name: hyperfine, repo: sharkdp/hyperfine, ref: v1.19.0, bin: hyperfine }
           - { name: alacritty, repo: alacritty/alacritty, ref: v0.15.0, bin: alacritty, skip-tests: true }
-          # No Cargo.lock: both resolve now; Cargo refused it where Mitts built it.
-          - { name: tokio, repo: tokio-rs/tokio, ref: tokio-1.43.0, args: '-p tokio --features full', skip-tests: true }
+          # No Cargo.lock: both resolve now. `-p tokio` alone is ambiguous (a published tokio
+          # sits beside the member), and Mitts refuses it as Cargo does.
+          - { name: tokio, repo: tokio-rs/tokio, ref: tokio-1.43.0, args: '-p tokio@1.43.0 --features full', skip-tests: true }
     runs-on: windows-2022
     timeout-minutes: 90
     steps:

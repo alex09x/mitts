@@ -124,12 +124,14 @@ if (-not $SkipTests) {
 }
 
 Write-Host '== cache'
-$again = Run $Mitts (@('build', '--all-targets', '--target-dir', $mittsTarget) + $locked + $extra) 'mitts-noop.log'
+$again = Run $Mitts (@('build', '-v', '--all-targets', '--target-dir', $mittsTarget) + $locked + $extra) 'mitts-noop.log'
+$recompiled = @([regex]::Matches($again.Text, '\[mitts::compile\] package=\S+ target=\S+ kind=\S+') | ForEach-Object { $_.Value })
+if ($recompiled.Count -gt 0) { Write-Host "  recompiled: $($recompiled -join '; ')" }
 $stats = ([regex]::Matches($again.Text, '\[mitts::stats\][^\r\n]*') | Select-Object -Last 1).Value
 Write-Host "  no-op: $stats"
 Check (($again.Code -eq 0) -and $stats -match 'compiled=0 ') 'an unchanged rebuild compiles nothing'
 Remove-Item -Recurse -Force $mittsTarget
-$warm = Run $Mitts (@('build', '--all-targets', '--target-dir', $mittsTarget) + $locked + $extra) 'mitts-warm.log'
+$warm = Run $Mitts (@('build', '-v', '--all-targets', '--target-dir', $mittsTarget) + $locked + $extra) 'mitts-warm.log'
 $stats = ([regex]::Matches($warm.Text, '\[mitts::stats\][^\r\n]*') | Select-Object -Last 1).Value
 Write-Host "  fresh target, warm cache: $stats ($($warm.Seconds)s; cold Mitts $($m.Seconds)s, Cargo $($c.Seconds)s)"
 Check ($warm.Code -eq 0) 'a deleted target directory rebuilds from the cache'

@@ -2743,3 +2743,55 @@ fn members_matched_by_a_glob_in_a_middle_component_count_for_msrv() {
         "the member's 1.50 is the limit: {lock}"
     );
 }
+
+/// `-p name` matching two versions is refused, as Cargo refuses it (tokio's workspace has
+/// its member tokio beside a published one); `-p name@version` picks one.
+#[test]
+fn a_package_spec_matching_two_versions_is_ambiguous() {
+    let env = Env::new();
+    let root = env.path("ws");
+    // The two `dup` packages live outside the workspace directory: path dependencies, not
+    // members.
+    let write = |rel: &str, text: &str| {
+        let path = env.path(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    };
+    write(
+        "ws/Cargo.toml",
+        "[workspace]\nmembers = [\"app\"]\nresolver = \"2\"\n",
+    );
+    write(
+        "ws/app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nold = { package = \"dup\", path = \"../../dup1\" }\n\
+         new = { package = \"dup\", path = \"../../dup2\" }\n",
+    );
+    write(
+        "ws/app/src/lib.rs",
+        "pub fn f() -> u32 { old::v() + new::v() }\n",
+    );
+    for (dir, version) in [("dup1", "0.1.0"), ("dup2", "0.2.0")] {
+        write(
+            &format!("{dir}/Cargo.toml"),
+            &format!("[package]\nname = \"dup\"\nversion = \"{version}\"\nedition = \"2021\"\n"),
+        );
+        write(&format!("{dir}/src/lib.rs"), "pub fn v() -> u32 { 1 }\n");
+    }
+    env.ok(&root, &["generate-lockfile"]);
+    let text = env.fails(&root, &["build", "-p", "dup"]);
+    assert!(
+        // The report wraps long lines.
+        text.contains("There are multiple `dup` packages in your project")
+            && text.contains("`dup` is ambiguous.")
+            && text.contains("dup@0.1.0")
+            && text.contains("dup@0.2.0"),
+        "{text}"
+    );
+    env.ok(&root, &["build", "-p", "dup@0.2.0"]);
+    let text = env.fails(&root, &["build", "-p", "nope"]);
+    assert!(
+        text.contains("package ID specification `nope` did not match any packages"),
+        "{text}"
+    );
+}

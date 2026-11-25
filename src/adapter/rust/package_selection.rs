@@ -75,8 +75,45 @@ pub fn select_packages<'a>(
     let mut root_pkgs: Vec<&'a CargoLockPackage> = Vec::new();
     let selected_roots: Vec<&str> = opt.selected_package_names().collect();
     if !selected_roots.is_empty() {
-        for target_pkg in selected_roots {
-            if let Some(pkgs) = packages_by_name.get(target_pkg) {
+        for spec in selected_roots {
+            // `name@version`, the version possibly partial (`tokio@1`), as Cargo takes it.
+            let (target_pkg, wanted) = match spec.split_once('@') {
+                Some((name, version)) => (name, Some(version)),
+                None => (spec, None),
+            };
+            let narrowed: Option<Vec<&'a CargoLockPackage>> =
+                packages_by_name.get(target_pkg).map(|pkgs| {
+                    pkgs.iter()
+                        .copied()
+                        .filter(|p| {
+                            wanted.is_none_or(|v| {
+                                p.version == v || p.version.starts_with(&format!("{v}."))
+                            })
+                        })
+                        .collect()
+                });
+            if let Some(pkgs) = &narrowed {
+                // Two versions under one name: Cargo refuses the spec rather than pick one
+                // (tokio's workspace, whose member tokio sits beside a published one).
+                let mut versions: Vec<&str> = pkgs.iter().map(|p| p.version.as_str()).collect();
+                versions.sort_unstable();
+                versions.dedup();
+                if versions.len() > 1 {
+                    let mut text = format!(
+                        "There are multiple `{target_pkg}` packages in your project, and the \
+                         specification `{spec}` is ambiguous.\nPlease re-run this command with \
+                         one of the following specifications:"
+                    );
+                    for v in versions {
+                        text.push_str(&format!("\n  {target_pkg}@{v}"));
+                    }
+                    bail!(text);
+                }
+                if pkgs.is_empty() {
+                    bail!("package ID specification `{spec}` did not match any packages");
+                }
+            }
+            if let Some(pkgs) = narrowed.as_deref() {
                 if let Some((_, ws_toml)) = workspace_manifests.get(target_pkg) {
                     let ws_ver = ws_toml.package.as_ref().and_then(|p| p.version.as_deref());
                     if let Some(m) = find_ws_pkg(pkgs, ws_ver) {
@@ -88,7 +125,7 @@ pub fn select_packages<'a>(
                     root_pkgs.extend(pkgs);
                 }
             } else {
-                bail!("Package '{target_pkg}' not found in workspace lockfile");
+                bail!("package ID specification `{spec}` did not match any packages");
             }
         }
     } else if opt
