@@ -14,6 +14,9 @@ name: Windows projects
 on:
   pull_request:
     paths:
+      - src/**
+      - Cargo.toml
+      - Cargo.lock
       - scripts/ci/windows_project_check.ps1
       - .github/workflows/windows-projects.yml
   workflow_dispatch:
@@ -59,10 +62,12 @@ jobs:
           - { name: bat (oniguruma C), repo: sharkdp/bat, ref: v0.25.0, bin: bat }
           - { name: starship (resource script), repo: starship/starship, ref: v1.22.1, bin: starship }
           - { name: clap, repo: clap-rs/clap, ref: v4.5.27 }
-          - { name: serde, repo: serde-rs/serde, ref: v1.0.217 }
-          - { name: zstd (C), repo: gyscos/zstd-rs, ref: v0.13.2 }
-          - { name: sysinfo (windows crate), repo: GuillaumeGomez/sysinfo, ref: v0.33.1 }
-          - { name: image, repo: image-rs/image, ref: v0.25.5 }
+          - { name: difftastic (tree-sitter C), repo: Wilfred/difftastic, ref: 0.62.0, bin: difft }
+          - { name: bottom (windows crate), repo: ClementTsang/bottom, ref: 0.10.2, bin: btm }
+          - { name: just, repo: casey/just, ref: 1.38.0, bin: just }
+          - { name: hyperfine, repo: sharkdp/hyperfine, ref: v1.19.0, bin: hyperfine }
+          - { name: alacritty, repo: alacritty/alacritty, ref: v0.15.0, bin: alacritty, skip-tests: true }
+          # No Cargo.lock: both resolve now; Cargo refused it where Mitts built it.
           - { name: tokio, repo: tokio-rs/tokio, ref: tokio-1.43.0, args: '-p tokio --features full', skip-tests: true }
     runs-on: windows-2022
     timeout-minutes: 90
@@ -92,3 +97,10 @@ jobs:
           $params = @{ Project = "$env:RUNNER_TEMP\project"; Mitts = "$env:RUNNER_TEMP\mitts\mitts.exe"; Bin = "$env:BIN"; BuildArgs = "$env:ARGS" }
           if ($env:SKIP_TESTS -eq 'true') { $params['SkipTests'] = $true }
           ./scripts/ci/windows_project_check.ps1 @params
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: logs-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/project-check/*.log
+          retention-days: 7

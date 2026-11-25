@@ -27,8 +27,14 @@ pub struct BuildScriptDirectives {
     pub flags: Vec<String>,
     pub link_libs: Vec<String>,
     pub link_searches: Vec<String>,
+    /// `cargo:rustc-link-arg`: every linked target of the package.
     #[serde(default)]
     pub link_args: Vec<String>,
+    /// The scoped forms, `(scope, argument)`: `bins`, `bin:<name>`, `tests`, `benches`,
+    /// `examples`, `cdylib` (`rustc-link-arg-bins`, `-bin=<name>=`, `-tests`, `-benches`,
+    /// `-examples`, `rustc-cdylib-link-arg`). Cargo passes each to those targets alone.
+    #[serde(default)]
+    pub scoped_link_args: Vec<(String, String)>,
     pub envs: HashMap<String, String>,
     pub out_dir: Option<PathBuf>,
     #[serde(default)]
@@ -67,10 +73,48 @@ impl BuildScriptDirectives {
             && self.link_libs.is_empty()
             && self.link_searches.is_empty()
             && self.link_args.is_empty()
+            && self.scoped_link_args.is_empty()
             && self.envs.is_empty()
             && self.metadata.is_empty()
             && self.rerun_if_changed.is_empty()
             && self.rerun_if_env_changed.is_empty()
+    }
+
+    /// The link arguments Cargo passes to a unit of `kind` named `target_name`: the plain
+    /// ones, then the scoped ones whose scope covers it. A binary's unit test (`<bin>_bin_test`)
+    /// is a binary target to Cargo; a library's unit test (`<pkg>_unit_test`) is not a test.
+    pub fn link_args_for(&self, kind: &str, target_name: &str) -> Vec<&str> {
+        let bin_name = if kind == "bin" {
+            Some(target_name)
+        } else if kind == "test" {
+            target_name.strip_suffix("_bin_test")
+        } else {
+            None
+        };
+        let integration_test = kind == "test"
+            && !target_name.ends_with("_unit_test")
+            && !target_name.ends_with("_bin_test");
+        let mut out: Vec<&str> = self.link_args.iter().map(String::as_str).collect();
+        for (scope, arg) in &self.scoped_link_args {
+            let applies = match scope.as_str() {
+                "bins" => bin_name.is_some(),
+                "tests" => integration_test,
+                "benches" => kind == "bench",
+                "examples" => kind == "example",
+                "cdylib" => kind.split(',').any(|k| k.trim() == "cdylib"),
+                other => match (other.strip_prefix("bin:"), bin_name) {
+                    // Test unit names have `-` as `_`.
+                    (Some(want), Some(name)) => {
+                        want == name || (kind == "test" && want.replace('-', "_") == name)
+                    }
+                    _ => false,
+                },
+            };
+            if applies {
+                out.push(arg);
+            }
+        }
+        out
     }
 
     /// Generates DEP_<LINKS>_<KEY>=<VALUE> environment variables from this build script's metadata.
@@ -227,6 +271,13 @@ impl BuildScriptDirectives {
             hasher.update(a.as_bytes());
             hasher.update(b"\n");
         }
+        for (scope, a) in &self.scoped_link_args {
+            hasher.update(b"link-arg-");
+            hasher.update(scope.as_bytes());
+            hasher.update(b":");
+            hasher.update(a.as_bytes());
+            hasher.update(b"\n");
+        }
 
         let mut sorted_envs: Vec<_> = self.envs.iter().collect();
         sorted_envs.sort_by_key(|(k, _)| *k);
@@ -317,16 +368,29 @@ impl BuildScriptDirectives {
             } else if let Some(rest) = directive.strip_prefix("rustc-link-search=") {
                 let val = rest.strip_prefix("native=").unwrap_or(rest);
                 directives.link_searches.push(val.to_string());
-            } else if let Some(rest) = directive
-                .strip_prefix("rustc-link-arg=")
-                .or_else(|| directive.strip_prefix("rustc-link-arg-bins="))
-                .or_else(|| directive.strip_prefix("rustc-link-arg-bin="))
-                .or_else(|| directive.strip_prefix("rustc-link-arg-tests="))
-                .or_else(|| directive.strip_prefix("rustc-link-arg-benches="))
-                .or_else(|| directive.strip_prefix("rustc-link-arg-examples="))
-                .or_else(|| directive.strip_prefix("rustc-cdylib-link-arg="))
-            {
+            } else if let Some(rest) = directive.strip_prefix("rustc-link-arg=") {
                 directives.link_args.push(rest.to_string());
+            } else if let Some(rest) = directive.strip_prefix("rustc-link-arg-bin=") {
+                // `rustc-link-arg-bin=<bin>=<arg>`: ripgrep's `rg=/MANIFEST:EMBED` went to
+                // the linker whole, as an input file, until this was scoped.
+                if let Some((bin, arg)) = rest.split_once('=') {
+                    directives
+                        .scoped_link_args
+                        .push((format!("bin:{bin}"), arg.to_string()));
+                }
+            } else if let Some((scope, rest)) = [
+                ("bins", "rustc-link-arg-bins="),
+                ("tests", "rustc-link-arg-tests="),
+                ("benches", "rustc-link-arg-benches="),
+                ("examples", "rustc-link-arg-examples="),
+                ("cdylib", "rustc-cdylib-link-arg="),
+            ]
+            .into_iter()
+            .find_map(|(scope, prefix)| directive.strip_prefix(prefix).map(|r| (scope, r)))
+            {
+                directives
+                    .scoped_link_args
+                    .push((scope.to_string(), rest.to_string()));
             } else if let Some(rest) = directive.strip_prefix("rustc-env=") {
                 if let Some((k, v)) = rest.split_once('=') {
                     directives.envs.insert(k.to_string(), v.to_string());

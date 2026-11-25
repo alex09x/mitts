@@ -74,13 +74,19 @@ function Products([string]$target) {
 }
 
 Write-Host "== build --all-targets $BuildArgs"
-$c = Run 'cargo' (@('build', '--all-targets', '--target-dir', $cargoTarget) + $locked + $extra) 'cargo-build.log'
-$m = Run $Mitts (@('build', '--all-targets', '--target-dir', $mittsTarget) + $locked + $extra) 'mitts-build.log'
+$c = Run 'cargo' (@('build', '-v', '--all-targets', '--target-dir', $cargoTarget) + $locked + $extra) 'cargo-build.log'
+$m = Run $Mitts (@('build', '-v', '--all-targets', '--target-dir', $mittsTarget) + $locked + $extra) 'mitts-build.log'
+foreach ($side in @(@('Cargo', $c), @('Mitts', $m))) {
+    if ($side[1].Code -ne 0) {
+        Write-Host "  --- $($side[0]) output, last lines ---"
+        Write-Host ($side[1].Text -split "`n" | Where-Object { $_ -notmatch '^\s*(Running|Fresh|Compiling|Dirty) ' } |
+                Select-Object -Last 40 | Out-String)
+    }
+}
 Check ($c.Code -eq 0) 'Cargo builds it (reference sanity)'
-if ($m.Code -ne 0) { Write-Host ($m.Text -split "`n" | Select-Object -Last 60 | Out-String) }
 Check ($m.Code -eq $c.Code) "Mitts exits as Cargo ($($m.Code) vs $($c.Code))"
-$cp = Products $cargoTarget
-$mp = Products $mittsTarget
+$cp = @(Products $cargoTarget)
+$mp = @(Products $mittsTarget)
 $missing = @($cp | Where-Object { $_ -notin $mp })
 $surplus = @($mp | Where-Object { $_ -notin $cp })
 Write-Host "  products: $($cp.Count) from Cargo, $($mp.Count) from Mitts"
@@ -127,7 +133,7 @@ $warm = Run $Mitts (@('build', '--all-targets', '--target-dir', $mittsTarget) + 
 $stats = ([regex]::Matches($warm.Text, '\[mitts::stats\][^\r\n]*') | Select-Object -Last 1).Value
 Write-Host "  fresh target, warm cache: $stats ($($warm.Seconds)s; cold Mitts $($m.Seconds)s, Cargo $($c.Seconds)s)"
 Check ($warm.Code -eq 0) 'a deleted target directory rebuilds from the cache'
-Check ((Products $mittsTarget).Count -eq $mp.Count) 'with every executable and DLL back'
+Check (@(Products $mittsTarget).Count -eq $mp.Count) 'with every executable and DLL back'
 
 if ($failures.Count -gt 0) {
     Write-Host "FAILED ($($failures.Count)):"; $failures | ForEach-Object { Write-Host "  - $_" }

@@ -279,7 +279,7 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
         for f in &dir.flags {
             cmd.args(f.split_whitespace());
         }
-        for a in &dir.link_args {
+        for a in dir.link_args_for(&inv.unit.kind, &inv.unit.target_name) {
             cmd.args(["-C", &format!("link-arg={a}")]);
         }
     }
