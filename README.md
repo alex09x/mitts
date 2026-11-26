@@ -250,9 +250,9 @@ of the job. Linux x86-64 and ARM64, macOS on Apple Silicon, Windows x86-64.
 steps:
   - uses: actions/checkout@v4
   - uses: dtolnay/rust-toolchain@stable
-  - uses: alex09x/mitts@v0.5.6
+  - uses: alex09x/mitts@v0.5.7
   - run: mitts test
-  - uses: alex09x/mitts/save@v0.5.6
+  - uses: alex09x/mitts/save@v0.5.7
     if: always()
 ```
 
@@ -525,19 +525,19 @@ Architecture decisions: [docs/decisions](docs/decisions).
 
 To cite Mitts, use the archived release. The concept DOI
 [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) always resolves to the
-latest version; the version DOI of 0.5.6 is
-[10.5281/zenodo.24541326](https://doi.org/10.5281/zenodo.24541326). GitHub's
+latest version; the version DOI of 0.5.7 is
+[10.5281/zenodo.24552774](https://doi.org/10.5281/zenodo.24552774). GitHub's
 "Cite this repository" reads [CITATION.cff](CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24541326,
+@software{panasenko_2026_24552774,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.6},
-  doi       = {10.5281/zenodo.24541326},
-  url       = {https://doi.org/10.5281/zenodo.24541326}
+  version   = {0.5.7},
+  doi       = {10.5281/zenodo.24552774},
+  url       = {https://doi.org/10.5281/zenodo.24552774}
 }
 ```
 
