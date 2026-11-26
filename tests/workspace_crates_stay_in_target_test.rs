@@ -135,6 +135,27 @@ fn versioned_libs(p: &Project) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Each entry of the target's action cache: its action id and output paths (for a failure).
+fn local_entries(p: &Project) -> String {
+    let mut lines: Vec<String> = files(&p.root().join("target/debug/.mitts-store/ac"))
+        .into_iter()
+        .filter(|f| f.extension().is_some_and(|e| e == "json"))
+        .filter_map(|f| fs::read_to_string(f).ok())
+        .filter_map(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .map(|v| {
+            let outputs: Vec<String> = v["outputs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|o| o["relative_path"].to_string())
+                .collect();
+            format!("{} {}", v["action_id"], outputs.join(" "))
+        })
+        .collect();
+    lines.sort();
+    lines.join("\n")
+}
+
 #[test]
 fn the_projects_own_crates_stay_in_its_target() {
     let p = Project::new();
@@ -150,6 +171,7 @@ fn the_projects_own_crates_stay_in_its_target() {
     assert!(!first.is_empty(), "the target's store holds them");
     let libs_before = versioned_libs(&p);
     assert!(!libs_before.is_empty());
+    let entries_before = local_entries(&p);
 
     // Nothing changed: nothing is compiled.
     assert_eq!(p.mitts(&["build"], false), 0);
@@ -166,9 +188,11 @@ fn the_projects_own_crates_stay_in_its_target() {
     let after = local_objects(&p);
     assert!(
         after.len() <= first.len(),
-        "one version per unit: {} objects before the edit, {} after",
+        "one version per unit: {} objects before the edit, {} after\n\
+         entries before:\n{entries_before}\nentries after:\n{}",
         first.len(),
-        after.len()
+        after.len(),
+        local_entries(&p)
     );
     assert!(
         first.iter().any(|o| !after.contains(o)),
