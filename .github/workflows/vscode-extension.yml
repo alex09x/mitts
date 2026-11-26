@@ -177,6 +177,10 @@ jobs:
     timeout-minutes: 5
     outputs:
       ready: ${{ steps.env.outputs.ready }}
+    # No checkout here, so not the workflow's editors/vscode default.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - id: env
         env:
