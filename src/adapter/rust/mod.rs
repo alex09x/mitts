@@ -53,6 +53,7 @@ pub mod env_macro_scope;
 pub mod features;
 pub mod features_helpers;
 pub mod fetch_targets;
+pub mod fetch_workers;
 pub mod fetcher;
 pub mod git_index;
 pub mod git_resolve;
