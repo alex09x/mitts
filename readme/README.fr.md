@@ -240,6 +240,22 @@ Sans `Cargo.lock`, Mitts en résout un de la même manière que Cargo : version 
 optionnelle incluse uniquement lorsqu'une fonctionnalité l'active, une version par
 plage de compatibilité. Le résultat est un lockfile que Cargo accepte comme le sien.
 
+### GitHub Actions
+
+Ce dépôt est aussi une GitHub Action, **Setup Mitts** : elle installe une version vérifiée de Mitts (l'archive est contrôlée avec les sommes SHA-256 publiées) et restaure le cache de build de Mitts ; `alex09x/mitts/save` l'élague et l'enregistre à la fin du job. Linux x86-64 et ARM64, macOS sur Apple Silicon, Windows x86-64.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+Entrées, sorties, clé de cache et limites : [docs/github-action.md](../docs/github-action.md).
+
 <a id="how-it-works"></a>
 ## Fonctionnement
 

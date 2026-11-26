@@ -181,6 +181,22 @@ La sección `[env]` en una configuración de Cargo se aplica a rustc, a los scri
 
 Sin un `Cargo.lock`, Mitts resuelve uno de la misma manera que Cargo: la versión más alta no retirada (non-yanked) por requisito, las características fluyendo a lo largo de las aristas, las dependencias opcionales incluidas solo cuando una característica las activa, una versión por rango de compatibilidad. El resultado es un lockfile que Cargo acepta como propio.
 
+### GitHub Actions
+
+Este repositorio también es una GitHub Action, **Setup Mitts**: instala una versión verificada de Mitts (el archivo se comprueba con las sumas SHA-256 publicadas) y restaura la caché de compilación de Mitts; `alex09x/mitts/save` la poda y la guarda al final del job. Linux x86-64 y ARM64, macOS en Apple Silicon, Windows x86-64.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+Entradas, salidas, la clave de caché y los límites: [docs/github-action.md](../docs/github-action.md).
+
 <a id="how-it-works"></a>
 ## Cómo funciona
 

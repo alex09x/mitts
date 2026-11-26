@@ -239,6 +239,22 @@ mais alta não retirada (non-yanked) por requisito, features fluindo pelas arest
 dependência opcional incluída apenas quando uma feature a ativa, uma versão por
 faixa de compatibilidade. O resultado é um lockfile que o Cargo aceita como seu.
 
+### GitHub Actions
+
+Este repositório também é uma GitHub Action, **Setup Mitts**: instala uma versão verificada do Mitts (o arquivo é conferido com as somas SHA-256 publicadas) e restaura o cache de build do Mitts; `alex09x/mitts/save` poda e salva o cache no fim do job. Linux x86-64 e ARM64, macOS em Apple Silicon, Windows x86-64.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+Entradas, saídas, a chave de cache e os limites: [docs/github-action.md](../docs/github-action.md).
+
 <a id="how-it-works"></a>
 ## Como funciona
 
