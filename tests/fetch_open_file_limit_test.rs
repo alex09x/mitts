@@ -89,10 +89,19 @@ fn set_open_files(soft: libc::rlim_t) -> libc::rlimit {
         rlim_max: 0,
     };
     assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut old) }, 0);
+    // Linux refuses any hard limit above `fs.nr_open`, even an unchanged one: a container
+    // can be started with a hard limit (1048576) over the host's `nr_open` (1000000).
+    let nr_open = std::fs::read_to_string("/proc/sys/fs/nr_open")
+        .ok()
+        .and_then(|s| s.trim().parse::<libc::rlim_t>().ok())
+        .unwrap_or(old.rlim_max);
+    let hard = old.rlim_max.min(nr_open);
     let new = libc::rlimit {
-        rlim_cur: soft.min(old.rlim_max),
-        rlim_max: old.rlim_max,
+        rlim_cur: soft.min(hard),
+        rlim_max: hard,
     };
+    old.rlim_max = hard;
+    old.rlim_cur = old.rlim_cur.min(hard);
     assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &new) }, 0);
     old
 }

@@ -2087,7 +2087,8 @@ fn tree_features_shows_requested_features_and_prunes_them_with_their_package() {
     assert!(out.contains("── aa feature \"std\"\n"), "{out}");
     assert!(out.contains("── aa v1.0.0"), "{out}");
     let (out, _) = env.ok(&app, &["tree", "-e", "features", "--prune", "aa"]);
-    assert!(!out.contains("aa"), "{out}");
+    // A node of `aa`, not the letters: the temporary directory's random name may hold them.
+    assert!(!out.contains("── aa"), "{out}");
 }
 
 #[test]
