@@ -44,6 +44,11 @@ pub fn shares_workspace_crates() -> bool {
     std::env::var(SHARE_VAR).is_ok_and(|v| matches!(v.trim(), "1" | "true" | "yes"))
 }
 
+/// Whether `path` lies in a project's store (inside its target directory).
+pub fn is_inside(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == DIR)
+}
+
 /// Whether `unit` (a workspace member or a path dependency) is kept in the project's store.
 pub fn keeps_local(unit: &PlannedCompilationUnit) -> bool {
     super::unit_inputs::is_mutable_unit(unit) && !shares_workspace_crates()
@@ -151,11 +156,13 @@ impl MemberStore {
     }
 }
 
-/// `name` without the `-<16 hex digits>` metadata suffix rustc's `-C extra-filename` puts
-/// before the extension (or at the end), which changes with every version.
+/// `name` without what changes with every version: the `-<16 hex digits>` metadata suffix
+/// rustc's `-C extra-filename` puts before the extension, and whatever sits between the
+/// stem and the last extension (the codegen-unit hash of `app-<hash>.app.<cgu>-cgu.0.rcgu.o`
+/// object files macOS keeps for debug info).
 fn without_version(name: &str) -> String {
     let (stem, ext) = match name.find('.') {
-        Some(dot) => name.split_at(dot),
+        Some(dot) => (&name[..dot], &name[name.rfind('.').unwrap_or(dot)..]),
         None => (name, ""),
     };
     let unversioned = stem
@@ -174,13 +181,12 @@ fn shape(entry: &ActionCacheEntry) -> BTreeSet<String> {
         .outputs
         .iter()
         .map(|o| {
-            let parent = o.relative_path.parent().unwrap_or(Path::new(""));
-            let name = o
-                .relative_path
-                .file_name()
-                .map(|n| without_version(&n.to_string_lossy()))
-                .unwrap_or_default();
-            format!("{}/{name}", parent.to_string_lossy())
+            // Every component: `deps/app-<hash>.dSYM/Contents/Resources/DWARF/app-<hash>`.
+            o.relative_path
+                .components()
+                .map(|c| without_version(&c.as_os_str().to_string_lossy()))
+                .collect::<Vec<_>>()
+                .join("/")
         })
         .collect()
 }
@@ -369,6 +375,16 @@ mod tests {
         assert_eq!(without_version("app-0123456789abcdef.exe"), "app.exe");
         assert_eq!(without_version("app"), "app");
         assert_eq!(without_version("my-app.pdb"), "my-app.pdb");
+        // macOS debug-info objects and bundles.
+        assert_eq!(
+            without_version("app-0123456789abcdef.app.4f1b2c9d8e7a6b5c-cgu.0.rcgu.o"),
+            without_version("app-fedcba9876543210.app.0a9b8c7d6e5f4a3b-cgu.0.rcgu.o"),
+        );
+        assert_eq!(without_version("app-0123456789abcdef.dSYM"), "app.dSYM");
+        assert!(super::is_inside(Path::new(
+            "/w/target/debug/.mitts-store/cas"
+        )));
+        assert!(!super::is_inside(Path::new("/home/u/.cache/mitts/cas")));
     }
 
     #[test]

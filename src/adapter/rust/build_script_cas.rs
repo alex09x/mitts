@@ -210,7 +210,12 @@ pub fn save_build_script_cas(
                     ok = false;
                 } else {
                     rewrite_out_dir_in_text_files(&tmp_out, &out_str, &cas_out_str);
-                    make_tree_readonly_recursive(&tmp_out);
+                    // In a project's store (inside its target) the files are read-only but
+                    // the directories stay writable, so `rm -rf target` still works.
+                    make_tree_readonly_recursive(
+                        &tmp_out,
+                        !super::member_store::is_inside(cas_root),
+                    );
                 }
             }
             if ok {
@@ -318,8 +323,8 @@ fn rewrite_spelling(dir: &Path, from: &str, to: &str) {
 /// Sets files to `0o444` (`0o555` when they were executable: a vendored `protoc` written
 /// into `OUT_DIR` must still run from the store) and directories to `0o555` recursively
 /// (post-order on directories) so shared CAS build script outputs cannot be mutated by
-/// downstream build scripts.
-pub fn make_tree_readonly_recursive(dir: &Path) {
+/// downstream build scripts. With `lock_dirs` false the directories are left writable.
+pub fn make_tree_readonly_recursive(dir: &Path, lock_dirs: bool) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -333,7 +338,7 @@ pub fn make_tree_readonly_recursive(dir: &Path) {
                     continue;
                 }
                 if ft.is_dir() {
-                    make_tree_readonly_recursive(&path);
+                    make_tree_readonly_recursive(&path, lock_dirs);
                 } else if ft.is_file() {
                     let executable = entry
                         .metadata()
@@ -344,11 +349,13 @@ pub fn make_tree_readonly_recursive(dir: &Path) {
                 }
             }
         }
-        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o555));
+        if lock_dirs {
+            let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o555));
+        }
     }
     #[cfg(not(unix))]
     {
-        let _ = dir;
+        let _ = (dir, lock_dirs);
     }
 }
 

@@ -97,6 +97,11 @@ que várias compilações compartilhem um único armazenamento com segurança.
 
 - **Reutilização entre workspaces.** Um armazenamento por máquina. Uma dependência compilada para
   um checkout é restaurada no próximo com as mesmas entradas.
+- **Seus próprios crates ficam em `target/`.** Membros do workspace e dependências por
+  caminho ficam num armazenamento dentro do diretório target, uma versão de cada: um build
+  sem mudanças os restaura, uma edição os substitui, `mitts clean` os remove.
+  `MITTS_SHARE_WORKSPACE_CRATES=1` os coloca também no armazenamento compartilhado, e um
+  segundo worktree do mesmo commit os reutiliza.
 - **Chaves completas.** Toolchain, target, perfil, flags, features, conteúdo do
   código-fonte, chaves de dependências e ambiente rastreado. Entradas desconhecidas implicam
   reconstrução.

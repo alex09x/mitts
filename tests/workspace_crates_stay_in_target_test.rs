@@ -47,6 +47,15 @@ impl Project {
             "pub fn answer() -> u32 { 41 }\n",
         )
         .unwrap();
+        // A build script with an `OUT_DIR` file: its result is kept in the target's store.
+        fs::write(
+            root.join("core/build.rs"),
+            "fn main() {\n    let out = std::env::var(\"OUT_DIR\").unwrap();\n    \
+             std::fs::create_dir_all(format!(\"{out}/gen\")).unwrap();\n    \
+             std::fs::write(format!(\"{out}/gen/x.rs\"), \"\").unwrap();\n    \
+             println!(\"cargo:rerun-if-changed=build.rs\");\n}\n",
+        )
+        .unwrap();
         fs::write(
             root.join("app/Cargo.toml"),
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
@@ -166,13 +175,21 @@ fn the_projects_own_crates_stay_in_its_target() {
         "the replaced versions are gone"
     );
     assert!(files(&p.cache().join("cas/objects")).is_empty());
-    // The target does not grow with edits either: the library files keep their names (one
-    // per command that built it), as with Cargo.
-    let mut libs_after = versioned_libs(&p);
-    let mut libs_before = libs_before;
-    libs_after.sort();
-    libs_before.sort();
-    assert_eq!(libs_after, libs_before);
+    // The target does not grow with edits either: one library file per command that built
+    // it. (Its name changes with the edit only without incremental compilation.)
+    assert_eq!(
+        versioned_libs(&p).len(),
+        libs_before.len(),
+        "{:?} before the edit, {:?} after",
+        libs_before,
+        versioned_libs(&p)
+    );
+    assert!(
+        p.root()
+            .join("target/debug/.mitts-store/cas/build_scripts")
+            .is_dir(),
+        "the build script's result is in the target's store"
+    );
 
     // `mitts clean` takes the store with the target.
     let clean = Command::new(env!("CARGO_BIN_EXE_mitts"))
@@ -187,6 +204,10 @@ fn the_projects_own_crates_stay_in_its_target() {
         String::from_utf8_lossy(&clean.stderr)
     );
     assert!(!p.root().join("target/debug/.mitts-store").exists());
+
+    // So does `rm -rf target`: nothing in the store is a directory its owner cannot write.
+    assert!(p.mitts(&["build"], false) > 0);
+    fs::remove_dir_all(p.root().join("target")).expect("rm -rf target");
 }
 
 #[test]

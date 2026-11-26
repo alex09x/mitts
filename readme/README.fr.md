@@ -98,6 +98,11 @@ de partager un même magasin en toute sécurité.
 
 - **Réutilisation entre espaces de travail.** Un magasin par machine. Une dépendance compilée pour
   un checkout est restaurée dans le suivant avec les mêmes entrées.
+- **Vos propres crates restent dans `target/`.** Les membres du workspace et les dépendances
+  par chemin sont gardés dans un magasin à l'intérieur du répertoire target, une version de
+  chacun : un build sans changement les restaure, une modification les remplace, `mitts clean`
+  les supprime. `MITTS_SHARE_WORKSPACE_CRATES=1` les place aussi dans le magasin partagé, pour
+  qu'un second worktree du même commit les réutilise.
 - **Clés complètes.** Chaîne d'outils, cible, profil, drapeaux, fonctionnalités,
   contenu des sources, clés des dépendances et environnement suivi. Des entrées inconnues entraînent
   une recompilation.

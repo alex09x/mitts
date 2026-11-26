@@ -92,6 +92,7 @@ Mitts toma un camino diferente: reemplaza el ejecutor de Cargo, no el compilador
 ## Aspectos destacados
 
 - **Reutilización entre espacios de trabajo.** Un único almacén por máquina. Una dependencia compilada para una copia de trabajo se restaura en la siguiente con las mismas entradas.
+- **Tus propios crates se quedan en `target/`.** Los miembros del workspace y las dependencias por ruta se guardan en un almacén dentro del directorio target, una versión de cada uno: una compilación sin cambios los restaura, una edición los reemplaza y `mitts clean` los elimina. `MITTS_SHARE_WORKSPACE_CRATES=1` los guarda también en el almacén compartido, de modo que un segundo worktree del mismo commit los reutiliza.
 - **Claves completas.** Cadena de herramientas (toolchain), destino (target), perfil, opciones, características, contenido de fuentes, claves de dependencias y entorno rastreado. Las entradas desconocidas implican una recompilación.
 - **Los manifiestos de Cargo siguen siendo el contrato.** Sin nuevos manifiestos, sin un segundo archivo de bloqueo. Los flujos de trabajo de compilación, prueba, lint, cobertura y fuentes de publicación de este repositorio se ejecutan a través de Mitts; no invocan la CLI de Cargo. La interoperabilidad externa con Cargo sigue estando disponible para los consumidores.
 - **Las unidades de enlace y los scripts de compilación se almacenan en caché.** Los ejecutables, pruebas, macros procedimentales y ejecuciones de scripts de compilación se identifican mediante claves y se almacenan, no solo las bibliotecas `rlib`.

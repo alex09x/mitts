@@ -99,6 +99,11 @@ gemeinsamen Speicher nutzen lassen kann.
 
 - **Wiederverwendung über Workspaces hinweg.** Ein einziger Speicher pro Maschine. Eine für
   einen Checkout kompilierte Abhängigkeit wird bei identischen Eingaben im nächsten wiederhergestellt.
+- **Eigene Crates bleiben in `target/`.** Workspace-Mitglieder und Pfad-Abhängigkeiten
+  liegen in einem Speicher im Target-Verzeichnis, je eine Version: Ein Build ohne
+  Änderungen stellt sie wieder her, eine Änderung ersetzt sie, `mitts clean` entfernt sie.
+  `MITTS_SHARE_WORKSPACE_CRATES=1` legt sie zusätzlich im gemeinsamen Speicher ab, sodass
+  ein zweiter Worktree desselben Commits sie wiederverwendet.
 - **Vollständige Schlüssel.** Toolchain, Target, Profil, Flags, Features, Quellcode-Inhalte,
   Abhängigkeitsschlüssel und erfasste Umgebung. Unbekannte Eingaben bedeuten einen
   Neubau.
