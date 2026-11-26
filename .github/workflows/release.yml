@@ -341,3 +341,19 @@ jobs:
           TAG: ${{ needs.source.outputs.tag }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
         run: python scripts/release/registry.py publish verified-crate "$TAG" "$SOURCE_SHA" --manifest-path source/Cargo.toml
+  # The VS Code extension carries the Mitts version and goes out with every release: once
+  # the crate is public, start its workflow on the release tag. That workflow tests the
+  # VSIX on three systems and queues its publish jobs for the owner's approval.
+  vscode-extension:
+    if: ${{ !cancelled() && inputs.mode == 'publish' && github.repository == 'alex09x/mitts' && github.ref == 'refs/heads/main' && needs.registry-publish.result == 'success' }}
+    needs: [source, registry-publish]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Start the VS Code extension release for this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.source.outputs.tag }}
+        run: gh workflow run vscode-extension.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="${TAG#v}"
