@@ -205,9 +205,9 @@ mitts search | info | login | logout | owner | yank | report | version
 steps:
   - uses: actions/checkout@v4
   - uses: dtolnay/rust-toolchain@stable
-  - uses: alex09x/mitts@v0.5.6
+  - uses: alex09x/mitts@v0.5.7
   - run: mitts test
-  - uses: alex09x/mitts/save@v0.5.6
+  - uses: alex09x/mitts/save@v0.5.7
     if: always()
 ```
 
@@ -453,19 +453,19 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 <a id="citation"></a>
 ## الاستشهاد
 
-للاستشهاد بـ Mitts، استخدم الإصدار المؤرشف. يشير معرّف DOI المفاهيمي <bdi>[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)</bdi> دائماً إلى أحدث إصدار؛ ومعرّف DOI للإصدار 0.5.6 هو <bdi>[10.5281/zenodo.24541326](https://doi.org/10.5281/zenodo.24541326)</bdi>. تقرأ ميزة «Cite this repository» في GitHub الملف <bdi>[CITATION.cff](../CITATION.cff)</bdi>.
+للاستشهاد بـ Mitts، استخدم الإصدار المؤرشف. يشير معرّف DOI المفاهيمي <bdi>[10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)</bdi> دائماً إلى أحدث إصدار؛ ومعرّف DOI للإصدار 0.5.7 هو <bdi>[10.5281/zenodo.24552774](https://doi.org/10.5281/zenodo.24552774)</bdi>. تقرأ ميزة «Cite this repository» في GitHub الملف <bdi>[CITATION.cff](../CITATION.cff)</bdi>.
 
 <div dir="ltr">
 
 ```bibtex
-@software{panasenko_2026_24541326,
+@software{panasenko_2026_24552774,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.6},
-  doi       = {10.5281/zenodo.24541326},
-  url       = {https://doi.org/10.5281/zenodo.24541326}
+  version   = {0.5.7},
+  doi       = {10.5281/zenodo.24552774},
+  url       = {https://doi.org/10.5281/zenodo.24552774}
 }
 ```
 
