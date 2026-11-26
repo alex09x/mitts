@@ -8,7 +8,9 @@ content-addressed cache.
 
 - **Finds Mitts.** It uses the `mitts.path` setting if set, otherwise `PATH`, otherwise `~/.cargo/bin`.
   The status bar shows the version. If Mitts is missing, **Mitts: Install Mitts** runs the official
-  installer (`curl -fsSL https://mittsbuild.com/install.sh | sh`) in a terminal you can see.
+  installer in a terminal you can see: `curl -fsSL https://mittsbuild.com/install.sh | sh` on
+  Linux and macOS, the PowerShell installer (`irm https://mittsbuild.com/install.ps1 | iex`) on
+  Windows.
 - **Tasks.** `mitts build`, `check`, `clippy`, `test`, `bench`, `run`, `doc` and `clean` show up
   under *Terminal → Run Task* for every folder with a `Cargo.toml`. Compiler errors and warnings
   from those tasks appear in the Problems panel through the `$mitts` problem matcher. You can
@@ -35,7 +37,6 @@ content-addressed cache.
   The extension does not change that.
 - A plain `cargo` typed in a terminal, and tools that call Cargo themselves, still run Cargo. Nothing
   replaces the `cargo` command.
-- Mitts does not support Windows yet. It runs on Linux and macOS.
 - Mitts does not have Cargo's external subcommands, such as `cargo nextest` or `cargo llvm-cov`.
   For the rest of the gaps, see the
   [command reference](https://github.com/alex09x/mitts/blob/main/docs/cargo-commands.md).
@@ -51,6 +52,7 @@ content-addressed cache.
 
 - Mitts 0.4.0 or newer is recommended, because it is the first version with every Cargo command.
   Older versions still run build, check and test.
+- Linux, macOS, or Windows x86-64 with the MSVC toolchain (Mitts 0.5.0 or newer on Windows).
 - A Rust toolchain from rustup.
 
 ## License
