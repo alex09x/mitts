@@ -1,0 +1,201 @@
+/*
+ * Mitts Build — Rust-first build and package tooling with shared artifact cache
+ * Copyright (c) 2026 Alexander Panasenko
+ *
+ * Contact: alex@prod.codes
+ * Author: https://prod.codes/about/
+ * Project: https://github.com/alex09x/mitts
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+//! The project's own crates are built into its target directory, not the shared cache
+//! (hitmeup: 70 GB of its own test executables in the shared store within two hours).
+//!
+//! - A workspace's library, binary and tests leave nothing in the shared store.
+//! - A build that changes nothing compiles nothing: it restores from the target's store.
+//! - After an edit, the target's store holds the new version only.
+//! - `MITTS_SHARE_WORKSPACE_CRATES=1` stores them in the shared cache as before.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use tempfile::TempDir;
+
+struct Project {
+    dir: TempDir,
+}
+
+impl Project {
+    fn new() -> Self {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().join("ws");
+        fs::create_dir_all(root.join("app/src")).unwrap();
+        fs::create_dir_all(root.join("core/src")).unwrap();
+        fs::create_dir_all(root.join("app/tests")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"app\", \"core\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("core/Cargo.toml"),
+            "[package]\nname = \"core-lib\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("core/src/lib.rs"),
+            "pub fn answer() -> u32 { 41 }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+             [dependencies]\ncore-lib = { path = \"../core\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/src/main.rs"),
+            "fn main() { println!(\"{}\", core_lib::answer()); }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/tests/it.rs"),
+            "#[test]\nfn answers() { assert!(core_lib::answer() > 0); }\n",
+        )
+        .unwrap();
+        Self { dir }
+    }
+
+    fn root(&self) -> PathBuf {
+        self.dir.path().join("ws")
+    }
+
+    fn cache(&self) -> PathBuf {
+        self.dir.path().join("cache")
+    }
+
+    /// Runs `mitts <args>`; the `[mitts::stats]` line's `compiled=` count.
+    fn mitts(&self, args: &[&str], share: bool) -> usize {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
+        cmd.args(args)
+            .arg("--cache-dir")
+            .arg(self.cache())
+            .current_dir(self.root())
+            .env("CARGO_HOME", self.dir.path().join("cargo-home"))
+            .env_remove("MITTS_CACHE_DIR")
+            .env_remove("RUSTC_WRAPPER")
+            .env_remove("CARGO_BUILD_RUSTC_WRAPPER");
+        if share {
+            cmd.env("MITTS_SHARE_WORKSPACE_CRATES", "1");
+        } else {
+            cmd.env_remove("MITTS_SHARE_WORKSPACE_CRATES");
+        }
+        let out = cmd.output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{stderr}");
+        stderr
+            .lines()
+            .filter_map(|l| l.split("compiled=").nth(1))
+            .filter_map(|rest| rest.split_whitespace().next()?.parse().ok())
+            .next_back()
+            .unwrap_or_else(|| panic!("no stats line:\n{stderr}"))
+    }
+}
+
+fn files(dir: &Path) -> Vec<PathBuf> {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect()
+}
+
+fn local_objects(p: &Project) -> Vec<PathBuf> {
+    files(&p.root().join("target/debug/.mitts-store/cas/objects"))
+}
+
+/// `target/debug/deps/libcore_lib-<hash>.rlib`: the name changes with the library's key.
+fn versioned_libs(p: &Project) -> Vec<PathBuf> {
+    files(&p.root().join("target/debug/deps"))
+        .into_iter()
+        .filter(|f| {
+            let name = f.file_name().unwrap().to_string_lossy().into_owned();
+            name.starts_with("libcore_lib-") && name.ends_with(".rlib")
+        })
+        .collect()
+}
+
+#[test]
+fn the_projects_own_crates_stay_in_its_target() {
+    let p = Project::new();
+    assert!(p.mitts(&["build"], false) > 0);
+    assert!(p.mitts(&["test", "--no-run"], false) > 0);
+    assert!(
+        files(&p.cache().join("cas/objects")).is_empty(),
+        "the shared store holds no workspace crate: {:?}",
+        files(&p.cache().join("cas/objects"))
+    );
+    assert!(files(&p.cache().join("cas/artifacts")).is_empty());
+    let first = local_objects(&p);
+    assert!(!first.is_empty(), "the target's store holds them");
+    let libs_before = versioned_libs(&p);
+    assert!(!libs_before.is_empty());
+
+    // Nothing changed: nothing is compiled.
+    assert_eq!(p.mitts(&["build"], false), 0);
+    assert_eq!(p.mitts(&["test", "--no-run"], false), 0);
+
+    // An edit replaces the old version in the target's store.
+    fs::write(
+        p.root().join("core/src/lib.rs"),
+        "pub fn answer() -> u32 { 42 }\n",
+    )
+    .unwrap();
+    assert!(p.mitts(&["build"], false) > 0);
+    assert!(p.mitts(&["test", "--no-run"], false) > 0);
+    let after = local_objects(&p);
+    assert!(
+        after.len() <= first.len(),
+        "one version per unit: {} objects before the edit, {} after",
+        first.len(),
+        after.len()
+    );
+    assert!(
+        first.iter().any(|o| !after.contains(o)),
+        "the replaced versions are gone"
+    );
+    assert!(files(&p.cache().join("cas/objects")).is_empty());
+    // The target does not grow with edits either: the library files keep their names (one
+    // per command that built it), as with Cargo.
+    let mut libs_after = versioned_libs(&p);
+    let mut libs_before = libs_before;
+    libs_after.sort();
+    libs_before.sort();
+    assert_eq!(libs_after, libs_before);
+
+    // `mitts clean` takes the store with the target.
+    let clean = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .arg("clean")
+        .current_dir(p.root())
+        .env("CARGO_HOME", p.dir.path().join("cargo-home"))
+        .output()
+        .unwrap();
+    assert!(
+        clean.status.success(),
+        "{}",
+        String::from_utf8_lossy(&clean.stderr)
+    );
+    assert!(!p.root().join("target/debug/.mitts-store").exists());
+}
+
+#[test]
+fn the_switch_shares_them_as_before() {
+    let p = Project::new();
+    assert!(p.mitts(&["build"], true) > 0);
+    assert!(
+        !files(&p.cache().join("cas/objects")).is_empty(),
+        "shared on request"
+    );
+    assert!(local_objects(&p).is_empty());
+}

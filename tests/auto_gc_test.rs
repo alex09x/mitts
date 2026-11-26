@@ -50,6 +50,8 @@ impl Project {
             .arg("--cache-dir")
             .arg(self.cache())
             .env("CARGO_HOME", self.dir.path().join("cargo-home"))
+            // The project's own crates fill the shared store whose limit is tested.
+            .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
             .env_remove("MITTS_CACHE_MAX_BYTES")
             .env_remove("MITTS_GC_INTERVAL_SECS")
             .env_remove("RUSTC_WRAPPER")

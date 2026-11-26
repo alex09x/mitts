@@ -70,6 +70,7 @@ fn options(root: &Path, cache: &Path) -> RustBuildOptions {
     RustBuildOptions {
         manifest_path: Some(root.join("Cargo.toml")),
         cache_dir: Some(cache.to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(root.join("target")),
         package: Some("greeter_app".to_string()),
         ..Default::default()

@@ -90,6 +90,7 @@ fn main() {
     let opt = RustBuildOptions {
         manifest_path: Some(ws.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(ws.path().join("target")),
         ..Default::default()
     };
@@ -210,6 +211,7 @@ fn main() {
     let opt = RustBuildOptions {
         manifest_path: Some(ws.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(ws.path().join("target")),
         ..Default::default()
     };
@@ -295,6 +297,7 @@ fn main() {
     let opt = RustBuildOptions {
         manifest_path: Some(ws.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(ws.path().join("target")),
         ..Default::default()
     };
@@ -354,6 +357,7 @@ fn test_cached_build_script_still_runs_clippy() {
         manifest_path: Some(root.path().join("Cargo.toml")),
         target_dir: Some(root.path().join("target")),
         cache_dir: Some(cache.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (_, built) = RustAdapter::build(&opt).unwrap();

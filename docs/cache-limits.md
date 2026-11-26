@@ -16,8 +16,24 @@ prunes it until it is under it:
 
 Pruning does not wait for running builds: a host that builds without pause would never prune.
 While a build holds the cache, objects used within the last two hours, those of units being
-built, and objects still linked into a workspace are kept. A build that wanted an object pruned
+built, and objects still linked into a workspace are kept. If the cache would stay over the
+limit that way, the two hours give way: everything older than ten minutes that no workspace
+links to goes, so the limit holds while builds run. A build that wanted an object pruned
 anyway compiles that unit again; it does not fail.
+
+## Your own crates are not in the shared cache
+
+Workspace members and path dependencies change with every edit, and a version of them is
+rarely asked for again. Since 0.5.8 their outputs (libraries, binaries, tests), build-script
+results and cache entries go to a store in the project's target directory,
+`target/<profile>/.mitts-store`, not to the shared cache. After each build Mitts removes the
+versions that build replaced: the store keeps the last version of each unit for each command
+(`build`, `test`, `check`, `clippy`), so switching between them rebuilds nothing, and a build
+with nothing changed restores everything. `mitts clean` removes the store with the target.
+
+`MITTS_SHARE_WORKSPACE_CRATES=1` stores them in the shared cache, as before 0.5.8: a second
+worktree or clone of the same commit then reuses them instead of building them again, at the
+cost of one stored version per edit until the size limit prunes it.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |

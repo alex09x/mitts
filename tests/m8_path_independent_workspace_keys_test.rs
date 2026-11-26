@@ -86,6 +86,7 @@ fn test_m8_workspace_path_independent_keys_and_cas_reuse() {
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -93,6 +94,7 @@ fn test_m8_workspace_path_independent_keys_and_cas_reuse() {
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };
@@ -207,6 +209,7 @@ edition = "2021"
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -214,6 +217,7 @@ edition = "2021"
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };
@@ -274,6 +278,7 @@ edition = "2021"
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -281,6 +286,7 @@ edition = "2021"
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };
@@ -330,6 +336,7 @@ edition = "2021"
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -337,6 +344,7 @@ edition = "2021"
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };
@@ -447,6 +455,7 @@ fn main() {
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -454,6 +463,7 @@ fn main() {
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };

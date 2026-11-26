@@ -53,6 +53,7 @@ fn write_workspace(dir: &Path) {
 
 fn mitts_build(dir: &Path, cache: &Path) {
     let out = Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .args(["build", "--manifest-path"])
         .arg(dir.join("Cargo.toml"))
         .arg("--cache-dir")

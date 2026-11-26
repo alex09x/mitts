@@ -85,6 +85,7 @@ fn test_m8_path_pure_build_script_cache_hit_across_clones() {
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -92,6 +93,7 @@ fn test_m8_path_pure_build_script_cache_hit_across_clones() {
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };
@@ -211,12 +213,14 @@ fn main() {
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
 
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
 
@@ -284,6 +288,7 @@ pure_lib = { path = "../pure_lib" }
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -291,6 +296,7 @@ pure_lib = { path = "../pure_lib" }
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };
@@ -399,6 +405,7 @@ fn main() {
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         target_dir: Some(clone1.path().join("target")),
         ..Default::default()
     };
@@ -406,6 +413,7 @@ fn main() {
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         target_dir: Some(clone2.path().join("target")),
         ..Default::default()
     };
@@ -520,6 +528,7 @@ external_dep = {{ path = '{}' }}
     let opt1 = RustBuildOptions {
         manifest_path: Some(ws1.join("Cargo.toml")),
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         target_dir: Some(ws1.join("target")),
         ..Default::default()
     };
@@ -527,6 +536,7 @@ external_dep = {{ path = '{}' }}
     let opt2 = RustBuildOptions {
         manifest_path: Some(ws2.join("Cargo.toml")),
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         target_dir: Some(ws2.join("target")),
         ..Default::default()
     };
@@ -596,6 +606,7 @@ fn main() {
     let opt = RustBuildOptions {
         manifest_path: Some(ws.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         target_dir: Some(ws.path().join("target")),
         ..Default::default()
     };

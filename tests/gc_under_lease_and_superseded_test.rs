@@ -127,6 +127,30 @@ fn a_held_cache_still_prunes_what_no_build_used_recently() {
     assert_eq!(report.objects_pruned, 1);
 }
 
+/// hitmeup: builds held the cache without pause and wrote 66 GB within the two-hour grace
+/// window, so the cache stayed far over its limit. Over the limit, the window gives way:
+/// only what a build stored in the last minutes and what a target links to stay.
+#[test]
+fn a_held_cache_over_its_limit_prunes_inside_the_grace_window() {
+    let s = store();
+    let half_hour = object(&s, &[1u8; 1000], Duration::from_secs(1800));
+    let just_stored = object(&s, &[2u8; 1000], Duration::from_secs(60));
+    let linked = object(&s, &[3u8; 1000], Duration::from_secs(1800));
+    fs::hard_link(s.cas.object_path(&linked), s.root.join("workspace-link")).unwrap();
+
+    let _lease = CacheLease::acquire(Some(&s.root));
+    let report = CacheGc::new(&s.cas, &s.ac).prune(&limit(1000)).unwrap();
+
+    assert!(report.build_held_cache);
+    assert!(!s.cas.has_object(&half_hour), "30 min old, over the limit");
+    assert!(s.cas.has_object(&just_stored), "stored a minute ago: kept");
+    assert!(s.cas.has_object(&linked), "linked into a target: kept");
+
+    // Under the limit the window still holds: nothing more goes.
+    let report = CacheGc::new(&s.cas, &s.ac).prune(&limit(1 << 20)).unwrap();
+    assert_eq!(report.objects_pruned, 0);
+}
+
 #[test]
 fn without_a_build_the_limit_is_kept_as_before() {
     let s = store();
@@ -223,6 +247,8 @@ fn a_build_that_hits_the_cache_marks_its_objects_used() {
             .arg(dir.path().join(target))
             .current_dir(&proj)
             .env("CARGO_HOME", dir.path().join("cargo-home"))
+            // The project's own crates go to the shared cache only when asked.
+            .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
             .env_remove("MITTS_CACHE_DIR")
             .env_remove("RUSTC_WRAPPER")
             .env_remove("CARGO_BUILD_RUSTC_WRAPPER")
@@ -416,6 +442,7 @@ fn a_hit_from_a_second_checkout_records_its_project() {
             .arg(&cache)
             .current_dir(&proj)
             .env("CARGO_HOME", dir.path().join("cargo-home"))
+            .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
             .env_remove("MITTS_CACHE_DIR")
             .env_remove("RUSTC_WRAPPER")
             .env_remove("CARGO_BUILD_RUSTC_WRAPPER")

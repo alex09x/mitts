@@ -98,6 +98,11 @@ pub fn run_native_dag_build(
     )));
 
     let is_cache_enabled = !opt.no_cache;
+    // The project's own crates: in the target's store, not the shared one (`member_store`).
+    let share = opt.share_workspace_crates || super::member_store::shares_workspace_crates();
+    let member_store = (is_cache_enabled && !share)
+        .then(|| super::member_store::MemberStore::open(&target_dir, profile_name))
+        .transpose()?;
 
     if let Some(ref cb) = opt.progress {
         cb.0(BuildProgressEvent::InitTotal {
@@ -181,6 +186,7 @@ pub fn run_native_dag_build(
         unit_keys,
         deriver,
         failed_units: &failed_units,
+        member_store: member_store.as_ref(),
     };
 
     let cache_budget = crate::core::cache_phase::CachePhaseBudget::for_platform();
@@ -275,8 +281,12 @@ pub fn run_native_dag_build(
         metadata_signaled: &metadata_signaled.lock().unwrap(),
         resolved_keys: &resolved_keys.lock().unwrap(),
         ac: &ac,
+        member_ac: member_store.as_ref().map(|s| &s.ac),
         build_started_secs,
     });
+    if let Some(store) = member_store {
+        store.prune_after_build(&format!("{:?}", opt.mode));
+    }
 
     explanation.manifest_snapshot.verify_fresh()?;
     let _ = target_index.lock().unwrap().save(&target_dir, profile_name);

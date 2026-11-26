@@ -31,6 +31,8 @@ pub(crate) struct RetractScope<'a> {
     pub metadata_signaled: &'a HashSet<String>,
     pub resolved_keys: &'a HashMap<String, String>,
     pub ac: &'a ActionCache,
+    /// The target's store of the project's own crates (`member_store`), if they use one.
+    pub member_ac: Option<&'a ActionCache>,
     /// When the build started (Unix seconds): only entries published since then are this
     /// build's; an older valid entry a dependent was restored from stays.
     pub build_started_secs: u64,
@@ -77,12 +79,11 @@ pub(crate) fn retract_failed_pipelined_units(scope: &RetractScope<'_>) {
                 continue;
             };
             if let Some(key) = published_key(resolved) {
-                remove_entry(
-                    scope.ac,
-                    key,
-                    &node.unit.manifest_path,
-                    scope.build_started_secs,
-                );
+                let ac = match scope.member_ac {
+                    Some(local) if super::unit_inputs::is_mutable_unit(&node.unit) => local,
+                    _ => scope.ac,
+                };
+                remove_entry(ac, key, &node.unit.manifest_path, scope.build_started_secs);
             }
         }
     }

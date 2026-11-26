@@ -68,6 +68,9 @@ fn write_file(base: &Path, rel: &str, content: &str) {
 
 #[test]
 fn test_b1_gc_prunes_cas_artifacts_and_preserves_during_active_locks() {
+    // The shared store under test is filled by the project's own crates (every test in this
+    // file passes with the switch on, so setting it for the process is safe).
+    std::env::set_var("MITTS_SHARE_WORKSPACE_CRATES", "1");
     let tmp = TempDir::new().unwrap();
     let proj = tmp.path().join("proj");
     let cache_dir = tmp.path().join("cache");
@@ -303,6 +306,8 @@ fn test_b3_nb3_fmt_discovers_only_target_roots_and_ignores_fixture_rs() {
 
 #[test]
 fn test_nb1_nb2_check_metadata_only_and_build_upgrade_plus_all_targets() {
+    // Looks at the shared store's `artifacts-meta`: the project's crates must go there.
+    std::env::set_var("MITTS_SHARE_WORKSPACE_CRATES", "1");
     let tmp = TempDir::new().unwrap();
     let proj = tmp.path().join("nb_proj");
     let cache_dir = tmp.path().join("cache");

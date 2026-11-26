@@ -39,6 +39,7 @@ exec "$rustc" "$@"
 
 fn build(root: &Path, temp: &Path, target: &str, salt: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .current_dir(root)
         .args(["build", "--offline", "--cache-dir"])
         .arg(temp.join("cache"))

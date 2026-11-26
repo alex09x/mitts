@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -63,6 +64,9 @@ pub struct ActionCache {
     root: PathBuf,
     tmp_dir: PathBuf,
     locks_dir: PathBuf,
+    /// Keys this process found or published (shared by clones): what a build used, so a
+    /// project's own store can drop the versions it no longer uses (`member_store`).
+    used: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 impl ActionCache {
@@ -95,6 +99,7 @@ impl ActionCache {
             root,
             tmp_dir,
             locks_dir,
+            used: Arc::default(),
         })
     }
 
@@ -112,6 +117,17 @@ impl ActionCache {
     /// Returns the root directory of this Action Cache.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The keys this process found ([`Self::get`]) or published ([`Self::put`]).
+    pub fn used_keys(&self) -> std::collections::HashSet<String> {
+        self.used.lock().map(|u| u.clone()).unwrap_or_default()
+    }
+
+    fn mark_used(&self, key: &str) {
+        if let Ok(mut used) = self.used.lock() {
+            used.insert(key.to_string());
+        }
     }
 
     /// Returns the directory used for single-flight action locks.
@@ -142,7 +158,7 @@ impl ActionCache {
             .with_context(|| format!("Failed to read AC entry from {:?}", path))?;
         let entry: ActionCacheEntry = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse AC entry from {:?}", path))?;
-
+        self.mark_used(action_key);
         Ok(Some(entry))
     }
 
@@ -229,7 +245,7 @@ impl ActionCache {
                 err
             );
         }
-
+        self.mark_used(&entry.action_key);
         Ok(())
     }
 

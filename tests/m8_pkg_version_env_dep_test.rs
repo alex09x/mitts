@@ -71,6 +71,7 @@ fn test_m8_pkg_version_env_dep_same_clone_and_cross_clone_hit() {
     let opt_a1 = RustBuildOptions {
         manifest_path: Some(clone_a.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         progress: Some(cb_a1),
         ..Default::default()
     };
@@ -105,6 +106,7 @@ fn test_m8_pkg_version_env_dep_same_clone_and_cross_clone_hit() {
     let opt_a2 = RustBuildOptions {
         manifest_path: Some(clone_a.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         progress: Some(cb_a2),
         ..Default::default()
     };
@@ -135,6 +137,7 @@ fn test_m8_pkg_version_env_dep_same_clone_and_cross_clone_hit() {
     let opt_b = RustBuildOptions {
         manifest_path: Some(clone_b.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         progress: Some(cb_b),
         ..Default::default()
     };
@@ -178,6 +181,7 @@ edition = "2021"
     let opt_b2 = RustBuildOptions {
         manifest_path: Some(clone_b.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         progress: Some(cb_b2),
         ..Default::default()
     };
@@ -244,6 +248,7 @@ edition = "2021"
     let opt1 = RustBuildOptions {
         manifest_path: Some(root.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (_, res1) = RustAdapter::build_native(&opt1).expect("Build 1 failed");
@@ -258,6 +263,7 @@ edition = "2021"
     let opt2 = RustBuildOptions {
         manifest_path: Some(root.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (_, res2) = RustAdapter::build_native(&opt2).expect("Build 2 failed");
@@ -275,6 +281,7 @@ edition = "2021"
     let opt3 = RustBuildOptions {
         manifest_path: Some(root.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (_, res3) = RustAdapter::build_native(&opt3).expect("Build 3 failed");

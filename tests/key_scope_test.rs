@@ -39,6 +39,7 @@ fn build_clone(cache: &Path, files: &[(&str, &str)]) -> (bool, String) {
     let opt = RustBuildOptions {
         manifest_path: Some(clone.path().join("Cargo.toml")),
         cache_dir: Some(cache.to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (_, res) = RustAdapter::build_native(&opt).expect("build failed");

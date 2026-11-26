@@ -48,6 +48,7 @@ fn project() -> TempDir {
 fn check(dir: &TempDir, env: &[(&str, &str)]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_mitts"));
     command
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .current_dir(dir.path())
         .arg("check")
         .arg("--cache-dir")

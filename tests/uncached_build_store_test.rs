@@ -55,6 +55,7 @@ impl Project {
 
     fn mitts(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_mitts"))
+            .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
             .current_dir(self.dir.path().join("app"))
             .args(args)
             .arg("--cache-dir")
