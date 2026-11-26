@@ -118,6 +118,34 @@ fn short_format_works_across_check_build_clippy_and_test() {
     );
 }
 
+/// A failed compile in human format: rustc's diagnostics, without the rustc command line
+/// (hundreds of characters with absolute paths) unless `-v` asks for it, as Cargo.
+#[test]
+fn a_failed_compile_shows_the_command_line_only_when_verbose() {
+    let tmp = TempDir::new().unwrap();
+    let cache = tmp.path().join("cache");
+    let proj = tmp.path().join("proj_fail");
+    write_crate(&proj, "pub fn bad() -> u8 { \"nope\" }\n");
+
+    let quiet = mitts(&proj, &cache, &["check"]);
+    let stderr = String::from_utf8_lossy(&quiet.stderr);
+    assert_eq!(quiet.status.code(), Some(101), "{stderr}");
+    assert!(stderr.contains("error[E0308]"), "{stderr}");
+    assert!(
+        !stderr.contains("Command:"),
+        "no command line by default:\n{stderr}"
+    );
+
+    let verbose = mitts(&proj, &cache, &["check", "-v"]);
+    let stderr = String::from_utf8_lossy(&verbose.stderr);
+    assert_eq!(verbose.status.code(), Some(101), "{stderr}");
+    assert!(stderr.contains("error[E0308]"), "{stderr}");
+    assert!(
+        stderr.contains("Command:") && stderr.contains("--crate-name"),
+        "with -v the failed rustc command line is shown:\n{stderr}"
+    );
+}
+
 #[test]
 fn cargo_json_variants_and_pipelined_build_test_emit_expected_streams() {
     let tmp = TempDir::new().unwrap();
