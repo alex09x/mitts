@@ -174,6 +174,22 @@ Cargo 配置中的 `[env]` 会应用到 rustc、build script 以及 `mitts run` 
 
 在没有 `Cargo.lock` 的情况下，Mitts 会按照 Cargo 的方式进行解析：每个约束采用未撤回（non-yanked）的最高版本，特性沿边传递，可选依赖项仅在特性开启时包含，每个兼容范围对应一个版本。生成的结果是 Cargo 完全认可的 lockfile。
 
+### GitHub Actions
+
+本仓库同时也是一个 GitHub Action，**Setup Mitts**：它安装经过校验的 Mitts 发布版本（归档会与发布的 SHA-256 校验和比对），并恢复 Mitts 的构建缓存；`alex09x/mitts/save` 在 job 结束时清理并保存缓存。支持 Linux x86-64 和 ARM64、Apple Silicon 上的 macOS、Windows x86-64。
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+输入、输出、缓存键和限制：[docs/github-action.md](../docs/github-action.md)。
+
 <a id="how-it-works"></a>
 ## 工作原理
 

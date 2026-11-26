@@ -239,6 +239,25 @@ non-yanked version per requirement, features flowing along the edges, an
 optional dependency included only when a feature turns it on, one version per
 compatibility range. The result is a lockfile Cargo accepts as its own.
 
+### GitHub Actions
+
+This repository is also a GitHub Action, **Setup Mitts**: it installs a verified
+Mitts release (the archive is checked against the published SHA-256 sums) and
+restores Mitts' build cache; `alex09x/mitts/save` prunes and saves it at the end
+of the job. Linux x86-64 and ARM64, macOS on Apple Silicon, Windows x86-64.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+Inputs, outputs, the cache key and limits: [docs/github-action.md](docs/github-action.md).
+
 ## How it works
 
 ```
