@@ -417,11 +417,9 @@ impl CrateFetcher {
         let base_url = Self::resolve_base_url();
 
         let total_missing = to_fetch.len();
-        let dl_threads = total_missing.min(64);
-        let cpu_cores = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(8);
-        let unpack_threads = total_missing.min(cpu_cores.clamp(4, 32));
+        // Sized to the open-file limit: each worker and each waiting job holds descriptors.
+        let workers = super::fetch_workers::FetchWorkers::for_process(total_missing);
+        let (dl_threads, unpack_threads) = (workers.downloads, workers.unpacks);
 
         let next_idx = AtomicUsize::new(0);
         let fetched_count = AtomicUsize::new(0);
@@ -430,7 +428,8 @@ impl CrateFetcher {
         let deferred = Mutex::new(Vec::<CargoLockPackage>::new());
         let first_error = Mutex::new(None::<anyhow::Error>);
 
-        let (tx, rx) = mpsc::channel::<UnpackJob>();
+        // Bounded: a download waits instead of piling up lock files ahead of the unpackers.
+        let (tx, rx) = mpsc::sync_channel::<UnpackJob>(workers.queued);
         let shared_rx = Arc::new(Mutex::new(rx));
 
         std::thread::scope(|s| {
@@ -545,7 +544,7 @@ impl CrateFetcher {
         opt: &FetchOptions,
         lookup: &RegistryLookup,
         base_url: &str,
-        tx: &mpsc::Sender<UnpackJob>,
+        tx: &mpsc::SyncSender<UnpackJob>,
     ) -> Result<Option<bool>> {
         let src = pkg.source.as_deref().unwrap_or(CRATES_IO_LOCK_SOURCE);
         if !Self::is_crates_io_registry_source(src)
