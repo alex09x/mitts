@@ -197,6 +197,22 @@ mitts search | info | login | logout | owner | yank | report | version
 
 وفي حال عدم وجود ملف `Cargo.lock`، يقوم Mitts بحل التبعيات بنفس طريقة Cargo: اختيار أعلى إصدار غير ملغى لكل متطلب، مع سريان الميزات عبر حواف المخطط، وتضمين التبعيات الاختيارية فقط عند تفعيل الميزة لها، وإصدار واحد لكل نطاق توافق. وتكون النتيجة ملف قفل يقبله Cargo كملف خاص به تماماً.
 
+### GitHub Actions
+
+هذا المستودع هو أيضاً GitHub Action باسم **Setup Mitts**: يثبّت إصداراً موثّقاً من Mitts (يُطابَق الأرشيف مع مجاميع SHA-256 المنشورة) ويستعيد ذاكرة البناء المؤقتة الخاصة بـ Mitts؛ ويقوم `alex09x/mitts/save` بتقليمها وحفظها في نهاية الـ job. يدعم Linux x86-64 و ARM64، و macOS على Apple Silicon، و Windows x86-64.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+المدخلات والمخرجات ومفتاح الذاكرة المؤقتة والقيود: [docs/github-action.md](../docs/github-action.md).
+
 <a id="how-it-works"></a>
 ## كيف يعمل
 

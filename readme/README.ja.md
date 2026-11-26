@@ -178,6 +178,22 @@ Cargo設定内の `[env]` は、Cargoの `force` および `relative` ルール�
 
 `Cargo.lock` が存在しない場合、MittsはCargoと同じ方法で解決します：要求ごとにヤンクされていない最高バージョンを選択し、エッジに沿ってフィーチャーを伝播させ、フィーチャーによって有効化された場合のみオプショナルな依存関係を含め、互換性のある範囲ごとに1つのバージョンを選択します。結果として生成されるロックファイルは、Cargoが自身のものとして受け入れ可能なものになります。
 
+### GitHub Actions
+
+このリポジトリは GitHub Action **Setup Mitts** でもあります。検証済みの Mitts リリースをインストールし（アーカイブは公開された SHA-256 チェックサムと照合されます）、Mitts のビルドキャッシュを復元します。`alex09x/mitts/save` はジョブの最後にキャッシュを整理して保存します。対応: Linux x86-64 と ARM64、Apple Silicon の macOS、Windows x86-64。
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+入力、出力、キャッシュキー、制限: [docs/github-action.md](../docs/github-action.md)。
+
 <a id="how-it-works"></a>
 ## 仕組み
 

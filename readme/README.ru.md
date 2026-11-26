@@ -241,6 +241,22 @@ Git-зависимости, публичные или приватные, кло
 включение опциональной зависимости только тогда, когда фича активирует ее, одна версия на
 диапазон совместимости. В результате получается локфайл, который Cargo принимает как свой собственный.
 
+### GitHub Actions
+
+Этот репозиторий — ещё и GitHub Action, **Setup Mitts**: он ставит проверенный релиз Mitts (архив сверяется с опубликованными суммами SHA-256) и восстанавливает кэш сборки Mitts; `alex09x/mitts/save` в конце job чистит и сохраняет его. Linux x86-64 и ARM64, macOS на Apple Silicon, Windows x86-64.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+Входы, выходы, ключ кэша и ограничения: [docs/github-action.md](../docs/github-action.md).
+
 <a id="how-it-works"></a>
 ## Как это работает
 

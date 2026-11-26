@@ -240,6 +240,22 @@ nicht zurückgezogene Version pro Anforderung, Features fließen entlang der Kan
 optionale Abhängigkeit wird nur einbezogen, wenn ein Feature sie aktiviert, eine Version pro
 Kompatibilitätsbereich. Das Ergebnis ist eine Lock-Datei, die Cargo als seine eigene akzeptiert.
 
+### GitHub Actions
+
+Dieses Repository ist auch eine GitHub Action, **Setup Mitts**: Sie installiert ein verifiziertes Mitts-Release (das Archiv wird gegen die veröffentlichten SHA-256-Summen geprüft) und stellt den Build-Cache von Mitts wieder her; `alex09x/mitts/save` bereinigt und speichert ihn am Ende des Jobs. Linux x86-64 und ARM64, macOS auf Apple Silicon, Windows x86-64.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+Eingaben, Ausgaben, Cache-Schlüssel und Grenzen: [docs/github-action.md](../docs/github-action.md).
+
 <a id="how-it-works"></a>
 ## Funktionsweise
 

@@ -175,6 +175,22 @@ Cargo 설정의 `[env]`는 rustc, 빌드 스크립트, 그리고 `mitts run` 및
 
 `Cargo.lock`이 없는 경우, Mitts는 Cargo와 동일한 방식으로 의존성을 해석합니다: 요구 사항당 제외(yank)되지 않은 가장 높은 버전 선택, 에지를 따라 흐르는 기능 플래그, 기능이 활성화할 때만 포함되는 선택적 종속성, 호환성 범위당 하나의 버전. 그 결과 Cargo가 자체 생성한 것으로 인식하는 lockfile이 생성됩니다.
 
+### GitHub Actions
+
+이 저장소는 GitHub Action **Setup Mitts**이기도 합니다. 검증된 Mitts 릴리스를 설치하고(아카이브는 게시된 SHA-256 체크섬과 대조됩니다) Mitts 빌드 캐시를 복원합니다. `alex09x/mitts/save`는 job이 끝날 때 캐시를 정리하고 저장합니다. Linux x86-64 및 ARM64, Apple Silicon의 macOS, Windows x86-64를 지원합니다.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - uses: alex09x/mitts@v0.5.6
+  - run: mitts test
+  - uses: alex09x/mitts/save@v0.5.6
+    if: always()
+```
+
+입력, 출력, 캐시 키와 제한 사항: [docs/github-action.md](../docs/github-action.md).
+
 <a id="how-it-works"></a>
 ## 작동 방식
 
