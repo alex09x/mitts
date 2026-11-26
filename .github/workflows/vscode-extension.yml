@@ -168,9 +168,33 @@ jobs:
   # short-lived one, so no token is stored. Needs, once, by the owner on open-vsx.org: the
   # `alex09x` namespace, and this repository, file and `open-vsx` environment registered
   # as its trusted publisher. The environment requires the owner's approval.
-  publish-open-vsx:
+  # A job that names a missing environment makes GitHub create it with no protection, and
+  # the job would publish unapproved. So Open VSX is published only once the owner has
+  # created `open-vsx` with a required reviewer; until then it is skipped, with a notice.
+  open-vsx-ready:
     if: github.event_name == 'workflow_dispatch'
-    needs: [package, os]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.env.outputs.ready }}
+    steps:
+      - id: env
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          reviewers=$(gh api "repos/$GITHUB_REPOSITORY/environments/open-vsx" \
+            --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length' 2>/dev/null) || reviewers=0
+          case "$reviewers" in ''|*[!0-9]*) reviewers=0 ;; esac
+          if [ "$reviewers" -gt 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Open VSX skipped: environment open-vsx with a required reviewer does not exist"
+          fi
+
+  publish-open-vsx:
+    if: github.event_name == 'workflow_dispatch' && needs.open-vsx-ready.outputs.ready == 'true'
+    needs: [package, os, open-vsx-ready]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: open-vsx
