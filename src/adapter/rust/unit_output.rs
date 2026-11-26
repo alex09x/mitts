@@ -64,8 +64,9 @@ fn take_future_incompat(unit: &PlannedCompilationUnit, raw: &str, fmt: Diagnosti
 }
 
 /// Records `raw` as compiler output of `unit` and reports it to the progress callback.
-/// `failed_command` is the command line of a failed unit; it prefixes human text so the
-/// failing invocation is visible, and is left out of JSON and short modes.
+/// `failed_command` is the command line of a failed unit; with `-v`, as Cargo shows the
+/// process that failed, it prefixes human text. Left out by default (Cargo prints only
+/// rustc's diagnostics then) and in JSON and short modes.
 pub fn publish(
     ctx: &ExecutionContext,
     unit: &PlannedCompilationUnit,
@@ -87,7 +88,9 @@ pub fn publish(
     if let Some(ref callback) = ctx.opt.progress {
         let fmt = ctx.opt.effective_diagnostic_format();
         let message = match failed_command {
-            Some(command) if fmt == DiagnosticFormat::Human => {
+            Some(command)
+                if fmt == DiagnosticFormat::Human && crate::core::verbosity::level() >= 1 =>
+            {
                 format!("Command: {command}\n{shown}")
             }
             _ => shown,
