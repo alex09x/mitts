@@ -1,7 +1,10 @@
 # Changelog
 
-## 0.1.1
+## 0.5.7
 
+- The extension's version is now the Mitts release it ships with: it is published with
+  every Mitts release, under the same number. 0.1.1 was never published; its changes are
+  in this version.
 - **Install Mitts** works on Windows: it runs the PowerShell installer (from PowerShell,
   pwsh and cmd terminals). 0.1.0 said Mitts does not support Windows, which it does since
   Mitts 0.5.0.
