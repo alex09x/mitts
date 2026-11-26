@@ -249,9 +249,9 @@ Git-зависимости, публичные или приватные, кло
 steps:
   - uses: actions/checkout@v4
   - uses: dtolnay/rust-toolchain@stable
-  - uses: alex09x/mitts@v0.5.6
+  - uses: alex09x/mitts@v0.5.7
   - run: mitts test
-  - uses: alex09x/mitts/save@v0.5.6
+  - uses: alex09x/mitts/save@v0.5.7
     if: always()
 ```
 
@@ -529,17 +529,17 @@ Mitts использует те же стандартные пути вывод�
 
 ## Цитирование
 
-Чтобы сослаться на Mitts, используйте архивированный релиз. Концептуальный DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) всегда ведёт к последней версии; DOI версии 0.5.6 — [10.5281/zenodo.24541326](https://doi.org/10.5281/zenodo.24541326). Кнопка GitHub «Cite this repository» читает [CITATION.cff](../CITATION.cff).
+Чтобы сослаться на Mitts, используйте архивированный релиз. Концептуальный DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) всегда ведёт к последней версии; DOI версии 0.5.7 — [10.5281/zenodo.24552774](https://doi.org/10.5281/zenodo.24552774). Кнопка GitHub «Cite this repository» читает [CITATION.cff](../CITATION.cff).
 
 ```bibtex
-@software{panasenko_2026_24541326,
+@software{panasenko_2026_24552774,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.6},
-  doi       = {10.5281/zenodo.24541326},
-  url       = {https://doi.org/10.5281/zenodo.24541326}
+  version   = {0.5.7},
+  doi       = {10.5281/zenodo.24552774},
+  url       = {https://doi.org/10.5281/zenodo.24552774}
 }
 ```
 
