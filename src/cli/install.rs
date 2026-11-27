@@ -26,6 +26,9 @@ pub struct InstallArgs {
     #[arg(value_name = "CRATE")]
     pub crates: Vec<String>,
 
+    #[command(flatten)]
+    pub flags: super::build_flags::BuildFlags,
+
     /// Specify a version to install
     #[arg(long = "version", visible_alias = "vers", value_name = "VERSION")]
     pub version: Option<String>,

@@ -27,7 +27,7 @@ use std::ffi::OsString;
 const BUILTIN_ALIASES: [(&str, &str); 4] =
     [("b", "build"), ("c", "check"), ("t", "test"), ("r", "run")];
 /// Global options that take their value as the next word.
-const GLOBAL_WITH_VALUE: [&str; 3] = ["--color", "--slow-units", "-Z"];
+const GLOBAL_WITH_VALUE: [&str; 2] = ["--color", "-Z"];
 
 /// The index of the subcommand word, after `argv[0]` and global options.
 fn subcommand_index(args: &[OsString]) -> Option<usize> {

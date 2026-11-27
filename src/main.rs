@@ -63,12 +63,14 @@ fn main() -> ExitCode {
     let cli = Cli::parse_from(args);
     mitts::cli::color::apply(mitts::cli::color::ColorWhen::resolve(cli.color));
     mitts::core::verbosity::set(cli.command.verbose());
-    mitts::adapter::rust::rust_version::set_ignored(cli.ignore_rust_version);
+    // `--timings`, `--slow-units`, ...: options of the commands that compile.
+    let flags = cli.command.build_flags().cloned().unwrap_or_default();
+    mitts::adapter::rust::rust_version::set_ignored(cli.command.ignore_rust_version());
     if std::env::var("MITTS_LINK_TIMING").as_deref() != Ok("0") {
         mitts::adapter::rust::link_timing::enable();
     }
     if let Err(error) = mitts::core::slow_units::configure(
-        cli.slow_units.as_deref(),
+        flags.slow_units.as_deref(),
         std::env::var("MITTS_SLOW_UNITS").ok().as_deref(),
     ) {
         eprintln!("error: {error:#}");
@@ -90,7 +92,7 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(101);
     }
-    if let Some(value) = &cli.timings {
+    if let Some(value) = &flags.timings {
         match mitts::core::unit_timings::parse_formats(value) {
             Ok(formats) => mitts::core::unit_timings::enable(formats),
             Err(error) => {
@@ -145,7 +147,7 @@ fn main() -> ExitCode {
         Commands::External(ref args) => mitts::cli::external::run(args),
     };
     if cli.command.cache_use().is_some() {
-        mitts::cli::future_incompat::report_after_build(cli.future_incompat_report);
+        mitts::cli::future_incompat::report_after_build(flags.future_incompat_report);
     }
 
     mitts::adapter::rust::cargo_config_cli::cleanup();

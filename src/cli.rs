@@ -27,25 +27,9 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "WHEN")]
     pub color: Option<color::ColorWhen>,
 
-    /// Write a per-unit timing report to target/cargo-timings (html by default; html,json)
-    #[arg(long, global = true, value_name = "FMTS", num_args = 0..=1, require_equals = true, default_missing_value = "html")]
-    pub timings: Option<String>,
-
-    /// Report every compiler or build-script process still running after DURATION (30s, 10m, 1h; off = never; default 5m)
-    #[arg(long, global = true, value_name = "DURATION")]
-    pub slow_units: Option<String>,
-
     /// Unstable Cargo flags: `-Z unstable-options` is accepted; rustc's -Z flags go in RUSTFLAGS
     #[arg(short = 'Z', global = true, value_name = "FLAG", action = clap::ArgAction::Append)]
     pub unstable: Vec<String>,
-
-    /// Build even when a package's `rust-version` is newer than the rustc in use
-    #[arg(long, global = true)]
-    pub ignore_rust_version: bool,
-
-    /// Print a report of future-incompatibility warnings at the end of the build
-    #[arg(long, global = true)]
-    pub future_incompat_report: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -277,6 +261,35 @@ pub struct CleanArgs {
 }
 
 impl Commands {
+    /// The options of a command that compiles (`--timings`, `--slow-units`, ...); `None` for
+    /// the others, which do not take them.
+    pub fn build_flags(&self) -> Option<&build_flags::BuildFlags> {
+        Some(match self {
+            Commands::Build(args) | Commands::Rustc(args) => &args.flags,
+            Commands::Check(args) => &args.flags,
+            Commands::Clippy(args) => &args.flags,
+            Commands::Test(args) => &args.flags,
+            Commands::Bench(args) => &args.flags,
+            Commands::Coverage(args) | Commands::LlvmCov(args) => &args.flags,
+            Commands::Run(args) => &args.build_args.flags,
+            Commands::Doc(args) | Commands::Rustdoc(args) => &args.flags,
+            Commands::Fix(args) => &args.flags,
+            Commands::Install(args) => &args.flags,
+            _ => return None,
+        })
+    }
+
+    /// `--ignore-rust-version`: an option of the commands that compile and of the ones that
+    /// resolve new lock entries (`update`, `generate-lockfile`, `add`), as in Cargo.
+    pub fn ignore_rust_version(&self) -> bool {
+        match self {
+            Commands::Update(args) => args.common.ignore_rust_version,
+            Commands::GenerateLockfile(args) => args.ignore_rust_version,
+            Commands::Add(args) => args.ignore_rust_version,
+            _ => self.build_flags().is_some_and(|f| f.ignore_rust_version),
+        }
+    }
+
     /// The `-j/--jobs` value, for the commands that take one and when it was given.
     pub fn jobs(&self) -> Option<usize> {
         let jobs = match self {
@@ -330,6 +343,9 @@ pub struct BuildArgs {
     /// Path to Cargo.toml
     #[arg(long)]
     pub manifest_path: Option<PathBuf>,
+
+    #[command(flatten)]
+    pub flags: build_flags::BuildFlags,
 
     /// Limit concurrent native build units (same as MITTS_JOBS; the flag wins)
     #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
@@ -649,6 +665,7 @@ pub struct GcArgs {
 pub mod argv_config;
 pub mod bench;
 pub mod build;
+pub mod build_flags;
 pub mod build_summary;
 pub mod check;
 pub mod clippy;

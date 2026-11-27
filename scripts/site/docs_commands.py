@@ -70,18 +70,11 @@ FLAG_NOTES = {
     "--ignore-filename-regex": "Drop files whose path matches this regular expression from every report and from the totals the threshold checks. Paths are workspace-relative, so <code>'(tests/|vendored/)'</code> works the same on every OS.",
 }
 
-# Notes for one command's option, used instead of FLAG_NOTES. Global options are accepted by every
-# command, including ones that compile nothing.
-_NO_COMPILE = "Global option, accepted here for consistency. This command compiles nothing, so it has no effect."
+# Notes for one command's option, used instead of FLAG_NOTES. `--timings`, `--slow-units`,
+# `--ignore-rust-version` and `--future-incompat-report` are options of the commands that compile
+# only, as in Cargo.
 COMMAND_FLAG_NOTES = {
     ("fmt", "--verbose"): "Passed on to rustfmt as <code>-v</code>.",
-    **{(cmd, flag): _NO_COMPILE
-       for cmd in ("fmt", "explain", "metadata", "fetch", "gc", "clean")
-       for flag in ("--slow-units", "--timings")},
-    **{(cmd, "--slow-units"): "Not passed on to the verification build, which runs as a separate <code>mitts build</code>. To get slow-unit reports from it, set <code>MITTS_SLOW_UNITS</code> instead; the child build inherits it."
-       for cmd in ("package", "publish")},
-    **{(cmd, "--timings"): "Not passed on to the verification build, so no timing report is written."
-       for cmd in ("package", "publish")},
     ("rustc", "--slow-units"): "<code>mitts rustc</code> runs quietly, so no slow-unit lines are printed.",
 }
 
