@@ -187,9 +187,9 @@ Cargo設定内の `[env]` は、Cargoの `force` および `relative` ルール�
 steps:
   - uses: actions/checkout@v4
   - uses: dtolnay/rust-toolchain@stable
-  - uses: alex09x/mitts@v0.5.7
+  - uses: alex09x/mitts@v0.5.8
   - run: mitts test
-  - uses: alex09x/mitts/save@v0.5.7
+  - uses: alex09x/mitts/save@v0.5.8
     if: always()
 ```
 
@@ -412,17 +412,17 @@ MittsはCargoと同じデフォルトの出力パスを使用します。共有�
 
 ## 引用
 
-Mitts を引用するには、アーカイブされたリリースを使用してください。コンセプト DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) は常に最新バージョンを指し、バージョン 0.5.7 のバージョン DOI は [10.5281/zenodo.24552774](https://doi.org/10.5281/zenodo.24552774) です。GitHub の「Cite this repository」は [CITATION.cff](../CITATION.cff) を読み取ります。
+Mitts を引用するには、アーカイブされたリリースを使用してください。コンセプト DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) は常に最新バージョンを指し、バージョン 0.5.8 のバージョン DOI は [10.5281/zenodo.24577059](https://doi.org/10.5281/zenodo.24577059) です。GitHub の「Cite this repository」は [CITATION.cff](../CITATION.cff) を読み取ります。
 
 ```bibtex
-@software{panasenko_2026_24552774,
+@software{panasenko_2026_24577059,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.7},
-  doi       = {10.5281/zenodo.24552774},
-  url       = {https://doi.org/10.5281/zenodo.24552774}
+  version   = {0.5.8},
+  doi       = {10.5281/zenodo.24577059},
+  url       = {https://doi.org/10.5281/zenodo.24577059}
 }
 ```
 
