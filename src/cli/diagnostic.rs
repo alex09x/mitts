@@ -127,12 +127,15 @@ fn parse_diagnostics(stderr: &str) -> Vec<(CompilerDiagnostic, Option<String>, O
                 } else {
                     (None, None, None)
                 };
-                // A source that cannot be read still has a location to show.
-                let msg = match &loc {
+                // A source that cannot be read still has a location to show, with rustc's
+                // help line (most errors have one) after it.
+                let (msg, help) = match &loc {
                     Some((file, line, col)) if span.is_none() => {
-                        format!("{file}:{line}:{col}: {msg}")
+                        let located = format!("{file}:{line}:{col}: {msg}");
+                        let help = help.map(|h| format!("{located}\n{h}"));
+                        (located, help)
                     }
-                    _ => msg,
+                    _ => (msg, help),
                 };
 
                 let diag = CompilerDiagnostic {
@@ -407,9 +410,14 @@ error[E0658]: use of unstable library feature rustc_private
             "Failed to compile arrayvec v0.7.6 [lib:arrayvec]"
         );
         assert_eq!(diag.code.as_deref(), Some("rustc::E0658"));
+        // The source cannot be read (no /tmp/test_dir/src/lib.rs): the location stays, before
+        // rustc's help line.
         assert_eq!(
             diag.help.as_deref(),
-            Some("add `#![feature(rustc_private)]` to the crate attributes to enable")
+            Some(
+                "src/lib.rs:10:1: use of unstable library feature rustc_private\n\
+                 add `#![feature(rustc_private)]` to the crate attributes to enable"
+            )
         );
         assert!(cmd.is_some());
         assert_eq!(cwd.as_deref(), Some("/tmp/test_dir"));
