@@ -674,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "mitts"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "anstream",
  "anyhow",
