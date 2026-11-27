@@ -56,7 +56,8 @@ def env_table():
 
 INTRO = """
 <section id="install"><h2>Install</h2>
-<p>Mitts is one binary for macOS (Apple Silicon) and Linux (x86_64 and aarch64). The installer downloads the release for your platform and verifies its checksum. If GitHub cannot be reached, or your platform has no prebuilt binary (Intel macOS, other architectures), and Cargo is installed, it builds the same version from crates.io instead; set <code>MITTS_NO_SOURCE_FALLBACK=1</code> to fail rather than compile. See the <a href="#environment">environment variables</a>.</p>""" + pre("curl -fsSL https://mittsbuild.com/install.sh | sh\nmitts --version") + """
+<p>Mitts is one binary for macOS (Apple Silicon), Linux (x86_64 and aarch64) and Windows (x86-64, MSVC). The installer downloads the release for your platform and verifies its checksum. If GitHub cannot be reached, or your platform has no prebuilt binary (Intel macOS, other architectures), and Cargo is installed, it builds the same version from crates.io instead; set <code>MITTS_NO_SOURCE_FALLBACK=1</code> to fail rather than compile. See the <a href="#environment">environment variables</a>.</p>""" + pre("curl -fsSL https://mittsbuild.com/install.sh | sh\nmitts --version") + """
+<p>On Windows, in PowerShell:</p>""" + pre("irm https://mittsbuild.com/install.ps1 | iex") + """
 <p>From source, or through crates.io, once you already have a Rust toolchain:</p>""" + pre("cargo install mitts --locked        # from crates.io\ncargo install --path .              # from a clone of the repository") + """
 <p>Mitts reads your existing <code>Cargo.toml</code> and <code>Cargo.lock</code>. There is nothing to configure and no second manifest. Outputs go to Cargo's usual <code>target/debug</code> and <code>target/release</code> (or the root chosen by <code>CARGO_TARGET_DIR</code> or <code>--target-dir</code>); Mitts keeps its own build lock and file index under <code>target/mitts/</code>.</p></section>
 
@@ -64,7 +65,7 @@ INTRO = """
 <ol class="steps">
 <li><b>Build.</b> From any Cargo workspace:""" + pre("cd your-workspace\nmitts build") + """The first build compiles and stores each unit. The progress line counts finished units and names the ones compiling right now with how long each has run; the summary at the end splits <i>compiled</i> from <i>cached</i> units.</li>
 <li><b>Build again.</b> Nothing changed, so Mitts returns almost immediately (the <a href="#fast-path">no-op fast path</a>).</li>
-<li><b>Make a second checkout and build it.</b>""" + pre("git worktree add ../your-workspace-2 HEAD\ncd ../your-workspace-2\nmitts build") + """Every dependency, and every crate of yours whose key is path-independent, is restored from the machine-wide store instead of compiled. See <a href="#worktrees">why a second checkout reuses everything</a>.</li>
+<li><b>Make a second checkout and build it.</b>""" + pre("git worktree add ../your-workspace-2 HEAD\ncd ../your-workspace-2\nmitts build") + """Every dependency is restored from the machine-wide store instead of compiled. Your own crates (workspace members and path dependencies) are compiled again in each checkout, unless <code>MITTS_SHARE_WORKSPACE_CRATES=1</code> is set. See <a href="#worktrees">what a second checkout reuses</a> and the <a href="../worktrees/">worktree guide</a>.</li>
 <li><b>Ask why.</b>""" + pre("mitts explain               # the plan and every unit's cache eligibility\nmitts explain --keys k.json  # each unit's action key, for diffing between commits") + """</li>
 <li><b>Run the tests, fast.</b>""" + pre("mitts test -c                # every test in its own process, all cores") + """</li>
 </ol></section>
@@ -156,4 +157,6 @@ def build(binary, version):
 %(out)s%(conf)s%(ci)s
 </article>
 </main>""" % {"side": side, "v": version, "intro": INTRO, "how": how_html, "cmds": by_group, "env": env_table(), "out": OUTPUT, "conf": CONFIG, "ci": CI.replace("{VERSION}", version)}
-    return page("Mitts documentation", "Install Mitts, understand the machine-wide build cache, and look up every command, option and environment variable.", body, 1, active="Docs")
+    return page("Mitts documentation: install, the build cache, every command",
+                "Install Mitts, understand the machine-wide build cache, and look up every command, option and environment variable.",
+                body, 1, active="Docs", path="docs/", kind="TechArticle")

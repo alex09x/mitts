@@ -5,7 +5,8 @@
 # Author: https://prod.codes/about/
 # Project: https://github.com/alex09x/mitts
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Generate site/docs/index.html and site/the-hundred/index.html, and fill the scoreboard block of site/index.html.
+"""Generate site/docs/, site/the-hundred/, site/worktrees/ and site/sitemap.xml, and fill the
+scoreboard and header blocks of site/index.html.
 
     python3 scripts/site/build.py [--mitts PATH] [--bench-dir DIR]
 
@@ -25,8 +26,16 @@ import aggregate  # noqa: E402
 import build_hundred  # noqa: E402
 import shell  # noqa: E402
 import build_docs  # noqa: E402
+import build_worktrees  # noqa: E402
 
 SITE = HERE.parent.parent / "site"
+PAGES = ["", "docs/", "worktrees/", "the-hundred/"]
+
+
+def sitemap():
+    urls = "".join("  <url><loc>%s%s</loc></url>\n" % (shell.SITE_URL, p) for p in PAGES)
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n%s</urlset>\n' % urls)
 
 
 def main():
@@ -43,14 +52,21 @@ def main():
     data = json.loads(data_file.read_text())
     (SITE / "the-hundred").mkdir(parents=True, exist_ok=True)
     (SITE / "the-hundred" / "index.html").write_text(build_hundred.build(data), encoding="utf-8")
+    (SITE / "worktrees").mkdir(parents=True, exist_ok=True)
+    (SITE / "worktrees" / "index.html").write_text(build_worktrees.build(), encoding="utf-8")
+    (SITE / "sitemap.xml").write_text(sitemap(), encoding="utf-8")
     home = SITE / "index.html"
     text = home.read_text(encoding="utf-8")
-    for name, block in (("hundred", build_hundred.home_block(data)), ("header", shell.header(0))):
+    home_meta = shell.meta("", "Mitts — a Rust build cache shared across git worktrees",
+                           "A Rust build system with a machine-wide, content-addressed cache: git worktrees and "
+                           "checkouts of a Cargo project reuse compiled dependencies instead of rebuilding them.").rstrip()
+    for name, block in (("hundred", build_hundred.home_block(data)), ("header", shell.header(0)),
+                        ("meta", home_meta)):
         start, end = "<!-- %s:start -->" % name, "<!-- %s:end -->" % name
         a, b = text.index(start) + len(start), text.index(end)
         text = text[:a] + "\n" + block + "\n  " + text[b:]
     home.write_text(text, encoding="utf-8")
-    print("wrote docs/index.html, the-hundred/index.html and the home scoreboard for mitts", version)
+    print("wrote docs/, the-hundred/, worktrees/, sitemap.xml and the home scoreboard for mitts", version)
 
 
 if __name__ == "__main__":

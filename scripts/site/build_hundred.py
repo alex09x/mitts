@@ -173,7 +173,7 @@ HEAD = """
 
 <section id="limits"><h2>What these numbers do and do not say</h2>
 <ul>
-<li><b>One version.</b> All three machines ran %(ver)s. Mitts has changed since; each series stands on its own and numbers from different versions are not compared.</li>
+<li><b>One version.</b> All three machines ran %(ver)s. Mitts has changed since; each series stands on its own and numbers from different versions are not compared. In this version Mitts also kept the projects&rsquo; own crates in the shared store; since 0.5.8 that takes <code>MITTS_SHARE_WORKSPACE_CRATES=1</code>, so a default build of a later version compiles them again in each worktree.</li>
 <li><b>Reuse is the point.</b> The swarm and second-worktree scenarios measure what a shared store buys when the same code is built many times. They are not the cost of a single first build, which the cold-build rows show.</li>
 <li><b>Totals favour big projects.</b> A sum is dominated by the slowest projects. The per-project chart and the median-project rows show the spread.</li>
 <li><b>Three repeats.</b> Medians of three runs are stable for these workloads but not a confidence interval. The quartiles are in the data.</li>
@@ -181,7 +181,7 @@ HEAD = """
 <li><b>No-op rebuild.</b> &ldquo;Build again, nothing changed&rdquo; is Mitts with its fast lock on, as a plain <code>mitts build</code> runs it. The harness passes an explicit <code>--cache-dir</code>, which turns the fast lock off; with it off the same step is still faster than Cargo, but only by four to five times (the figure is in the raw data as <code>noop_cache_dir_ms</code>).</li>
 <li><b>Memory.</b> Memory is the peak resident size of the heaviest compiler or linker process in a worktree, and its sum over the 12 worktrees. A detached <code>sccache</code> server is outside the measured processes.</li>
 <li><b>Disk figures.</b> Device bytes written are whole-device counters and compare tools within one run, not across machines.</li>
-<li><b>Not covered.</b> Windows, cross-compilation and a remote or team cache are not supported yet and not measured.</li>
+<li><b>Not covered.</b> Windows and cross-compilation (supported in later versions) and a remote or team cache (not supported yet) are not measured.</li>
 </ul></section>
 </main>
 <script src="../hundred.js"></script>
@@ -195,12 +195,13 @@ def home_block(data):
         <span class="num">&#9733;</span>
         <div>
           <h2 id="hundred-title">The Hundred: %(t)s less time, %(r)s fewer compiler runs.</h2>
-          <p>100 open-source Rust projects (%(counts)s measured), each built as 12 worktrees at once, on three machines. Plain Cargo against Cargo with sccache against Mitts: time, CPU, compiler runs and disk. Totals over every project measured, none dropped for variance.</p>
+          <p>Measured with Mitts %(ver)s. 100 open-source Rust projects (%(counts)s measured), each built as 12 worktrees at once, on three machines. Plain Cargo against Cargo with sccache against Mitts: time, CPU, compiler runs and disk. Totals over every project measured, none dropped for variance.</p>
         </div>
       </header>
       %(board)s
       <p class="more"><a class="button" href="the-hundred/">Method, every project and the other scenarios</a></p>
-    </section>""" % {"t": spread(data, "wall"), "r": spread(data, "runs"), "board": scoreboards(data), "counts": counts(data)}
+    </section>""" % {"t": spread(data, "wall"), "r": spread(data, "runs"), "board": scoreboards(data), "counts": counts(data),
+                     "ver": esc(data["platforms"][0]["mitts_version"].replace("mitts ", ""))}
 
 
 def build(data):
@@ -225,4 +226,4 @@ def build(data):
     }
     return page("The Hundred: Mitts against Cargo on 100 Rust projects",
                 "Mitts against plain Cargo and sccache on 100 Rust projects, three machines: time, CPU, compiler runs and disk for 12 worktrees at once.",
-                body, 1, active="The Hundred")
+                body, 1, active="The Hundred", path="the-hundred/")

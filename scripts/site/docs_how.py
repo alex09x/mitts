@@ -94,7 +94,8 @@ deps:      &lt;sorted (dependency unit, dependency action key) pairs&gt;</code><
 <dt>Dependencies</dt><dd>A unit's key contains its dependencies' <i>keys</i>, not their output bytes. A change anywhere below a unit therefore changes every key above it, and nothing else.</dd>
 <dt>Anything unknown</dt><dd>An input Mitts cannot account for makes the unit uncached or explicitly unsupported. It is never treated as unchanged.</dd>
 </dl>"""))
-    S.append(("worktrees", "Why a second checkout reuses everything", """
+    S.append(("worktrees", "What a second checkout reuses", """
+<p><b>Dependencies</b> (registry and git crates, their build-script runs and proc macros) are keyed without any path of yours, so a second clone or worktree restores them from the store. <b>Your own crates</b> (workspace members and path dependencies) change with every edit, so by default they are kept in a store inside each checkout's <code>target/</code>, one version each: a build with nothing changed restores them, an edit replaces them, <code>mitts clean</code> removes them, and a second checkout compiles them again. <code>MITTS_SHARE_WORKSPACE_CRATES=1</code> puts them in the machine-wide store too, under the rules below.</p>
 <p>An absolute path in a key would make every clone a miss. Mitts compiles workspace crates with <code>--remap-path-prefix=&lt;workspace_root&gt;/=</code>, so diagnostics, <code>file!()</code>, panic locations and debug info use relative paths such as <code>src/main.rs</code>. A unit that qualifies receives a <b>path-independent key</b> and hits across independent checkouts, clones and agent worktrees.</p>
 <p>A unit qualifies when it:</p>
 <ul>
@@ -174,8 +175,6 @@ deps:      &lt;sorted (dependency unit, dependency action key) pairs&gt;</code><
     S.append(("limits", "Not supported yet", """
 <ul>
 <li>A remote or team cache. The planned design is a second store tier over S3 or HTTP, written only by trusted CI.</li>
-<li>Cross-compilation beyond the host target.</li>
-<li>Windows (locks and the jobserver are POSIX-only today).</li>
 <li>Empty or omitted <code>workspace.members</code> means the root package only; path dependencies outside it must be listed. Wildcards in intermediate directories (<code>crates/*/sub</code>) and character-class globs fail closed.</li>
 </ul>"""))
     return S
