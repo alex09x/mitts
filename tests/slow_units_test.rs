@@ -196,7 +196,13 @@ fn the_threshold_decides_when_the_first_notice_comes() {
                 );
                 assert!(app[0].contains("--crate-name app"), "{threshold}: {stderr}");
                 assert!(!stderr.contains("after 1s"), "{threshold}: {stderr}");
-                assert!(stdout.contains("slowest: app app (bin) "), "{stdout}");
+                // Under qemu the proc macro's own compile can outlast the app, so only
+                // require that the app is among the slowest units, not first.
+                let slowest = stdout
+                    .lines()
+                    .find(|l| l.contains("slowest: "))
+                    .unwrap_or_else(|| panic!("no slowest line:\n{stdout}"));
+                assert!(slowest.contains("app app (bin) "), "{slowest}");
             }
             None => {
                 assert!(app.is_empty(), "{threshold}: {stderr}");
