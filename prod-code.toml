@@ -1,0 +1,4 @@
+# prod-code (remote builds and tests for agents): Rust checks of this repository run
+# through Mitts, never Cargo (AGENTS.md).
+[rust]
+runner = "mitts"
