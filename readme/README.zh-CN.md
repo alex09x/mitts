@@ -183,9 +183,9 @@ Cargo 配置中的 `[env]` 会应用到 rustc、build script 以及 `mitts run` 
 steps:
   - uses: actions/checkout@v4
   - uses: dtolnay/rust-toolchain@stable
-  - uses: alex09x/mitts@v0.5.7
+  - uses: alex09x/mitts@v0.5.8
   - run: mitts test
-  - uses: alex09x/mitts/save@v0.5.7
+  - uses: alex09x/mitts/save@v0.5.8
     if: always()
 ```
 
@@ -407,17 +407,17 @@ Mitts 使用与 Cargo 相同的默认输出路径。其共享工件存储保持�
 
 ## 引用
 
-引用 Mitts 时，请使用已归档的发布版本。概念 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) 始终指向最新版本；0.5.7 的版本 DOI 为 [10.5281/zenodo.24552774](https://doi.org/10.5281/zenodo.24552774)。GitHub 的「Cite this repository」会读取 [CITATION.cff](../CITATION.cff)。
+引用 Mitts 时，请使用已归档的发布版本。概念 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067) 始终指向最新版本；0.5.8 的版本 DOI 为 [10.5281/zenodo.24577059](https://doi.org/10.5281/zenodo.24577059)。GitHub 的「Cite this repository」会读取 [CITATION.cff](../CITATION.cff)。
 
 ```bibtex
-@software{panasenko_2026_24552774,
+@software{panasenko_2026_24577059,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.7},
-  doi       = {10.5281/zenodo.24552774},
-  url       = {https://doi.org/10.5281/zenodo.24552774}
+  version   = {0.5.8},
+  doi       = {10.5281/zenodo.24577059},
+  url       = {https://doi.org/10.5281/zenodo.24577059}
 }
 ```
 
