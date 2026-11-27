@@ -153,18 +153,25 @@ impl BuildScriptDirectives {
         vars
     }
 
-    /// Checks if this cached directive is still valid based on environment variables and file content hashes.
-    pub fn is_fresh(&self, pkg_dir: &Path) -> bool {
-        self.is_fresh_with_missing(pkg_dir, false)
+    /// Checks if this cached directive is still valid based on environment variables and file
+    /// content hashes. Variables are read as the script sees them: `[env]` of the Cargo
+    /// configs of `env_dir` (see `cargo_config::env_config_dir`), then the environment.
+    pub fn is_fresh(&self, pkg_dir: &Path, env_dir: &Path) -> bool {
+        self.is_fresh_with_missing(pkg_dir, env_dir, false)
     }
 
-    pub(crate) fn is_fresh_with_missing(&self, pkg_dir: &Path, allow_missing: bool) -> bool {
-        if !self.script_inputs_fresh(pkg_dir) {
+    pub(crate) fn is_fresh_with_missing(
+        &self,
+        pkg_dir: &Path,
+        env_dir: &Path,
+        allow_missing: bool,
+    ) -> bool {
+        if !self.script_inputs_fresh(pkg_dir, env_dir) {
             return false;
         }
         // Check rerun-if-env-changed
         for var in &self.rerun_if_env_changed {
-            let cur_val = std::env::var(var).ok();
+            let cur_val = super::cargo_config::config_env_lookup(env_dir, var);
             let cached_val = self.envs.get(var).cloned();
             if cur_val != cached_val {
                 return false;
@@ -210,10 +217,11 @@ impl BuildScriptDirectives {
         }
     }
 
-    fn script_inputs_fresh(&self, pkg_dir: &Path) -> bool {
+    fn script_inputs_fresh(&self, pkg_dir: &Path, env_dir: &Path) -> bool {
         self.script_inputs.iter().all(|(key, expected)| {
             if let Some(var) = key.strip_prefix("env:") {
-                let val = std::env::var(var).unwrap_or_else(|_| "__UNSET__".to_string());
+                let val = super::cargo_config::config_env_lookup(env_dir, var)
+                    .unwrap_or_else(|| "__UNSET__".to_string());
                 return Sha256::digest(val.as_bytes()) == *expected;
             }
             let path = if Path::new(key).is_absolute() {

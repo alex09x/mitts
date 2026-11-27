@@ -58,10 +58,12 @@ pub fn remap_out_dir(directives: &mut BuildScriptDirectives, from: &str, to: &st
     super::build_script_directives::rebase_out_dir(directives, Path::new(from), Path::new(to));
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn try_restore_build_script_cas(
     cas_artifacts_dir: Option<&Path>,
     build_key: &str,
     pkg_dir: &Path,
+    env_dir: &Path,
     pkg_toml: &CargoToml,
     profile_name: &str,
     clean_crate: &str,
@@ -96,7 +98,7 @@ pub fn try_restore_build_script_cas(
         }
         if let Ok(content) = fs::read_to_string(&meta_file) {
             if let Ok(mut directives) = toml::from_str::<BuildScriptDirectives>(&content) {
-                if directives.is_fresh(pkg_dir) {
+                if directives.is_fresh(pkg_dir, env_dir) {
                     touch_last_used_throttled(&entry_dir);
                     // An entry saved under another profile directory (`release` for a
                     // `--profile ci` that inherits it with the same settings) keeps OUT_DIR

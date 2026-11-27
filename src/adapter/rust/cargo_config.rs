@@ -371,6 +371,15 @@ pub fn load_cargo_config_env(start_dir: &Path) -> ConfigEnv {
     merged
 }
 
+/// The directory whose Cargo configs give a unit its `[env]`: the invocation's (the workspace
+/// being built, or the working directory inside it), for every unit, as under Cargo. A
+/// registry dependency's own directory, in the shared source store, has none of the
+/// project's configs: `[env] LIBSQLITE3_FLAGS` never reached libsqlite3-sys's build script.
+pub fn env_config_dir(unit: &super::types::PlannedCompilationUnit) -> PathBuf {
+    let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
+    resolve_config_start_dir(unit.workspace_root.as_deref().unwrap_or(pkg_dir))
+}
+
 /// A variable as a process spawned for `start_dir` would see it: `[env]` first, then the
 /// environment Mitts itself runs in.
 pub fn config_env_lookup(start_dir: &Path, var: &str) -> Option<String> {

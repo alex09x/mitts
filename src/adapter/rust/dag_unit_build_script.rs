@@ -107,6 +107,8 @@ pub(crate) fn run_build_script_if_needed<'a>(
         register_directives_in_ctx(unit, &directives, ctx);
         return Ok((Some(directives), None, None, None));
     }
+    // Where the script's `[env]` comes from, for the freshness checks below.
+    let env_dir = super::cargo_config::env_config_dir(unit);
 
     let extern_crates = super::dag_unit_externs::resolve_extern_crates_for_build_script(
         unit,
@@ -191,7 +193,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 })
             })
             .filter(|directives| {
-                directives.is_fresh_with_missing(pkg_dir, true)
+                directives.is_fresh_with_missing(pkg_dir, &env_dir, true)
                     && directives
                         .out_dir
                         .as_ref()
@@ -298,7 +300,7 @@ pub(crate) fn run_build_script_if_needed<'a>(
                 && d.out_dir
                     .as_ref()
                     .is_some_and(|out| out.starts_with(ctx.cas.root()) && out.is_dir())
-                && d.is_fresh_with_missing(pkg_dir, true)
+                && d.is_fresh_with_missing(pkg_dir, &env_dir, true)
             {
                 if let (Some(keys), Some(key), Ok(value)) =
                     (ctx.resolved_keys, session_key.as_ref(), toml::to_string(&d))
