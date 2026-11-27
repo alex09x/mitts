@@ -25,6 +25,10 @@ pub struct GenerateLockfileArgs {
     #[arg(long)]
     pub manifest_path: Option<PathBuf>,
 
+    /// Pick versions whatever their `rust-version` (resolver.incompatible-rust-versions = allow)
+    #[arg(long)]
+    pub ignore_rust_version: bool,
+
     /// Directory for the shared artifact and action cache
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,

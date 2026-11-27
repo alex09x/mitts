@@ -80,7 +80,9 @@ pub fn configure_build_script_run_cmd(
     extra_env: Option<&HashMap<String, String>>,
 ) -> Command {
     let mut run_cmd = Command::new(bin_path);
-    run_cmd.envs(super::cargo_config::load_cargo_config_env(pkg_dir));
+    run_cmd.envs(super::cargo_config::load_cargo_config_env(
+        &super::cargo_config::env_config_dir(unit),
+    ));
 
     let rustc_bin = super::compiler::resolve_rustc();
     if let Some(bin_dir) = rustc_bin.parent() {

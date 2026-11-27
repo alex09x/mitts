@@ -206,9 +206,13 @@ pub(super) fn register_directives_in_ctx(
 
     let pkg_dir = unit.manifest_path.parent().unwrap_or(Path::new("."));
     if let Some(env_map) = ctx.tracked_env_vars {
+        let env_dir = crate::adapter::rust::cargo_config::env_config_dir(unit);
         let mut guard = env_map.lock().unwrap();
         for var in &directives.rerun_if_env_changed {
-            guard.insert(var.clone(), std::env::var(var).ok());
+            guard.insert(
+                var.clone(),
+                crate::adapter::rust::cargo_config::config_env_lookup(&env_dir, var),
+            );
         }
     }
     if let Some(files_map) = ctx.tracked_extra_files {

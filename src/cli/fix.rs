@@ -25,6 +25,9 @@ pub struct FixArgs {
     #[arg(long)]
     pub broken_code: bool,
 
+    #[command(flatten)]
+    pub flags: super::build_flags::BuildFlags,
+
     /// Fix edition migration lints (moving to the next edition)
     #[arg(long)]
     pub edition: bool,

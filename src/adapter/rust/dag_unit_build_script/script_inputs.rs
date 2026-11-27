@@ -14,11 +14,13 @@ use std::path::Path;
 
 /// Reads the build script's dep-info: every source file its compilation read, keyed
 /// relative to the package when inside it, and every `env!` variable that mitts does
-/// not set itself (those are already part of the build key). `None` when any input
-/// cannot be resolved and hashed.
+/// not set itself (those are already part of the build key), as the compile saw it
+/// (`[env]` of `env_dir`'s configs, then the environment). `None` when any input cannot be
+/// resolved and hashed.
 pub fn collect_script_inputs(
     d_path: &Path,
     pkg_dir: &Path,
+    env_dir: &Path,
     extra_env: Option<&HashMap<String, String>>,
 ) -> Option<HashMap<String, String>> {
     let parsed = crate::adapter::rust::dep_info::parse_dep_info_full(d_path, None).ok()?;
@@ -39,7 +41,8 @@ pub fn collect_script_inputs(
         if var.starts_with("CARGO_") || extra_env.is_some_and(|e| e.contains_key(&var)) {
             continue;
         }
-        let val = std::env::var(&var).unwrap_or_else(|_| "__UNSET__".to_string());
+        let val = crate::adapter::rust::cargo_config::config_env_lookup(env_dir, &var)
+            .unwrap_or_else(|| "__UNSET__".to_string());
         inputs.insert(format!("env:{var}"), Sha256::digest(val.as_bytes()));
     }
     Some(inputs)

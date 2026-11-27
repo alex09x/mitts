@@ -50,12 +50,39 @@ fn test_is_fresh_with_missing_file() {
     dir.rerun_if_changed_hashes
         .insert("nonexistent_header.h".to_string(), "<missing>".to_string());
     let temp = tempfile::tempdir().unwrap();
-    assert!(!dir.is_fresh(temp.path()));
-    assert!(dir.is_fresh_with_missing(temp.path(), true));
+    assert!(!dir.is_fresh(temp.path(), temp.path()));
+    assert!(dir.is_fresh_with_missing(temp.path(), temp.path(), true));
 
     // If the file suddenly appears, freshness must become false
     fs::write(temp.path().join("nonexistent_header.h"), "now exists").unwrap();
-    assert!(!dir.is_fresh(temp.path()));
+    assert!(!dir.is_fresh(temp.path(), temp.path()));
+}
+
+/// A variable the script watches is read as the script sees it: `[env]` of the invocation's
+/// Cargo config counts, so a changed `[env]` value makes the cached run stale.
+#[test]
+fn a_watched_variable_from_config_env_makes_the_run_stale_when_it_changes() {
+    let var = "MITTS_TEST_WATCHED_CONFIG_ENV_9F3A";
+    std::env::remove_var(var);
+    let ws = tempfile::tempdir().unwrap();
+    fs::create_dir_all(ws.path().join(".cargo")).unwrap();
+    fs::write(
+        ws.path().join(".cargo/config.toml"),
+        format!("[env]\n{var} = \"-DONE\"\n"),
+    )
+    .unwrap();
+    let pkg = tempfile::tempdir().unwrap();
+    let mut dir = BuildScriptDirectives::default();
+    dir.rerun_if_env_changed.push(var.to_string());
+    dir.envs.insert(var.to_string(), "-DONE".to_string());
+    assert!(dir.is_fresh(pkg.path(), ws.path()), "same [env] value");
+    dir.envs.insert(var.to_string(), "-DOTHER".to_string());
+    assert!(!dir.is_fresh(pkg.path(), ws.path()), "another [env] value");
+    dir.envs.remove(var);
+    assert!(
+        !dir.is_fresh(pkg.path(), ws.path()),
+        "set in [env], unset in the run"
+    );
 }
 
 #[test]

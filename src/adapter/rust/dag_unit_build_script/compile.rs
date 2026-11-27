@@ -50,7 +50,7 @@ pub fn compile_build_script_binary(args: BuildScriptCompileArgs<'_>) -> Result<(
         compile_cmd.env("RUSTUP_TOOLCHAIN", tc);
     }
     compile_cmd.envs(crate::adapter::rust::cargo_config::load_cargo_config_env(
-        args.pkg_dir,
+        &config_dir,
     ));
     let s_str = args.staging_dir.to_string_lossy();
     let s_clean = s_str.trim_end_matches('/');

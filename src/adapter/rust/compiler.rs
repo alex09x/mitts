@@ -46,6 +46,7 @@ impl<'a> RustcInvocation<'a> {
             super::compiler_args::build_compiler_command(&self)?;
 
         let command_line = format!("{:?}", cmd);
+        let working_dir = cmd.get_current_dir().map(Path::to_path_buf);
         let verbosity = crate::core::verbosity::level();
         if verbosity >= 1 {
             eprintln!(
@@ -195,6 +196,7 @@ impl<'a> RustcInvocation<'a> {
             stdout,
             stderr,
             command_line,
+            working_dir,
             primary_output,
             metadata_output,
             link_time,

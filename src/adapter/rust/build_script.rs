@@ -98,6 +98,7 @@ pub(crate) fn try_restore_build_script_with_key(
         cas_artifacts_dir,
         &build_key,
         pkg_dir,
+        &super::cargo_config::env_config_dir(unit),
         &pkg_toml,
         profile_name,
         &clean_crate,
@@ -244,7 +245,9 @@ pub(crate) fn execute_build_script_with_key(
         },
     )?;
 
-    let script_inputs = collect_script_inputs(&bin_path.with_extension("d"), pkg_dir, extra_env);
+    let env_dir = super::cargo_config::env_config_dir(unit);
+    let script_inputs =
+        collect_script_inputs(&bin_path.with_extension("d"), pkg_dir, &env_dir, extra_env);
 
     let mut run_cmd = super::build_script_env::configure_build_script_run_cmd(
         &bin_path, pkg_dir, unit, &pkg_toml, &out_dir, &platform, release, features, extra_env,
@@ -294,8 +297,10 @@ pub(crate) fn execute_build_script_with_key(
     directives.out_dir = Some(out_dir.clone());
     directives.links = pkg_toml.package.as_ref().and_then(|p| p.links.clone());
 
+    // The values the script ran with: `[env]` of the invocation's configs, then the
+    // environment (hitmeup's `[env] LIBSQLITE3_FLAGS`, which libsqlite3-sys watches).
     for var in &directives.rerun_if_env_changed {
-        if let Ok(val) = std::env::var(var) {
+        if let Some(val) = super::cargo_config::config_env_lookup(&env_dir, var) {
             directives.envs.insert(var.clone(), val);
         }
     }

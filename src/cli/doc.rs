@@ -29,6 +29,9 @@ pub struct DocArgs {
     #[arg(long)]
     pub open: bool,
 
+    #[command(flatten)]
+    pub flags: super::build_flags::BuildFlags,
+
     /// Don't build documentation for dependencies
     #[arg(long)]
     pub no_deps: bool,

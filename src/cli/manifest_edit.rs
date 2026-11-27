@@ -25,6 +25,10 @@ pub struct AddArgs {
     #[arg(value_name = "DEP_ID", required_unless_present_any = ["path", "git"])]
     pub crates: Vec<String>,
 
+    /// Pick the version to add whatever its `rust-version`
+    #[arg(long)]
+    pub ignore_rust_version: bool,
+
     /// Mark the dependency as optional
     #[arg(long, conflicts_with = "no_optional")]
     pub optional: bool,

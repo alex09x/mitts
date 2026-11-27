@@ -411,10 +411,15 @@ pub(crate) fn execute_unit(
 
     if !output.success {
         let _ = fs::remove_dir_all(&staging_dir);
-        let pkg_dir = unit
-            .manifest_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
+        // Where rustc ran, which its `--> path:line:col` locations are relative to (the
+        // workspace root for a member): the package directory left the human report of a
+        // member's error without its location and snippet (#195).
+        let pkg_dir = output.working_dir.clone().unwrap_or_else(|| {
+            unit.manifest_path
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf()
+        });
         bail!(
             "rustc failed for unit '{}' (exit code {}):\n  command: {}\n  cwd: {}\n{}",
             unit.unit_id(),

@@ -71,6 +71,66 @@ fn every_stable_cargo_option_is_a_mitts_option() {
     assert!(missing.is_empty(), "Cargo options Mitts lacks: {missing:?}");
 }
 
+/// The options of a build are options of the commands that build, as in Cargo: `mitts fmt`,
+/// `mitts gc` or `mitts login` do not list `--timings` (they did when the options were
+/// global). `--slow-units` is Mitts' own and goes with `--timings`.
+#[test]
+fn build_options_are_options_of_the_commands_that_build_only() {
+    let data: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/cargo_stable_flags.json")).unwrap();
+    let mut commands: Vec<(String, Vec<String>)> = data["commands"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(c, flags)| {
+            let flags = flags.as_array().unwrap();
+            (
+                c.clone(),
+                flags
+                    .iter()
+                    .map(|f| f.as_str().unwrap().to_string())
+                    .collect(),
+            )
+        })
+        .collect();
+    // Mitts' own commands that compile and are not in Cargo's reference.
+    for own in ["clippy", "coverage", "llvm-cov"] {
+        let check = commands
+            .iter()
+            .find(|(c, _)| c == "check")
+            .unwrap()
+            .1
+            .clone();
+        commands.push((own.to_string(), check));
+    }
+    // And the ones that compile nothing.
+    for own in ["fmt", "explain", "gc"] {
+        commands.push((own.to_string(), Vec::new()));
+    }
+    let mut extra = Vec::new();
+    for (command, cargo_flags) in &commands {
+        let argv: Vec<&str> = command.split(' ').collect();
+        let text = help(&argv);
+        let has = |flag: &str| cargo_flags.iter().any(|f| f == flag);
+        let compiles = has("--timings");
+        for (flag, allowed) in [
+            ("--timings", compiles),
+            ("--slow-units", compiles),
+            // Mitts reports it after any build; Cargo lists it for build, check, rustc, test.
+            ("--future-incompat-report", compiles),
+            ("--ignore-rust-version", has("--ignore-rust-version")),
+        ] {
+            if !allowed && mentions(&text, flag) {
+                extra.push(format!("{command} {flag}"));
+            }
+        }
+    }
+    assert!(
+        extra.is_empty(),
+        "build options of commands that do not build: {extra:?}"
+    );
+}
+
 #[test]
 fn the_directory_option_goes_before_the_command() {
     let temp = tempfile::TempDir::new().unwrap();
