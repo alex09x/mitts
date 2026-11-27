@@ -141,8 +141,11 @@ jobs:
           - { os: ubuntu-22.04, shard: '2/4' }
           - { os: ubuntu-22.04, shard: '3/4' }
           - { os: ubuntu-22.04, shard: '4/4' }
-          - { os: macos-15, shard: '1/2' }
-          - { os: macos-15, shard: '2/2' }
+          # Two macOS shards took 44-60 minutes each and began to hit the timeout.
+          - { os: macos-15, shard: '1/4' }
+          - { os: macos-15, shard: '2/4' }
+          - { os: macos-15, shard: '3/4' }
+          - { os: macos-15, shard: '4/4' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
