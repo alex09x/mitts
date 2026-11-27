@@ -2,7 +2,7 @@
   "name": "mitts",
   "displayName": "Mitts Build",
   "description": "Build, check, test and lint Rust projects with Mitts, a Cargo-compatible build tool with a shared artifact cache.",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "publisher": "alex09x",
   "author": "Alexander Panasenko",
   "license": "(MIT OR Apache-2.0)",
