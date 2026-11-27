@@ -184,9 +184,9 @@ Cargo 설정의 `[env]`는 rustc, 빌드 스크립트, 그리고 `mitts run` 및
 steps:
   - uses: actions/checkout@v4
   - uses: dtolnay/rust-toolchain@stable
-  - uses: alex09x/mitts@v0.5.8
+  - uses: alex09x/mitts@v0.5.9
   - run: mitts test
-  - uses: alex09x/mitts/save@v0.5.8
+  - uses: alex09x/mitts/save@v0.5.9
     if: always()
 ```
 
@@ -409,17 +409,17 @@ Mitts는 Cargo와 동일한 기본 출력 경로를 사용합니다. 공유 아�
 
 ## 인용
 
-Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.5.8 버전의 DOI는 [10.5281/zenodo.24577059](https://doi.org/10.5281/zenodo.24577059)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
+Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개념 DOI [10.5281/zenodo.24030067](https://doi.org/10.5281/zenodo.24030067)는 항상 최신 버전을 가리키며, 0.5.9 버전의 DOI는 [10.5281/zenodo.24583535](https://doi.org/10.5281/zenodo.24583535)입니다. GitHub의 “Cite this repository”는 [CITATION.cff](../CITATION.cff)를 읽습니다.
 
 ```bibtex
-@software{panasenko_2026_24577059,
+@software{panasenko_2026_24583535,
   author    = {Panasenko, Alexander},
   title     = {Mitts Build — Rust-first build system with a machine-wide, content-addressed artifact cache},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.5.8},
-  doi       = {10.5281/zenodo.24577059},
-  url       = {https://doi.org/10.5281/zenodo.24577059}
+  version   = {0.5.9},
+  doi       = {10.5281/zenodo.24583535},
+  url       = {https://doi.org/10.5281/zenodo.24583535}
 }
 ```
 
