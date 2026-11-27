@@ -26,6 +26,9 @@ pub struct RustcOutput {
     pub stdout: String,
     pub stderr: String,
     pub command_line: String,
+    /// The directory rustc ran in: the paths in its diagnostics are relative to it (the
+    /// workspace root for a workspace member, as under Cargo).
+    pub working_dir: Option<PathBuf>,
     pub primary_output: Option<PathBuf>,
     pub metadata_output: Option<PathBuf>,
     /// Time spent in the linker, when link timing wrapped it (see `link_timing`).

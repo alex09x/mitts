@@ -122,10 +122,17 @@ fn parse_diagnostics(stderr: &str) -> Vec<(CompilerDiagnostic, Option<String>, O
             results.push((diag, cmd, cwd));
         } else {
             for (code, msg, loc, help) in entries {
-                let (src, span, label) = if let Some((file, line, col)) = loc {
-                    resolve_source_span(&file, line, col, cwd.as_deref())
+                let (src, span, label) = if let Some((file, line, col)) = &loc {
+                    resolve_source_span(file, *line, *col, cwd.as_deref())
                 } else {
                     (None, None, None)
+                };
+                // A source that cannot be read still has a location to show.
+                let msg = match &loc {
+                    Some((file, line, col)) if span.is_none() => {
+                        format!("{file}:{line}:{col}: {msg}")
+                    }
+                    _ => msg,
                 };
 
                 let diag = CompilerDiagnostic {
