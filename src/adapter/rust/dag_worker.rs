@@ -45,6 +45,8 @@ pub(crate) struct WorkerShared<'a> {
     pub deriver: &'a super::key::UnitKeyDeriver,
     /// Units whose compilation failed (after any metadata they may have signalled).
     pub failed_units: &'a Mutex<Vec<String>>,
+    /// The target's store for the project's own crates; `None` when they share the cache.
+    pub member_store: Option<&'a super::member_store::MemberStore>,
 }
 
 /// Every unit that depends on `unit_id`, directly or through other units.
@@ -114,6 +116,17 @@ pub(crate) fn run_worker_loop(shared: &WorkerShared<'_>, ctx: &ExecutionContext<
             .iter()
             .map(|(id, k)| (id.as_str(), k.as_str()))
             .collect();
+        let local_ctx;
+        let ctx = match shared
+            .member_store
+            .filter(|_| super::unit_inputs::is_mutable_unit(&unit))
+        {
+            Some(store) => {
+                local_ctx = ctx.with_store(&store.cas, &store.ac);
+                &local_ctx
+            }
+            None => ctx,
+        };
         let timing = crate::core::unit_timings::unit_started();
         let exec_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _cache_phase = crate::core::cache_phase::enter_unit();

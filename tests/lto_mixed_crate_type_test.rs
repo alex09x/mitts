@@ -72,6 +72,7 @@ fn build_release_lib(project: &Project, cache: &Path) -> (i32, bool) {
         // Cargo config (the rustc wrapper) is discovered from here, as the CLI does from cwd.
         start_dir: Some(project.dir.path().to_path_buf()),
         cache_dir: Some(cache.to_path_buf()),
+        share_workspace_crates: true,
         release: true,
         lib_only: true,
         ..Default::default()
@@ -84,6 +85,7 @@ fn build_release_lib(project: &Project, cache: &Path) -> (i32, bool) {
 /// wrapper) is discovered from the project.
 fn build_release_lib_with_cli(project: &Project, cache: &Path) -> std::process::Output {
     std::process::Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .current_dir(project.dir.path())
         .args(["build", "--release", "--lib", "--offline", "--cache-dir"])
         .arg(cache)

@@ -274,6 +274,7 @@ pub fn handle_test(args: &TestArgs) -> i32 {
         quiet: args.quiet,
         json_diagnostics: args.message_format.is_json(),
         diagnostic_format: args.message_format.diagnostic_format(),
+        share_workspace_crates: false,
     };
     crate::cli::manifest_discovery::select_workspace_member(&mut opt, args.workspace);
     if let Some(code) = crate::cli::profile_flag::apply_or_exit(&mut opt, args.profile.as_deref()) {

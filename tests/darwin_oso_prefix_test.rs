@@ -59,6 +59,8 @@ fn mitts_build(dir: &Path, cache: &Path) -> String {
         .arg("--cache-dir")
         .arg(cache)
         .env("CI", "true")
+        // Sharing the project's own binary across checkouts needs the shared store.
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .env_remove("MITTS_CACHE_DIR")
         .output()
         .expect("run mitts");

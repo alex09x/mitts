@@ -58,7 +58,9 @@
 Mitts plans the workspace itself and invokes `rustc` directly. Every
 compile action gets a key derived from all of its inputs. The output is stored
 once in a machine-wide immutable store and restored into every workspace that
-needs it, across projects, worktrees and branches.
+needs it, across projects, worktrees and branches. Your own crates (workspace
+members and path dependencies) change with every edit, so they are built into
+the project's `target/`, as with Cargo; the shared store holds the dependencies.
 
 If an input cannot be accounted for, the action is rebuilt, not guessed.
 
@@ -93,6 +95,11 @@ store safely.
 
 - **Reuse across workspaces.** One store per machine. A dependency compiled for
   one checkout is restored into the next one with the same inputs.
+- **Your own crates stay in `target/`.** Workspace members and path dependencies
+  are kept in a store inside the target directory with one version each: a build
+  with nothing changed restores them, an edit replaces them, `mitts clean` removes
+  them. `MITTS_SHARE_WORKSPACE_CRATES=1` puts them in the shared store too, so a
+  second worktree of the same commit reuses them.
 - **Complete keys.** Toolchain, target, profile, flags, features, source
   contents, dependency keys and tracked environment. Unknown inputs mean a
   rebuild.
@@ -364,7 +371,7 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 Crates that depend on a listed macro are keyed on every file in their package
 and on their absolute path: an edited template rebuilds them, and another
 checkout never reuses them. Every other macro is treated as pure, and its
-dependents are shared across worktrees. Name the crate you depend on; the
+dependents can be shared across worktrees (`MITTS_SHARE_WORKSPACE_CRATES=1`). Name the crate you depend on; the
 macro crate it pulls in (`sqlx-macros`) works too.
 
 ## Comparison
@@ -375,7 +382,7 @@ performance claim.
 | | Cargo | Cargo + sccache | Mitts |
 | --- | --- | --- | --- |
 | Reads `Cargo.toml` / `Cargo.lock` as is | yes | yes | yes |
-| Reuse across workspaces and worktrees | no (per `target/`) | yes, per `rustc` call | yes, per unit |
+| Reuse across workspaces and worktrees | no (per `target/`) | yes, per `rustc` call | yes, per unit (your own crates with `MITTS_SHARE_WORKSPACE_CRATES=1`) |
 | Key depends on the checkout path | — | yes, unless normalized | no for registry crates; for workspace crates only when not eligible |
 | Caches `bin`, test and `proc-macro` units | — | no | yes |
 | Caches build-script runs | no | no | yes |
@@ -394,8 +401,9 @@ Mitts is pre-release. Know these before you rely on it:
 - **Some units are never cached:** crates of type `cdylib`, `dylib` or
   `staticlib`, and crates whose `env!` reads cannot be tracked. They always
   build; they are reported by `mitts explain`.
-- **Workspace crates across checkouts.** Your own crates are reused across
-  worktrees only when their key can be made path-independent (no
+- **Workspace crates across checkouts.** Your own crates stay in each
+  checkout's `target/` unless `MITTS_SHARE_WORKSPACE_CRATES=1` is set. With it,
+  they are reused across worktrees only when their key can be made path-independent (no
   `CARGO_MANIFEST_DIR` reads, no build script, no declared impure proc macro).
   Otherwise the key includes the absolute path. On macOS the linker's debug
   stabs are written relative to the workspace (`-oso_prefix`), so linked
@@ -419,7 +427,7 @@ Mitts is pre-release. Know these before you rely on it:
 
 ## Performance
 
-Measured with Mitts `0.3.17` across **100 open-source Rust projects** on macOS (Apple M2 Ultra, APFS) and Linux ARM64 (XFS), and **90** on Linux x86_64 (AMD Ryzen 9 9950X, XFS), against plain `cargo` and `cargo` with `sccache` (`0.17.0`). Every reading is the median of 3 repeats with diagnostic, exit-code and test-result parity checked; all measured projects stay in the totals (`0`, `7` and `0` runs flagged noisy), and no figure exceeds the measurement: baselines are truncated and Mitts is rounded up ([ROADMAP M8](ROADMAP.md)). The full study, every project and the method are on [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/).
+Measured with Mitts `0.3.17` across **100 open-source Rust projects** on macOS (Apple M2 Ultra, APFS) and Linux ARM64 (XFS), and **90** on Linux x86_64 (AMD Ryzen 9 9950X, XFS), against plain `cargo` and `cargo` with `sccache` (`0.17.0`). Every reading is the median of 3 repeats with diagnostic, exit-code and test-result parity checked; all measured projects stay in the totals (`0`, `7` and `0` runs flagged noisy), and no figure exceeds the measurement: baselines are truncated and Mitts is rounded up ([ROADMAP M8](ROADMAP.md)). The full study, every project and the method are on [mittsbuild.com/the-hundred](https://mittsbuild.com/the-hundred/). Mitts then stored the projects' own crates in the shared store too; since 0.5.8 that takes `MITTS_SHARE_WORKSPACE_CRATES=1`.
 
 <p align="center">
   <picture>

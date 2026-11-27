@@ -215,6 +215,7 @@ fn test_b2_dep_links_metadata_and_link_search_subdir_remap_across_warm_build() {
         manifest_path: Some(ws.join("Cargo.toml")),
         native: true,
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (_, res1) = RustAdapter::build_native(&opt).unwrap();
@@ -580,6 +581,7 @@ fn test_r1_cross_clone_cache_hit_with_probe_dep_info_vs_impure_gen_rs_and_readon
         manifest_path: Some(app1.join("Cargo.toml")),
         native: true,
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         ..Default::default()
     })
     .unwrap();
@@ -620,6 +622,7 @@ fn test_r1_cross_clone_cache_hit_with_probe_dep_info_vs_impure_gen_rs_and_readon
         manifest_path: Some(app2.join("Cargo.toml")),
         native: true,
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         ..Default::default()
     })
     .unwrap();
@@ -637,6 +640,7 @@ fn test_r1_cross_clone_cache_hit_with_probe_dep_info_vs_impure_gen_rs_and_readon
         manifest_path: Some(app3.join("Cargo.toml")),
         native: true,
         cache_dir: Some(cache_dir_impure.clone()),
+        share_workspace_crates: true,
         ..Default::default()
     })
     .unwrap();
@@ -645,6 +649,7 @@ fn test_r1_cross_clone_cache_hit_with_probe_dep_info_vs_impure_gen_rs_and_readon
         manifest_path: Some(app4.join("Cargo.toml")),
         native: true,
         cache_dir: Some(cache_dir_impure.clone()),
+        share_workspace_crates: true,
         ..Default::default()
     })
     .unwrap();

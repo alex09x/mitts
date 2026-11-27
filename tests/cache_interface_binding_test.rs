@@ -26,6 +26,7 @@ fn write(root: &Path, rel: &str, body: &str) {
 
 fn build(root: &Path, cache: &Path, target: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mitts"))
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .current_dir(root)
         .args(["build", "--offline", "-p", "top", "--cache-dir"])
         .arg(cache)

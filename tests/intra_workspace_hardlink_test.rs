@@ -244,6 +244,7 @@ version = "0.1.0"
         manifest_path: Some(pkg_dir.join("Cargo.toml")),
         target_dir: Some(target_dir.clone()),
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         native: true,
         ..Default::default()
     };
@@ -475,6 +476,7 @@ version = "0.1.0"
         manifest_path: Some(pkg_dir.join("Cargo.toml")),
         target_dir: Some(target_dir.clone()),
         cache_dir: Some(cache_dir.clone()),
+        share_workspace_crates: true,
         native: true,
         ..Default::default()
     };

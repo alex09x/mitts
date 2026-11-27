@@ -162,6 +162,15 @@ fn is_collectable(rel: &Path) -> bool {
     }
 }
 
+/// Whether `name` is the debug info of the package's build script, which is compiled into
+/// the same staging directory as the unit (`<staging>/build_script_build`): it is not the
+/// unit's (an MSVC library entry kept `build_script_build.pdb`, a different file list for
+/// every version of the library).
+fn is_build_script_debuginfo(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
+    stem == "build_script_build" || stem.starts_with("build_script_build-")
+}
+
 /// Files of the staging directory's top level that hold split debug info, with their
 /// paths relative to it (a `.dSYM` bundle contributes every file inside it).
 fn staged_files(staging: &Path) -> Result<Vec<PathBuf>> {
@@ -169,6 +178,9 @@ fn staged_files(staging: &Path) -> Result<Vec<PathBuf>> {
     for entry in fs::read_dir(staging).with_context(|| format!("reading {}", staging.display()))? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().to_string();
+        if is_build_script_debuginfo(&name) {
+            continue;
+        }
         let kind = entry.file_type()?;
         if kind.is_file() && is_debuginfo_file(&name) {
             out.push(PathBuf::from(&name));
@@ -336,6 +348,28 @@ mod tests {
         assert_eq!(
             destination(Path::new("lib.dwp"), deps, None),
             deps.join("lib.dwp")
+        );
+    }
+
+    #[test]
+    fn the_build_scripts_debug_info_is_not_the_units() {
+        let staging = tempfile::tempdir().unwrap();
+        for name in [
+            "app.pdb",
+            "build_script_build.pdb",
+            "build_script_build-0123456789abcdef.dwp",
+        ] {
+            fs::write(staging.path().join(name), b"x").unwrap();
+        }
+        fs::create_dir_all(staging.path().join("build_script_build.dSYM/Contents")).unwrap();
+        fs::write(
+            staging.path().join("build_script_build.dSYM/Contents/x"),
+            b"x",
+        )
+        .unwrap();
+        assert_eq!(
+            staged_files(staging.path()).unwrap(),
+            vec![PathBuf::from("app.pdb")]
         );
     }
 

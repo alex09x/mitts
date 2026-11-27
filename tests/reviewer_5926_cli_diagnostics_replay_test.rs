@@ -67,6 +67,8 @@ fn run_mitts(
 ) -> (std::process::ExitStatus, String, String) {
     let bin_path = env!("CARGO_BIN_EXE_mitts");
     let mut cmd = Command::new(bin_path);
+    // A hit after the target is wiped needs the project's crates in the shared store.
+    cmd.env("MITTS_SHARE_WORKSPACE_CRATES", "1");
     cmd.arg(cmd_name);
     cmd.arg("--manifest-path").arg(&ws.manifest_path);
     cmd.arg("--cache-dir").arg(&ws.cache_path);
@@ -229,6 +231,7 @@ fn test_check_cli_single_diagnostic_replay_fast_lock_hit() {
     // Run 1: Cold check without --cache-dir (uses temp HOME cache, records build.lock)
     let output1 = Command::new(bin_path)
         .arg("check")
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .env("HOME", temp_home.path())
         .env_remove("MITTS_CACHE_DIR")
         .env_remove("XDG_CACHE_HOME")
@@ -243,6 +246,7 @@ fn test_check_cli_single_diagnostic_replay_fast_lock_hit() {
     // Run 2: Repeat check without --cache-dir -> Fast build lock HIT!
     let output2 = Command::new(bin_path)
         .arg("check")
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .env("HOME", temp_home.path())
         .env_remove("MITTS_CACHE_DIR")
         .env_remove("XDG_CACHE_HOME")
@@ -258,6 +262,7 @@ fn test_check_cli_single_diagnostic_replay_fast_lock_hit() {
     let _ = fs::remove_dir_all(ws.root_dir.path().join("target"));
     let output3 = Command::new(bin_path)
         .arg("check")
+        .env("MITTS_SHARE_WORKSPACE_CRATES", "1")
         .env("HOME", temp_home.path())
         .env_remove("MITTS_CACHE_DIR")
         .env_remove("XDG_CACHE_HOME")

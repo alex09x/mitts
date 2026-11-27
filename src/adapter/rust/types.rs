@@ -227,6 +227,9 @@ pub struct RustBuildOptions {
     /// `mitts test --examples`: every example is tested, `test = true` or not (with
     /// `--tests` / `--all-targets` alone only `test = true` examples are).
     pub test_all_examples: bool,
+    /// Store the project's own crates in the shared cache instead of the target's store
+    /// (`member_store`); `MITTS_SHARE_WORKSPACE_CRATES=1` sets it for every command.
+    pub share_workspace_crates: bool,
 }
 
 impl RustBuildOptions {

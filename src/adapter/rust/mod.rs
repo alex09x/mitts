@@ -73,6 +73,7 @@ pub mod manifest_models;
 pub mod manifest_snapshot;
 pub mod manifest_tests;
 pub mod manifest_workspace;
+pub mod member_store;
 pub mod net_retry;
 pub mod package_selection;
 pub mod patch_resolve;

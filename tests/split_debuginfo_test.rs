@@ -76,7 +76,8 @@ fn mitts_with(
     rustflags: Option<&str>,
 ) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
-    cmd.args(args)
+    cmd.env("MITTS_SHARE_WORKSPACE_CRATES", "1")
+        .args(args)
         .arg("--cache-dir")
         .arg(cache)
         .arg("--target-dir")
@@ -352,7 +353,8 @@ fn a_command_line_split_flag_does_not_change_a_dependency_key() {
 
     // The options go before `--`: everything after it is rustc's.
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mitts"));
-    cmd.args(["rustc", "--lib", "-vv", "--cache-dir"])
+    cmd.env("MITTS_SHARE_WORKSPACE_CRATES", "1")
+        .args(["rustc", "--lib", "-vv", "--cache-dir"])
         .arg(&cache)
         .arg("--target-dir")
         .arg(&target)

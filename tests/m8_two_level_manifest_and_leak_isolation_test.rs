@@ -61,6 +61,7 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     let opt_a = RustBuildOptions {
         manifest_path: Some(clone_a.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     std::env::set_var("MITTS_CACHE_DIR", cache_path);
@@ -82,6 +83,7 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     let opt_b = RustBuildOptions {
         manifest_path: Some(clone_b.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (plan_b, res_b) = RustAdapter::build(&opt_b).expect("Clone B build failed");
@@ -110,6 +112,7 @@ fn test_m8_cross_worktree_include_str_manifest_reuse_and_invalidation() {
     let opt_c = RustBuildOptions {
         manifest_path: Some(clone_c.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (plan_c, res_c) = RustAdapter::build(&opt_c).expect("Clone C build failed");
@@ -221,6 +224,7 @@ fn test_m8_ws_leak_isolation_across_clones_and_hit_in_same_clone() {
     let opt1 = RustBuildOptions {
         manifest_path: Some(clone1.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
 
@@ -258,6 +262,7 @@ fn test_m8_ws_leak_isolation_across_clones_and_hit_in_same_clone() {
     let opt2 = RustBuildOptions {
         manifest_path: Some(clone2.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let (_plan2, res2) = RustAdapter::build(&opt2).expect("Clone 2 build failed");

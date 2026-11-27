@@ -32,6 +32,7 @@ fn cold_warm_and_cross_worktree_builds_reuse_artifacts() {
     let options = RustBuildOptions {
         manifest_path: Some(first.join("Cargo.toml")),
         cache_dir: Some(cache.clone()),
+        share_workspace_crates: true,
         target_dir: Some(first.join("target")),
         native: true,
         ..Default::default()
@@ -45,6 +46,7 @@ fn cold_warm_and_cross_worktree_builds_reuse_artifacts() {
     let other = RustBuildOptions {
         manifest_path: Some(second.join("Cargo.toml")),
         cache_dir: Some(cache.clone()),
+        share_workspace_crates: true,
         target_dir: Some(second.join("target")),
         native: true,
         ..Default::default()

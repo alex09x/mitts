@@ -27,6 +27,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Objects used more recently than this are kept while a build holds the cache.
 pub const LEASE_GRACE: Duration = Duration::from_secs(2 * 3600);
+/// When keeping everything inside [`LEASE_GRACE`] would leave the cache over its limit,
+/// objects no target links to are pruned down to this age: the limit holds while builds
+/// run (a host that never stops building filled its disk past any limit). An object a
+/// running build stored this recently is still kept, so a build never loses what it is
+/// about to link; one pruned anyway is a cache miss later, not an error.
+pub const OVER_LIMIT_GRACE: Duration = Duration::from_secs(600);
 /// A cache hit refreshes the object's modification time when it is older than this.
 pub const TOUCH_INTERVAL: Duration = Duration::from_secs(3600);
 

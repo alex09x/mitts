@@ -51,6 +51,8 @@ fn main() {
         manifest_path: Some(ws.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
         target_dir: Some(ws.path().join("target")),
+        // Inspects the shared store's build-script entries.
+        share_workspace_crates: true,
         ..Default::default()
     };
 
@@ -226,6 +228,7 @@ fn main() {
         manifest_path: Some(ws.path().join("Cargo.toml")),
         cache_dir: Some(cache_dir.path().to_path_buf()),
         target_dir: Some(ws.path().join("target")),
+        share_workspace_crates: true,
         ..Default::default()
     };
     let expl = RustAdapter::explain_plan(&opt).unwrap();

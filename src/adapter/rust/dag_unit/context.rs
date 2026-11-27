@@ -48,3 +48,42 @@ pub struct ExecutionContext<'a> {
     pub tracked_extra_files: Option<&'a TrackedExtraFilesMap>,
     pub tracked_env_vars: Option<&'a TrackedEnvVarsMap>,
 }
+
+impl<'a> ExecutionContext<'a> {
+    /// The same build with another store: the project's own crates use the store of its
+    /// target directory (`member_store`).
+    pub fn with_store<'b>(
+        &'b self,
+        cas: &'b ContentAddressedStore,
+        ac: &'b ActionCache,
+    ) -> ExecutionContext<'b>
+    where
+        'a: 'b,
+    {
+        ExecutionContext {
+            opt: self.opt,
+            toolchain: self.toolchain,
+            target_dir: self.target_dir,
+            cas,
+            ac,
+            is_cache_enabled: self.is_cache_enabled,
+            completed_artifacts: self.completed_artifacts,
+            recorded_actions: self.recorded_actions,
+            compiler_messages: self.compiler_messages,
+            any_missed: self.any_missed,
+            dep_build_metadata: self.dep_build_metadata,
+            resolved_keys: self.resolved_keys,
+            jobserver: self.jobserver,
+            is_first_job: self.is_first_job,
+            on_metadata_ready: self.on_metadata_ready,
+            compiled_actions: self.compiled_actions,
+            cached_actions: self.cached_actions,
+            completed_cfgs: self.completed_cfgs,
+            completed_env: self.completed_env,
+            completed_link_args: self.completed_link_args,
+            target_index: self.target_index,
+            tracked_extra_files: self.tracked_extra_files,
+            tracked_env_vars: self.tracked_env_vars,
+        }
+    }
+}

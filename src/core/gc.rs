@@ -214,7 +214,8 @@ impl<'a> CacheGc<'a> {
             let superseded = eviction::superseded_executables(self.ac, |h| mtimes.get(h).copied());
             let (first, rest): (Vec<&CasObjectMeta>, Vec<&CasObjectMeta>) =
                 objects.iter().partition(|o| superseded.contains(&o.hash));
-            for obj in first.into_iter().chain(rest) {
+            let order: Vec<&CasObjectMeta> = first.into_iter().chain(rest).collect();
+            for obj in &order {
                 if total_bytes <= max_bytes {
                     break;
                 }
@@ -225,6 +226,30 @@ impl<'a> CacheGc<'a> {
                     pruned_hashes.insert(obj.hash.clone());
                     bytes_freed += freed;
                     total_bytes = total_bytes.saturating_sub(freed);
+                }
+            }
+            // Still over the limit while a build holds the cache: the grace window gives way
+            // to the limit (see `eviction::OVER_LIMIT_GRACE`); linked objects stay.
+            if has_active_lease && total_bytes > max_bytes {
+                for obj in &order {
+                    if total_bytes <= max_bytes {
+                        break;
+                    }
+                    let recent = now
+                        .duration_since(obj.mtime)
+                        .map_or(true, |age| age < eviction::OVER_LIMIT_GRACE);
+                    if pruned_hashes.contains(&obj.hash)
+                        || protected_hashes.contains(&obj.hash)
+                        || obj.linked
+                        || recent
+                    {
+                        continue;
+                    }
+                    if let Some(freed) = unlink(obj) {
+                        pruned_hashes.insert(obj.hash.clone());
+                        bytes_freed += freed;
+                        total_bytes = total_bytes.saturating_sub(freed);
+                    }
                 }
             }
         }
