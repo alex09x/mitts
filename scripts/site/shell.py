@@ -7,9 +7,46 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Page shell shared by the generated site pages."""
 import html
+import json
 
-NAV = [("Docs", "docs/"), ("How it works", "docs/#how-it-works"), ("The Hundred", "the-hundred/"),
-       ("GitHub", "https://github.com/alex09x/mitts")]
+NAV = [("Docs", "docs/"), ("Worktrees", "worktrees/"), ("How it works", "docs/#how-it-works"),
+       ("The Hundred", "the-hundred/"), ("GitHub", "https://github.com/alex09x/mitts")]
+
+SITE_URL = "https://mittsbuild.com/"
+REPO_URL = "https://github.com/alex09x/mitts"
+# The author's one identity across his sites: prod.codes/about defines this Person.
+AUTHOR = {"@type": "Person", "@id": "https://prod.codes/about/#person", "name": "Alexander Panasenko",
+          "url": "https://prod.codes/about/", "sameAs": ["https://github.com/alex09x"]}
+
+
+def software():
+    """The project as a JSON-LD SoftwareSourceCode node, referenced from every page."""
+    return {"@type": "SoftwareSourceCode", "@id": SITE_URL + "#software", "name": "Mitts Build",
+            "alternateName": "mitts", "url": SITE_URL, "codeRepository": REPO_URL,
+            "programmingLanguage": "Rust",
+            "license": ["https://spdx.org/licenses/MIT.html", "https://spdx.org/licenses/Apache-2.0.html"],
+            "description": "A Rust-first build system with a machine-wide, content-addressed artifact "
+                           "cache that reads existing Cargo.toml and Cargo.lock files.",
+            "author": AUTHOR}
+
+
+def meta(path, title, description, kind="WebPage"):
+    """Canonical URL, Open Graph tags and JSON-LD for the page at `path` (relative to the site root)."""
+    url = SITE_URL + path
+    node = {"@type": kind, "@id": url + "#page", "url": url, "name": title, "description": description,
+            "author": {"@id": AUTHOR["@id"]}, "about": {"@id": SITE_URL + "#software"}}
+    if kind == "TechArticle":
+        node["headline"] = title
+    ld = json.dumps({"@context": "https://schema.org", "@graph": [software(), node]}, ensure_ascii=False)
+    return """  <link rel="canonical" href="%(url)s">
+  <meta property="og:type" content="%(og)s">
+  <meta property="og:site_name" content="Mitts Build">
+  <meta property="og:title" content="%(title)s">
+  <meta property="og:description" content="%(desc)s">
+  <meta property="og:url" content="%(url)s">
+  <script type="application/ld+json">%(ld)s</script>
+""" % {"url": esc(url), "og": "website" if path == "" else "article", "title": esc(title),
+       "desc": esc(description), "ld": ld.replace("</", "<\\/")}
 
 
 def esc(s):
@@ -32,8 +69,9 @@ def header(depth, active=""):
   </header>""" % {"home": up or "./", "up": up, "nav": nav}
 
 
-def page(title, description, body, depth, extra_head="", active=""):
-    """Wrap `body` in the site shell. `depth` is the number of path segments below site/."""
+def page(title, description, body, depth, extra_head="", active="", path="", kind="WebPage"):
+    """Wrap `body` in the site shell. `depth` is the number of path segments below site/;
+    `path` is the page's URL below the site root, for its canonical link."""
     up = "../" * depth
     return """<!doctype html>
 <!--
@@ -51,8 +89,9 @@ def page(title, description, body, depth, extra_head="", active=""):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#121315">
   <meta name="description" content="%(desc)s">
+  <meta name="author" content="Alexander Panasenko">
   <title>%(title)s</title>
-  <link rel="icon" href="%(up)sfavicon.ico?v=3" sizes="any">
+%(meta)s  <link rel="icon" href="%(up)sfavicon.ico?v=3" sizes="any">
   <link rel="icon" href="%(up)slogo.svg?v=3" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -72,4 +111,4 @@ def page(title, description, body, depth, extra_head="", active=""):
 </body>
 </html>
 """ % {"title": esc(title), "desc": esc(description), "up": up, "header": header(depth, active),
-       "body": body, "extra": extra_head}
+       "body": body, "extra": extra_head, "meta": meta(path, title, description, kind)}

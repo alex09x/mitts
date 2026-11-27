@@ -14,7 +14,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#121315">
   <meta name="description" content="Mitts against plain Cargo and sccache on 100 Rust projects, three machines: time, CPU, compiler runs and disk for 12 worktrees at once.">
+  <meta name="author" content="Alexander Panasenko">
   <title>The Hundred: Mitts against Cargo on 100 Rust projects</title>
+  <link rel="canonical" href="https://mittsbuild.com/the-hundred/">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Mitts Build">
+  <meta property="og:title" content="The Hundred: Mitts against Cargo on 100 Rust projects">
+  <meta property="og:description" content="Mitts against plain Cargo and sccache on 100 Rust projects, three machines: time, CPU, compiler runs and disk for 12 worktrees at once.">
+  <meta property="og:url" content="https://mittsbuild.com/the-hundred/">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "SoftwareSourceCode", "@id": "https://mittsbuild.com/#software", "name": "Mitts Build", "alternateName": "mitts", "url": "https://mittsbuild.com/", "codeRepository": "https://github.com/alex09x/mitts", "programmingLanguage": "Rust", "license": ["https://spdx.org/licenses/MIT.html", "https://spdx.org/licenses/Apache-2.0.html"], "description": "A Rust-first build system with a machine-wide, content-addressed artifact cache that reads existing Cargo.toml and Cargo.lock files.", "author": {"@type": "Person", "@id": "https://prod.codes/about/#person", "name": "Alexander Panasenko", "url": "https://prod.codes/about/", "sameAs": ["https://github.com/alex09x"]}}, {"@type": "WebPage", "@id": "https://mittsbuild.com/the-hundred/#page", "url": "https://mittsbuild.com/the-hundred/", "name": "The Hundred: Mitts against Cargo on 100 Rust projects", "description": "Mitts against plain Cargo and sccache on 100 Rust projects, three machines: time, CPU, compiler runs and disk for 12 worktrees at once.", "author": {"@id": "https://prod.codes/about/#person"}, "about": {"@id": "https://mittsbuild.com/#software"}}]}</script>
   <link rel="icon" href="../favicon.ico?v=3" sizes="any">
   <link rel="icon" href="../logo.svg?v=3" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,7 +39,7 @@
       <img class="mark" src="../logo.svg?v=3" alt="" width="20" height="20">
       <span>mitts<span class="dim">/build</span></span>
     </a>
-    <nav class="nav" aria-label="Main navigation"><a href="../docs/">Docs</a><a href="../docs/#how-it-works">How it works</a><a href="../the-hundred/" aria-current="page">The Hundred</a><a href="https://github.com/alex09x/mitts">GitHub</a></nav>
+    <nav class="nav" aria-label="Main navigation"><a href="../docs/">Docs</a><a href="../worktrees/">Worktrees</a><a href="../docs/#how-it-works">How it works</a><a href="../the-hundred/" aria-current="page">The Hundred</a><a href="https://github.com/alex09x/mitts">GitHub</a></nav>
   </header>
 
 <main class="shell bench">
@@ -93,7 +101,7 @@
 
 <section id="limits"><h2>What these numbers do and do not say</h2>
 <ul>
-<li><b>One version.</b> All three machines ran 0.3.17. Mitts has changed since; each series stands on its own and numbers from different versions are not compared.</li>
+<li><b>One version.</b> All three machines ran 0.3.17. Mitts has changed since; each series stands on its own and numbers from different versions are not compared. In this version Mitts also kept the projects&rsquo; own crates in the shared store; since 0.5.8 that takes <code>MITTS_SHARE_WORKSPACE_CRATES=1</code>, so a default build of a later version compiles them again in each worktree.</li>
 <li><b>Reuse is the point.</b> The swarm and second-worktree scenarios measure what a shared store buys when the same code is built many times. They are not the cost of a single first build, which the cold-build rows show.</li>
 <li><b>Totals favour big projects.</b> A sum is dominated by the slowest projects. The per-project chart and the median-project rows show the spread.</li>
 <li><b>Three repeats.</b> Medians of three runs are stable for these workloads but not a confidence interval. The quartiles are in the data.</li>
@@ -101,7 +109,7 @@
 <li><b>No-op rebuild.</b> &ldquo;Build again, nothing changed&rdquo; is Mitts with its fast lock on, as a plain <code>mitts build</code> runs it. The harness passes an explicit <code>--cache-dir</code>, which turns the fast lock off; with it off the same step is still faster than Cargo, but only by four to five times (the figure is in the raw data as <code>noop_cache_dir_ms</code>).</li>
 <li><b>Memory.</b> Memory is the peak resident size of the heaviest compiler or linker process in a worktree, and its sum over the 12 worktrees. A detached <code>sccache</code> server is outside the measured processes.</li>
 <li><b>Disk figures.</b> Device bytes written are whole-device counters and compare tools within one run, not across machines.</li>
-<li><b>Not covered.</b> Windows, cross-compilation and a remote or team cache are not supported yet and not measured.</li>
+<li><b>Not covered.</b> Windows and cross-compilation (supported in later versions) and a remote or team cache (not supported yet) are not measured.</li>
 </ul></section>
 </main>
 <script src="../hundred.js"></script>
