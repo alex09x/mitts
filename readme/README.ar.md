@@ -473,6 +473,10 @@ impure-proc-macros = ["sqlx", "askama", "rust-embed"]
 </div>
 
 <a id="license"></a>
+## المساهمة
+
+نرحب بتقارير الأخطاء وطلبات الدمج. يشرح [CONTRIBUTING.md](../CONTRIBUTING.md) (بالإنجليزية) كيفية الإبلاغ عن خطأ، وكيفية بناء المستودع واختباره باستخدام Mitts، ومن أين تبدأ ([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)).
+
 ## الترخيص
 
 مرخص بترخيص مزدوج بموجب [MIT](../LICENSE-MIT) أو [Apache-2.0](../LICENSE-APACHE)، وفقاً لاختيارك.
