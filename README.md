@@ -549,6 +549,12 @@ latest version; the version DOI of 0.5.9 is
 }
 ```
 
+## Contributing
+
+Bug reports and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) says how to
+report a bug, build and test the checkout with Mitts, and where to start
+([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)).
+
 ## License
 
 Dual-licensed under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option.

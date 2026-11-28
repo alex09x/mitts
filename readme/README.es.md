@@ -436,6 +436,10 @@ Para citar Mitts, usa la versión archivada. El DOI de concepto [10.5281/zenodo.
 }
 ```
 
+## Cómo contribuir
+
+Los informes de errores y los pull requests son bienvenidos. [CONTRIBUTING.md](../CONTRIBUTING.md) (en inglés) explica cómo informar de un error, cómo compilar y probar el repositorio con Mitts y por dónde empezar ([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)).
+
 <a id="license"></a>
 ## Licencia
 

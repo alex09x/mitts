@@ -546,6 +546,10 @@ Para citar o Mitts, use a versão arquivada. O DOI de conceito [10.5281/zenodo.2
 }
 ```
 
+## Como contribuir
+
+Relatos de bugs e pull requests são bem-vindos. [CONTRIBUTING.md](../CONTRIBUTING.md) (em inglês) explica como relatar um bug, como compilar e testar o repositório com o Mitts e por onde começar ([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)).
+
 ## Licença
 
 Duplamente licenciado sob [MIT](../LICENSE-MIT) OU [Apache-2.0](../LICENSE-APACHE), à sua escolha.

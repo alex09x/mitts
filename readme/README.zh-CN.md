@@ -421,6 +421,10 @@ Mitts 使用与 Cargo 相同的默认输出路径。其共享工件存储保持�
 }
 ```
 
+## 参与贡献
+
+欢迎提交错误报告和拉取请求。[CONTRIBUTING.md](../CONTRIBUTING.md)（英文）介绍了如何报告错误、如何用 Mitts 构建和测试仓库，以及从哪里开始（[good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)）。
+
 ## 许可证
 
 基于 [MIT](../LICENSE-MIT) 或 [Apache-2.0](../LICENSE-APACHE) 双重许可，任您选择。
