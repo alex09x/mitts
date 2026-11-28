@@ -112,6 +112,33 @@ fn dev_build_of_a_workspace_crate_is_incremental_and_reuses_its_session_after_an
     );
 }
 
+/// A version bump must reuse the crate's session, not leave the old one behind: a project
+/// that bumps its version on every PR grew `mitts-incremental` by about 1 GB per version.
+#[test]
+fn a_version_bump_reuses_the_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("ws");
+    workspace(&root, "");
+    let incr = temp.path().join("target/debug/mitts-incremental");
+    build(&root, temp.path(), &[], &[]);
+    let first = sessions(&incr, "core_lib");
+    assert_eq!(first.len(), 1, "{first:?}");
+
+    for version in ["0.1.1", "0.2.0"] {
+        write(
+            &root,
+            "core/Cargo.toml",
+            &format!("[package]\nname='core_lib'\nversion='{version}'\nedition='2021'\n"),
+        );
+        build(&root, temp.path(), &[], &[]);
+        assert_eq!(
+            sessions(&incr, "core_lib"),
+            first,
+            "version {version} must reuse the session"
+        );
+    }
+}
+
 /// rustc drops a session whose tracked command line changed. The staging directory and a
 /// rerun build script's `OUT_DIR` both reach `--remap-path-prefix`, so both must keep the
 /// same path from one edit to the next. `-Zincremental-info` (via RUSTC_BOOTSTRAP) makes
