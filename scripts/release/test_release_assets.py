@@ -29,6 +29,7 @@ from assets import (
 
 TAG = "v0.4.0"
 SHA = "a" * 40
+ASSET_COUNT = 2 * len(TARGETS) + 1
 TEAM = "TEAM123456"
 JOB_ID = "12345678-1234-4321-8765-123456789abc"
 ASSETS_SCRIPT = Path(__file__).with_name("assets.py")
@@ -71,10 +72,13 @@ class ReleaseAssetTests(unittest.TestCase):
         (self.folder / (name + ".sha256")).write_text(f"{digest(archive)}  {name}\n")
         return archive
 
-    def test_complete_supported_set_has_nine_verified_assets(self):
+    def test_complete_supported_set_has_every_verified_asset(self):
         manifest = validate(self.folder, TAG, SHA)
-        self.assertEqual(len(manifest), 9)
-        self.assertEqual(len((self.folder / "SHA256SUMS").read_text().splitlines()), 4)
+        # An archive and its .sha256 per target, plus SHA256SUMS.
+        self.assertEqual(len(manifest), ASSET_COUNT)
+        self.assertEqual(
+            len((self.folder / "SHA256SUMS").read_text().splitlines()), len(TARGETS)
+        )
 
     def test_windows_archive_holds_mitts_exe(self):
         windows = "x86_64-pc-windows-msvc"
@@ -235,12 +239,12 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
         self.assertFalse((self.folder / "SHA256SUMS").exists())
         raw = self.run_cli()
         self.assertEqual(raw.returncode, 0, raw.stderr)
-        self.assertEqual(len(json.loads(raw.stdout)), 9)
+        self.assertEqual(len(json.loads(raw.stdout)), ASSET_COUNT)
 
     def test_complete_notarized_set_passes_validators_cli_and_cdhash_variants(self):
         with patch.dict(os.environ, {"APPLE_TEAM_ID": TEAM}):
             manifest = validate_notarized(self.folder, "0.4.0", SHA)
-            self.assertEqual(len(manifest), 9)
+            self.assertEqual(len(manifest), ASSET_COUNT)
             self.assertEqual(validate(self.folder, TAG, SHA), manifest)
             with io.StringIO() as buf, patch("sys.stdout", buf):
                 main(["--require-notarized", str(self.folder), TAG, SHA])
@@ -274,7 +278,7 @@ class NotarizedReleaseAssetTests(unittest.TestCase):
             )
             self.write_archive(target, extra_lines=lines)
         with patch.dict(os.environ, {"APPLE_TEAM_ID": TEAM}):
-            self.assertEqual(len(validate_notarized(self.folder, TAG, SHA)), 9)
+            self.assertEqual(len(validate_notarized(self.folder, TAG, SHA)), ASSET_COUNT)
 
     def test_missing_or_invalid_team_env_and_team_mismatch_are_rejected(self):
         with patch.dict(os.environ, {}, clear=False):
