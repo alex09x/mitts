@@ -37,14 +37,55 @@ fn upload_to(url: &str, metadata: &Value, archive: &[u8], token: &str) -> Result
     let agent = crate::adapter::rust::http_client::upload_agent_builder()
         .redirects(0)
         .build();
-    let response = agent
+    let response = match agent
         .put(url)
         .set("Authorization", token)
         .set("Content-Type", "application/octet-stream")
         .set("Accept", "application/json")
         .set("User-Agent", "mitts")
         .send_bytes(&body)
-        .map_err(|_| anyhow::anyhow!("registry upload failed"))?;
+    {
+        Ok(response) => response,
+        Err(ureq::Error::Status(code, response)) => {
+            let status = format!("{code} {}", response.status_text());
+            let retry_after = response.header("Retry-After").map(str::to_string);
+            let detail = read_limited(response)
+                .ok()
+                .map(|bytes| registry_detail(&bytes))
+                .unwrap_or_default();
+            let mut message = format!("the registry responded with an error (status {status})");
+            if !detail.is_empty() {
+                message.push_str(": ");
+                message.push_str(&detail);
+            }
+            if let Some(after) = retry_after {
+                message.push_str(&format!(" (Retry-After: {after})"));
+            }
+            bail!("{}", redact(&message, token));
+        }
+        Err(ureq::Error::Transport(error)) => {
+            bail!(
+                "{}",
+                redact(&format!("registry upload failed: {error}"), token)
+            )
+        }
+    };
+    let bytes = read_limited(response)?;
+    let result: Value = serde_json::from_slice(&bytes).context("invalid registry response")?;
+    if !result.is_object() || result.get("errors").is_some_and(|v| !v.is_null()) {
+        let detail = registry_detail(&bytes);
+        if detail.is_empty() {
+            bail!("registry rejected the package");
+        }
+        bail!(
+            "{}",
+            redact(&format!("registry rejected the package: {detail}"), token)
+        );
+    }
+    Ok(())
+}
+
+fn read_limited(response: ureq::Response) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     response
         .into_reader()
@@ -53,11 +94,40 @@ fn upload_to(url: &str, metadata: &Value, archive: &[u8], token: &str) -> Result
     if bytes.len() > 1024 * 1024 {
         bail!("registry response is too large");
     }
-    let result: Value = serde_json::from_slice(&bytes).context("invalid registry response")?;
-    if !result.is_object() || result.get("errors").is_some_and(|v| !v.is_null()) {
-        bail!("registry rejected the package");
+    Ok(bytes)
+}
+
+/// What the registry said, as `cargo publish` shows it: the `detail` of each entry of
+/// `{"errors":[{"detail":...}]}`, or the start of a body that is not that JSON.
+fn registry_detail(bytes: &[u8]) -> String {
+    if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
+        let details: Vec<&str> = value
+            .get("errors")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.get("detail").and_then(Value::as_str))
+            .collect();
+        if !details.is_empty() {
+            return details.join("; ");
+        }
     }
-    Ok(())
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.trim();
+    let mut short: String = text.chars().take(500).collect();
+    if short.len() < text.len() {
+        short.push('…');
+    }
+    short
+}
+
+/// The token never reaches an error message, even if a registry echoes it.
+fn redact(message: &str, token: &str) -> String {
+    let token = token.trim();
+    if token.is_empty() {
+        return message.to_string();
+    }
+    message.replace(token, "<token>")
 }
 
 #[cfg(test)]
@@ -195,23 +265,20 @@ mod tests {
         assert_eq!(&body[8 + json_len..], b"crate");
     }
 
-    #[test]
-    fn registry_error_in_success_response_is_rejected_without_echoing_details() {
+    /// Answers one upload with `status_line`, `extra_headers` and `body`; returns the error.
+    fn upload_error(status_line: &str, extra_headers: &str, body: &str) -> String {
         let _proxy_env = LoopbackProxyEnv::new();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        let response = format!(
+            "HTTP/1.1 {status_line}\r\n{extra_headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let (headers, _) = read_request(&stream);
             assert!(!headers.is_empty());
-            let body = r#"{"errors":[{"detail":"private registry detail"}]}"#;
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            )
-            .unwrap();
+            stream.write_all(response.as_bytes()).unwrap();
         });
         let error = upload_to(
             &format!("http://{address}/"),
@@ -221,12 +288,42 @@ mod tests {
         )
         .unwrap_err();
         server.join().unwrap();
-        assert!(
-            error.to_string().contains("registry rejected"),
-            "unexpected sanitized registry error: {error:#}"
+        error.to_string()
+    }
+
+    #[test]
+    fn registry_error_in_success_response_names_the_detail() {
+        let error = upload_error(
+            "200 OK",
+            "",
+            r#"{"errors":[{"detail":"crate name is reserved"}]}"#,
         );
-        assert!(!error.to_string().contains("private registry detail"));
-        assert!(!error.to_string().contains("test-token"));
+        assert_eq!(
+            error,
+            "registry rejected the package: crate name is reserved"
+        );
+    }
+
+    /// As `cargo publish`: the status, the registry's `detail` and `Retry-After`, so a rate
+    /// limit can be told from an expired token. The token never shows, even if echoed.
+    #[test]
+    fn a_refused_upload_names_the_status_detail_and_retry_after() {
+        let error = upload_error(
+            "429 Too Many Requests",
+            "Retry-After: 3600\r\n",
+            r#"{"errors":[{"detail":"You have published too many versions (test-token)"}]}"#,
+        );
+        assert_eq!(
+            error,
+            "the registry responded with an error (status 429 Too Many Requests): \
+             You have published too many versions (<token>) (Retry-After: 3600)"
+        );
+
+        let error = upload_error("403 Forbidden", "", "not json");
+        assert_eq!(
+            error,
+            "the registry responded with an error (status 403 Forbidden): not json"
+        );
     }
 
     #[test]
