@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 pub(crate) mod crate_types;
 pub(crate) mod diagnostics;
 pub(crate) mod incremental;
+pub(crate) mod linker;
 use std::process::Command;
 
 /// Prepares and configures the `Command` for a `RustcInvocation`.
@@ -388,7 +389,17 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
     if let Some(ref split) = profile_split {
         cmd.args(["-C", &format!("split-debuginfo={split}")]);
     }
-    cmd.args(&target_rustflags);
+    // The linker goes before RUSTFLAGS, as Cargo's `-C linker` does, so a `-C linker` in
+    // RUSTFLAGS wins over `target.<triple>.linker`.
+    let passed_rustflags = linker::apply(
+        &mut cmd,
+        inv,
+        &config_start_dir,
+        explicit_target.as_deref(),
+        &target_rustflags,
+        is_check_only,
+    )?;
+    cmd.args(&passed_rustflags);
     let forwarded_args = diagnostics::forwarded_extra_args(
         inv,
         inv.unit.for_host || is_host_kind,
@@ -438,46 +449,6 @@ pub fn build_compiler_command(inv: &RustcInvocation) -> Result<(Command, String,
             inv.unit.kind.as_str(),
             "proc-macro" | "custom-build" | "build-script"
         );
-    if !inv
-        .extra_compiler_args
-        .iter()
-        .any(|arg| arg.starts_with("-Clinker="))
-        && !inv
-            .extra_compiler_args
-            .windows(2)
-            .any(|args| args[0] == "-C" && (args[1] == "linker" || args[1].starts_with("linker=")))
-    {
-        // Like Cargo, proc macros and other host units link with `target.<host>.linker`
-        // (or CARGO_TARGET_<HOST>_LINKER): without `--target` they also get RUSTFLAGS, and a
-        // flag such as `-Clink-arg=--ld-path=wild` needs the driver the user configured.
-        let configured = super::cargo_config_linker::load_cargo_config_linker(
-            &config_start_dir,
-            if is_host {
-                None
-            } else {
-                explicit_target.as_deref()
-            },
-        )?;
-        // The wrapper only stands in for the host's own `cc`-flavored linking: never for a
-        // cross target (its default linker or flavor may not be `cc`), never when
-        // RUSTFLAGS name a linker or a linker flavor, and only for units that link.
-        let rustflags_pick_linker = target_rustflags.iter().any(|flag| {
-            let flag = flag.trim_start_matches("-C").trim_start();
-            flag.starts_with("linker=") || flag.starts_with("linker-flavor=")
-        });
-        let host_target = explicit_target
-            .as_deref()
-            .is_none_or(|t| t == super::compiler_resolve::resolve_host_triple());
-        let wrapped = !rustflags_pick_linker
-            && !is_host
-            && host_target
-            && !is_check_only
-            && super::pipelining::is_linking_kind(&inv.unit.kind)
-            && super::link_timing::wrap(&mut cmd, configured.as_deref());
-        if let Some(linker) = configured.filter(|_| !wrapped) {
-            cmd.args(["-C", &format!("linker={linker}")]);
-        }
-    }
     let has_cli_t = inv
         .extra_compiler_args
         .iter()

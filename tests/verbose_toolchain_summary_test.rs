@@ -203,8 +203,10 @@ fn timings_mark_restored_units_and_link_times() {
     assert!(unit("helper helper (lib)")["link"].is_null(), "{json}");
 }
 
+/// A `cc`-style driver chosen in RUSTFLAGS is measured and named like a configured one
+/// (issue #143); Windows has no wrapper, and MSVC's link.exe is not such a driver.
 #[test]
-fn a_linker_chosen_in_rustflags_is_not_wrapped() {
+fn a_cc_linker_chosen_in_rustflags_is_measured() {
     let temp = project();
     let root = temp.path();
     // A linker of this host: MSVC's link.exe (MinGW's cc cannot link MSVC objects).
@@ -214,8 +216,13 @@ fn a_linker_chosen_in_rustflags_is_not_wrapped() {
         "-Clinker=cc"
     };
     let (stdout, _) = ok(mitts_with(root, &["build", "-v"], &[("RUSTFLAGS", flags)]));
-    assert!(!stdout.contains("linker: "), "{stdout}");
-    assert!(!stdout.contains(", link "), "{stdout}");
+    if cfg!(windows) {
+        assert!(!stdout.contains("linker: "), "{stdout}");
+        assert!(!stdout.contains(", link "), "{stdout}");
+    } else {
+        assert!(stdout.contains("linker: cc"), "{stdout}");
+        assert!(stdout.contains(", link "), "{stdout}");
+    }
 }
 
 /// `check` and `clippy` link nothing, so `-v` must not put the timing wrapper on their
