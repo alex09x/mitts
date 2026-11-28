@@ -16,9 +16,11 @@
 //!
 //! Only C-compiler linker drivers (`cc`, `gcc`, `clang`, `*-gcc`, ...) are wrapped,
 //! because rustc picks the linker flavor from the linker's file name and a driver name
-//! resolves to the same flavor as the target default; a unit whose linker is set by
-//! `RUSTFLAGS` or arguments after `--`, or whose linker is `lld`, `ld`, `wild` or
-//! anything else, links exactly as before and reports no link time. The wrapper never
+//! resolves to the same flavor as the target default. The driver is the one `RUSTFLAGS`
+//! name, else `target.<triple>.linker`, else `cc` (see `compiler_args::linker`). A unit
+//! whose linker is set by arguments after `--`, that sets a linker flavor, or whose
+//! linker is `lld`, `ld`, `wild` or anything else, links exactly as before and reports
+//! no link time. The wrapper never
 //! enters an action key: it changes who starts the linker, not what it links.
 
 use std::ffi::OsString;
