@@ -1,0 +1,52 @@
+# Mitts demo, 2026-11-27 22:40 UTC
+# mitts 0.5.9 (ff04c5b5ff065be15d4fcddaca2ddb5614229e13) | rustc 1.99.1 (58cf8f9c3 2026-10-13)
+# Apple M2 Ultra, 24 cores, 128 GB, macOS 15.7.8, APFS
+# project: ripgrep 14.1.1 (4649aa9), dev profile; empty Mitts cache; sources fetched first
+# scheduler priority 31 (normal terminal); other programs on the machine were not stopped
+$ mitts fetch
+⚡ Mitts Build fetch ──────────────────────────────────────────
+┌─ 🔍 Resolving dependencies for /private/tmp/mitts-demo/rg-a/Cargo.toml
+├─ 📦 Synchronizing packages with registry
+│  ├─ [cached] 0 packages already present in registry
+│  └─ [download] 51 packages downloaded & verified (parallel)
+└─ ✨ sources profile completed in 1250ms (registry: /tmp/mitts-demo/cache/sources)
+  wall 1.261 s
+## 1. first build, empty cache
+$ mitts build
+⚡ Mitts Build build [dev] ──────────────────────────────────────────
+[mitts::stats] compiled=33 cached=0 tainted=0 total=33 fast_lock=0
+┌─ 🔨 Compiled target [dev]
+│  ├─ [compile] 33 units: 33 compiled
+│  └─ [compile] Compiled ripgrep@14.1.1::bin:rg
+│  toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13) · stable-aarch64-apple-darwin
+│  linker: cc (Apple clang version 17.0.0 (clang-1700.6.4.2))
+│  time: fast lock 0.00s · resolve and plan 0.05s · keys 0.03s · build 6.40s · rustc 14.33s over 33 units (compile 14.17s, link 0.17s in 1)
+└─ ✨ dev profile completed in 6.51s (33 compiled)
+  wall 6.543 s
+## 2. same build again, nothing changed
+$ mitts build
+⚡ Mitts Build build [dev] ──────────────────────────────────────────
+┌─ 🔨 Compiled target [dev]
+│  ├─ [AC HIT] Fast build lock verified: 0 project changes detected
+│  └─ [cached] Existing bin /private/tmp/mitts-demo/rg-a/target/debug/rg
+│  toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13) · stable-aarch64-apple-darwin
+└─ ✨ dev profile completed in 0.01s (Up-to-date (no-op))
+  wall 0.016 s
+## 3. a second worktree of the same commit, empty target/
+$ cd ../rg-b   # git worktree add ../rg-b
+$ mitts build
+⚡ Mitts Build build [dev] ──────────────────────────────────────────
+[mitts::stats] compiled=9 cached=24 tainted=0 total=33 fast_lock=0
+┌─ 🔨 Compiled target [dev]
+│  ├─ [compile] 33 units: 9 compiled, 24 from the cache
+│  └─ [compile] Compiled ripgrep@14.1.1::bin:rg
+│  toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13) · stable-aarch64-apple-darwin
+│  linker: cc (Apple clang version 17.0.0 (clang-1700.6.4.2))
+│  time: fast lock 0.00s · resolve and plan 0.03s · keys 0.01s · build 5.44s · rustc 6.39s over 9 units (compile 6.13s, link 0.26s in 1) · cache restore 0.09s over 24 units
+└─ ✨ dev profile completed in 5.49s (9 compiled, 24 from the cache)
+  wall 5.517 s
+$ du -sh $MITTS_CACHE_DIR ../rg-a/target ../rg-b/target
+204M	/tmp/mitts-demo/cache
+267M	../rg-a/target
+268M	../rg-b/target
+# done
