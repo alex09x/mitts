@@ -98,7 +98,7 @@ fn acquire_stable_staging(
     let mut identity = format!(
         "{}\n{}\n{}\nrelease={release}",
         target_dir.display(),
-        unit.unit_id(),
+        session_unit(unit),
         unit.src_path.display()
     );
     // A bitcode-only build of the unit is a different output; it must not share the
@@ -164,8 +164,60 @@ pub(crate) fn session_root(
         return None;
     }
     let profile_dir = &crate::adapter::rust::profile::profile_dir(inv.release);
-    inv.target_dir
-        .map(|t| t.join(profile_dir).join(SESSIONS_DIR))
+    let root = inv.target_dir?.join(profile_dir).join(SESSIONS_DIR);
+    prune_once(&root);
+    Some(root)
+}
+
+/// The unit as its incremental session knows it: package name and manifest, target kind
+/// and name, host or not. The package version is left out on purpose. A workspace has
+/// one version of each member, and rustc tracks `CARGO_PKG_VERSION` like any other
+/// `env!`, so a version bump reuses the session instead of opening a new one under
+/// `mitts-incremental` and leaving the old one behind for good.
+fn session_unit(unit: &PlannedCompilationUnit) -> String {
+    format!(
+        "{}\n{}\n{}:{}{}",
+        unit.package_name,
+        unit.manifest_path.display(),
+        unit.kind,
+        unit.target_name,
+        if unit.for_host { ":host" } else { "" }
+    )
+}
+
+/// How long a session directory may stay untouched before a build removes it.
+const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
+static PRUNED: Mutex<std::collections::BTreeSet<PathBuf>> =
+    Mutex::new(std::collections::BTreeSet::new());
+
+/// Removes, once per process and directory, the crate session directories nobody compiled
+/// into for [`STALE_AFTER`]: a feature set, a target or a crate identity no longer built
+/// (sessions of earlier Mitts versions included). rustc rewrites a directory on every
+/// compile into it; one only restored from the cache for a week loses its session and
+/// compiles in full once on its next edit.
+fn prune_once(root: &Path) {
+    if PRUNED.lock().unwrap().insert(root.to_path_buf()) {
+        prune_stale(root, std::time::SystemTime::now());
+    }
+}
+
+fn prune_stale(root: &Path, now: std::time::SystemTime) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .ok()
+            .filter(|m| m.is_dir())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > STALE_AFTER);
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 /// A `-C metadata` value that stays the same across source edits of one unit, so rustc
@@ -203,9 +255,9 @@ pub(crate) fn stable_metadata_key(
         );
     let explicit_target = explicit_target.filter(|_| !is_host);
     let mut identity = format!(
-        "mitts-incremental-v2\n{}\n{}\n{features:?}\n{effective_mode:?}\nrelease={}\n\
+        "mitts-incremental-v3\n{}\n{}\n{features:?}\n{effective_mode:?}\nrelease={}\n\
          {profile:?}\n{forwarded_args:?}\n{target_rustflags:?}\n{explicit_target:?}\n{toolchain}",
-        inv.unit.unit_id(),
+        session_unit(inv.unit),
         src_rel.display(),
         inv.release,
     );
@@ -216,4 +268,42 @@ pub(crate) fn stable_metadata_key(
         identity.push_str("\nlto-bitcode-only");
     }
     Sha256::digest(identity.as_bytes())[..16].to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_session_directories_untouched_for_a_week_are_pruned() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = temp.path().join("vb-0jp4m9j6la1j3");
+        std::fs::create_dir_all(session.join("s-1-working")).unwrap();
+        std::fs::write(temp.path().join("not-a-session"), "").unwrap();
+        let day = std::time::Duration::from_secs(24 * 60 * 60);
+
+        prune_stale(temp.path(), std::time::SystemTime::now() + 6 * day);
+        assert!(session.exists(), "six days old: kept");
+
+        prune_stale(temp.path(), std::time::SystemTime::now() + 8 * day);
+        assert!(!session.exists(), "eight days old: removed");
+        assert!(
+            temp.path().join("not-a-session").exists(),
+            "files are left alone"
+        );
+    }
+
+    #[test]
+    fn the_session_identity_does_not_change_with_the_package_version() {
+        let unit = |version: &str| PlannedCompilationUnit {
+            package_id: format!("vb {version} (path+file:///ws)"),
+            package_name: "vb".into(),
+            version: version.into(),
+            target_name: "vb".into(),
+            kind: "lib".into(),
+            manifest_path: "/ws/Cargo.toml".into(),
+            ..Default::default()
+        };
+        assert_eq!(session_unit(&unit("2.9.0")), session_unit(&unit("2.9.1")));
+    }
 }
