@@ -548,6 +548,10 @@ Mitts использует те же стандартные пути вывод�
 }
 ```
 
+## Участие в разработке
+
+Сообщения об ошибках и pull request'ы приветствуются. В [CONTRIBUTING.md](../CONTRIBUTING.md) (на английском) описано, как сообщить об ошибке, как собрать и протестировать проект с помощью Mitts и с чего начать ([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)).
+
 ## Лицензия
 
 Двойная лицензия под [MIT](../LICENSE-MIT) ИЛИ [Apache-2.0](../LICENSE-APACHE), по вашему выбору.

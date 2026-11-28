@@ -547,6 +547,10 @@ Zum Zitieren von Mitts verwenden Sie die archivierte Version. Der Konzept-DOI [1
 }
 ```
 
+## Mitwirken
+
+Fehlerberichte und Pull Requests sind willkommen. [CONTRIBUTING.md](../CONTRIBUTING.md) (auf Englisch) beschreibt, wie man einen Fehler meldet, das Repository mit Mitts baut und testet und wo man anfängt ([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)).
+
 ## Lizenz
 
 Doppelt lizenziert unter [MIT](../LICENSE-MIT) ODER [Apache-2.0](../LICENSE-APACHE), nach Ihrer Wahl.
