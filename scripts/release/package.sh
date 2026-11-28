@@ -15,6 +15,7 @@ output=$(cd "$4" && pwd -P)
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 case "$target" in
     x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin|x86_64-pc-windows-msvc) ;;
+    riscv64gc-unknown-linux-gnu) ;;
     *) echo 'Unsupported release target' >&2; exit 1 ;;
 esac
 exe=mitts
@@ -41,19 +42,33 @@ export MACOSX_DEPLOYMENT_TARGET=11.0
 builder=${MITTS_CI_BIN:-mitts}
 cache=${MITTS_CI_CACHE_DIR:-$source_root/target/mitts-release-cache}
 host=$(rustc -vV | sed -n 's/^host: //p')
-[[ "$host" == "$target" ]]
+# Every target builds on its own platform, except riscv64 (no hosted runners): it is
+# cross-built on x86_64 Linux with the GNU cross toolchain and run under qemu-user.
+target_args=()
+built=target/release/$exe
+run=()
+if [[ "$target" == riscv64gc-unknown-linux-gnu ]]; then
+    [[ "$host" == x86_64-unknown-linux-gnu ]]
+    export CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc
+    export CC_riscv64gc_unknown_linux_gnu=riscv64-linux-gnu-gcc
+    target_args=(--target "$target")
+    built=target/$target/release/$exe
+    run=(qemu-riscv64 -L /usr/riscv64-linux-gnu)
+else
+    [[ "$host" == "$target" ]]
+fi
 lock_digest() {
     if command -v sha256sum >/dev/null; then sha256sum Cargo.lock; else shasum -a 256 Cargo.lock; fi
 }
 lock_before=$(lock_digest)
 "$builder" --version
 "$builder" build --release --native --bin mitts --manifest-path "$source_root/Cargo.toml" \
-    --cache-dir "$cache" --target-dir "$source_root/target"
+    --cache-dir "$cache" --target-dir "$source_root/target" ${target_args[@]+"${target_args[@]}"}
 [[ "$(lock_digest)" == "$lock_before" ]]
 # Mitts outputs may share immutable CAS inodes. Sign only an owned private copy.
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-cp "target/release/$exe" "$stage/$exe"
+cp "$built" "$stage/$exe"
 chmod u+w "$stage/$exe"
 binary="$stage/$exe"
 if [[ "$target" == *-windows-* ]]; then
@@ -68,7 +83,7 @@ elif [[ "$target" == *apple-darwin ]]; then
 else
     bash "$source_root/scripts/release/check-glibc.sh" "$binary"
 fi
-version=$("$binary" --version)
+version=$(${run[@]+"${run[@]}"} "$binary" --version)
 [[ "$version" == "mitts $package_version ($commit)" ]]
 # Reject either checkout/home spelling, including canonical aliases on macOS.
 for needle in "$source_root" "$HOME" "$(cd "$HOME" && pwd -P)" \
@@ -93,7 +108,7 @@ cp LICENSE-MIT LICENSE-APACHE "$stage/"
         codesign --verify "$binary"
     fi
 } > "$stage/BUILD.txt"
-"$binary" --help > /dev/null
+${run[@]+"${run[@]}"} "$binary" --help > /dev/null
 archive=mitts-$tag-$target.tar.gz
 tar -czf "$output/$archive" -C "$stage" "$exe" LICENSE-MIT LICENSE-APACHE BUILD.txt
 cd "$output"

@@ -124,6 +124,7 @@ class InstallerTests(unittest.TestCase):
         for system, architecture, target in [
             ("Linux", "x86_64", "x86_64-unknown-linux-gnu"),
             ("Linux", "aarch64", "aarch64-unknown-linux-gnu"),
+            ("Linux", "riscv64", "riscv64gc-unknown-linux-gnu"),
             ("Darwin", "arm64", "aarch64-apple-darwin"),
         ]:
             with self.subTest(target=target):
@@ -211,7 +212,7 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("install mitts --locked", self.cargo_calls())
 
     def test_unsupported_architecture_builds_from_source_when_cargo_works(self):
-        self.platform("Linux", "riscv64")
+        self.platform("Linux", "s390x")
         self.env["CARGO_OK"] = "1"
         self.run_installer()
 
@@ -267,7 +268,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(old.read_text(), "existing binary")
 
     def test_unsupported_architecture(self):
-        self.platform("Linux", "riscv64")
+        self.platform("Linux", "s390x")
         self.run_installer(False)
 
     def test_script_is_shell_and_headers_are_text(self):
@@ -278,11 +279,21 @@ class InstallerTests(unittest.TestCase):
 
 
 def native_smoke(archive, tag):
-    """Use the exact packaged archive through the installer on its native runner."""
+    """Use the exact packaged archive through the installer on its native runner.
+
+    A RISC-V 64 archive is cross-built on x86_64 and runs there under qemu-user (binfmt),
+    so the installer is told it runs on riscv64 instead of asking the real `uname`.
+    """
     case = InstallerTests("test_missing_asset")
     case.setUp()
     try:
-        (case.bin / "uname").unlink()
+        cross = archive.name.endswith("-riscv64gc-unknown-linux-gnu.tar.gz") and (
+            os.uname().machine != "riscv64"
+        )
+        if cross:
+            case.platform("Linux", "riscv64")
+        else:
+            (case.bin / "uname").unlink()
         archive = archive.resolve()
         shutil.copyfile(archive, case.fixtures / archive.name)
         case.checksum(case.fixtures / archive.name)

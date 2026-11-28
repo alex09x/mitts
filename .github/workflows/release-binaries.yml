@@ -129,6 +129,59 @@ jobs:
           name: release-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
+  # RISC-V 64 has no hosted runners: the latest stable Mitts cross-builds it on x86_64 with
+  # the GNU cross toolchain, and qemu-user runs the result for every check that executes it.
+  package-riscv64:
+    needs: source
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      QEMU_LD_PREFIX: /usr/riscv64-linux-gnu
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          path: release-source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.98.0
+          targets: riscv64gc-unknown-linux-gnu
+      - name: RISC-V cross toolchain and qemu-user
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-riscv64-linux-gnu libc6-dev-riscv64-cross qemu-user qemu-user-binfmt
+      - name: Install latest stable Mitts builder
+        env:
+          MITTS_INSTALL_ROOT: ${{ runner.temp }}/mitts-bootstrap
+        run: |
+          sh site/install.sh
+          binary="$MITTS_INSTALL_ROOT/bin/mitts"
+          "$binary" --version
+          printf 'MITTS_CI_BIN=%s\nMITTS_CI_CACHE_DIR=%s\n' "$binary" "$RUNNER_TEMP/mitts-release-cache" >> "$GITHUB_ENV"
+      - name: Point only the disposable runner tag at the tested candidate; never push it
+        if: inputs.verify-only
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        working-directory: release-source
+        run: git tag --force "$RELEASE_TAG" HEAD
+      - name: Package exact-tag binary and prove path hygiene
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        run: bash scripts/release/package.sh release-source "$RELEASE_TAG" riscv64gc-unknown-linux-gnu dist
+      - name: Install the packaged binary into an isolated prefix (under qemu-user)
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        run: python3 scripts/release/test_installer.py --archive "dist/mitts-$RELEASE_TAG-riscv64gc-unknown-linux-gnu.tar.gz" "$RELEASE_TAG"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-riscv64gc-unknown-linux-gnu
+          path: dist/*
+          if-no-files-found: error
   # Windows: the exact-source Linux Mitts cross-builds a bootstrap mitts.exe (MinGW), which
   # builds the release binary natively for MSVC, the same chain as CI; Cargo is never used.
   windows-bootstrap:
