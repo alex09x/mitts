@@ -547,6 +547,10 @@ Pour citer Mitts, utilisez la version archivée. Le DOI de concept [10.5281/zeno
 }
 ```
 
+## Contribuer
+
+Les rapports de bogues et les pull requests sont les bienvenus. [CONTRIBUTING.md](../CONTRIBUTING.md) (en anglais) explique comment signaler un bogue, compiler et tester le dépôt avec Mitts, et par où commencer ([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)).
+
 ## Licence
 
 Sous double licence [MIT](../LICENSE-MIT) OU [Apache-2.0](../LICENSE-APACHE), selon votre choix.

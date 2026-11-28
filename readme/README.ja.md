@@ -426,6 +426,10 @@ Mitts を引用するには、アーカイブされたリリースを使用し�
 }
 ```
 
+## コントリビュート
+
+バグ報告とプルリクエストを歓迎します。[CONTRIBUTING.md](../CONTRIBUTING.md)（英語）に、バグの報告方法、Mitts でのビルドとテストの方法、最初に取り組むとよい課題（[good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue)）をまとめています。
+
 ## ライセンス
 
 利用者の選択に応じて、[MIT](../LICENSE-MIT) または [Apache-2.0](../LICENSE-APACHE) のデュアルライセンスです。

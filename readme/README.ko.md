@@ -423,6 +423,10 @@ Mitts를 인용하려면 보관된(archived) 릴리스를 사용하세요. 개�
 }
 ```
 
+## 기여하기
+
+버그 보고와 풀 리퀘스트를 환영합니다. [CONTRIBUTING.md](../CONTRIBUTING.md)(영어)에 버그를 보고하는 방법, Mitts로 저장소를 빌드하고 테스트하는 방법, 시작하기 좋은 이슈([good first issues](https://github.com/alex09x/mitts/labels/good%20first%20issue))가 정리되어 있습니다.
+
 ## 라이선스
 
 선택에 따라 [MIT](../LICENSE-MIT) 또는 [Apache-2.0](../LICENSE-APACHE)의 이중 라이선스가 적용됩니다.
