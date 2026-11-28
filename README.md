@@ -138,6 +138,10 @@ Install the latest signed native release:
 curl -fsSL https://mittsbuild.com/install.sh | sh
 ```
 
+Prebuilt for Linux on x86-64, ARM64 and RISC-V 64 (from 0.5.10) and macOS on Apple
+Silicon; elsewhere the installer builds the same version from crates.io if Cargo is
+installed.
+
 On Windows (x86-64, PowerShell; from 0.5.0):
 
 ```powershell
