@@ -56,7 +56,8 @@ esac
 case "$(uname -m)" in
     arm64|aarch64) architecture=aarch64 ;;
     x86_64|amd64) architecture=x86_64 ;;
-    *) source_install 'No prebuilt binary for this architecture (prebuilt: x86_64 and ARM64).' ;;
+    riscv64) architecture=riscv64gc ;;
+    *) source_install 'No prebuilt binary for this architecture (prebuilt: x86_64, ARM64 and, on Linux, RISC-V 64).' ;;
 esac
 target=$architecture-$system
 if [ "$target" = x86_64-apple-darwin ]; then
