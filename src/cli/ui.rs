@@ -28,17 +28,23 @@ impl Ui {
     pub const RED: &'static str = "\x1b[31m";
     pub const BOLD_RED: &'static str = "\x1b[1;31m";
 
-    /// Prints the main Mitts header banner.
+    /// Prints the main Mitts header banner, with the running Mitts version so a pasted
+    /// build log says which release produced it (#143).
     pub fn header(title: &str) {
-        println!(
-            "{}{}⚡ Mitts Build{} {}{}{} ──────────────────────────────────────────",
+        println!("{}", Self::header_line(title));
+    }
+
+    fn header_line(title: &str) -> String {
+        format!(
+            "{}{}⚡ Mitts Build{} {}{} · mitts {}{} ──────────────────────────────────────────",
             Self::BOLD_CYAN,
             Self::BOLD,
             Self::RESET,
             Self::DIM,
             title,
+            env!("CARGO_PKG_VERSION"),
             Self::RESET
-        );
+        )
     }
 
     /// Prints a top-level stage header: `┌─ 🔍 Stage title`
@@ -258,6 +264,14 @@ mod tests {
         assert_eq!(Ui::format_bytes(500), "500 B");
         assert_eq!(Ui::format_bytes(1024), "1.0 KB");
         assert_eq!(Ui::format_bytes(1024 * 1024), "1.00 MB");
+    }
+
+    #[test]
+    fn the_header_names_the_mitts_version() {
+        let line = Ui::header_line("build [release]");
+        let version = format!("build [release] · mitts {}", env!("CARGO_PKG_VERSION"));
+        assert!(line.contains(&version), "{line}");
+        assert!(line.contains("⚡ Mitts Build"), "{line}");
     }
 
     #[test]
